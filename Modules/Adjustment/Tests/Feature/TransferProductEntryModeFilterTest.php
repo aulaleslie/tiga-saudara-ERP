@@ -154,7 +154,7 @@ class TransferProductEntryModeFilterTest extends TestCase
     public function duplicate_product_scan_increments_existing_row_instead_of_duplicating()
     {
         $table = Livewire::actingAs($this->user)
-            ->test(TransferProductTable::class, ['originLocationId' => $this->origin->id])
+            ->test(TransferProductTable::class, ['originLocationId' => $this->origin->id, 'stockCondition' => Transfer::CONDITION_GOOD])
             ->call('productSelected', array_merge($this->goodOnlyProduct->toArray(), ['is_broken_mode' => false]))
             ->call('productSelected', array_merge($this->goodOnlyProduct->toArray(), ['is_broken_mode' => false]));
 
@@ -177,13 +177,14 @@ class TransferProductEntryModeFilterTest extends TestCase
             'is_in_return_process' => 0,
         ]);
 
-        $product = $this->goodOnlyProduct->toArray();
-        $product['serial_number_required'] = true;
-        $product['is_broken_mode'] = false;
+        $this->goodOnlyProduct->update(['serial_number_required' => true]);
 
         $table = Livewire::actingAs($this->user)
-            ->test(TransferProductTable::class, ['originLocationId' => $this->origin->id])
-            ->call('productSelected', $product);
+            ->test(TransferProductTable::class, ['originLocationId' => $this->origin->id, 'stockCondition' => Transfer::CONDITION_GOOD])
+            ->call('productSelected', [
+                'id' => $this->goodOnlyProduct->id,
+                'is_broken_mode' => false,
+            ]);
 
         $rowKey = 0;
 
@@ -197,18 +198,12 @@ class TransferProductEntryModeFilterTest extends TestCase
             ],
         ]);
 
-        // The scan resolver / draft service are the authoritative rejection
-        // point; here we assert the table itself does not silently accept a
-        // mismatched serial into a row whose declared mode disagrees.
+        // TransferProductTable authoritatively reloads and rejects condition-mismatched serials
         $products = $table->get('products');
         $serials = collect($products[$rowKey]['serial_numbers'] ?? []);
 
-        // TransferProductTable does not itself cross-check serial condition
-        // against row mode (that is TransferDraftService's authoritative job,
-        // covered by TransferDraftDestinationOptionalTest's row-condition
-        // rejection), but it must still record what was scanned without
-        // silently duplicating or corrupting state.
-        $this->assertCount(1, $serials);
+        $this->assertCount(0, $serials);
+        $this->assertNotNull($table->get('serialNumberErrors')[$rowKey] ?? null);
     }
 
     /** @test */
@@ -225,13 +220,14 @@ class TransferProductEntryModeFilterTest extends TestCase
             'is_in_return_process' => 0,
         ]);
 
-        $product = $this->goodOnlyProduct->toArray();
-        $product['serial_number_required'] = true;
-        $product['is_broken_mode'] = false;
+        $this->goodOnlyProduct->update(['serial_number_required' => true]);
 
         $table = Livewire::actingAs($this->user)
-            ->test(TransferProductTable::class, ['originLocationId' => $this->origin->id])
-            ->call('productSelected', $product);
+            ->test(TransferProductTable::class, ['originLocationId' => $this->origin->id, 'stockCondition' => Transfer::CONDITION_GOOD])
+            ->call('productSelected', [
+                'id' => $this->goodOnlyProduct->id,
+                'is_broken_mode' => false,
+            ]);
 
         $payload = [
             'productCompositeKey' => 0,
@@ -249,5 +245,247 @@ class TransferProductEntryModeFilterTest extends TestCase
         $products = $table->get('products');
         $this->assertCount(1, $products[0]['serial_numbers']);
         $this->assertEquals('Nomor seri sudah dipilih.', $table->get('serialNumberErrors')[0]);
+    }
+
+    /** @test */
+    public function tokenized_search_matches_category_brand_barcode_and_code()
+    {
+        $brand = \Modules\Product\Entities\Brand::create([
+            'setting_id' => $this->setting->id,
+            'name' => 'AcmeBrand',
+            'created_by' => $this->user->id,
+        ]);
+
+        $category = Category::create([
+            'setting_id' => $this->setting->id,
+            'category_code' => 'ELECTRONICS',
+            'category_name' => 'Gadgets',
+            'created_by' => $this->user->id,
+        ]);
+
+        $product = Product::create([
+            'setting_id' => $this->setting->id,
+            'category_id' => $category->id,
+            'brand_id' => $brand->id,
+            'product_name' => 'Super Widget Pro',
+            'product_code' => 'WIDGET-XYZ',
+            'barcode' => 'BC-WIDGET-999',
+            'product_cost' => 1000,
+            'product_price' => 2000,
+            'serial_number_required' => false,
+            'stock_managed' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $this->origin->id,
+            'quantity' => 10,
+            'quantity_tax' => 5,
+            'quantity_non_tax' => 5,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        // Search by category token
+        Livewire::actingAs($this->user)
+            ->test(SearchProduct::class, [
+                'locationId' => $this->origin->id,
+                'stockCondition' => Transfer::CONDITION_GOOD,
+            ])
+            ->set('query', 'Gadgets')
+            ->assertSee('Super Widget Pro');
+
+        // Search by brand token
+        Livewire::actingAs($this->user)
+            ->test(SearchProduct::class, [
+                'locationId' => $this->origin->id,
+                'stockCondition' => Transfer::CONDITION_GOOD,
+            ])
+            ->set('query', 'AcmeBrand')
+            ->assertSee('Super Widget Pro');
+
+        // Search by barcode token
+        Livewire::actingAs($this->user)
+            ->test(SearchProduct::class, [
+                'locationId' => $this->origin->id,
+                'stockCondition' => Transfer::CONDITION_GOOD,
+            ])
+            ->set('query', 'BC-WIDGET-999')
+            ->assertSee('Super Widget Pro');
+
+        // Multi-token: name + code
+        Livewire::actingAs($this->user)
+            ->test(SearchProduct::class, [
+                'locationId' => $this->origin->id,
+                'stockCondition' => Transfer::CONDITION_GOOD,
+            ])
+            ->set('query', 'Widget XYZ')
+            ->assertSee('Super Widget Pro');
+    }
+
+    /** @test */
+    public function ambiguous_search_results_are_presented_without_automatic_selection()
+    {
+        $category = Category::first();
+
+        $item1 = Product::create([
+            'setting_id' => $this->setting->id,
+            'category_id' => $category->id,
+            'product_name' => 'Delta Alpha Widget',
+            'product_code' => 'DAW-001',
+            'product_cost' => 1000,
+            'product_price' => 2000,
+            'stock_managed' => true,
+        ]);
+        ProductStock::create([
+            'product_id' => $item1->id,
+            'location_id' => $this->origin->id,
+            'quantity' => 10,
+            'quantity_tax' => 5,
+            'quantity_non_tax' => 5,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        $item2 = Product::create([
+            'setting_id' => $this->setting->id,
+            'category_id' => $category->id,
+            'product_name' => 'Delta Beta Widget',
+            'product_code' => 'DBW-002',
+            'product_cost' => 1000,
+            'product_price' => 2000,
+            'stock_managed' => true,
+        ]);
+        ProductStock::create([
+            'product_id' => $item2->id,
+            'location_id' => $this->origin->id,
+            'quantity' => 10,
+            'quantity_tax' => 5,
+            'quantity_non_tax' => 5,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        $test = Livewire::actingAs($this->user)
+            ->test(SearchProduct::class, [
+                'locationId' => $this->origin->id,
+                'stockCondition' => Transfer::CONDITION_GOOD,
+            ])
+            ->set('query', 'Delta Widget')
+            ->assertSee('Delta Alpha Widget')
+            ->assertSee('Delta Beta Widget')
+            ->assertNotDispatched('productSelected');
+
+        $this->assertCount(2, $test->get('search_results'));
+    }
+
+    /** @test */
+    public function scan_barcode_passes_operation_token_to_product_selected_event()
+    {
+        $category = Category::create([
+            'setting_id' => $this->setting->id,
+            'category_code' => 'CAT-SCAN-' . uniqid(),
+            'category_name' => 'Category Scan',
+            'created_by' => 1,
+        ]);
+
+        $item = Product::create([
+            'setting_id' => $this->setting->id,
+            'category_id' => $category->id,
+            'product_name' => 'Scan Test Product',
+            'product_code' => 'STP-001',
+            'barcode' => 'BARCODE-STP-001',
+            'product_cost' => 1000,
+            'product_price' => 2000,
+            'stock_managed' => true,
+        ]);
+        ProductStock::create([
+            'product_id' => $item->id,
+            'location_id' => $this->origin->id,
+            'quantity' => 10,
+            'quantity_tax' => 5,
+            'quantity_non_tax' => 5,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        $token = 'txscan-token-livewire-test';
+
+        Livewire::actingAs($this->user)
+            ->test(SearchProduct::class, [
+                'locationId' => $this->origin->id,
+                'stockCondition' => Transfer::CONDITION_GOOD,
+            ])
+            ->call('scanBarcode', 'BARCODE-STP-001', $token)
+            ->assertDispatched('productSelected', function ($event, $params) use ($item, $token) {
+                $payload = $params[0] ?? [];
+                return ($payload['id'] ?? null) === $item->id
+                    && ($payload['operation_token'] ?? null) === $token
+                    && ($payload['is_broken_mode'] ?? null) === false;
+            })
+            ->assertDispatched('restore-scanner-focus');
+    }
+
+    /** @test */
+    public function scan_barcode_passes_operation_token_to_serial_scanned_event()
+    {
+        $category = Category::create([
+            'setting_id' => $this->setting->id,
+            'category_code' => 'CAT-SCAN-SN-' . uniqid(),
+            'category_name' => 'Category Scan SN',
+            'created_by' => 1,
+        ]);
+
+        $serialItem = Product::create([
+            'setting_id' => $this->setting->id,
+            'category_id' => $category->id,
+            'product_name' => 'Serial Scan Test Product',
+            'product_code' => 'SSTP-001',
+            'product_cost' => 1000,
+            'product_price' => 2000,
+            'serial_number_required' => true,
+            'stock_managed' => true,
+        ]);
+        ProductStock::create([
+            'product_id' => $serialItem->id,
+            'location_id' => $this->origin->id,
+            'quantity' => 5,
+            'quantity_tax' => 5,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        $serial = ProductSerialNumber::create([
+            'product_id' => $serialItem->id,
+            'location_id' => $this->origin->id,
+            'serial_number' => 'SN-EXACT-001',
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+            'is_broken' => false,
+        ]);
+
+        $token = 'txscan-token-serial-test';
+
+        Livewire::actingAs($this->user)
+            ->test(SearchProduct::class, [
+                'locationId' => $this->origin->id,
+                'stockCondition' => Transfer::CONDITION_GOOD,
+            ])
+            ->call('scanBarcode', 'SN-EXACT-001', $token)
+            ->assertDispatched('productSelected', function ($event, $params) use ($serialItem) {
+                $payload = $params[0] ?? [];
+                return ($payload['id'] ?? null) === $serialItem->id;
+            })
+            ->assertDispatched('serialScanned', function ($event, $params) use ($serial, $token) {
+                $payload = $params[0] ?? [];
+                return ($payload['id'] ?? null) === $serial->id
+                    && ($payload['operation_token'] ?? null) === $token;
+            })
+            ->assertDispatched('restore-scanner-focus');
     }
 }

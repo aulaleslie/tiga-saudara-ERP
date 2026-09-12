@@ -159,6 +159,7 @@
                 :originLocationId="$originLocation"
                 :destinationLocationId="$destinationLocation"
                 :existingProducts="$rows"
+                :stockCondition="$stockCondition"
                 wire:model.defer="products"
                 wire:key="transfer-table-{{ $originLocation ?? 'none' }}-{{ $stockCondition ?? 'none' }}"
             />

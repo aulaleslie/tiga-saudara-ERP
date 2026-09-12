@@ -325,5 +325,186 @@ class TransferScanResolverServiceTest extends TestCase
         $result = $this->service->resolve($this->setting->id, 'SN-DIFFERENT-TENANT', $this->location->id);
         $this->assertEquals('none', $result['type']);
     }
-}
 
+    public function test_exact_primary_barcode_takes_precedence_over_conversion_and_serial_with_same_value()
+    {
+        $unit = Unit::create([
+            'name' => 'Piece',
+            'short_name' => 'PCS',
+        ]);
+        $this->product->update(['base_unit_id' => $unit->id]);
+
+        // Product A has primary barcode 'SHARED-CODE'
+        $productA = Product::create([
+            'setting_id' => $this->setting->id,
+            'product_name' => 'Product A Primary',
+            'product_code' => 'PA-001',
+            'barcode' => 'SHARED-CODE',
+            'stock_managed' => true,
+            'product_cost' => 1000,
+            'product_price' => 2000,
+        ]);
+        ProductStock::create([
+            'product_id' => $productA->id,
+            'location_id' => $this->location->id,
+            'quantity' => 10,
+            'quantity_non_tax' => 10,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        // Product B has a conversion with barcode 'SHARED-CODE'
+        $conversion = ProductUnitConversion::create([
+            'product_id' => $this->product->id,
+            'unit_id' => $unit->id,
+            'base_unit_id' => $unit->id,
+            'unit_conversion_name' => 'Box',
+            'unit_conversion_code' => 'BOX',
+            'conversion_factor' => 12,
+            'barcode' => 'SHARED-CODE',
+        ]);
+        ProductStock::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'quantity' => 10,
+            'quantity_non_tax' => 10,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        // And a serial exists with serial_number 'SHARED-CODE'
+        ProductSerialNumber::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'SHARED-CODE',
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+            'is_broken' => 0,
+        ]);
+
+        $result = $this->service->resolve($this->setting->id, 'SHARED-CODE', $this->location->id);
+        $this->assertEquals('product_exact', $result['type']);
+        $this->assertEquals($productA->id, $result['product']['id']);
+        $this->assertEquals('product_barcode', $result['product']['resolved_via']);
+    }
+
+    public function test_exact_conversion_barcode_takes_precedence_over_serial_with_same_value()
+    {
+        $unit = Unit::create([
+            'name' => 'Piece',
+            'short_name' => 'PCS',
+        ]);
+        $this->product->update(['base_unit_id' => $unit->id]);
+
+        ProductStock::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'quantity' => 10,
+            'quantity_non_tax' => 10,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        // Unit conversion has barcode 'CONV-SERIAL-CODE'
+        ProductUnitConversion::create([
+            'product_id' => $this->product->id,
+            'unit_id' => $unit->id,
+            'base_unit_id' => $unit->id,
+            'unit_conversion_name' => 'Box',
+            'unit_conversion_code' => 'BOX',
+            'conversion_factor' => 10,
+            'barcode' => 'CONV-SERIAL-CODE',
+        ]);
+
+        // Serial has number 'CONV-SERIAL-CODE'
+        ProductSerialNumber::create([
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'CONV-SERIAL-CODE',
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+            'is_broken' => 0,
+        ]);
+
+        $result = $this->service->resolve($this->setting->id, 'CONV-SERIAL-CODE', $this->location->id);
+        $this->assertEquals('product_exact', $result['type']);
+        $this->assertEquals($this->product->id, $result['product']['id']);
+        $this->assertEquals('conversion_barcode', $result['product']['resolved_via']);
+        $this->assertNotNull($result['product']['conversion']);
+    }
+
+    public function test_no_exact_match_returns_none_for_partial_or_unknown_query()
+    {
+        $result = $this->service->resolve($this->setting->id, 'UNKNOWN-CODE-999', $this->location->id);
+        $this->assertEquals('none', $result['type']);
+    }
+
+    public function test_exact_barcode_resolution_respects_good_and_broken_conditions()
+    {
+        // Good-only product has only good stock
+        $goodProduct = Product::create([
+            'setting_id' => $this->setting->id,
+            'product_name' => 'Good Only Barcode',
+            'product_code' => 'GOB-001',
+            'barcode' => 'GOOD-BARCODE-1',
+            'stock_managed' => true,
+            'product_cost' => 1000,
+            'product_price' => 2000,
+        ]);
+        ProductStock::create([
+            'product_id' => $goodProduct->id,
+            'location_id' => $this->location->id,
+            'quantity' => 10,
+            'quantity_non_tax' => 10,
+            'quantity_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        // Broken-only product has only broken stock
+        $brokenProduct = Product::create([
+            'setting_id' => $this->setting->id,
+            'product_name' => 'Broken Only Barcode',
+            'product_code' => 'BOB-001',
+            'barcode' => 'BROKEN-BARCODE-1',
+            'stock_managed' => true,
+            'product_cost' => 1000,
+            'product_price' => 2000,
+        ]);
+        ProductStock::create([
+            'product_id' => $brokenProduct->id,
+            'location_id' => $this->location->id,
+            'quantity' => 0,
+            'quantity_non_tax' => 0,
+            'quantity_tax' => 0,
+            'broken_quantity' => 5,
+            'broken_quantity_tax' => 2,
+            'broken_quantity_non_tax' => 3,
+        ]);
+
+        // In good mode (isBrokenMode = false):
+        // Good barcode resolves
+        $resGoodInGood = $this->service->resolve($this->setting->id, 'GOOD-BARCODE-1', $this->location->id, false);
+        $this->assertEquals('product_exact', $resGoodInGood['type']);
+        $this->assertEquals($goodProduct->id, $resGoodInGood['product']['id']);
+
+        // Broken-only barcode does not resolve in good mode
+        $resBrokenInGood = $this->service->resolve($this->setting->id, 'BROKEN-BARCODE-1', $this->location->id, false);
+        $this->assertEquals('none', $resBrokenInGood['type']);
+
+        // In broken mode (isBrokenMode = true):
+        // Broken barcode resolves
+        $resBrokenInBroken = $this->service->resolve($this->setting->id, 'BROKEN-BARCODE-1', $this->location->id, true);
+        $this->assertEquals('product_exact', $resBrokenInBroken['type']);
+        $this->assertEquals($brokenProduct->id, $resBrokenInBroken['product']['id']);
+
+        // Good barcode does not resolve in broken mode
+        $resGoodInBroken = $this->service->resolve($this->setting->id, 'GOOD-BARCODE-1', $this->location->id, true);
+        $this->assertEquals('none', $resGoodInBroken['type']);
+    }
+}

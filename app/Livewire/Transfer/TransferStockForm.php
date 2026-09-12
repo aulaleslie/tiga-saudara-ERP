@@ -220,6 +220,7 @@ class TransferStockForm extends Component
         $this->tableValidationErrors = [];
         $this->isMixedConditionHistory = false;
         $this->dispatch('transfer:rows-reset');
+        $this->dispatch('transfer:condition-changed', condition: $value);
     }
 
     public function onRowsUpdated(array $rows)

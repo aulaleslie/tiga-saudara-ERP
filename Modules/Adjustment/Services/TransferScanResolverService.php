@@ -49,7 +49,7 @@ class TransferScanResolverService
             ->whereRaw('LOWER(barcode) = ?', [$queryLower])
             ->first();
 
-        if ($productByBarcode && $this->hasStockInAllowedLocations($productByBarcode->id, $allowedLocationIds)) {
+        if ($productByBarcode && $this->hasStockInAllowedLocations($productByBarcode->id, $allowedLocationIds, $isBrokenMode)) {
             return $this->formatProductExact($productByBarcode, $settingId);
         }
 
@@ -60,7 +60,7 @@ class TransferScanResolverService
             ->with(['product', 'unit'])
             ->first();
 
-        if ($unitConversionBarcode && $unitConversionBarcode->product && $this->hasStockInAllowedLocations($unitConversionBarcode->product->id, $allowedLocationIds)) {
+        if ($unitConversionBarcode && $unitConversionBarcode->product && $this->hasStockInAllowedLocations($unitConversionBarcode->product->id, $allowedLocationIds, $isBrokenMode)) {
             return $this->formatProductExact($unitConversionBarcode->product, $settingId, $unitConversionBarcode);
         }
 
@@ -181,16 +181,27 @@ class TransferScanResolverService
         ];
     }
 
-    private function hasStockInAllowedLocations(int $productId, array $allowedLocationIds): bool
+    private function hasStockInAllowedLocations(int $productId, array $allowedLocationIds, ?bool $isBrokenMode = null): bool
     {
         if (empty($allowedLocationIds)) {
             return false;
         }
 
-        return DB::table('product_stocks')
+        $query = DB::table('product_stocks')
             ->where('product_id', $productId)
-            ->whereIn('location_id', $allowedLocationIds)
-            ->where('quantity', '>', 0)
-            ->exists();
+            ->whereIn('location_id', $allowedLocationIds);
+
+        if ($isBrokenMode === true) {
+            return $query->whereRaw('(COALESCE(broken_quantity_tax, 0) + COALESCE(broken_quantity_non_tax, 0)) > 0')->exists();
+        }
+
+        if ($isBrokenMode === false) {
+            return $query->where(function ($sub) {
+                $sub->whereRaw('(COALESCE(quantity_tax, 0) + COALESCE(quantity_non_tax, 0)) > 0')
+                    ->orWhereRaw('(COALESCE(quantity, 0) - COALESCE(broken_quantity_tax, 0) - COALESCE(broken_quantity_non_tax, 0)) > 0');
+            })->exists();
+        }
+
+        return $query->where('quantity', '>', 0)->exists();
     }
 }

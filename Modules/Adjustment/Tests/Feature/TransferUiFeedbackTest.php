@@ -253,6 +253,7 @@ class TransferUiFeedbackTest extends TestCase
             'product_price' => 15000,
             'setting_id' => $data['setting']->id,
             'serial_number_required' => false,
+            'stock_managed' => true,
         ]);
 
         ProductStock::create([
@@ -269,6 +270,7 @@ class TransferUiFeedbackTest extends TestCase
         Livewire::test(TransferProductTable::class, [
             'originLocationId' => $data['originLocation']->id,
             'destinationLocationId' => $data['destinationLocation']->id,
+            'stockCondition' => \Modules\Adjustment\Entities\Transfer::CONDITION_GOOD,
         ])
             ->call('productSelected', [
                 'id' => $product->id,
@@ -301,6 +303,7 @@ class TransferUiFeedbackTest extends TestCase
             'product_price' => 15000,
             'setting_id' => $data['setting']->id,
             'serial_number_required' => false,
+            'stock_managed' => true,
         ]);
 
         ProductStock::create([
@@ -317,6 +320,7 @@ class TransferUiFeedbackTest extends TestCase
         Livewire::test(TransferProductTable::class, [
             'originLocationId' => $data['originLocation']->id,
             'destinationLocationId' => $data['destinationLocation']->id,
+            'stockCondition' => \Modules\Adjustment\Entities\Transfer::CONDITION_BREAKAGE,
         ])
             ->call('productSelected', [
                 'id' => $product->id,
@@ -350,6 +354,7 @@ class TransferUiFeedbackTest extends TestCase
             'product_price' => 15000,
             'setting_id' => $data['setting']->id,
             'serial_number_required' => false,
+            'stock_managed' => true,
         ]);
 
         ProductStock::create([
@@ -366,6 +371,7 @@ class TransferUiFeedbackTest extends TestCase
         Livewire::test(TransferProductTable::class, [
             'originLocationId' => $data['originLocation']->id,
             'destinationLocationId' => $data['destinationLocation']->id,
+            'stockCondition' => \Modules\Adjustment\Entities\Transfer::CONDITION_GOOD,
         ])
             ->call('productSelected', [
                 'id' => $product->id,
@@ -400,6 +406,7 @@ class TransferUiFeedbackTest extends TestCase
             'product_price' => 15000,
             'setting_id' => $data['setting']->id,
             'serial_number_required' => false,
+            'stock_managed' => true,
         ]);
 
         ProductStock::create([
@@ -417,6 +424,7 @@ class TransferUiFeedbackTest extends TestCase
         Livewire::test(TransferProductTable::class, [
             'originLocationId' => $data['originLocation']->id,
             'destinationLocationId' => $data['destinationLocation']->id,
+            'stockCondition' => \Modules\Adjustment\Entities\Transfer::CONDITION_GOOD,
         ])
             ->call('productSelected', [
                 'id' => $product->id,
@@ -449,6 +457,7 @@ class TransferUiFeedbackTest extends TestCase
             'product_price' => 15000,
             'setting_id' => $data['setting']->id,
             'serial_number_required' => false,
+            'stock_managed' => true,
         ]);
 
         ProductStock::create([
@@ -465,6 +474,7 @@ class TransferUiFeedbackTest extends TestCase
         Livewire::test(TransferProductTable::class, [
             'originLocationId' => $data['originLocation']->id,
             'destinationLocationId' => $data['destinationLocation']->id,
+            'stockCondition' => \Modules\Adjustment\Entities\Transfer::CONDITION_BREAKAGE,
         ])
             ->call('productSelected', [
                 'id' => $product->id,
@@ -497,6 +507,7 @@ class TransferUiFeedbackTest extends TestCase
             'product_price' => 15000,
             'setting_id' => $data['setting']->id,
             'serial_number_required' => false,
+            'stock_managed' => true,
         ]);
 
         ProductStock::create([
@@ -513,6 +524,7 @@ class TransferUiFeedbackTest extends TestCase
         Livewire::test(TransferProductTable::class, [
             'originLocationId' => $data['originLocation']->id,
             'destinationLocationId' => $data['destinationLocation']->id,
+            'stockCondition' => \Modules\Adjustment\Entities\Transfer::CONDITION_GOOD,
         ])
             ->call('productSelected', [
                 'id' => $product->id,
@@ -521,8 +533,8 @@ class TransferUiFeedbackTest extends TestCase
                 'product_barcode' => $product->barcode,
                 'serial_number_required' => false,
                 'is_broken_mode' => false,
-                'scan_quantity_multiplier' => 70,
             ])
+            ->set('products.0.requested_quantity', 70)
             ->assertSet('products', function ($products) {
                 // Should allocate 60 non-tax (all available) and 10 tax
                 $this->assertEquals(60, $products[0]['quantity_non_tax']);
@@ -545,6 +557,7 @@ class TransferUiFeedbackTest extends TestCase
             'product_price' => 15000,
             'setting_id' => $data['setting']->id,
             'serial_number_required' => false,
+            'stock_managed' => true,
         ]);
 
         ProductStock::create([
@@ -561,6 +574,7 @@ class TransferUiFeedbackTest extends TestCase
         Livewire::test(TransferProductTable::class, [
             'originLocationId' => $data['originLocation']->id,
             'destinationLocationId' => $data['destinationLocation']->id,
+            'stockCondition' => \Modules\Adjustment\Entities\Transfer::CONDITION_GOOD,
         ])
             ->call('productSelected', [
                 'id' => $product->id,
@@ -569,8 +583,8 @@ class TransferUiFeedbackTest extends TestCase
                 'product_barcode' => $product->barcode,
                 'serial_number_required' => false,
                 'is_broken_mode' => false,
-                'scan_quantity_multiplier' => 30,
             ])
+            ->set('products.0.requested_quantity', 30)
             ->assertSet('products', function ($products) {
                 // No non-tax available, should allocate all 30 to tax
                 $this->assertEquals(0, $products[0]['quantity_non_tax']);
@@ -594,6 +608,7 @@ class TransferUiFeedbackTest extends TestCase
             'product_price' => 15000,
             'setting_id' => $data['setting']->id,
             'serial_number_required' => false,
+            'stock_managed' => true,
         ]);
 
         ProductStock::create([
@@ -612,6 +627,7 @@ class TransferUiFeedbackTest extends TestCase
         Livewire::test(TransferProductTable::class, [
             'originLocationId' => $data['originLocation']->id,
             'destinationLocationId' => $data['destinationLocation']->id,
+            'stockCondition' => \Modules\Adjustment\Entities\Transfer::CONDITION_GOOD,
         ])
             ->call('productSelected', [
                 'id' => $product->id,
@@ -643,6 +659,7 @@ class TransferUiFeedbackTest extends TestCase
             'product_price' => 15000,
             'setting_id' => $data['setting']->id,
             'serial_number_required' => true,
+            'stock_managed' => true,
         ]);
 
         // Create serials for product1
@@ -687,6 +704,7 @@ class TransferUiFeedbackTest extends TestCase
             'product_price' => 15000,
             'setting_id' => $data['setting']->id,
             'serial_number_required' => false,
+            'stock_managed' => true,
         ]);
 
         ProductStock::create([
@@ -744,6 +762,7 @@ class TransferUiFeedbackTest extends TestCase
             'product_price' => 15000,
             'setting_id' => $data['setting']->id,
             'serial_number_required' => false,
+            'stock_managed' => true,
         ]);
 
         ProductStock::create([
@@ -811,6 +830,7 @@ class TransferUiFeedbackTest extends TestCase
             'product_price' => 15000,
             'setting_id' => $data['setting']->id,
             'serial_number_required' => true,
+            'stock_managed' => true,
         ]);
 
         $product2 = Product::create([
@@ -820,6 +840,7 @@ class TransferUiFeedbackTest extends TestCase
             'product_price' => 15000,
             'setting_id' => $data['setting']->id,
             'serial_number_required' => true,
+            'stock_managed' => true,
         ]);
 
         // Create serials for product1 (non-broken)
@@ -889,6 +910,7 @@ class TransferUiFeedbackTest extends TestCase
             'product_price' => 15000,
             'setting_id' => $data['setting']->id,
             'serial_number_required' => true,
+            'stock_managed' => true,
         ]);
 
         ProductStock::create([
@@ -924,6 +946,7 @@ class TransferUiFeedbackTest extends TestCase
         Livewire::test(TransferProductTable::class, [
             'originLocationId' => $data['originLocation']->id,
             'destinationLocationId' => $data['destinationLocation']->id,
+            'stockCondition' => \Modules\Adjustment\Entities\Transfer::CONDITION_GOOD,
         ])
             ->call('productSelected', [
                 'id' => $product->id,
@@ -1128,6 +1151,7 @@ class TransferUiFeedbackTest extends TestCase
             'product_price' => 15000,
             'setting_id' => $data['setting']->id,
             'serial_number_required' => true,
+            'stock_managed' => true,
         ]);
 
         $missingSerial = ProductSerialNumber::create([
@@ -1160,5 +1184,81 @@ class TransferUiFeedbackTest extends TestCase
 
         $loaderBroken->call('selectSerialNumber', $missingSerial->id)
             ->assertNotDispatched('serialNumberSelected');
+    }
+
+    /** @test */
+    public function blind_user_receives_neutral_rejection_feedback_for_serial_ineligibility_while_privileged_receives_details(): void
+    {
+        $data = $this->createTenantData('Tiga Saudara Feedback Test');
+        session(['setting_id' => $data['setting']->id]);
+
+        $product = Product::create([
+            'product_name' => 'Serial Product Condition Feedback',
+            'product_code' => 'SPCF01',
+            'product_cost' => 10000,
+            'product_price' => 15000,
+            'setting_id' => $data['setting']->id,
+            'serial_number_required' => true,
+            'stock_managed' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $data['originLocation']->id,
+            'quantity' => 1,
+            'quantity_tax' => 1,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        $brokenSerial = ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'serial_number' => 'SN-BROKEN-SCAN-TEST',
+            'location_id' => $data['originLocation']->id,
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+            'is_broken' => true,
+            'tax_id' => null,
+        ]);
+
+        // Blind operator (has stockTransfers.create but not stockTransfers.view-system-stock)
+        $blindUser = User::create([
+            'name' => 'Blind Operator',
+            'email' => 'blind@test.com',
+            'password' => bcrypt('password'),
+            'is_active' => true,
+        ]);
+        $blindRole = Role::create(['name' => 'blind_role']);
+        $blindRole->syncPermissions(['stockTransfers.create', 'stockTransfers.access']);
+        $blindUser->assignRole($blindRole);
+
+        $this->actingAs($blindUser);
+
+        // Blind user scanning a broken serial in normal mode gets neutral feedback
+        Livewire::test(\App\Livewire\Transfer\SearchProduct::class, [
+            'locationId' => $data['originLocation']->id,
+            'stockCondition' => Transfer::CONDITION_GOOD,
+        ])
+            ->call('scanBarcode', 'SN-BROKEN-SCAN-TEST')
+            ->assertDispatched('scanFailed', function ($event, $params) {
+                $msg = $params[0] ?? '';
+                return str_contains($msg, 'tidak dapat digunakan')
+                    && !str_contains($msg, 'siap jual')
+                    && !str_contains($msg, 'rusak/hilang');
+            });
+
+        // Privileged operator (has view-system-stock)
+        $this->actingAs($data['user']); // already has stockTransfers.view-system-stock from setUp
+
+        Livewire::test(\App\Livewire\Transfer\SearchProduct::class, [
+            'locationId' => $data['originLocation']->id,
+            'stockCondition' => Transfer::CONDITION_GOOD,
+        ])
+            ->call('scanBarcode', 'SN-BROKEN-SCAN-TEST')
+            ->assertDispatched('scanFailed', function ($event, $params) {
+                $msg = $params[0] ?? '';
+                return str_contains($msg, 'tidak siap jual atau berstatus rusak/hilang');
+            });
     }
 }

@@ -147,6 +147,9 @@ class TransferStockFormTest extends TestCase
             'broken_quantity_non_tax' => 0,
         ]);
         
+        Permission::firstOrCreate(['name' => \Modules\Adjustment\Services\TransferStockVisibility::PERMISSION, 'guard_name' => 'web']);
+        $this->user->givePermissionTo(\Modules\Adjustment\Services\TransferStockVisibility::PERMISSION);
+
         $livewire = Livewire::actingAs($this->user)
             ->test(TransferStockForm::class, ['transfer' => $transfer]);
             

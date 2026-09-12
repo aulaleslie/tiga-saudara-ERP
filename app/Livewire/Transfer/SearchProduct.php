@@ -7,6 +7,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Reactive;
 use Livewire\Component;
 use Modules\Adjustment\Entities\Transfer;
@@ -21,13 +22,16 @@ class SearchProduct extends Component
     public $search_results;
     public int $how_many = 5;
 
+    #[Locked]
     public $locationId;  // Add locationId as a public property
 
     /**
      * Transfer mode is owned by the parent TransferStockForm and passed down
-     * reactively; this component cannot independently change it.
+     * reactively; this component cannot independently change it. Locked
+     * additionally rejects any crafted direct client update.
      */
     #[Reactive]
+    #[Locked]
     public ?string $stockCondition = null;
 
     public function mount($locationId = null, ?string $stockCondition = null): void
@@ -236,32 +240,55 @@ class SearchProduct extends Component
         $this->search_results = Collection::empty();
     }
 
-    public function selectProduct($product): void
+    public function selectProduct($product, ?string $operationToken = null): void
     {
         if (!$this->hasValidOrigin()) {
+            if ($operationToken !== null && $operationToken !== '') {
+                $this->dispatch('transfer:scan-processed', ['token' => $operationToken]);
+            }
             $this->dispatch('scanFailed', 'Silakan pilih Lokasi Asal terlebih dahulu.');
             $this->dispatch('select-scan-input');
             return;
         }
 
-        $payload = is_array($product) ? $product : $product->toArray();
-        $payload['is_broken_mode'] = $this->isBrokenMode();
-        $this->dispatch('productSelected', $payload);
+        $productId = is_array($product) ? ($product['id'] ?? null) : ($product->id ?? null);
+        if (!$productId) {
+            if ($operationToken !== null && $operationToken !== '') {
+                $this->dispatch('transfer:scan-processed', ['token' => $operationToken]);
+            }
+            return;
+        }
+
+        $productPayload = [
+            'id' => (int) $productId,
+            'is_broken_mode' => $this->isBrokenMode(),
+        ];
+        if ($operationToken !== null && $operationToken !== '') {
+            $productPayload['operation_token'] = $operationToken;
+        }
+
+        $this->dispatch('productSelected', $productPayload);
         $this->resetQuery();
         $this->dispatch('restore-scanner-focus');
     }
 
-    public function scanBarcode(string $query, TransferScanResolverService $scanService)
+    public function scanBarcode(string $query, TransferScanResolverService $scanService, ?string $operationToken = null)
     {
         $query = trim($query);
 
         if (!$this->hasValidOrigin()) {
+            if ($operationToken !== null && $operationToken !== '') {
+                $this->dispatch('transfer:scan-processed', ['token' => $operationToken]);
+            }
             $this->dispatch('scanFailed', 'Silakan masukkan barcode dan pilih lokasi asal.');
             $this->dispatch('select-scan-input');
             return;
         }
 
         if (empty($query)) {
+            if ($operationToken !== null && $operationToken !== '') {
+                $this->dispatch('transfer:scan-processed', ['token' => $operationToken]);
+            }
             $this->dispatch('scanFailed', 'Silakan masukkan barcode dan pilih lokasi asal.');
             $this->dispatch('select-scan-input');
             return;
@@ -269,6 +296,9 @@ class SearchProduct extends Component
 
         $settingId = session('setting_id');
         if (!$settingId) {
+            if ($operationToken !== null && $operationToken !== '') {
+                $this->dispatch('transfer:scan-processed', ['token' => $operationToken]);
+            }
             $this->dispatch('scanFailed', 'Pengaturan (Setting) belum dipilih.');
             $this->dispatch('select-scan-input');
             return;
@@ -277,6 +307,9 @@ class SearchProduct extends Component
         $result = $scanService->resolve($settingId, $query, $this->locationId, $this->isBrokenMode());
 
         if ($result['type'] === 'serial_rejected') {
+            if ($operationToken !== null && $operationToken !== '') {
+                $this->dispatch('transfer:scan-processed', ['token' => $operationToken]);
+            }
             $this->dispatch('scanFailed', $result['message']);
             $this->dispatch('select-scan-input');
             return;
@@ -287,81 +320,100 @@ class SearchProduct extends Component
             $this->query = $query;
             $this->updatedQuery();
             if ($this->search_results->count() === 1) {
-                $this->selectProduct($this->search_results->first());
-            } else if ($this->search_results->isEmpty()) {
+                // selectProduct carries the operation token through to the
+                // productSelected dispatch and only the sibling table's
+                // acknowledgment of that mutation advances the scan queue --
+                // acknowledging here too, before the table confirms, would
+                // let the queue advance ahead of the mutation it is meant to
+                // gate.
+                $this->selectProduct($this->search_results->first(), $operationToken);
+                return;
+            }
+
+            if ($this->search_results->isEmpty()) {
                 $this->dispatch('scanFailed', 'Produk/Serial tidak ditemukan atau stok kosong di lokasi asal.');
                 $this->dispatch('select-scan-input');
+            }
+            if ($operationToken !== null && $operationToken !== '') {
+                $this->dispatch('transfer:scan-processed', ['token' => $operationToken]);
             }
             return;
         }
 
         if ($result['type'] === 'product_exact') {
             $productData = $result['product'];
-            $quantity = $this->getProductQuantityAtLocation($productData['id'], $this->locationId);
+            $conversionId = null;
+            $scanMultiplier = 1;
 
-            if ($quantity > 0) {
-                // Fetch the eloquent model to dispatch
-                $product = Product::find($productData['id'])->toArray();
-
-                // Apply base-unit normalization if scanned via a conversion barcode
-                $scanQuantity = 1;
-                if (($productData['resolved_via'] ?? '') === 'conversion_barcode' && !empty($productData['conversion'])) {
-                    $scanQuantity = (int) $productData['conversion']['conversion_factor'];
+            if (($productData['resolved_via'] ?? '') === 'conversion_barcode' && !empty($productData['conversion'])) {
+                $conversionId = (int) ($productData['conversion']['id'] ?? 0);
+                $factor = (float) ($productData['conversion']['conversion_factor'] ?? 1);
+                if ($factor <= 0 || abs($factor - round($factor)) > 1e-6) {
+                    if ($operationToken !== null && $operationToken !== '') {
+                        $this->dispatch('transfer:scan-processed', ['token' => $operationToken]);
+                    }
+                    $this->dispatch('scanFailed', 'Faktor konversi tidak valid.');
+                    $this->dispatch('select-scan-input');
+                    return;
                 }
-
-                $product['scan_quantity_multiplier'] = $scanQuantity;
-                $product['is_broken_mode'] = $this->isBrokenMode();
-
-                $this->dispatch('productSelected', $product);
-                $this->resetQuery();
-                $this->dispatch('restore-scanner-focus');
-            } else {
-                $this->dispatch('scanFailed', 'Stok kosong di lokasi asal.');
-                $this->dispatch('select-scan-input');
+                $scanMultiplier = (int) round($factor);
             }
+
+            $productPayload = [
+                'id' => (int) $productData['id'],
+                'conversion_id' => $conversionId,
+                'scan_quantity_multiplier' => $scanMultiplier,
+                'is_broken_mode' => $this->isBrokenMode(),
+            ];
+            if ($operationToken !== null && $operationToken !== '') {
+                $productPayload['operation_token'] = $operationToken;
+            }
+
+            $this->dispatch('productSelected', $productPayload);
+
+            $this->resetQuery();
+            $this->dispatch('restore-scanner-focus');
         } elseif ($result['type'] === 'serial_exact') {
             $serialData = $result['serial'];
 
             // Check if serial is at the selected origin location
             if ($serialData['location_id'] != $this->locationId) {
+                if ($operationToken !== null && $operationToken !== '') {
+                    $this->dispatch('transfer:scan-processed', ['token' => $operationToken]);
+                }
                 $this->dispatch('scanFailed', 'Nomor Seri tidak berada di lokasi asal terpilih.');
                 $this->dispatch('select-scan-input');
                 return;
             }
 
-            $product = Product::find($serialData['product_id']);
-            $payload = $product->toArray();
-            $payload['is_broken_mode'] = $this->isBrokenMode();
-            
             $isSerialBroken = (bool) ($serialData['is_broken'] ?? false);
             if ($isSerialBroken !== $this->isBrokenMode()) {
+                if ($operationToken !== null && $operationToken !== '') {
+                    $this->dispatch('transfer:scan-processed', ['token' => $operationToken]);
+                }
                 $modeStr = $this->isBrokenMode() ? 'Rusak' : 'Normal';
                 $this->dispatch('scanFailed', "Nomor Seri status rusak tidak cocok dengan mode $modeStr.");
                 $this->dispatch('select-scan-input');
                 return;
             }
 
-            $this->dispatch('productSelected', $payload);
+            // Minimal intent payload for product selection
+            $this->dispatch('productSelected', [
+                'id' => (int) $serialData['product_id'],
+                'is_broken_mode' => $this->isBrokenMode(),
+            ]);
 
-            // Need to notify the table to add this serial. tax_id and
-            // is_broken are protected provenance: only included in this
-            // dispatched browser event for a privileged user. TransferProductTable
-            // reloads provenance authoritatively by serial id regardless
-            // (see serialProvenance()), so omitting these fields here does
-            // not weaken validation -- it only stops them appearing in a
-            // blind user's dispatched component event payload.
-            $serialScannedPayload = [
-                'id' => $serialData['id'],
-                'product_id' => $serialData['product_id'],
-                'serial_number' => $serialData['serial_number'],
+            // Minimal intent payload for serial scan
+            $serialPayload = [
+                'id' => (int) $serialData['id'],
+                'product_id' => (int) $serialData['product_id'],
+                'serial_number' => (string) $serialData['serial_number'],
             ];
-
-            if (TransferStockVisibility::canView()) {
-                $serialScannedPayload['tax_id'] = $serialData['tax_id'];
-                $serialScannedPayload['is_broken'] = $isSerialBroken;
+            if ($operationToken !== null && $operationToken !== '') {
+                $serialPayload['operation_token'] = $operationToken;
             }
 
-            $this->dispatch('serialScanned', $serialScannedPayload);
+            $this->dispatch('serialScanned', $serialPayload);
 
             $this->resetQuery();
             $this->dispatch('restore-scanner-focus');
