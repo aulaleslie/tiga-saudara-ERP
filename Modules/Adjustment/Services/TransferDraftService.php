@@ -336,11 +336,6 @@ class TransferDraftService
                 throw new InvalidArgumentException("Product {$line->productId} not found.");
             }
 
-            // Validate product belongs to current tenant
-            if ((int) $product->setting_id !== $tenantSettingId) {
-                throw new InvalidArgumentException("Product {$product->id} does not belong to current tenant.");
-            }
-
             // Validate stock_managed requirement
             if (!$product->stock_managed) {
                 throw new InvalidArgumentException("Product {$product->id} must have stock management enabled.");

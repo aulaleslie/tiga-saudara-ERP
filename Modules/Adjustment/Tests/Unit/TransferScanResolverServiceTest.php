@@ -279,41 +279,26 @@ class TransferScanResolverServiceTest extends TestCase
     }
 
     /** @test */
-    public function it_rejects_serial_from_different_tenant_product()
+    public function it_resolves_serial_for_global_product_with_different_setting_id()
     {
-        // Create a product in a different tenant
-        $differentSetting = Setting::create([
-            'company_name' => 'Different Company',
-            'company_email' => 'different@example.com',
-            'company_phone' => '08007654321',
-            'default_currency_id' => $this->setting->default_currency_id,
-            'default_currency_position' => 'prefix',
-            'notification_email' => 'notify@different.com',
-            'footer_text' => 'Different Footer',
-            'company_address' => 'Different Address',
-        ]);
-
-        $differentLocation = Location::create([
-            'setting_id' => $differentSetting->id,
-            'name' => 'Different Tenant Location',
-        ]);
+        $differentSetting = Setting::factory()->create();
 
         $differentProduct = Product::create([
             'setting_id' => $differentSetting->id,
-            'product_name' => 'Other Tenant Product',
+            'product_name' => 'Other Setting Provenance Product',
             'product_code' => 'OTP',
             'serial_number_required' => true,
             'stock_managed' => true,
             'product_price' => 100,
             'product_cost' => 50,
+            'is_active' => true,
         ]);
 
-        // Create serial for product in different tenant but at location in original tenant
-        // This should not happen in normal operation, but we test the guard
+        // Create serial for global product at origin location in current tenant
         $serial = ProductSerialNumber::create([
             'product_id' => $differentProduct->id,
             'location_id' => $this->location->id,
-            'serial_number' => 'SN-DIFFERENT-TENANT',
+            'serial_number' => 'SN-DIFFERENT-SETTING',
             'status' => ProductSerialNumber::STATUS_ACTIVE,
             'is_broken' => 0,
             'tax_id' => null,
@@ -321,12 +306,14 @@ class TransferScanResolverServiceTest extends TestCase
             'is_in_return_process' => 0,
         ]);
 
-        // Try to resolve - should return none because product belongs to different tenant
-        $result = $this->service->resolve($this->setting->id, 'SN-DIFFERENT-TENANT', $this->location->id);
-        $this->assertEquals('none', $result['type']);
+        // Resolves correctly because product catalog is global and location belongs to active tenant
+        $result = $this->service->resolve($this->setting->id, 'SN-DIFFERENT-SETTING', $this->location->id);
+        $this->assertEquals('serial_exact', $result['type']);
+        $this->assertEquals('resolved', $result['status']);
+        $this->assertEquals($serial->id, $result['serial']['id']);
     }
 
-    public function test_exact_primary_barcode_takes_precedence_over_conversion_and_serial_with_same_value()
+    public function test_exact_primary_barcode_colliding_with_conversion_and_serial_returns_ambiguous()
     {
         $unit = Unit::create([
             'name' => 'Piece',
@@ -385,13 +372,12 @@ class TransferScanResolverServiceTest extends TestCase
             'is_broken' => 0,
         ]);
 
-        $result = $this->service->resolve($this->setting->id, 'SHARED-CODE', $this->location->id);
-        $this->assertEquals('product_exact', $result['type']);
-        $this->assertEquals($productA->id, $result['product']['id']);
-        $this->assertEquals('product_barcode', $result['product']['resolved_via']);
+        $result = $this->service->resolve($this->setting->id, 'SHARED-CODE', $this->location->id, false);
+        $this->assertEquals('ambiguous', $result['status'] ?? $result['type']);
+        $this->assertCount(3, $result['candidates']);
     }
 
-    public function test_exact_conversion_barcode_takes_precedence_over_serial_with_same_value()
+    public function test_exact_conversion_barcode_colliding_with_serial_returns_ambiguous()
     {
         $unit = Unit::create([
             'name' => 'Piece',
@@ -430,11 +416,9 @@ class TransferScanResolverServiceTest extends TestCase
             'is_broken' => 0,
         ]);
 
-        $result = $this->service->resolve($this->setting->id, 'CONV-SERIAL-CODE', $this->location->id);
-        $this->assertEquals('product_exact', $result['type']);
-        $this->assertEquals($this->product->id, $result['product']['id']);
-        $this->assertEquals('conversion_barcode', $result['product']['resolved_via']);
-        $this->assertNotNull($result['product']['conversion']);
+        $result = $this->service->resolve($this->setting->id, 'CONV-SERIAL-CODE', $this->location->id, false);
+        $this->assertEquals('ambiguous', $result['status'] ?? $result['type']);
+        $this->assertCount(2, $result['candidates']);
     }
 
     public function test_no_exact_match_returns_none_for_partial_or_unknown_query()

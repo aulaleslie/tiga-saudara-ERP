@@ -777,9 +777,9 @@ class TransferUiFeedbackTest extends TestCase
         ]);
 
         $formComponent = Livewire::test(\App\Livewire\Transfer\TransferStockForm::class)
-            ->set('originLocation', $data['originLocation']->id)
-            ->set('destinationLocation', $data['destinationLocation']->id)
-            ->set('stockCondition', \Modules\Adjustment\Entities\Transfer::CONDITION_GOOD)
+            ->call('onOriginLocationSelected', ['id' => $data['originLocation']->id])
+            ->call('onDestinationLocationSelected', ['id' => $data['destinationLocation']->id])
+            ->call('selectStockCondition', \Modules\Adjustment\Entities\Transfer::CONDITION_GOOD)
             ->set('rows', [
                 [
                     'id' => $product->id,
@@ -1021,9 +1021,9 @@ class TransferUiFeedbackTest extends TestCase
         // or editable drafts, so submitting one row of each mode is rejected
         // rather than merged.
         $formComponent = Livewire::test(\App\Livewire\Transfer\TransferStockForm::class)
-            ->set('originLocation', $data['originLocation']->id)
-            ->set('destinationLocation', $data['destinationLocation']->id)
-            ->set('stockCondition', Transfer::CONDITION_GOOD)
+            ->call('onOriginLocationSelected', ['id' => $data['originLocation']->id])
+            ->call('onDestinationLocationSelected', ['id' => $data['destinationLocation']->id])
+            ->call('selectStockCondition', Transfer::CONDITION_GOOD)
             ->set('rows', [
                 [
                     'id' => $product->id,

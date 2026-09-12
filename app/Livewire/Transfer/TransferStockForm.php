@@ -17,10 +17,14 @@ class TransferStockForm extends Component
     public $settings;
 
     public $selectedBusiness    = null;
+
+    #[Locked]
     public $originLocation      = null;
+
     public $destinationLocation = null;
 
     // the transfer's single explicit stock condition (Transfer::CONDITION_*)
+    #[Locked]
     public ?string $stockCondition = null;
 
     // true when hydrating a legacy transfer whose history mixes good and
@@ -48,6 +52,7 @@ class TransferStockForm extends Component
     public bool $showConditionConfirmModal = false;
 
     // the condition value awaiting confirmation, applied only if confirmed
+    #[Locked]
     public ?string $pendingStockCondition = null;
 
     // holds the table rows data
@@ -114,7 +119,22 @@ class TransferStockForm extends Component
     {
         Log::info('onOriginLocationSelected', ['payload' => $payload]);
 
-        $newOriginId = $payload['id'] ?? null;
+        if ($this->transfer && $this->transfer->exists) {
+            // Origin is immutable once a transfer is persisted
+            return;
+        }
+
+        $newOriginId = !empty($payload['id']) ? (int) $payload['id'] : null;
+        if ($newOriginId !== null) {
+            $tenantSettingId = (int) session('setting_id');
+            $isValidOrigin = \Modules\Setting\Entities\Location::where('id', $newOriginId)
+                ->where('setting_id', $tenantSettingId)
+                ->exists();
+            if (! $isValidOrigin) {
+                $newOriginId = null;
+            }
+        }
+
         $originActuallyChanged = $newOriginId !== $this->originLocation;
 
         $this->originLocation = $newOriginId;
@@ -161,6 +181,11 @@ class TransferStockForm extends Component
      */
     public function selectStockCondition(?string $value): void
     {
+        if ($this->transfer && $this->transfer->exists) {
+            // Condition is immutable once a transfer is persisted
+            return;
+        }
+
         if (! in_array($value, Transfer::CONDITIONS, true)) {
             return;
         }

@@ -123,7 +123,7 @@ class TransferFormOriginGatingTest extends TestCase
             ->test(TransferStockForm::class)
             ->call('onOriginLocationSelected', ['id' => $this->origin->id])
             ->call('onDestinationLocationSelected', ['id' => $this->destination->id])
-            ->set('stockCondition', Transfer::CONDITION_GOOD)
+            ->call('selectStockCondition', Transfer::CONDITION_GOOD)
             ->set('rows', [$this->sampleRow()]);
 
         $livewire->assertSet('destinationLocation', $this->destination->id);
@@ -142,7 +142,7 @@ class TransferFormOriginGatingTest extends TestCase
         $livewire = Livewire::actingAs($this->user)
             ->test(TransferStockForm::class)
             ->call('onOriginLocationSelected', ['id' => $this->origin->id])
-            ->set('stockCondition', Transfer::CONDITION_GOOD)
+            ->call('selectStockCondition', Transfer::CONDITION_GOOD)
             ->set('rows', [$this->sampleRow()]);
 
         $livewire->call('onOriginLocationSelected', ['id' => $this->origin->id]);
@@ -159,7 +159,7 @@ class TransferFormOriginGatingTest extends TestCase
             ->test(TransferStockForm::class)
             ->call('onOriginLocationSelected', ['id' => $this->origin->id])
             ->call('onDestinationLocationSelected', ['id' => $this->destination->id])
-            ->set('stockCondition', Transfer::CONDITION_GOOD)
+            ->call('selectStockCondition', Transfer::CONDITION_GOOD)
             ->set('rows', [$this->sampleRow()]);
 
         $livewire->call('onDestinationLocationSelected', ['id' => $otherDestination->id]);
@@ -175,7 +175,7 @@ class TransferFormOriginGatingTest extends TestCase
             ->test(TransferStockForm::class)
             ->call('onOriginLocationSelected', ['id' => $this->origin->id])
             ->call('onDestinationLocationSelected', ['id' => $this->destination->id])
-            ->set('stockCondition', Transfer::CONDITION_GOOD)
+            ->call('selectStockCondition', Transfer::CONDITION_GOOD)
             ->set('rows', [$this->sampleRow()]);
 
         // Switching mode while rows exist must not clear them immediately;
@@ -203,7 +203,7 @@ class TransferFormOriginGatingTest extends TestCase
             ->test(TransferStockForm::class)
             ->call('onOriginLocationSelected', ['id' => $this->origin->id])
             ->call('onDestinationLocationSelected', ['id' => $this->destination->id])
-            ->set('stockCondition', Transfer::CONDITION_GOOD)
+            ->call('selectStockCondition', Transfer::CONDITION_GOOD)
             ->set('rows', [$this->sampleRow()]);
 
         $livewire->call('selectStockCondition', Transfer::CONDITION_BREAKAGE);

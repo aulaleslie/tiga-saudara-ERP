@@ -119,24 +119,11 @@ class TransferStockConditionImmutabilityTest extends TestCase
     {
         $transfer = $this->makeDraft(Transfer::CONDITION_GOOD);
 
-        Livewire::actingAs($this->user)
-            ->test(TransferStockForm::class, ['transfer' => $transfer])
-            ->set('stockCondition', Transfer::CONDITION_BREAKAGE)
-            ->set('rows', [[
-                'id' => $this->product->id,
-                'quantity_tax' => 0,
-                'quantity_non_tax' => 0,
-                'broken_quantity_tax' => 0,
-                'broken_quantity_non_tax' => 1,
-                'stock' => [
-                    'quantity_tax' => 4,
-                    'quantity_non_tax' => 6,
-                    'broken_quantity_tax' => 0,
-                    'broken_quantity_non_tax' => 0,
-                ],
-            ]])
-            ->call('saveDraft');
+        $component = Livewire::actingAs($this->user)
+            ->test(TransferStockForm::class, ['transfer' => $transfer]);
 
-        $this->assertEquals(Transfer::CONDITION_GOOD, $transfer->fresh()->stock_condition);
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Cannot update locked property: [stockCondition]');
+        $component->set('stockCondition', Transfer::CONDITION_BREAKAGE);
     }
 }

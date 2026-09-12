@@ -93,7 +93,7 @@ class TransferFormPermissionBoundaryTest extends TestCase
         Livewire::actingAs($this->user)
             ->test(TransferStockForm::class)
             ->call('onOriginLocationSelected', ['id' => $this->origin->id])
-            ->set('stockCondition', Transfer::CONDITION_GOOD)
+            ->call('selectStockCondition', Transfer::CONDITION_GOOD)
             ->set('rows', [$this->sampleRow()])
             ->call('saveDraft')
             ->assertForbidden();
@@ -109,7 +109,7 @@ class TransferFormPermissionBoundaryTest extends TestCase
         Livewire::actingAs($this->user)
             ->test(TransferStockForm::class)
             ->call('onOriginLocationSelected', ['id' => $this->origin->id])
-            ->set('stockCondition', Transfer::CONDITION_GOOD)
+            ->call('selectStockCondition', Transfer::CONDITION_GOOD)
             ->set('rows', [$this->sampleRow()])
             ->call('saveDraft')
             ->assertHasNoErrors();

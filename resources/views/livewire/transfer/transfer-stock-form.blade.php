@@ -144,11 +144,6 @@
                     Silakan pilih Lokasi Asal terlebih dahulu untuk mulai memasukkan produk.
                 </div>
             @endif
-            <livewire:transfer.search-product
-                :locationId="$originLocation"
-                :stockCondition="$stockCondition"
-                wire:key="search-product-{{ $originLocation ?? 'none' }}"
-            />
 
             @if(!empty($selfManagedValidationErrors['rows']))
                 <div class="alert alert-danger">
