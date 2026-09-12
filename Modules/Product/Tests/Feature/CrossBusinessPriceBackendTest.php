@@ -566,5 +566,657 @@ class CrossBusinessPriceBackendTest extends TestCase
         $this->assertNotNull($price2);
         $this->assertEquals(135000, (float) $price2->sale_price);
     }
+
+    public function test_bundle_matrix_loads_grouped_bundles_and_preserves_missing_copy_cells()
+    {
+        $groupUuid1 = (string) \Illuminate\Support\Str::uuid();
+        $groupUuid2 = (string) \Illuminate\Support\Str::uuid();
+
+        // Bundle in group 1 for Setting 1
+        $bundle1A = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'setting_id' => 1,
+            'replica_group_uuid' => $groupUuid1,
+            'name' => 'Paket A',
+            'bundle_sale_price' => 50000,
+            'is_active' => true,
+        ]);
+
+        // Bundle in group 1 for Setting 2 (has different name to test differing-name detection)
+        $bundle1B = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'setting_id' => 2,
+            'replica_group_uuid' => $groupUuid1,
+            'name' => 'Paket A Bisnis B',
+            'bundle_sale_price' => 55000,
+            'is_active' => true,
+        ]);
+
+        // Bundle in group 2 for Setting 1 only (Setting 2 missing!)
+        $bundle2A = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'setting_id' => 1,
+            'replica_group_uuid' => $groupUuid2,
+            'name' => 'Paket B Inactive',
+            'bundle_sale_price' => 75000,
+            'is_active' => false,
+        ]);
+
+        // Unrelated product bundle should be excluded
+        $otherProduct = app(\Modules\Product\Services\ProductCreator::class)->create([
+            'product_name' => 'Other Product',
+            'product_code' => 'OTHER-001',
+            'base_unit_id' => $this->product->base_unit_id,
+        ]);
+        \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $otherProduct->id,
+            'setting_id' => 1,
+            'replica_group_uuid' => (string) \Illuminate\Support\Str::uuid(),
+            'name' => 'Paket Other',
+            'bundle_sale_price' => 99000,
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+        $bundlesData = $response->original->getData()['bundlesData'];
+
+        $this->assertCount(2, $bundlesData['headers']);
+
+        // Header 1 has different names across businesses
+        $header1 = collect($bundlesData['headers'])->firstWhere('replica_group_uuid', $groupUuid1);
+        $this->assertNotNull($header1);
+        $this->assertTrue($header1['has_different_names']);
+
+        // Check matrix rows
+        $this->assertCount(2, $bundlesData['matrix']);
+        $row1 = collect($bundlesData['matrix'])->firstWhere('setting_id', 1);
+        $row2 = collect($bundlesData['matrix'])->firstWhere('setting_id', 2);
+
+        // Setting 1 has both bundles existing
+        $cell1A = collect($row1['bundles'])->firstWhere('replica_group_uuid', $groupUuid1);
+        $this->assertTrue($cell1A['is_existing']);
+        $this->assertEquals(50000, $cell1A['price']);
+
+        $cell2A = collect($row1['bundles'])->firstWhere('replica_group_uuid', $groupUuid2);
+        $this->assertTrue($cell2A['is_existing']);
+        $this->assertEquals(75000, $cell2A['price']);
+        $this->assertFalse($cell2A['is_active']); // inactive bundle
+
+        // Setting 2 has group 1 existing, group 2 missing
+        $cell1B = collect($row2['bundles'])->firstWhere('replica_group_uuid', $groupUuid1);
+        $this->assertTrue($cell1B['is_existing']);
+        $this->assertEquals(55000, $cell1B['price']);
+
+        $cell2B = collect($row2['bundles'])->firstWhere('replica_group_uuid', $groupUuid2);
+        $this->assertFalse($cell2B['is_existing']);
+        $this->assertNull($cell2B['bundle_id']);
+    }
+
+    public function test_combined_save_persists_bundle_prices_and_emits_changed_only_feed_events()
+    {
+        $groupUuid = (string) \Illuminate\Support\Str::uuid();
+
+        $bundleA = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'setting_id' => 1,
+            'replica_group_uuid' => $groupUuid,
+            'name' => 'Paket Combo',
+            'description' => 'Original description',
+            'bundle_sale_price' => 40000,
+            'is_active' => true,
+        ]);
+
+        $bundleB = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'setting_id' => 2,
+            'replica_group_uuid' => $groupUuid,
+            'name' => 'Paket Combo',
+            'description' => 'Original description B',
+            'bundle_sale_price' => 45000,
+            'is_active' => true,
+        ]);
+
+        $service = app(\Modules\Product\Services\CrossBusinessPriceService::class);
+        $convSnapshot = $service->generateConversionSnapshot($this->product);
+        $bundleSnapshot = $service->generateBundleSnapshot($this->product);
+
+        // Initialize base prices for setting 1 and 2 with the same values so base price is unchanged in this test
+        $p1 = ProductPrice::create(['product_id' => $this->product->id, 'setting_id' => 1, 'sale_price' => 100, 'tier_1_price' => 90, 'tier_2_price' => 80, 'last_purchase_price' => 50, 'average_purchase_price' => 0]);
+        $p2 = ProductPrice::create(['product_id' => $this->product->id, 'setting_id' => 2, 'sale_price' => 110, 'tier_1_price' => 95, 'tier_2_price' => 85, 'last_purchase_price' => 55, 'average_purchase_price' => 0]);
+
+        $payload = [
+            'prices' => [
+                ['setting_id' => 1, 'sale_price' => 120, 'tier_1_price' => 90, 'tier_2_price' => 80, 'last_purchase_price' => 50, 'version' => $p1->updated_at->format('Y-m-d H:i:s.u')],
+                ['setting_id' => 2, 'sale_price' => 110, 'tier_1_price' => 95, 'tier_2_price' => 85, 'last_purchase_price' => 55, 'version' => $p2->updated_at->format('Y-m-d H:i:s.u')],
+            ],
+            'conversions' => [],
+            'conversion_snapshot' => $convSnapshot['data'],
+            'conversion_snapshot_signature' => $convSnapshot['signature'],
+            'bundles' => [
+                [
+                    'bundle_id' => $bundleA->id,
+                    'setting_id' => 1,
+                    'replica_group_uuid' => $groupUuid,
+                    'bundle_sale_price' => 42000, // Changed from 40000 -> 42000
+                    'version' => $bundleA->updated_at->format('Y-m-d H:i:s.u'),
+                ],
+                [
+                    'bundle_id' => $bundleB->id,
+                    'setting_id' => 2,
+                    'replica_group_uuid' => $groupUuid,
+                    'bundle_sale_price' => 45000, // UNCHANGED (45000 == 45000)
+                    'version' => $bundleB->updated_at->format('Y-m-d H:i:s.u'),
+                ],
+            ],
+            'bundle_snapshot' => $bundleSnapshot['data'],
+            'bundle_snapshot_signature' => $bundleSnapshot['signature'],
+        ];
+
+        $bundleAInitialUpdatedAt = $bundleA->updated_at;
+        $bundleBInitialUpdatedAt = $bundleB->updated_at;
+
+        // Sleep briefly to ensure any timestamp change would be distinct
+        usleep(100000);
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update', $this->product), $payload);
+
+        if ($response->getSession()->has('error')) {
+            $this->fail("PUT failed with session error: " . $response->getSession()->get('error'));
+        }
+        if ($response->getSession()->has('errors')) {
+            $this->fail("PUT failed with validation errors: " . json_encode($response->getSession()->get('errors')->all()));
+        }
+
+        $response->assertRedirect(route('products.cross-business-prices.edit', $this->product))
+            ->assertSessionHas('success');
+
+        $bundleA->refresh();
+        $bundleB->refresh();
+
+        $this->assertEquals(42000, (float) $bundleA->bundle_sale_price);
+        $this->assertEquals('ORIGINAL DESCRIPTION', $bundleA->description); // Preserved metadata (BaseModel uppercased)!
+        $this->assertEquals(45000, (float) $bundleB->bundle_sale_price);
+
+        // Unchanged bundle must NOT have its timestamp advanced!
+        $this->assertEquals(
+            $bundleBInitialUpdatedAt->format('Y-m-d H:i:s.u'),
+            $bundleB->updated_at->format('Y-m-d H:i:s.u'),
+            "Unchanged bundle timestamp should not be updated"
+        );
+
+        // Verify Price Feed Events
+        $productEvent = \Modules\Product\Entities\ProductPriceFeedEvent::where('event_type', \Modules\Product\Entities\ProductPriceFeedEvent::TYPE_PRODUCT_PRICE_UPDATED)
+            ->latest('id')
+            ->first();
+        $this->assertNotNull($productEvent);
+        $this->assertNotEmpty($productEvent->operation_uuid);
+
+        $bundleEvent = \Modules\Product\Entities\ProductPriceFeedEvent::where('event_type', \Modules\Product\Entities\ProductPriceFeedEvent::TYPE_BUNDLE_PRICE_UPDATED)
+            ->latest('id')
+            ->first();
+        $this->assertNotNull($bundleEvent);
+        $this->assertNotEmpty($bundleEvent->operation_uuid);
+
+        // Compare product-price and bundle-price events and assert identical operation_uuid values
+        $this->assertEquals(
+            $productEvent->operation_uuid,
+            $bundleEvent->operation_uuid,
+            'Product price event and bundle price event in the same combined save must share identical operation_uuid'
+        );
+
+        $snapshots = $bundleEvent->snapshots;
+
+        // Exactly 1 snapshot recorded because bundle B was unchanged!
+        $this->assertCount(1, $snapshots);
+        $this->assertEquals(1, $snapshots[0]->setting_id);
+        $this->assertEquals(['bundle_sale_price' => '40000.00'], $snapshots[0]->before_snapshot);
+        $this->assertEquals(['bundle_sale_price' => '42000.00'], $snapshots[0]->after_snapshot);
+    }
+
+    public function test_stale_bundle_price_or_structure_is_rejected()
+    {
+        $groupUuid = (string) \Illuminate\Support\Str::uuid();
+
+        $bundleA = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'setting_id' => 1,
+            'replica_group_uuid' => $groupUuid,
+            'name' => 'Paket Stale',
+            'bundle_sale_price' => 40000,
+            'is_active' => true,
+        ]);
+
+        $service = app(\Modules\Product\Services\CrossBusinessPriceService::class);
+        $convSnapshot = $service->generateConversionSnapshot($this->product);
+        $bundleSnapshot = $service->generateBundleSnapshot($this->product);
+
+        // Price modified concurrently in DB
+        $bundleA->update(['bundle_sale_price' => 48000]);
+
+        $payload = [
+            'prices' => [
+                ['setting_id' => 1, 'sale_price' => 100, 'tier_1_price' => 90, 'tier_2_price' => 80, 'last_purchase_price' => 50, 'version' => null],
+                ['setting_id' => 2, 'sale_price' => 110, 'tier_1_price' => 95, 'tier_2_price' => 85, 'last_purchase_price' => 55, 'version' => null],
+            ],
+            'conversions' => [],
+            'conversion_snapshot' => $convSnapshot['data'],
+            'conversion_snapshot_signature' => $convSnapshot['signature'],
+            'bundles' => [
+                [
+                    'bundle_id' => $bundleA->id,
+                    'setting_id' => 1,
+                    'replica_group_uuid' => $groupUuid,
+                    'bundle_sale_price' => 50000,
+                    'version' => '2020-01-01 00:00:00.000000', // Stale version
+                ],
+            ],
+            'bundle_snapshot' => $bundleSnapshot['data'],
+            'bundle_snapshot_signature' => $bundleSnapshot['signature'],
+        ];
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update', $this->product), $payload)
+            ->assertSessionHas('error', "Harga paket telah diperbarui oleh pengguna lain. Silakan muat ulang halaman.");
+    }
+
+    public function test_forged_or_unavailable_bundle_cell_submission_is_rejected()
+    {
+        $groupUuid = (string) \Illuminate\Support\Str::uuid();
+
+        $bundleA = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'setting_id' => 1,
+            'replica_group_uuid' => $groupUuid,
+            'name' => 'Paket Solo',
+            'bundle_sale_price' => 40000,
+            'is_active' => true,
+        ]);
+
+        $service = app(\Modules\Product\Services\CrossBusinessPriceService::class);
+        $convSnapshot = $service->generateConversionSnapshot($this->product);
+        $bundleSnapshot = $service->generateBundleSnapshot($this->product);
+
+        // Payload fabricates a bundle entry for Setting 2 which does not exist
+        $payload = [
+            'prices' => [
+                ['setting_id' => 1, 'sale_price' => 100, 'tier_1_price' => 90, 'tier_2_price' => 80, 'last_purchase_price' => 50, 'version' => null],
+                ['setting_id' => 2, 'sale_price' => 110, 'tier_1_price' => 95, 'tier_2_price' => 85, 'last_purchase_price' => 55, 'version' => null],
+            ],
+            'conversions' => [],
+            'conversion_snapshot' => $convSnapshot['data'],
+            'conversion_snapshot_signature' => $convSnapshot['signature'],
+            'bundles' => [
+                [
+                    'bundle_id' => $bundleA->id,
+                    'setting_id' => 1,
+                    'replica_group_uuid' => $groupUuid,
+                    'bundle_sale_price' => 40000,
+                    'version' => $bundleA->updated_at->format('Y-m-d H:i:s.u'),
+                ],
+                [
+                    'bundle_id' => 999999, // Fabricated bundle ID
+                    'setting_id' => 2,
+                    'replica_group_uuid' => $groupUuid,
+                    'bundle_sale_price' => 40000,
+                    'version' => null,
+                ],
+            ],
+            'bundle_snapshot' => $bundleSnapshot['data'],
+            'bundle_snapshot_signature' => $bundleSnapshot['signature'],
+        ];
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update', $this->product), $payload)
+            ->assertSessionHasErrors(['bundles.1.bundle_id']);
+    }
+
+    public function test_duplicate_submitted_bundle_or_setting_group_is_rejected()
+    {
+        $groupUuid = (string) \Illuminate\Support\Str::uuid();
+
+        $bundleA = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'setting_id' => 1,
+            'replica_group_uuid' => $groupUuid,
+            'name' => 'Paket Duplikat',
+            'bundle_sale_price' => 40000,
+            'is_active' => true,
+        ]);
+
+        $service = app(\Modules\Product\Services\CrossBusinessPriceService::class);
+        $convSnapshot = $service->generateConversionSnapshot($this->product);
+        $bundleSnapshot = $service->generateBundleSnapshot($this->product);
+
+        $payload = [
+            'prices' => [
+                ['setting_id' => 1, 'sale_price' => 100, 'tier_1_price' => 90, 'tier_2_price' => 80, 'last_purchase_price' => 50, 'version' => null],
+                ['setting_id' => 2, 'sale_price' => 110, 'tier_1_price' => 95, 'tier_2_price' => 85, 'last_purchase_price' => 55, 'version' => null],
+            ],
+            'conversions' => [],
+            'conversion_snapshot' => $convSnapshot['data'],
+            'conversion_snapshot_signature' => $convSnapshot['signature'],
+            'bundles' => [
+                [
+                    'bundle_id' => $bundleA->id,
+                    'setting_id' => 1,
+                    'replica_group_uuid' => $groupUuid,
+                    'bundle_sale_price' => 40000,
+                    'version' => $bundleA->updated_at->format('Y-m-d H:i:s.u'),
+                ],
+                [
+                    'bundle_id' => $bundleA->id, // DUPLICATE bundle ID
+                    'setting_id' => 1,
+                    'replica_group_uuid' => $groupUuid,
+                    'bundle_sale_price' => 45000,
+                    'version' => $bundleA->updated_at->format('Y-m-d H:i:s.u'),
+                ],
+            ],
+            'bundle_snapshot' => $bundleSnapshot['data'],
+            'bundle_snapshot_signature' => $bundleSnapshot['signature'],
+        ];
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update', $this->product), $payload)
+            ->assertSessionHasErrors(['bundles.1.bundle_id', 'bundles.1.replica_group_uuid']);
+    }
+
+    public function test_missing_submitted_existing_bundle_cell_is_rejected()
+    {
+        $groupUuid = (string) \Illuminate\Support\Str::uuid();
+
+        $bundleA = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'setting_id' => 1,
+            'replica_group_uuid' => $groupUuid,
+            'name' => 'Paket A',
+            'bundle_sale_price' => 40000,
+            'is_active' => true,
+        ]);
+
+        $bundleB = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'setting_id' => 2,
+            'replica_group_uuid' => $groupUuid,
+            'name' => 'Paket B',
+            'bundle_sale_price' => 45000,
+            'is_active' => true,
+        ]);
+
+        $service = app(\Modules\Product\Services\CrossBusinessPriceService::class);
+        $convSnapshot = $service->generateConversionSnapshot($this->product);
+        $bundleSnapshot = $service->generateBundleSnapshot($this->product);
+
+        // Submitting only bundle A while bundle B is omitted from the submission
+        $payload = [
+            'prices' => [
+                ['setting_id' => 1, 'sale_price' => 100, 'tier_1_price' => 90, 'tier_2_price' => 80, 'last_purchase_price' => 50, 'version' => null],
+                ['setting_id' => 2, 'sale_price' => 110, 'tier_1_price' => 95, 'tier_2_price' => 85, 'last_purchase_price' => 55, 'version' => null],
+            ],
+            'conversions' => [],
+            'conversion_snapshot' => $convSnapshot['data'],
+            'conversion_snapshot_signature' => $convSnapshot['signature'],
+            'bundles' => [
+                [
+                    'bundle_id' => $bundleA->id,
+                    'setting_id' => 1,
+                    'replica_group_uuid' => $groupUuid,
+                    'bundle_sale_price' => 42000,
+                    'version' => $bundleA->updated_at->format('Y-m-d H:i:s.u'),
+                ],
+            ],
+            'bundle_snapshot' => $bundleSnapshot['data'],
+            'bundle_snapshot_signature' => $bundleSnapshot['signature'],
+        ];
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update', $this->product), $payload)
+            ->assertSessionHas('error', "Data harga paket yang dikirimkan tidak lengkap atau berlebih.");
+    }
+
+    public function test_tampered_bundle_snapshot_is_rejected()
+    {
+        $groupUuid = (string) \Illuminate\Support\Str::uuid();
+
+        $bundleA = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'setting_id' => 1,
+            'replica_group_uuid' => $groupUuid,
+            'name' => 'Paket Tamper',
+            'bundle_sale_price' => 40000,
+            'is_active' => true,
+        ]);
+
+        $service = app(\Modules\Product\Services\CrossBusinessPriceService::class);
+        $convSnapshot = $service->generateConversionSnapshot($this->product);
+        $bundleSnapshot = $service->generateBundleSnapshot($this->product);
+
+        // Tamper snapshot data
+        $tamperedData = base64_encode(json_encode(['product_id' => 99999]));
+
+        $payload = [
+            'prices' => [
+                ['setting_id' => 1, 'sale_price' => 100, 'tier_1_price' => 90, 'tier_2_price' => 80, 'last_purchase_price' => 50, 'version' => null],
+                ['setting_id' => 2, 'sale_price' => 110, 'tier_1_price' => 95, 'tier_2_price' => 85, 'last_purchase_price' => 55, 'version' => null],
+            ],
+            'conversions' => [],
+            'conversion_snapshot' => $convSnapshot['data'],
+            'conversion_snapshot_signature' => $convSnapshot['signature'],
+            'bundles' => [
+                [
+                    'bundle_id' => $bundleA->id,
+                    'setting_id' => 1,
+                    'replica_group_uuid' => $groupUuid,
+                    'bundle_sale_price' => 42000,
+                    'version' => $bundleA->updated_at->format('Y-m-d H:i:s.u'),
+                ],
+            ],
+            'bundle_snapshot' => $tamperedData,
+            'bundle_snapshot_signature' => $bundleSnapshot['signature'],
+        ];
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update', $this->product), $payload)
+            ->assertSessionHas('error', "Bukti data harga paket telah diubah atau tidak valid. Silakan muat ulang halaman.");
+    }
+
+    public function test_atomic_rollback_across_base_conversion_and_bundle_on_bundle_failure()
+    {
+        $boxUnit = \Modules\Setting\Entities\Unit::firstOrCreate(['name' => 'KOTAK', 'short_name' => 'KTK']);
+        $conv = \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $this->product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $this->product->base_unit_id,
+            'conversion_factor' => 12,
+        ]);
+        $convPrice1 = \Modules\Product\Entities\ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $conv->id,
+            'setting_id' => 1,
+            'price' => 20000,
+        ]);
+
+        $groupUuid = (string) \Illuminate\Support\Str::uuid();
+        $bundleA = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'setting_id' => 1,
+            'replica_group_uuid' => $groupUuid,
+            'name' => 'Paket Rollback',
+            'bundle_sale_price' => 40000,
+            'is_active' => true,
+        ]);
+
+        $service = app(\Modules\Product\Services\CrossBusinessPriceService::class);
+        $convSnapshot = $service->generateConversionSnapshot($this->product);
+        $bundleSnapshot = $service->generateBundleSnapshot($this->product);
+
+        // Initial base price row for setting 1
+        $basePrice1 = \Modules\Product\Entities\ProductPrice::create([
+            'product_id' => $this->product->id,
+            'setting_id' => 1,
+            'sale_price' => 1000,
+            'tier_1_price' => 900,
+            'tier_2_price' => 800,
+            'last_purchase_price' => 500,
+        ]);
+
+        // Mock ProductPriceFeedRecorder to throw an exception during recording (after conversion, bundle, and base updates have executed)
+        $mockRecorder = $this->mock(\Modules\Product\Services\ProductPriceFeedRecorder::class);
+        $mockRecorder->shouldReceive('record')
+            ->andThrow(new \Exception("Simulated Feed Recorder Failure"));
+
+        // Payload updates conversion price (20000->99000), bundle price (40000->88000), and base price (1000->5000)
+        $payload = [
+            'prices' => [
+                ['setting_id' => 1, 'sale_price' => 5000, 'tier_1_price' => 4500, 'tier_2_price' => 4000, 'last_purchase_price' => 2500, 'version' => $basePrice1->updated_at->format('Y-m-d H:i:s.u')],
+                ['setting_id' => 2, 'sale_price' => 110, 'tier_1_price' => 95, 'tier_2_price' => 85, 'last_purchase_price' => 55, 'version' => null],
+            ],
+            'conversions' => [
+                ['setting_id' => 1, 'conversion_id' => $conv->id, 'price' => '99000.00', 'version' => $convPrice1->updated_at->format('Y-m-d H:i:s.u')],
+                ['setting_id' => 2, 'conversion_id' => $conv->id, 'price' => '', 'version' => null],
+            ],
+            'conversion_snapshot' => $convSnapshot['data'],
+            'conversion_snapshot_signature' => $convSnapshot['signature'],
+            'bundles' => [
+                [
+                    'bundle_id' => $bundleA->id,
+                    'setting_id' => 1,
+                    'replica_group_uuid' => $groupUuid,
+                    'bundle_sale_price' => 88000,
+                    'version' => $bundleA->updated_at->format('Y-m-d H:i:s.u'),
+                ],
+            ],
+            'bundle_snapshot' => $bundleSnapshot['data'],
+            'bundle_snapshot_signature' => $bundleSnapshot['signature'],
+        ];
+
+        $initialFeedCount = \Modules\Product\Entities\ProductPriceFeedEvent::count();
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update', $this->product), $payload)
+            ->assertSessionHas('error', "Simulated Feed Recorder Failure");
+
+        // Verify base price was rolled back
+        $this->assertEquals(1000, (float) $basePrice1->fresh()->sale_price);
+
+        // Verify conversion price was rolled back
+        $this->assertEquals(20000, (float) $convPrice1->fresh()->price);
+
+        // Verify bundle price was rolled back
+        $this->assertEquals(40000, (float) $bundleA->fresh()->bundle_sale_price);
+
+        // Verify no feed event was recorded
+        $this->assertEquals($initialFeedCount, \Modules\Product\Entities\ProductPriceFeedEvent::count());
+    }
+
+    public function test_explicit_zero_bundle_price_versus_missing_copy_semantics()
+    {
+        $groupUuid = (string) \Illuminate\Support\Str::uuid();
+
+        // Bundle A in Setting 1 has price 0 (explicit zero)
+        $bundleA = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'setting_id' => 1,
+            'replica_group_uuid' => $groupUuid,
+            'name' => 'Paket Promo Gratis',
+            'bundle_sale_price' => 0.00,
+            'is_active' => true,
+        ]);
+
+        // Setting 2 is missing (no bundle copy exists)
+        $service = app(\Modules\Product\Services\CrossBusinessPriceService::class);
+        $bundlesData = $service->loadBundlePricesForProduct($this->product);
+
+        $row1 = collect($bundlesData['matrix'])->firstWhere('setting_id', 1);
+        $row2 = collect($bundlesData['matrix'])->firstWhere('setting_id', 2);
+
+        $cell1 = collect($row1['bundles'])->firstWhere('replica_group_uuid', $groupUuid);
+        $cell2 = collect($row2['bundles'])->firstWhere('replica_group_uuid', $groupUuid);
+
+        // Cell 1 exists with price 0
+        $this->assertTrue($cell1['is_existing']);
+        $this->assertEquals(0, $cell1['price']);
+        $this->assertNotNull($cell1['bundle_id']);
+
+        // Cell 2 is missing
+        $this->assertFalse($cell2['is_existing']);
+        $this->assertNull($cell2['price']);
+        $this->assertNull($cell2['bundle_id']);
+
+        // Save explicitly maintaining 0
+        $convSnapshot = $service->generateConversionSnapshot($this->product);
+        $bundleSnapshot = $service->generateBundleSnapshot($this->product);
+
+        $payload = [
+            'prices' => [
+                ['setting_id' => 1, 'sale_price' => 100, 'tier_1_price' => 90, 'tier_2_price' => 80, 'last_purchase_price' => 50, 'version' => null],
+                ['setting_id' => 2, 'sale_price' => 110, 'tier_1_price' => 95, 'tier_2_price' => 85, 'last_purchase_price' => 55, 'version' => null],
+            ],
+            'conversions' => [],
+            'conversion_snapshot' => $convSnapshot['data'],
+            'conversion_snapshot_signature' => $convSnapshot['signature'],
+            'bundles' => [
+                [
+                    'bundle_id' => $bundleA->id,
+                    'setting_id' => 1,
+                    'replica_group_uuid' => $groupUuid,
+                    'bundle_sale_price' => 0,
+                    'version' => $bundleA->updated_at->format('Y-m-d H:i:s.u'),
+                ],
+            ],
+            'bundle_snapshot' => $bundleSnapshot['data'],
+            'bundle_snapshot_signature' => $bundleSnapshot['signature'],
+        ];
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update', $this->product), $payload)
+            ->assertRedirect(route('products.cross-business-prices.edit', $this->product))
+            ->assertSessionHas('success');
+
+        $this->assertEquals(0, (float) $bundleA->fresh()->bundle_sale_price);
+
+        // Setting 2 must STILL have no bundle copy created
+        $this->assertNull(\Modules\Product\Entities\ProductBundle::where('parent_product_id', $this->product->id)->where('setting_id', 2)->first());
+    }
+
+    public function test_null_or_empty_replica_group_uuid_bundles_are_excluded()
+    {
+        // Null replica_group_uuid bundle
+        \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'setting_id' => 1,
+            'replica_group_uuid' => null,
+            'name' => 'Paket Null Lineage',
+            'bundle_sale_price' => 30000,
+            'is_active' => true,
+        ]);
+
+        // Empty string replica_group_uuid bundle
+        \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'setting_id' => 1,
+            'replica_group_uuid' => '',
+            'name' => 'Paket Empty Lineage',
+            'bundle_sale_price' => 35000,
+            'is_active' => true,
+        ]);
+
+        $service = app(\Modules\Product\Services\CrossBusinessPriceService::class);
+        $bundlesData = $service->loadBundlePricesForProduct($this->product);
+
+        $this->assertEmpty($bundlesData['headers']);
+        $this->assertEmpty($bundlesData['matrix']);
+    }
 }
 

@@ -21,6 +21,14 @@ class ProductBundle extends BaseModel
         'replica_group_uuid' => 'string',
     ];
 
+    protected function shouldUppercase(string $key): bool
+    {
+        if (in_array($key, ['replica_group_uuid']) || \Illuminate\Support\Str::is('*uuid*', $key)) {
+            return false;
+        }
+        return parent::shouldUppercase($key);
+    }
+
     /**
      * The parent product for this bundle.
      */

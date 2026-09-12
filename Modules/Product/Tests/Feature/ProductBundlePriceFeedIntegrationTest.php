@@ -8,6 +8,7 @@ use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductBundle;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductPriceFeedEvent;
+use Modules\Product\Services\CrossBusinessPriceService;
 use Modules\Setting\Entities\Setting;
 use Tests\TestCase;
 
@@ -144,5 +145,96 @@ class ProductBundlePriceFeedIntegrationTest extends TestCase
         $this->assertCount(1, $updateEvent->snapshots);
         $this->assertEquals(['bundle_sale_price' => 20000.0], $updateEvent->snapshots->first()->before_snapshot);
         $this->assertEquals(['bundle_sale_price' => 22000.0], $updateEvent->snapshots->first()->after_snapshot);
+    }
+
+    public function test_cross_business_bundle_price_update_shares_operation_uuid_across_groups(): void
+    {
+        $groupUuid1 = (string) \Illuminate\Support\Str::uuid();
+        $groupUuid2 = (string) \Illuminate\Support\Str::uuid();
+
+        // Group 1 bundle copies
+        $bundle1A = ProductBundle::create([
+            'parent_product_id' => $this->parentProduct->id,
+            'setting_id' => $this->settingA->id,
+            'replica_group_uuid' => $groupUuid1,
+            'name' => 'Bundle Group 1',
+            'bundle_sale_price' => 30000,
+            'is_active' => true,
+        ]);
+        $bundle1B = ProductBundle::create([
+            'parent_product_id' => $this->parentProduct->id,
+            'setting_id' => $this->settingB->id,
+            'replica_group_uuid' => $groupUuid1,
+            'name' => 'Bundle Group 1',
+            'bundle_sale_price' => 32000,
+            'is_active' => true,
+        ]);
+
+        // Group 2 bundle copies
+        $bundle2A = ProductBundle::create([
+            'parent_product_id' => $this->parentProduct->id,
+            'setting_id' => $this->settingA->id,
+            'replica_group_uuid' => $groupUuid2,
+            'name' => 'Bundle Group 2',
+            'bundle_sale_price' => 50000,
+            'is_active' => true,
+        ]);
+        $bundle2B = ProductBundle::create([
+            'parent_product_id' => $this->parentProduct->id,
+            'setting_id' => $this->settingB->id,
+            'replica_group_uuid' => $groupUuid2,
+            'name' => 'Bundle Group 2',
+            'bundle_sale_price' => 52000,
+            'is_active' => true,
+        ]);
+
+        $service = app(CrossBusinessPriceService::class);
+        $convSnapshot = $service->generateConversionSnapshot($this->parentProduct);
+        $bundleSnapshot = $service->generateBundleSnapshot($this->parentProduct);
+
+        $payload = [
+            'prices' => [
+                ['setting_id' => $this->settingA->id, 'sale_price' => 10000, 'tier_1_price' => 9000, 'tier_2_price' => 8000, 'last_purchase_price' => 5000, 'version' => null],
+                ['setting_id' => $this->settingB->id, 'sale_price' => 11000, 'tier_1_price' => 9500, 'tier_2_price' => 8500, 'last_purchase_price' => 5500, 'version' => null],
+            ],
+            'conversions' => [],
+            'conversion_snapshot' => $convSnapshot['data'],
+            'conversion_snapshot_signature' => $convSnapshot['signature'],
+            'bundles' => [
+                ['bundle_id' => $bundle1A->id, 'setting_id' => $this->settingA->id, 'replica_group_uuid' => $groupUuid1, 'bundle_sale_price' => 35000, 'version' => $bundle1A->updated_at->format('Y-m-d H:i:s.u')],
+                ['bundle_id' => $bundle1B->id, 'setting_id' => $this->settingB->id, 'replica_group_uuid' => $groupUuid1, 'bundle_sale_price' => 36000, 'version' => $bundle1B->updated_at->format('Y-m-d H:i:s.u')],
+                ['bundle_id' => $bundle2A->id, 'setting_id' => $this->settingA->id, 'replica_group_uuid' => $groupUuid2, 'bundle_sale_price' => 55000, 'version' => $bundle2A->updated_at->format('Y-m-d H:i:s.u')],
+                ['bundle_id' => $bundle2B->id, 'setting_id' => $this->settingB->id, 'replica_group_uuid' => $groupUuid2, 'bundle_sale_price' => 56000, 'version' => $bundle2B->updated_at->format('Y-m-d H:i:s.u')],
+            ],
+            'bundle_snapshot' => $bundleSnapshot['data'],
+            'bundle_snapshot_signature' => $bundleSnapshot['signature'],
+        ];
+
+        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+        $perm = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'products.manage_cross_business_prices', 'guard_name' => 'web']);
+        $this->user->givePermissionTo($perm);
+        $this->user->load('permissions');
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->settingA->id])
+            ->put(route('products.cross-business-prices.update', $this->parentProduct->id), $payload);
+
+        if ($response->getSession()->has('error')) {
+            $this->fail("PUT failed with session error: " . $response->getSession()->get('error'));
+        }
+        if ($response->getSession()->has('errors')) {
+            $this->fail("PUT failed with validation errors: " . json_encode($response->getSession()->get('errors')->all()));
+        }
+
+        $response->assertRedirect(route('products.cross-business-prices.edit', $this->parentProduct->id));
+        $response->assertSessionHas('success');
+
+        $feedEvents = ProductPriceFeedEvent::where('event_type', ProductPriceFeedEvent::TYPE_BUNDLE_PRICE_UPDATED)
+            ->whereIn('subject_id', [$bundle1A->id, $bundle2A->id])
+            ->get();
+
+        $this->assertCount(2, $feedEvents);
+        $this->assertNotEmpty($feedEvents[0]->operation_uuid);
+        $this->assertEquals($feedEvents[0]->operation_uuid, $feedEvents[1]->operation_uuid, 'Both bundle groups must share the exact same operation UUID from the combined save');
     }
 }

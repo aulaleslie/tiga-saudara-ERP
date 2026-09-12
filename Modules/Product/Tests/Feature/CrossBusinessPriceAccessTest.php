@@ -71,7 +71,10 @@ class CrossBusinessPriceAccessTest extends TestCase
         $response = $this->actingAs($this->unauthorizedUser)
             ->withSession(['setting_id' => 1])
             ->put(route('products.cross-business-prices.update', $this->product), [
-                'prices' => []
+                'prices' => [],
+                'bundles' => [
+                    ['bundle_id' => 1, 'setting_id' => 1, 'bundle_sale_price' => 50000],
+                ],
             ]);
             
         $response->assertForbidden();

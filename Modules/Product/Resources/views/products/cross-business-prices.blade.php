@@ -29,6 +29,15 @@
             @csrf
             @method('PUT')
 
+            <div class="row mb-3">
+                <div class="col-12">
+                    <h1 class="h3 mb-1 text-break">Kelola Harga Multi-Bisnis: {{ $product->product_name }}</h1>
+                    @if(!empty($product->product_code))
+                        <div class="text-muted small text-break">{{ $product->product_code }}</div>
+                    @endif
+                </div>
+            </div>
+
             <div class="row">
                 <div class="col-lg-12">
                     <div class="form-group d-flex justify-content-between">
@@ -67,6 +76,10 @@
                 @if(!empty($conversionSnapshot))
                     <input type="hidden" name="conversion_snapshot" value="{{ $conversionSnapshot['data'] ?? '' }}">
                     <input type="hidden" name="conversion_snapshot_signature" value="{{ $conversionSnapshot['signature'] ?? '' }}">
+                @endif
+                @if(!empty($bundleSnapshot))
+                    <input type="hidden" name="bundle_snapshot" value="{{ $bundleSnapshot['data'] ?? '' }}">
+                    <input type="hidden" name="bundle_snapshot_signature" value="{{ $bundleSnapshot['signature'] ?? '' }}">
                 @endif
 
                 <!-- Section 1: Harga Satuan Dasar -->
@@ -141,7 +154,7 @@
                 </div>
 
                 <!-- Section 2: Harga Satuan Konversi -->
-                <div class="col-lg-12">
+                <div class="col-lg-12 mb-4">
                     <div class="card">
                         <div class="card-header bg-light">
                             <h5 class="mb-0 font-weight-bold">Harga Satuan Konversi</h5>
@@ -222,6 +235,112 @@
                                                             </div>
                                                         </td>
                                                         @php $convCellIndex++; @endphp
+                                                    @endforeach
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            @endif
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 3: Harga Paket -->
+                <div class="col-lg-12">
+                    <div class="card">
+                        <div class="card-header bg-light">
+                            <h5 class="mb-0 font-weight-bold">Harga Paket</h5>
+                        </div>
+                        <div class="card-body">
+                            @if(empty($bundlesData['headers']))
+                                <div class="alert alert-info mb-0">
+                                    <i class="bi bi-info-circle"></i> Produk ini belum memiliki grup paket yang terdaftar.
+                                </div>
+                            @else
+                                <div class="table-responsive">
+                                    <table class="table table-bordered">
+                                        <thead>
+                                            <tr>
+                                                <th>Bisnis</th>
+                                                @foreach($bundlesData['headers'] as $bHeader)
+                                                    <th>
+                                                        <div>{{ $bHeader['representative_name'] }} (Rp)</div>
+                                                        @if(!empty($bHeader['has_different_names']))
+                                                            <div class="text-muted small font-weight-normal" title="Nama paket berbeda di beberapa bisnis">
+                                                                <i class="bi bi-info-circle"></i> Nama paket berbeda di beberapa bisnis
+                                                            </div>
+                                                        @endif
+                                                    </th>
+                                                @endforeach
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @php
+                                                $bundleCellIndex = 0;
+                                                $oldBundles = old('bundles');
+                                                $oldBundleMap = null;
+                                                if (is_array($oldBundles)) {
+                                                    $oldBundleMap = [];
+                                                    foreach ($oldBundles as $oldItem) {
+                                                        if (is_array($oldItem) && isset($oldItem['bundle_id'])) {
+                                                            $oldBundleMap[$oldItem['bundle_id']] = $oldItem['bundle_sale_price'] ?? '';
+                                                        }
+                                                    }
+                                                }
+                                            @endphp
+                                            @foreach($bundlesData['matrix'] as $bRowIndex => $bRow)
+                                                <tr>
+                                                    <td>{{ $bRow['business_name'] ?? 'Setting ' . $bRow['setting_id'] }}</td>
+                                                    @foreach($bRow['bundles'] as $bColIndex => $bCell)
+                                                        @if($bCell['is_existing'])
+                                                            @php
+                                                                $bId = $bCell['bundle_id'];
+                                                                if ($oldBundleMap !== null && array_key_exists($bId, $oldBundleMap)) {
+                                                                    $currentBundlePriceVal = $oldBundleMap[$bId];
+                                                                } else {
+                                                                    $currentBundlePriceVal = $bCell['canonical_price'];
+                                                                }
+                                                                $bundleDisplayVal = $currentBundlePriceVal !== '' ? $formatDecimalDisplay($currentBundlePriceVal) : '';
+                                                            @endphp
+                                                            <td>
+                                                                <input type="hidden" name="bundles[{{ $bundleCellIndex }}][bundle_id]" value="{{ $bCell['bundle_id'] }}">
+                                                                <input type="hidden" name="bundles[{{ $bundleCellIndex }}][setting_id]" value="{{ $bRow['setting_id'] }}">
+                                                                <input type="hidden" name="bundles[{{ $bundleCellIndex }}][replica_group_uuid]" value="{{ $bCell['replica_group_uuid'] }}">
+                                                                <input type="hidden" name="bundles[{{ $bundleCellIndex }}][version]" value="{{ $bCell['version'] }}">
+
+                                                                @if(!$bCell['is_active'])
+                                                                    <div class="mb-1">
+                                                                        <span class="badge bg-secondary text-white small">Tidak aktif</span>
+                                                                    </div>
+                                                                @endif
+
+                                                                <div class="d-flex align-items-center">
+                                                                    <div class="flex-grow-1">
+                                                                        <input type="text"
+                                                                            class="form-control editable-price editable-bundle-price price-mask"
+                                                                            name="bundles[{{ $bundleCellIndex }}][bundle_sale_price]"
+                                                                            value="{{ $bundleDisplayVal }}"
+                                                                            data-original="{{ $bCell['canonical_price'] }}"
+                                                                            data-replica-group-uuid="{{ $bCell['replica_group_uuid'] }}"
+                                                                            data-setting-id="{{ $bRow['setting_id'] }}"
+                                                                            readonly>
+                                                                    </div>
+                                                                    <button type="button"
+                                                                        class="btn btn-sm btn-outline-primary btn-apply-all-bundle d-none ms-1"
+                                                                        data-replica-group-uuid="{{ $bCell['replica_group_uuid'] }}"
+                                                                        title="Terapkan ke semua bisnis untuk paket ini"
+                                                                        style="display: none;">
+                                                                        <i class="bi bi-arrows-expand"></i>
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                            @php $bundleCellIndex++; @endphp
+                                                        @else
+                                                            <td class="bg-light text-center text-muted align-middle">
+                                                                <span class="small font-italic">Paket tidak tersedia</span>
+                                                            </td>
+                                                        @endif
                                                     @endforeach
                                                 </tr>
                                             @endforeach
@@ -376,6 +495,19 @@
                         $btnConv.addClass('d-none').hide();
                     }
                 }
+
+                // Bundle apply-to-all button
+                const $btnBundle = $input.parent().siblings('.btn-apply-all-bundle');
+                if ($btnBundle.length) {
+                    // Only available if dirty, not readonly, and has a valid numeric value
+                    const canonical = parseCanonicalDecimal(currentVal);
+                    const isValidNumeric = canonical !== '' && !isNaN(parseFloat(canonical)) && parseFloat(canonical) >= 0;
+                    if (isDirty && !$input.prop('readonly') && isValidNumeric) {
+                        $btnBundle.removeClass('d-none').show();
+                    } else {
+                        $btnBundle.addClass('d-none').hide();
+                    }
+                }
             }
 
             function updateAllDirtyStates() {
@@ -434,6 +566,24 @@
 
                 // Target all conversion inputs for the exact same conversion ID
                 $editableInputs.filter('.editable-conversion-price[data-conversion-id="' + conversionId + '"]').each(function() {
+                    const $targetInput = $(this);
+                    if (!$targetInput.prop('readonly')) {
+                        $targetInput.val(sourceVal);
+                        updateInputDirtyState($targetInput);
+                    }
+                });
+            });
+
+            // Handle Bundle Apply-to-all button click (scoped by replica_group_uuid)
+            $(document).on('click', '.btn-apply-all-bundle', function(e) {
+                e.preventDefault();
+                const $sourceBtn = $(this);
+                const $sourceInput = $sourceBtn.siblings().find('.editable-bundle-price');
+                const replicaGroupUuid = $sourceBtn.data('replica-group-uuid');
+                const sourceVal = $sourceInput.val();
+
+                // Target all bundle inputs for the exact same replica group UUID
+                $editableInputs.filter('.editable-bundle-price[data-replica-group-uuid="' + replicaGroupUuid + '"]').each(function() {
                     const $targetInput = $(this);
                     if (!$targetInput.prop('readonly')) {
                         $targetInput.val(sourceVal);

@@ -330,6 +330,9 @@ class CrossBusinessPriceMaskTest extends TestCase
         $response->assertSee('blur', false);
         $response->assertSee('btn-apply-all-conv', false);
         $response->assertSee('editable-conversion-price', false);
+        $response->assertSee('btn-apply-all-bundle', false);
+        $response->assertSee('editable-bundle-price', false);
+        $response->assertSee('.editable-bundle-price[data-replica-group-uuid="', false);
     }
 
     public function test_conversion_matrix_renders_apply_to_all_hooks_and_missing_badge()
@@ -427,6 +430,101 @@ class CrossBusinessPriceMaskTest extends TestCase
 
         // 3. $convBox was not in old input (or structure changed), so it must fallback to its canonical DB price (12.000,00)
         $response->assertSee('value="12.000,00"', false);
+    }
+
+    public function test_bundle_matrix_renders_apply_to_all_hooks_inactive_badge_and_unavailable_cell()
+    {
+        $groupUuid = (string) \Illuminate\Support\Str::uuid();
+
+        // Bundle in Setting 1 is inactive with price 35000
+        $bundle1 = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'setting_id' => 1,
+            'replica_group_uuid' => $groupUuid,
+            'name' => 'Paket Duo',
+            'bundle_sale_price' => 35000.50,
+            'is_active' => false,
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+        $response->assertSee('name="bundles[0][bundle_sale_price]"', false);
+        $response->assertSee('value="35.000,50"', false);
+        $response->assertSee('data-original="35000.50"', false);
+        $response->assertSee('data-replica-group-uuid="' . $groupUuid . '"', false);
+        $response->assertSee('btn-apply-all-bundle', false);
+        $response->assertSee('Tidak aktif', false);
+        $response->assertSee('btn-apply-all-bundle', false);
+    }
+
+    public function test_bundle_prices_are_restored_by_bundle_identity_from_old_input()
+    {
+        $groupUuid = (string) \Illuminate\Support\Str::uuid();
+
+        $bundle1 = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'setting_id' => 1,
+            'replica_group_uuid' => $groupUuid,
+            'name' => 'Paket Trio',
+            'bundle_sale_price' => 50000.00,
+            'is_active' => true,
+        ]);
+
+        $oldBundles = [
+            0 => [
+                'bundle_id' => $bundle1->id,
+                'bundle_sale_price' => '52500.75',
+            ],
+        ];
+
+        $response = $this->actingAs($this->user)
+            ->withSession([
+                'setting_id' => 1,
+                '_old_input' => [
+                    'bundles' => $oldBundles,
+                ],
+            ])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+        $response->assertSee('value="52.500,75"', false);
+    }
+
+    public function test_visible_product_context_renders_heading_name_and_code()
+    {
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+        $response->assertSee('Kelola Harga Multi-Bisnis: Test Product');
+        $response->assertSee('TEST-001');
+    }
+
+    public function test_visible_product_context_without_code_does_not_render_placeholder()
+    {
+        $productWithoutCode = Product::create([
+            'product_name' => 'Product Without Code',
+            'product_code' => null,
+            'setting_id' => 1,
+            'product_quantity' => 0,
+            'product_cost' => 0,
+            'product_price' => 0,
+            'product_order_tax' => 0,
+            'product_tax_type' => 0,
+            'profit_percentage' => 0,
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $productWithoutCode));
+
+        $response->assertOk();
+        $response->assertSee('Kelola Harga Multi-Bisnis: Product Without Code');
+        $response->assertDontSee('text-muted small text-break');
     }
 }
 

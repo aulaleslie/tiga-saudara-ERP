@@ -9,6 +9,8 @@ use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Product\Entities\ProductUnitConversionPrice;
+use Modules\Product\Entities\ProductBundle;
+use Modules\Product\Entities\ProductPriceFeedEvent;
 use Illuminate\Support\Carbon;
 use Exception;
 
@@ -173,6 +175,141 @@ class CrossBusinessPriceService
     }
 
     /**
+     * Load bundle headers and matrix for a product across all businesses.
+     */
+    public function loadBundlePricesForProduct(Product $product): array
+    {
+        $settings = Setting::all()->sortBy('id');
+
+        $bundles = ProductBundle::where('parent_product_id', $product->id)
+            ->whereNotNull('replica_group_uuid')
+            ->where('replica_group_uuid', '!=', '')
+            ->get();
+
+        if ($bundles->isEmpty()) {
+            return [
+                'headers' => [],
+                'matrix' => [],
+            ];
+        }
+
+        $grouped = $bundles->groupBy('replica_group_uuid')->sortKeys();
+
+        $headers = [];
+        foreach ($grouped as $uuid => $groupBundles) {
+            // Representative name: first non-empty bundle name sorted by ID
+            $sortedBundles = $groupBundles->sortBy('id');
+            $primaryBundle = $sortedBundles->first();
+            $representativeName = $primaryBundle->name ?? 'Paket ' . substr($uuid, 0, 8);
+
+            // Check if names differ across copies
+            $distinctNames = $groupBundles->pluck('name')->filter()->unique();
+            $hasDifferentNames = $distinctNames->count() > 1;
+
+            $headers[] = [
+                'replica_group_uuid' => $uuid,
+                'representative_name' => $representativeName,
+                'has_different_names' => $hasDifferentNames,
+            ];
+        }
+
+        $matrix = [];
+        foreach ($settings as $setting) {
+            $row = [
+                'setting_id' => $setting->id,
+                'business_name' => $setting->company_name,
+                'bundles' => [],
+            ];
+
+            foreach ($headers as $header) {
+                $uuid = $header['replica_group_uuid'];
+                $groupBundles = $grouped->get($uuid) ?? collect();
+                $bundleForSetting = $groupBundles->firstWhere('setting_id', $setting->id);
+
+                if ($bundleForSetting) {
+                    $priceVal = (float) $bundleForSetting->bundle_sale_price;
+                    $version = $bundleForSetting->updated_at ? $bundleForSetting->updated_at->format('Y-m-d H:i:s.u') : null;
+
+                    $row['bundles'][] = [
+                        'replica_group_uuid' => $uuid,
+                        'bundle_id' => $bundleForSetting->id,
+                        'bundle_name' => $bundleForSetting->name,
+                        'is_active' => (bool) $bundleForSetting->is_active,
+                        'price' => $priceVal,
+                        'formatted_price' => number_format($priceVal, 2, ',', '.'),
+                        'canonical_price' => number_format($priceVal, 2, '.', ''),
+                        'is_existing' => true,
+                        'version' => $version,
+                    ];
+                } else {
+                    $row['bundles'][] = [
+                        'replica_group_uuid' => $uuid,
+                        'bundle_id' => null,
+                        'bundle_name' => null,
+                        'is_active' => false,
+                        'price' => null,
+                        'formatted_price' => '',
+                        'canonical_price' => '',
+                        'is_existing' => false,
+                        'version' => null,
+                    ];
+                }
+            }
+
+            $matrix[] = $row;
+        }
+
+        return [
+            'headers' => $headers,
+            'matrix' => $matrix,
+        ];
+    }
+
+    /**
+     * Build and sign the loaded state snapshot for bundle pricing.
+     */
+    public function generateBundleSnapshot(Product $product): array
+    {
+        $settings = Setting::all()->sortBy('id');
+        $businessIds = $settings->pluck('id')->all();
+
+        $bundles = ProductBundle::where('parent_product_id', $product->id)
+            ->whereNotNull('replica_group_uuid')
+            ->where('replica_group_uuid', '!=', '')
+            ->orderBy('id')
+            ->get();
+
+        $groups = $bundles->pluck('replica_group_uuid')->unique()->sort()->values()->all();
+
+        $bundleCells = [];
+        foreach ($bundles as $bundle) {
+            $bundleCells[] = [
+                'bundle_id' => $bundle->id,
+                'setting_id' => (int) $bundle->setting_id,
+                'replica_group_uuid' => (string) $bundle->replica_group_uuid,
+                'price' => number_format((float) $bundle->bundle_sale_price, 2, '.', ''),
+                'version' => $bundle->updated_at ? $bundle->updated_at->format('Y-m-d H:i:s.u') : null,
+            ];
+        }
+
+        $snapshotData = [
+            'product_id' => $product->id,
+            'business_ids' => $businessIds,
+            'replica_groups' => $groups,
+            'bundle_cells' => $bundleCells,
+        ];
+
+        $encodedPayload = json_encode($snapshotData);
+        $key = (string) config('app.key');
+        $signature = hash_hmac('sha256', $encodedPayload, $key);
+
+        return [
+            'data' => base64_encode($encodedPayload),
+            'signature' => $signature,
+        ];
+    }
+
+    /**
      * Verify the signed snapshot integrity and product binding.
      */
     public function verifySnapshotIntegrity(Product $product, ?string $encodedData, ?string $signature): ?array
@@ -202,14 +339,17 @@ class CrossBusinessPriceService
     }
 
     /**
-     * Save base and conversion prices across all businesses atomically with optimistic locking.
+     * Save base, conversion, and bundle prices across all businesses atomically with optimistic locking.
      */
     public function savePricesForProduct(
         Product $product,
         array $pricesData,
         ?array $conversionsData = null,
         ?string $snapshotData = null,
-        ?string $snapshotSignature = null
+        ?string $snapshotSignature = null,
+        ?array $bundlesData = null,
+        ?string $bundleSnapshotData = null,
+        ?string $bundleSnapshotSignature = null
     ): void {
         $allSettings = Setting::pluck('id')->all();
         $submittedSettings = array_column($pricesData, 'setting_id');
@@ -225,9 +365,12 @@ class CrossBusinessPriceService
             $conversionsData,
             $snapshotData,
             $snapshotSignature,
+            $bundlesData,
+            $bundleSnapshotData,
+            $bundleSnapshotSignature,
             $allSettings
         ) {
-            // Consistent product-row lock acquired before reading/mutating conversions or prices
+            // Consistent product-row lock acquired before reading/mutating conversions, bundles, or prices
             $lockedProduct = Product::where('id', $product->id)->lockForUpdate()->first();
             if (!$lockedProduct) {
                 throw new Exception("Produk tidak ditemukan.");
@@ -394,6 +537,155 @@ class CrossBusinessPriceService
                 }
             }
 
+            // --- Bundle Pricing Validation & Persistence ---
+            $currentBundles = ProductBundle::where('parent_product_id', $product->id)
+                ->whereNotNull('replica_group_uuid')
+                ->where('replica_group_uuid', '!=', '')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
+            $hasGroupedBundles = $currentBundles->isNotEmpty();
+
+            $bundleFeedSnapshotsByGroup = [];
+
+            if ($hasGroupedBundles || !empty($bundlesData) || !empty($bundleSnapshotData)) {
+                if (empty($bundleSnapshotData) || empty($bundleSnapshotSignature)) {
+                    throw new Exception("Snapshot bukti data harga paket tidak valid atau hilang. Silakan muat ulang halaman.");
+                }
+
+                $verifiedBundleSnapshot = $this->verifySnapshotIntegrity($product, $bundleSnapshotData, $bundleSnapshotSignature);
+                if (!$verifiedBundleSnapshot) {
+                    throw new Exception("Bukti data harga paket telah diubah atau tidak valid. Silakan muat ulang halaman.");
+                }
+
+                // Verify business_ids in snapshot match current business IDs
+                $snapBusinessIds = $verifiedBundleSnapshot['business_ids'] ?? [];
+                sort($snapBusinessIds);
+                $currBusinessIds = $allSettings;
+                sort($currBusinessIds);
+                if ($snapBusinessIds !== $currBusinessIds) {
+                    throw new Exception("Daftar bisnis telah berubah. Silakan muat ulang halaman.");
+                }
+
+                // Verify snapshot replica_groups match current DB replica groups
+                $snapGroups = $verifiedBundleSnapshot['replica_groups'] ?? [];
+                sort($snapGroups);
+                $currGroups = $currentBundles->pluck('replica_group_uuid')->unique()->sort()->values()->all();
+                if ($snapGroups !== $currGroups) {
+                    throw new Exception("Struktur grup paket produk telah berubah. Silakan muat ulang halaman.");
+                }
+
+                // Verify snapshot bundle cells match current DB bundles exactly
+                $snapBundleCells = collect($verifiedBundleSnapshot['bundle_cells'] ?? [])->keyBy('bundle_id');
+                if ($snapBundleCells->count() !== $currentBundles->count()) {
+                    throw new Exception("Struktur paket produk telah berubah. Silakan muat ulang halaman.");
+                }
+
+                foreach ($currentBundles as $bId => $currBundle) {
+                    $snapCell = $snapBundleCells->get($bId);
+                    if (!$snapCell) {
+                        throw new Exception("Struktur paket produk telah berubah. Silakan muat ulang halaman.");
+                    }
+
+                    if (
+                        (int) $snapCell['setting_id'] !== (int) $currBundle->setting_id ||
+                        (string) $snapCell['replica_group_uuid'] !== (string) $currBundle->replica_group_uuid
+                    ) {
+                        throw new Exception("Struktur grup atau bisnis paket telah diubah oleh pengguna lain. Silakan muat ulang halaman.");
+                    }
+
+                    $currentPriceVal = number_format((float) $currBundle->bundle_sale_price, 2, '.', '');
+                    $currentVersion = $currBundle->updated_at ? $currBundle->updated_at->format('Y-m-d H:i:s.u') : null;
+
+                    if ($currentVersion !== ($snapCell['version'] ?? null) || $currentPriceVal !== ($snapCell['price'] ?? null)) {
+                        throw new Exception("Harga paket telah diperbarui oleh pengguna lain. Silakan muat ulang halaman.");
+                    }
+                }
+
+                // Validate submitted bundlesData matrix completeness and ownership
+                $submittedBundles = $bundlesData ?? [];
+
+                if ($currentBundles->isNotEmpty()) {
+                    if (count($submittedBundles) !== $currentBundles->count()) {
+                        throw new Exception("Data harga paket yang dikirimkan tidak lengkap atau berlebih.");
+                    }
+
+                    $submittedBundleIds = [];
+                    $submittedCellsByKey = [];
+
+                    foreach ($submittedBundles as $bCell) {
+                        $bundleId = (int) ($bCell['bundle_id'] ?? 0);
+                        $settingId = (int) ($bCell['setting_id'] ?? 0);
+                        $uuid = (string) ($bCell['replica_group_uuid'] ?? '');
+                        $submittedPrice = $bCell['bundle_sale_price'] ?? null;
+                        $submittedVersion = $bCell['version'] ?? null;
+
+                        if (!$bundleId || !isset($currentBundles[$bundleId])) {
+                            throw new Exception("Identitas paket ID {$bundleId} tidak valid atau bukan milik produk ini.");
+                        }
+
+                        if (in_array($bundleId, $submittedBundleIds, true)) {
+                            throw new Exception("Duplikat data paket ID {$bundleId} terdeteksi.");
+                        }
+                        $submittedBundleIds[] = $bundleId;
+
+                        $currBundle = $currentBundles[$bundleId];
+
+                        if ((int) $currBundle->setting_id !== $settingId) {
+                            throw new Exception("Bisnis untuk paket ID {$bundleId} tidak sesuai.");
+                        }
+
+                        if ((string) $currBundle->replica_group_uuid !== $uuid) {
+                            throw new Exception("Grup replika untuk paket ID {$bundleId} tidak sesuai.");
+                        }
+
+                        if ((int) $currBundle->parent_product_id !== (int) $product->id) {
+                            throw new Exception("Paket ID {$bundleId} bukan milik produk ini.");
+                        }
+
+                        $currVersion = $currBundle->updated_at ? $currBundle->updated_at->format('Y-m-d H:i:s.u') : null;
+                        if ($submittedVersion !== $currVersion) {
+                            throw new Exception("Data harga paket telah diperbarui oleh pengguna lain. Silakan muat ulang halaman.");
+                        }
+
+                        if ($submittedPrice === null || $submittedPrice === '' || !is_numeric($submittedPrice) || (float) $submittedPrice < 0) {
+                            throw new Exception("Harga jual paket harus berupa angka positif.");
+                        }
+
+                        $beforePrice = (float) $currBundle->bundle_sale_price;
+                        $newPrice = (float) $submittedPrice;
+
+                        $beforePriceFormatted = number_format($beforePrice, 2, '.', '');
+                        $newPriceFormatted = number_format($newPrice, 2, '.', '');
+
+                        // Only save if price has actually changed to avoid dirtying timestamps
+                        if ($beforePriceFormatted !== $newPriceFormatted) {
+                            $currBundle->bundle_sale_price = $newPrice;
+                            $currBundle->save();
+                        }
+
+                        // Group snapshots by replica group UUID for feed recording
+                        if (!isset($bundleFeedSnapshotsByGroup[$uuid])) {
+                            $bundleFeedSnapshotsByGroup[$uuid] = [
+                                'representative_bundle' => $currBundle,
+                                'snapshots' => [],
+                            ];
+                        }
+
+                        $bundleFeedSnapshotsByGroup[$uuid]['snapshots'][] = [
+                            'setting_id' => $settingId,
+                            'before' => ['bundle_sale_price' => $beforePrice],
+                            'after' => ['bundle_sale_price' => $newPrice],
+                        ];
+                    }
+                } else {
+                    if (!empty($submittedBundles)) {
+                        throw new Exception("Produk ini tidak memiliki grup paket.");
+                    }
+                }
+            }
+
             // Save base prices
             $snapshots = [];
             $operationUuid = (string) \Illuminate\Support\Str::uuid();
@@ -494,6 +786,27 @@ class CrossBusinessPriceService
                 null,
                 $operationUuid
             );
+
+            // Record bundle price feed events per replica group sharing the same operation UUID
+            foreach ($bundleFeedSnapshotsByGroup as $uuid => $groupFeedData) {
+                $representativeBundle = $groupFeedData['representative_bundle'];
+                $parentProductName = $product->product_name;
+                $parentProductCode = $product->product_code;
+                $bundleName = $representativeBundle->name;
+                $subjectName = $parentProductName ? "{$parentProductName} — {$bundleName}" : $bundleName;
+
+                app(ProductPriceFeedRecorder::class)->record(
+                    \Modules\Product\Entities\ProductPriceFeedEvent::TYPE_BUNDLE_PRICE_UPDATED,
+                    \Modules\Product\Entities\ProductPriceFeedEvent::SUBJECT_BUNDLE,
+                    $representativeBundle->id,
+                    $subjectName,
+                    $parentProductCode,
+                    $groupFeedData['snapshots'],
+                    \Modules\Product\Entities\ProductPriceFeedEvent::SOURCE_MANUAL,
+                    null,
+                    $operationUuid
+                );
+            }
         });
     }
 }

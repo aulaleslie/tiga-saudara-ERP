@@ -279,4 +279,30 @@ class ProductPriceFeedIntegrationTest extends TestCase
             'source' => ProductPriceFeedEvent::SOURCE_IMPORT,
         ]);
     }
+
+    public function test_multiple_feed_events_can_share_same_operation_uuid(): void
+    {
+        $sharedOperationUuid = (string) \Illuminate\Support\Str::uuid();
+
+        $event1 = ProductPriceFeedEvent::create([
+            'operation_uuid' => $sharedOperationUuid,
+            'event_type' => ProductPriceFeedEvent::TYPE_PRODUCT_PRICE_UPDATED,
+            'subject_type' => ProductPriceFeedEvent::SUBJECT_PRODUCT,
+            'subject_id' => 1,
+            'subject_name' => 'Product 1',
+            'occurred_at' => now(),
+        ]);
+
+        $event2 = ProductPriceFeedEvent::create([
+            'operation_uuid' => $sharedOperationUuid,
+            'event_type' => ProductPriceFeedEvent::TYPE_BUNDLE_PRICE_UPDATED,
+            'subject_type' => ProductPriceFeedEvent::SUBJECT_BUNDLE,
+            'subject_id' => 2,
+            'subject_name' => 'Bundle 2',
+            'occurred_at' => now(),
+        ]);
+
+        $this->assertEquals($event1->operation_uuid, $event2->operation_uuid);
+        $this->assertEquals(2, ProductPriceFeedEvent::where('operation_uuid', $sharedOperationUuid)->count());
+    }
 }

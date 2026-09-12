@@ -21,12 +21,16 @@ class CrossBusinessPriceController extends Controller
         $prices = $this->priceService->loadPricesForProduct($product);
         $conversionsData = $this->priceService->loadConversionPricesForProduct($product);
         $conversionSnapshot = $this->priceService->generateConversionSnapshot($product);
+        $bundlesData = $this->priceService->loadBundlePricesForProduct($product);
+        $bundleSnapshot = $this->priceService->generateBundleSnapshot($product);
 
         return view('product::products.cross-business-prices', compact(
             'product',
             'prices',
             'conversionsData',
-            'conversionSnapshot'
+            'conversionSnapshot',
+            'bundlesData',
+            'bundleSnapshot'
         ));
     }
 
@@ -40,7 +44,10 @@ class CrossBusinessPriceController extends Controller
                 $validated['prices'],
                 $validated['conversions'] ?? null,
                 $validated['conversion_snapshot'] ?? null,
-                $validated['conversion_snapshot_signature'] ?? null
+                $validated['conversion_snapshot_signature'] ?? null,
+                $validated['bundles'] ?? null,
+                $validated['bundle_snapshot'] ?? null,
+                $validated['bundle_snapshot_signature'] ?? null
             );
             return redirect()
                 ->route('products.cross-business-prices.edit', $product)
