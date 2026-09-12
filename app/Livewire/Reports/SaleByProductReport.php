@@ -15,6 +15,7 @@ use App\Services\Reports\SaleByProductReportSnapshotService;
 use App\Exports\SaleByProductReportExport;
 use Maatwebsite\Excel\Facades\Excel;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\DB;
 
 class SaleByProductReport extends Component
 {
@@ -359,7 +360,7 @@ class SaleByProductReport extends Component
             $this->filterTriggered = true;
 
             $filter = SaleByProductReportFilterData::fromArray($this->appliedFilters);
-            $count = $queryService->build($filter)->count();
+            $count = DB::query()->fromSub($queryService->build($filter), 'sale_by_product')->count();
             $snapshotService->createSnapshot($filter, $count);
             
             $this->resetPage();
