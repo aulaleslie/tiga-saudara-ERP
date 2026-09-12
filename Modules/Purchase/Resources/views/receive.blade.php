@@ -80,7 +80,9 @@
                                     <thead class="thead-dark">
                                     <tr>
                                         <th>Produk</th>
+                                        @can('purchases.receive.view_ordered_quantity')
                                         <th>Dipesan / Sisa</th>
+                                        @endcan
                                         <th>Jumlah Diterima</th>
                                         <th>Satuan</th>
                                         <th>Serial Number</th>
@@ -104,6 +106,7 @@
                                                 $remainingBase = (float) ($detail->quantity_remaining ?? 0);
                                                 $remainingOrdered = $factor > 0 ? $remainingBase / $factor : $remainingBase;
                                             @endphp
+                                            @can('purchases.receive.view_ordered_quantity')
                                             <td>
                                                 <div>
                                                     Dipesan:
@@ -127,6 +130,7 @@
                                                     @endif
                                                 </div>
                                             </td>
+                                            @endcan
                                             <td>
                                                 <input type="number" name="received[{{ $detail->id }}]"
                                                        class="form-control"
