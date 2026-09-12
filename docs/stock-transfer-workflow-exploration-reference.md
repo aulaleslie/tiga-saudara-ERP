@@ -423,7 +423,7 @@ Each numbered item should be an independent OpenSpec change unless proposal work
 
 This delivery has no inventory movement changes.
 
-[~]
+[x]
 ### Delivery 2 — Transfer stock-visibility boundary
 
 - Add `stockTransfers.view-system-stock`.
@@ -436,6 +436,7 @@ This delivery has no inventory movement changes.
 
 This is a security boundary and should land before new recount screens.
 
+[x]
 ### Delivery 3 — Entry scanning stabilization
 
 - Characterize existing barcode, conversion barcode, serial scan, and tokenized search behavior.
