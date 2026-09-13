@@ -10,39 +10,39 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Modules\Adjustment\Entities\Transfer;
 use Modules\Adjustment\Entities\TransferMovement;
-use Modules\Adjustment\Services\ForwardDispatchApprovalExecutor;
-use Modules\Adjustment\Services\ForwardDispatchPreparationService;
-use Modules\Adjustment\Services\ForwardDispatchProjectionService;
+use Modules\Adjustment\Services\ForwardReceiptApprovalExecutor;
+use Modules\Adjustment\Services\ForwardReceiptPreparationService;
+use Modules\Adjustment\Services\ForwardReceiptProjectionService;
 use Modules\Adjustment\Services\TransferMovementDocumentService;
 use Modules\Adjustment\Services\TransferStockVisibility;
 use Throwable;
 
-class ForwardDispatchMovementController extends Controller
+class ForwardReceiptMovementController extends Controller
 {
     public function __construct(
-        private ForwardDispatchPreparationService $preparationService,
-        private ForwardDispatchProjectionService $projectionService,
-        private ForwardDispatchApprovalExecutor $approvalExecutor,
+        private ForwardReceiptPreparationService $preparationService,
+        private ForwardReceiptProjectionService $projectionService,
+        private ForwardReceiptApprovalExecutor $approvalExecutor,
         private TransferMovementDocumentService $documentService,
     ) {
     }
 
     /**
-     * Check feature activation, origin ownership, and scoped movement hierarchy.
+     * Check feature activation, destination ownership, and scoped movement hierarchy.
      */
-    private function authorizeOriginAction(Transfer $transfer, string $permission, ?TransferMovement $movement = null): void
+    private function authorizeDestinationAction(Transfer $transfer, string $permission, ?TransferMovement $movement = null): void
     {
         if (!config('stock_transfers.v2_dispatch_enabled', false)) {
-            abort(404, 'Forward dispatch workflow version 2 is not enabled.');
+            abort(404, 'Forward receipt workflow version 2 is not enabled.');
         }
 
         abort_if(Gate::denies($permission), 403);
 
         $currentSettingId = (int) session('setting_id');
-        $transfer->loadMissing('originLocation.setting');
+        $transfer->loadMissing('destinationLocation.setting');
 
-        if ($transfer->originLocation?->setting_id !== $currentSettingId) {
-            abort(403, 'Unauthorized origin location.');
+        if ($transfer->destinationLocation?->setting_id !== $currentSettingId) {
+            abort(403, 'Unauthorized destination location.');
         }
 
         if ((int) $transfer->workflow_version !== 2) {
@@ -57,8 +57,8 @@ class ForwardDispatchMovementController extends Controller
             if ((int) $movement->transfer_id !== (int) $transfer->id) {
                 abort(404, 'Movement does not belong to the specified transfer.');
             }
-            if ($movement->type !== TransferMovement::TYPE_FORWARD_DISPATCH) {
-                abort(400, 'Movement type is not FORWARD_DISPATCH.');
+            if ($movement->type !== TransferMovement::TYPE_FORWARD_RECEIPT) {
+                abort(400, 'Movement type is not FORWARD_RECEIPT.');
             }
         }
     }
@@ -73,11 +73,11 @@ class ForwardDispatchMovementController extends Controller
     }
 
     /**
-     * Show preparation view / JSON projection.
+     * Show receipt preparation view / JSON projection (universally blind).
      */
     public function prepare(Transfer $transfer, Request $request)
     {
-        $this->authorizeOriginAction($transfer, 'stockTransfers.dispatch.create');
+        $this->authorizeDestinationAction($transfer, 'stockTransfers.receive.create');
 
         try {
             $movement = $this->preparationService->getOrCreateDraft($transfer, auth()->id());
@@ -85,13 +85,13 @@ class ForwardDispatchMovementController extends Controller
 
             if ($request->wantsJson()) {
                 return response()->json(
-                    $this->projectionService->getPreparationProjection($transfer, $movement, $canViewSystemStock)
+                    $this->projectionService->getPreparationProjection($transfer, $movement, false)
                 );
             }
 
-            return view('adjustment::transfers.forward_dispatch_prepare', compact('transfer', 'movement', 'canViewSystemStock'));
+            return view('adjustment::transfers.forward_receipt_prepare', compact('transfer', 'movement', 'canViewSystemStock'));
         } catch (Throwable $e) {
-            Log::error('Failed to prepare forward dispatch', ['transfer_id' => $transfer->id, 'error' => $e->getMessage()]);
+            Log::error('Failed to prepare forward receipt', ['transfer_id' => $transfer->id, 'error' => $e->getMessage()]);
             if ($request->wantsJson()) {
                 return response()->json(['error' => $this->neutralizedErrorMessage($e)], 400);
             }
@@ -101,16 +101,36 @@ class ForwardDispatchMovementController extends Controller
     }
 
     /**
+     * Explicitly confirm empty count (nothing physically arrived).
+     */
+    public function confirmEmpty(Transfer $transfer, TransferMovement $movement, Request $request): JsonResponse
+    {
+        $this->authorizeDestinationAction($transfer, 'stockTransfers.receive.create', $movement);
+
+        $expectedLockVersion = (int) $request->input('lock_version', $movement->lock_version);
+
+        try {
+            $updatedMovement = $this->preparationService->confirmEmpty($movement, $expectedLockVersion, auth()->id());
+
+            return response()->json([
+                'status'     => 'success',
+                'projection' => $this->projectionService->getPreparationProjection($transfer, $updatedMovement, false),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['status' => 'error', 'message' => $this->neutralizedErrorMessage($e)], 400);
+        }
+    }
+
+    /**
      * Apply barcode/serial scan.
      */
     public function scan(Transfer $transfer, TransferMovement $movement, Request $request): JsonResponse
     {
-        $this->authorizeOriginAction($transfer, 'stockTransfers.dispatch.create', $movement);
+        $this->authorizeDestinationAction($transfer, 'stockTransfers.receive.create', $movement);
 
         $query = (string) $request->input('query', '');
         $expectedLockVersion = (int) $request->input('lock_version', $movement->lock_version);
         $settingId = (int) session('setting_id');
-        $canViewSystemStock = TransferStockVisibility::canView();
 
         try {
             $result = $this->preparationService->applyScan(
@@ -119,7 +139,7 @@ class ForwardDispatchMovementController extends Controller
                 $settingId,
                 $expectedLockVersion,
                 auth()->id(),
-                $canViewSystemStock
+                false // always blind preparation
             );
 
             return response()->json($result);
@@ -133,7 +153,7 @@ class ForwardDispatchMovementController extends Controller
      */
     public function setQuantity(Transfer $transfer, TransferMovement $movement, Request $request): JsonResponse
     {
-        $this->authorizeOriginAction($transfer, 'stockTransfers.dispatch.create', $movement);
+        $this->authorizeDestinationAction($transfer, 'stockTransfers.receive.create', $movement);
 
         $productId = (int) $request->input('product_id');
         $quantity = $request->input('quantity');
@@ -150,11 +170,9 @@ class ForwardDispatchMovementController extends Controller
                 auth()->id()
             );
 
-            $canViewSystemStock = TransferStockVisibility::canView();
-
             return response()->json([
                 'status'     => 'success',
-                'projection' => $this->projectionService->getPreparationProjection($transfer, $updatedMovement, $canViewSystemStock),
+                'projection' => $this->projectionService->getPreparationProjection($transfer, $updatedMovement, false),
             ]);
         } catch (Throwable $e) {
             return response()->json(['status' => 'error', 'message' => $this->neutralizedErrorMessage($e)], 400);
@@ -162,11 +180,11 @@ class ForwardDispatchMovementController extends Controller
     }
 
     /**
-     * Submit draft count for approval.
+     * Submit draft receipt for approval.
      */
     public function submit(Transfer $transfer, TransferMovement $movement, Request $request)
     {
-        $this->authorizeOriginAction($transfer, 'stockTransfers.dispatch.create', $movement);
+        $this->authorizeDestinationAction($transfer, 'stockTransfers.receive.create', $movement);
 
         $expectedLockVersion = (int) $request->input('lock_version', $movement->lock_version);
 
@@ -181,7 +199,7 @@ class ForwardDispatchMovementController extends Controller
                 return response()->json(['status' => 'success', 'movement_id' => $pendingMovement->id]);
             }
 
-            toast('Perhitungan pengiriman berhasil diajukan untuk ditinjau.', 'success');
+            toast('Perhitungan penerimaan berhasil diajukan untuk ditinjau.', 'success');
             return redirect()->route('transfers.show', $transfer->id);
         } catch (Throwable $e) {
             if ($request->wantsJson()) {
@@ -193,17 +211,17 @@ class ForwardDispatchMovementController extends Controller
     }
 
     /**
-     * Cancel a draft count.
+     * Cancel a draft receipt.
      */
     public function cancel(Transfer $transfer, TransferMovement $movement, Request $request)
     {
-        $this->authorizeOriginAction($transfer, 'stockTransfers.dispatch.create', $movement);
+        $this->authorizeDestinationAction($transfer, 'stockTransfers.receive.create', $movement);
 
-        $reason = (string) $request->input('reason', 'Draft pergerakan dibatalkan.');
+        $reason = (string) $request->input('reason', 'Draft penerimaan dibatalkan.');
 
         try {
             $this->documentService->cancel($movement, $reason, auth()->id());
-            toast('Draft perhitungan pengiriman dibatalkan.', 'info');
+            toast('Draft perhitungan penerimaan dibatalkan.', 'info');
             return redirect()->route('transfers.show', $transfer->id);
         } catch (Throwable $e) {
             toast($this->neutralizedErrorMessage($e), 'error');
@@ -212,16 +230,16 @@ class ForwardDispatchMovementController extends Controller
     }
 
     /**
-     * Start superseding correction draft for a REJECTED movement.
+     * Start superseding correction draft for a REJECTED receipt movement.
      */
     public function correct(Transfer $transfer, TransferMovement $movement, Request $request)
     {
-        $this->authorizeOriginAction($transfer, 'stockTransfers.dispatch.create', $movement);
+        $this->authorizeDestinationAction($transfer, 'stockTransfers.receive.create', $movement);
 
         try {
             $newDraft = $this->documentService->startCorrection($movement, auth()->id());
-            toast('Draft koreksi berhasil dibuat.', 'info');
-            return redirect()->route('transfers.movements.prepare', ['transfer' => $transfer->id]);
+            toast('Draft koreksi penerimaan berhasil dibuat.', 'info');
+            return redirect()->route('transfers.movements.receipt.prepare', ['transfer' => $transfer->id]);
         } catch (Throwable $e) {
             toast($this->neutralizedErrorMessage($e), 'error');
             return back();
@@ -229,11 +247,11 @@ class ForwardDispatchMovementController extends Controller
     }
 
     /**
-     * Show approval review projection / modal data for a pending forward dispatch movement.
+     * Show approval review projection / modal data for a pending forward receipt movement.
      */
     public function review(Transfer $transfer, TransferMovement $movement, Request $request)
     {
-        $this->authorizeOriginAction($transfer, 'stockTransfers.dispatch.approval', $movement);
+        $this->authorizeDestinationAction($transfer, 'stockTransfers.receive.approval', $movement);
 
         $canViewSystemStock = TransferStockVisibility::canView();
         $projection = $this->projectionService->getApprovalProjection($transfer, $movement, $canViewSystemStock);
@@ -242,21 +260,21 @@ class ForwardDispatchMovementController extends Controller
             return response()->json($projection);
         }
 
-        return view('adjustment::transfers.forward_dispatch_review', compact('transfer', 'movement', 'projection', 'canViewSystemStock'));
+        return view('adjustment::transfers.forward_receipt_review', compact('transfer', 'movement', 'projection', 'canViewSystemStock'));
     }
 
     /**
-     * Approve pending dispatch movement.
+     * Approve pending receipt movement.
      */
     public function approve(Transfer $transfer, TransferMovement $movement, Request $request)
     {
-        $this->authorizeOriginAction($transfer, 'stockTransfers.dispatch.approval', $movement);
+        $this->authorizeDestinationAction($transfer, 'stockTransfers.receive.approval', $movement);
 
         $idempotencyKey = $request->input('idempotency_key');
 
         try {
             $this->approvalExecutor->approve($transfer, $movement, auth()->id(), $idempotencyKey);
-            toast('Pengiriman transfer stok berhasil disetujui.', 'success');
+            toast('Penerimaan transfer stok berhasil disetujui dan stok telah ditambahkan.', 'success');
             return redirect()->route('transfers.show', $transfer->id);
         } catch (Throwable $e) {
             toast($this->neutralizedErrorMessage($e), 'error');
@@ -265,18 +283,18 @@ class ForwardDispatchMovementController extends Controller
     }
 
     /**
-     * Reject pending dispatch movement.
+     * Reject pending receipt movement.
      */
     public function reject(Transfer $transfer, TransferMovement $movement, Request $request)
     {
-        $this->authorizeOriginAction($transfer, 'stockTransfers.dispatch.approval', $movement);
+        $this->authorizeDestinationAction($transfer, 'stockTransfers.receive.approval', $movement);
 
         $reason = (string) $request->input('reason', '');
         $idempotencyKey = $request->input('idempotency_key');
 
         try {
             $this->documentService->reject($movement, $reason, auth()->id(), $idempotencyKey);
-            toast('Pengiriman transfer stok ditolak.', 'warning');
+            toast('Penerimaan transfer stok ditolak.', 'warning');
             return redirect()->route('transfers.show', $transfer->id);
         } catch (Throwable $e) {
             toast($this->neutralizedErrorMessage($e), 'error');

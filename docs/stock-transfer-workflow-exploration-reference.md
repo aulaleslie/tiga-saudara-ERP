@@ -462,6 +462,7 @@ Prefer tests and narrow corrections; avoid replacing the existing resolver witho
 
 This delivery should be additive and migration-safe.
 
+[x]
 ### Delivery 5 — Approved forward dispatch
 
 - Create/edit a forward dispatch draft against an approved transfer.
@@ -472,6 +473,7 @@ This delivery should be additive and migration-safe.
 - Deduct origin inventory only upon dispatch approval.
 - Persist the immutable approved forward manifest and inventory references.
 
+[x]
 ### Delivery 6 — Blind forward receipt
 
 - Start receipt entry from zero.

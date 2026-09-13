@@ -3,8 +3,10 @@
 namespace Modules\Adjustment\Services;
 
 use Exception;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Modules\Adjustment\Entities\Transfer;
+use Modules\Adjustment\Entities\TransferActiveSerialClaim;
 use Modules\Adjustment\Entities\TransferMovement;
 use Modules\Adjustment\Entities\TransferMovementLine;
 use Modules\Adjustment\Entities\TransferMovementSerial;
@@ -13,17 +15,18 @@ use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Setting\Entities\Tax;
 use RuntimeException;
 
-class ForwardDispatchPreparationService
+class ForwardReceiptPreparationService
 {
     public function __construct(
         private TransferMovementDocumentService $documentService,
         private TransferScanResolverService $scanResolverService,
-        private ForwardDispatchProjectionService $projectionService,
+        private ForwardReceiptProjectionService $projectionService,
     ) {
     }
 
     /**
-     * Get or create the single open forward dispatch draft for an approved workflow version 2 transfer.
+     * Get or create the single open forward receipt draft for a DISPATCHED workflow version 2 transfer.
+     * Seeds NO lines (completely empty blind start).
      */
     public function getOrCreateDraft(Transfer $transfer, int $userId): TransferMovement
     {
@@ -31,24 +34,34 @@ class ForwardDispatchPreparationService
             $lockedTransfer = Transfer::where('id', $transfer->id)->lockForUpdate()->firstOrFail();
 
             if ((int) $lockedTransfer->workflow_version !== 2) {
-                throw new RuntimeException("Forward dispatch preparation is only available for workflow version 2 transfers.");
+                throw new RuntimeException("Forward receipt preparation is only available for workflow version 2 transfers.");
             }
 
             app(TransferWorkflowEligibilityService::class)->validateV2Eligibility($lockedTransfer);
 
-            if ($lockedTransfer->status !== Transfer::STATUS_APPROVED) {
-                throw new RuntimeException("Transfer must be in APPROVED status for dispatch preparation.");
+            if ($lockedTransfer->status !== Transfer::STATUS_DISPATCHED) {
+                throw new RuntimeException("Transfer must be in DISPATCHED status for receipt preparation.");
+            }
+
+            // Find the approved forward dispatch
+            $approvedDispatch = TransferMovement::where('transfer_id', $lockedTransfer->id)
+                ->where('type', TransferMovement::TYPE_FORWARD_DISPATCH)
+                ->where('status', TransferMovement::STATUS_APPROVED)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$approvedDispatch) {
+                throw new RuntimeException("An approved forward dispatch movement is required for receipt preparation.");
             }
 
             // Check if there is an existing open attempt (DRAFT or PENDING)
             $existingMovement = TransferMovement::where('transfer_id', $lockedTransfer->id)
-                ->where('type', TransferMovement::TYPE_FORWARD_DISPATCH)
+                ->where('type', TransferMovement::TYPE_FORWARD_RECEIPT)
                 ->whereIn('status', [TransferMovement::STATUS_DRAFT, TransferMovement::STATUS_PENDING])
                 ->lockForUpdate()
                 ->first();
 
             if ($existingMovement) {
-                // If transfer revision has advanced, reject
                 if ((int) $existingMovement->transfer_revision !== (int) $lockedTransfer->revision) {
                     throw new RuntimeException("Transfer revision mismatch: transfer has advanced to revision {$lockedTransfer->revision}.");
                 }
@@ -57,42 +70,85 @@ class ForwardDispatchPreparationService
             }
 
             // Check if an approved movement already exists
-            $approvedMovement = TransferMovement::where('transfer_id', $lockedTransfer->id)
-                ->where('type', TransferMovement::TYPE_FORWARD_DISPATCH)
+            $approvedReceipt = TransferMovement::where('transfer_id', $lockedTransfer->id)
+                ->where('type', TransferMovement::TYPE_FORWARD_RECEIPT)
                 ->where('status', TransferMovement::STATUS_APPROVED)
                 ->lockForUpdate()
                 ->first();
 
-            if ($approvedMovement) {
-                throw new RuntimeException("Forward dispatch has already been APPROVED for this transfer.");
+            if ($approvedReceipt) {
+                throw new RuntimeException("Forward receipt has already been APPROVED for this transfer.");
             }
 
-            // Seed lines from approved transfer products, setting count_confirmed = false and quantity = 0.0000
-            $lockedTransfer->loadMissing('products.product');
-            $linesData = [];
-
-            foreach ($lockedTransfer->products as $tp) {
-                $linesData[] = [
-                    'product_id'      => $tp->product_id,
-                    'quantity'        => '0.0000',
-                    'count_confirmed' => false,
-                    'serials'         => [],
-                ];
-            }
-
+            // Create draft with NO seeded lines (completely blind)
             return $this->documentService->createDraft(
                 $lockedTransfer,
-                TransferMovement::TYPE_FORWARD_DISPATCH,
+                TransferMovement::TYPE_FORWARD_RECEIPT,
                 $userId,
-                $linesData
+                [],
+                $approvedDispatch->id
             );
         });
     }
 
     /**
+     * Set explicit document-level empty count confirmation.
+     * Requires expected lock version and disallows confirming empty when line observations exist.
+     */
+    public function confirmEmpty(TransferMovement $movement, int $expectedLockVersion, int $userId): TransferMovement
+    {
+        return DB::transaction(function () use ($movement, $expectedLockVersion, $userId) {
+            $lockedMovement = TransferMovement::where('id', $movement->id)
+                ->with(['lines.serials'])
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($lockedMovement->status !== TransferMovement::STATUS_DRAFT) {
+                throw new RuntimeException("Only DRAFT movements can be modified.");
+            }
+
+            if ($lockedMovement->type !== TransferMovement::TYPE_FORWARD_RECEIPT) {
+                throw new RuntimeException("Empty confirmation only applies to FORWARD_RECEIPT movements.");
+            }
+
+            if ((int) $lockedMovement->lock_version !== (int) $expectedLockVersion) {
+                throw new RuntimeException("Data penerimaan telah diperbarui oleh pengguna lain. Silakan muat ulang halaman.");
+            }
+
+            $hasObservations = $lockedMovement->lines->some(fn ($l) => (float) $l->quantity > 0 || $l->serials->count() > 0);
+            if ($hasObservations) {
+                throw new RuntimeException("Tidak dapat mengonfirmasi penerimaan kosong karena sudah terdapat barang yang di-scan atau dicatat. Hapus barang terlebih dahulu.");
+            }
+
+            $now = Carbon::now();
+            $lockedMovement->update([
+                'empty_count_confirmed'    => true,
+                'empty_count_confirmed_by' => $userId,
+                'empty_count_confirmed_at' => $now,
+                'lock_version'             => $lockedMovement->lock_version + 1,
+                'updated_by'               => $userId,
+            ]);
+
+            return $lockedMovement->fresh(['lines.serials', 'histories']);
+        });
+    }
+
+    /**
+     * Clear document-level empty count confirmation.
+     */
+    public function clearEmptyConfirmation(TransferMovement $movement): void
+    {
+        if ($movement->empty_count_confirmed) {
+            $movement->update([
+                'empty_count_confirmed'    => false,
+                'empty_count_confirmed_by' => null,
+                'empty_count_confirmed_at' => null,
+            ]);
+        }
+    }
+
+    /**
      * Set explicit quantity and confirmation state on a movement line.
-     * When quantity > 0, count_confirmed automatically becomes true.
-     * When quantity == 0, count_confirmed must be explicitly specified (defaults to true if explicit zero action).
      */
     public function setLineQuantity(
         TransferMovement $movement,
@@ -104,7 +160,7 @@ class ForwardDispatchPreparationService
     ): TransferMovement {
         return DB::transaction(function () use ($movement, $productId, $quantity, $confirmed, $expectedLockVersion, $userId) {
             $lockedMovement = TransferMovement::where('id', $movement->id)
-                ->with(['lines.serials'])
+                ->with(['lines.serials', 'sourceMovement.lines'])
                 ->lockForUpdate()
                 ->firstOrFail();
 
@@ -121,20 +177,26 @@ class ForwardDispatchPreparationService
             }
 
             $lockedTransfer = Transfer::where('id', $lockedMovement->transfer_id)
-                ->with('originLocation')
+                ->with(['originLocation', 'destinationLocation'])
                 ->firstOrFail();
 
+            $destSettingId = (int) ($lockedTransfer->destinationLocation?->setting_id ?? $lockedMovement->destinationLocation?->setting_id);
             $originSettingId = (int) ($lockedTransfer->originLocation?->setting_id ?? $lockedMovement->originLocation?->setting_id);
+            $sourceProductIds = $lockedMovement->sourceMovement ? $lockedMovement->sourceMovement->lines->pluck('product_id') : collect();
 
             $product = Product::query()
                 ->active()
-                ->where('setting_id', $originSettingId)
                 ->where('stock_managed', true)
                 ->where('id', $productId)
+                ->where(function ($q) use ($destSettingId, $originSettingId, $sourceProductIds) {
+                    $q->where('setting_id', $destSettingId)
+                        ->orWhere('setting_id', $originSettingId)
+                        ->orWhereIn('id', $sourceProductIds);
+                })
                 ->first();
 
             if (!$product) {
-                throw new RuntimeException("Produk tidak valid atau tidak terdaftar pada unit bisnis asal.");
+                throw new RuntimeException("Produk tidak valid atau tidak terdaftar pada unit bisnis tujuan.");
             }
 
             if ($product->serial_number_required && $qtyFloat > 0) {
@@ -158,7 +220,6 @@ class ForwardDispatchPreparationService
             unset($row);
 
             if (!$found) {
-                // Unexpected product added
                 if ($qtyFloat > 0 || $lineConfirmed) {
                     $currentLines[] = [
                         'product_id'      => $productId,
@@ -168,6 +229,9 @@ class ForwardDispatchPreparationService
                     ];
                 }
             }
+
+            // Clear empty count confirmation as part of mutation
+            $this->clearEmptyConfirmation($lockedMovement);
 
             return $this->documentService->updateDraft(
                 $lockedMovement,
@@ -179,7 +243,7 @@ class ForwardDispatchPreparationService
     }
 
     /**
-     * Scan a barcode, conversion barcode, or serial number and apply to the movement draft.
+     * Scan a barcode, conversion barcode, or serial number and apply to the receipt draft.
      */
     public function applyScan(
         TransferMovement $movement,
@@ -190,7 +254,11 @@ class ForwardDispatchPreparationService
         bool $canViewSystemStock = false
     ): array {
         return DB::transaction(function () use ($movement, $query, $settingId, $expectedLockVersion, $userId, $canViewSystemStock) {
-            $lockedTransfer = Transfer::where('id', $movement->transfer_id)->lockForUpdate()->firstOrFail();
+            $lockedTransfer = Transfer::where('id', $movement->transfer_id)
+                ->with(['originLocation', 'destinationLocation'])
+                ->lockForUpdate()
+                ->firstOrFail();
+
             $lockedMovement = TransferMovement::where('id', $movement->id)
                 ->with(['lines.serials'])
                 ->lockForUpdate()
@@ -206,28 +274,87 @@ class ForwardDispatchPreparationService
 
             $isBrokenMode = $lockedMovement->stock_condition === TransferMovement::CONDITION_BREAKAGE;
 
+            // Destination side scan resolution: location is destination_location_id, allowZeroStock is true (destination might have 0 stock)
+            $destinationLocationId = (int) $lockedMovement->destination_location_id;
+
             $scanResult = $this->scanResolverService->resolve(
                 $settingId,
                 $query,
-                $lockedMovement->origin_location_id,
+                $destinationLocationId,
                 $isBrokenMode,
-                true // allowZeroStock for physical forward dispatch preparation observations
+                true // allowZeroStock for destination physical observations
             );
 
-            if ($scanResult['status'] === 'rejected') {
-                return [
-                    'status'     => 'rejected',
-                    'message'    => $scanResult['message'] ?? 'Scan rejected.',
-                    'projection' => $this->projectionService->getPreparationProjection($lockedTransfer, $lockedMovement, $canViewSystemStock),
-                ];
+            // Cross-business fallback: if not found in destination setting, check origin setting catalog
+            $originSettingId = (int) ($lockedTransfer->originLocation?->setting_id ?? $lockedMovement->originLocation?->setting_id);
+            $originLocationId = (int) ($lockedTransfer->origin_location_id ?? $lockedMovement->origin_location_id);
+            if (($scanResult['status'] === 'not_found' || $scanResult['status'] === 'none') && $originSettingId !== $settingId) {
+                $originScan = $this->scanResolverService->resolve(
+                    $originSettingId,
+                    $query,
+                    $originLocationId,
+                    $isBrokenMode,
+                    true
+                );
+                if ($originScan['status'] === 'resolved') {
+                    $scanResult = $originScan;
+                }
             }
 
-            if ($scanResult['status'] === 'not_found' || $scanResult['status'] === 'none') {
-                return [
-                    'status'     => 'not_found',
-                    'message'    => $scanResult['message'] ?? 'Not found.',
-                    'projection' => $this->projectionService->getPreparationProjection($lockedTransfer, $lockedMovement, $canViewSystemStock),
-                ];
+            $currentLines = $this->extractLinesDataFromMovement($lockedMovement);
+
+            if ($scanResult['status'] === 'rejected' || $scanResult['status'] === 'not_found' || $scanResult['status'] === 'none') {
+                // Check if query is a serial number for destination or origin setting product or dispatched serial
+                $normalizedSerial = ProductSerialNumber::normalize($query);
+                
+                // Search live serial across destination or origin setting
+                $liveSerial = ProductSerialNumber::where('serial_number', $normalizedSerial)
+                    ->whereHas('product', fn ($q) => $q->active()->whereIn('setting_id', [$settingId, $originSettingId])->where('stock_managed', true))
+                    ->with('product')
+                    ->first();
+
+                // If not found in setting directly, check if it was part of source dispatch
+                if (!$liveSerial) {
+                    $sourceSerial = TransferMovementSerial::where('transfer_movement_id', $lockedMovement->source_movement_id)
+                        ->where('serial_number', $normalizedSerial)
+                        ->with('product')
+                        ->first();
+
+                    if ($sourceSerial && $sourceSerial->product) {
+                        $liveSerial = ProductSerialNumber::find($sourceSerial->product_serial_number_id);
+                    }
+                }
+
+                if ($liveSerial && $liveSerial->product) {
+                    // Valid serial observation
+                    $scanResult = [
+                        'status' => 'resolved',
+                        'type'   => 'serial_exact',
+                        'candidate' => [
+                            'type' => 'serial',
+                            'description' => "Nomor Seri: {$normalizedSerial} - {$liveSerial->product->product_name}",
+                            'serial' => [
+                                'id'                       => (int) $liveSerial->id,
+                                'product_serial_number_id' => (int) $liveSerial->id,
+                                'serial_number'            => $normalizedSerial,
+                                'product_id'               => (int) $liveSerial->product_id,
+                                'tax_id'                   => $liveSerial->tax_id,
+                            ],
+                            'product' => [
+                                'id'                     => (int) $liveSerial->product->id,
+                                'product_name'           => (string) $liveSerial->product->product_name,
+                                'product_code'           => (string) ($liveSerial->product->product_code ?? ''),
+                                'serial_number_required' => true,
+                            ],
+                        ],
+                    ];
+                } else {
+                    return [
+                        'status'     => $scanResult['status'] ?? 'not_found',
+                        'message'    => $scanResult['message'] ?? "Barcode atau nomor seri '{$query}' tidak ditemukan.",
+                        'projection' => $this->projectionService->getPreparationProjection($lockedTransfer, $lockedMovement, $canViewSystemStock),
+                    ];
+                }
             }
 
             if ($scanResult['status'] === 'ambiguous') {
@@ -254,15 +381,13 @@ class ForwardDispatchPreparationService
             $candidate = $scanResult['candidate'] ?? $scanResult;
             $type = $candidate['type'] ?? '';
 
-            $currentLines = $this->extractLinesDataFromMovement($lockedMovement);
-
             if ($type === 'serial' || $type === 'serial_exact') {
                 $serialData = $candidate['serial'];
                 $productData = $candidate['product'];
                 $productId = (int) $productData['id'];
                 $normalizedSerial = TransferMovementSerial::normalize($serialData['serial_number']);
 
-                // Duplicate serial check across all lines
+                // Duplicate serial check
                 foreach ($currentLines as $lineRow) {
                     foreach ($lineRow['serials'] as $s) {
                         $sNum = is_array($s) ? ($s['serial_number'] ?? '') : (string) $s;
@@ -382,7 +507,9 @@ class ForwardDispatchPreparationService
     }
 
     /**
-     * Submit a forward dispatch draft after validating all approved products are confirmed.
+     * Submit a forward receipt draft for approval review.
+     * Allows empty count if empty_count_confirmed is true.
+     * Allows partial, excess, shortage, or unexpected product/serial observations.
      */
     public function submit(
         TransferMovement $movement,
@@ -391,7 +518,6 @@ class ForwardDispatchPreparationService
     ): TransferMovement {
         return DB::transaction(function () use ($movement, $expectedLockVersion, $userId) {
             $lockedTransfer = Transfer::where('id', $movement->transfer_id)
-                ->with('products')
                 ->lockForUpdate()
                 ->firstOrFail();
 
@@ -408,16 +534,10 @@ class ForwardDispatchPreparationService
                 throw new RuntimeException("Transfer revision mismatch: transfer has advanced to revision {$lockedTransfer->revision}.");
             }
 
-            // Every approved product in the transfer MUST be confirmed in movement lines
-            $confirmedProductIds = $lockedMovement->lines
-                ->filter(fn ($line) => (bool) $line->count_confirmed)
-                ->pluck('product_id')
-                ->all();
-
-            foreach ($lockedTransfer->products as $approvedProd) {
-                if (!in_array($approvedProd->product_id, $confirmedProductIds, true)) {
-                    throw new RuntimeException("Every approved product must have its count explicitly confirmed before submission.");
-                }
+            // Check if draft is completely empty without confirmation
+            $hasPositiveObservations = $lockedMovement->lines->some(fn ($l) => (float) $l->quantity > 0);
+            if (!$hasPositiveObservations && !$lockedMovement->empty_count_confirmed) {
+                throw new RuntimeException("Draf penerimaan kosong harus dikonfirmasi bahwa tidak ada barang yang diterima sebelum diajukan.");
             }
 
             return $this->documentService->submitDraft(

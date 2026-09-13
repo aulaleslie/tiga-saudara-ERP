@@ -23,7 +23,6 @@ class TransferLifecycleService
         $idempotencyKey = $idempotencyKey ? strtoupper($idempotencyKey) : null;
 
         return DB::transaction(function () use ($originLocationId, $destinationLocationId, $stockCondition, $productsData, $userId, $idempotencyKey) {
-            // First check idempotency at the database level using a locked read or unique constraint if applicable.
             if ($idempotencyKey) {
                 // If we already have an action history for this key and ACTION_CREATED, return the existing transfer.
                 $existingAction = TransferActionHistory::where('idempotency_key', $idempotencyKey)
@@ -36,6 +35,8 @@ class TransferLifecycleService
                 }
             }
 
+            $workflowVersion = app(TransferWorkflowEligibilityService::class)->resolveWorkflowVersion($originLocationId, $destinationLocationId);
+
             // Create transfer
             $transfer = Transfer::create([
                 'origin_location_id'      => $originLocationId,
@@ -44,6 +45,7 @@ class TransferLifecycleService
                 'created_by'              => $userId,
                 'status'                  => Transfer::STATUS_DRAFT,
                 'revision'                => 1,
+                'workflow_version'        => $workflowVersion,
             ]);
 
             // Add products

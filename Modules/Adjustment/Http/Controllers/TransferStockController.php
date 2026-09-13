@@ -187,6 +187,7 @@ class TransferStockController extends Controller
             'receivedBy',
             'returnDispatchedBy',
             'returnReceivedBy',
+            'movements.histories',
         ]);
 
         $currentSettingId = (int) session('setting_id');

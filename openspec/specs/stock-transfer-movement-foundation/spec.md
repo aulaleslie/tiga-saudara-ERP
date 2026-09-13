@@ -6,19 +6,19 @@ Staged versioned movement foundation, monotonically increasing superseding revis
 ## Requirements
 
 ### Requirement: Transfers support a staged versioned movement foundation
-The system SHALL store a workflow version on every stock transfer, SHALL preserve existing and newly approved production transfers under legacy workflow version `1` while version `2` activation is disabled, and SHALL permit only the gated forward-dispatch capability to exercise version `2` movement effects in focused non-production verification until forward receipt is available.
+The system SHALL store a workflow version on every stock transfer, SHALL assign workflow version `2` only to new same-business and cross-business non-PKP-to-non-PKP transfers once forward dispatch and forward receipt are available, and SHALL retain workflow version `1` for PKP-involved routes until Delivery 7 completes their policy lifecycle.
 
-#### Scenario: Existing transfer remains compatible
-- **WHEN** the approved-forward-dispatch change is deployed for an existing transfer in any lifecycle state
-- **THEN** its workflow version, status, and current lifecycle behavior remain unchanged
+#### Scenario: Eligible new transfer uses version 2
+- **WHEN** a new transfer is same-business or both participating businesses are non-PKP
+- **THEN** it is eligible for workflow version `2` forward dispatch and forward receipt
 
-#### Scenario: Newly created production transfer remains legacy before coordinated cutover
-- **WHEN** a production transfer is created or approved while version `2` activation is disabled
-- **THEN** it remains workflow version `1` and follows the existing header lifecycle
+#### Scenario: PKP-involved transfer remains version 1
+- **WHEN** either participating business is PKP before Delivery 7 activation
+- **THEN** the transfer remains workflow version `1` and no version `2` movement surface is available
 
-#### Scenario: Gated version 2 forward-dispatch approval
-- **WHEN** the version `2` forward-dispatch path is exercised through an authorized focused-test or non-production activation boundary
-- **THEN** only the defined forward-dispatch approval effects occur atomically and no destination receipt, tax reclassification, or return movement effect occurs
+#### Scenario: No historical transfer migration
+- **WHEN** Delivery 6 is deployed
+- **THEN** the system performs no legacy transfer-transaction backfill or reinterpretation because stock transfer has no operational historical population
 
 ### Requirement: Movement attempts identify type, revision, and operational context
 The system SHALL represent each movement submission attempt as a record bound to one transfer, one movement type, one revision, the exact approved transfer revision, explicit operational source and destination locations, and one stock condition.
@@ -118,20 +118,24 @@ The system SHALL store each selected serial as a normalized row linked to its mo
 - **WHEN** a serialized line's entered quantity differs from its unique serial count
 - **THEN** submission is rejected without changing movement state
 
-### Requirement: Transit custody activates only for approved version 2 forward dispatch
-The system SHALL activate serialized transit custody only as part of successful workflow version `2` forward-dispatch approval, SHALL leave live serial location at its last confirmed origin, and MUST NOT change custody for draft, pending, rejected, cancelled, failed, or legacy movements.
+### Requirement: Transit custody closes only for approved exact forward receipt
+The system SHALL activate serialized transit custody only on approved workflow version `2` forward dispatch and SHALL close that custody, move live serial location to destination, and remove the active claim only within successful approval of the exact linked forward receipt.
 
-#### Scenario: Approve version 2 serialized forward dispatch
+#### Scenario: Approve serialized forward dispatch
 - **WHEN** an eligible serialized forward dispatch completes approval atomically
-- **THEN** its movement serials become exclusively in transit while live serial locations remain unchanged
+- **THEN** its movement serials become exclusively in transit while live serial locations remain at their last confirmed origin
 
-#### Scenario: Movement does not approve
-- **WHEN** preparation, submission, comparison, stock validation, serial validation, or approval fails
-- **THEN** transit custody remains inactive and existing serial availability is unchanged
+#### Scenario: Approve exact linked receipt
+- **WHEN** the linked receipt exactly matches and completes approval atomically
+- **THEN** live serial locations move to destination, movement custody closes, and active transfer claims are removed
 
-#### Scenario: Legacy serial dispatch
-- **WHEN** a workflow version `1` transfer dispatches through the existing path
-- **THEN** its established serial behavior remains unchanged by the movement-custody capability
+#### Scenario: Receipt does not approve
+- **WHEN** receipt preparation, submission, comparison, rejection, correction, cancellation, or approval fails
+- **THEN** dispatched serials remain in transit and unavailable for competing operations
+
+#### Scenario: Legacy serial lifecycle
+- **WHEN** a workflow version `1` transfer dispatches or receives
+- **THEN** its established serial behavior remains unchanged by movement custody
 
 ### Requirement: Movement actions are idempotent within their exact scope
 The system SHALL scope idempotency to movement, revision, and action and MUST NOT duplicate transitions, history, or related records when the same completed action is repeated with the same key.
@@ -163,20 +167,24 @@ The system SHALL register separate dispatch-create, dispatch-approval, receive-c
 - **WHEN** an existing production dispatch or receipt route is invoked after this foundation is deployed
 - **THEN** its existing legacy permission and lifecycle behavior remain in effect
 
-### Requirement: Movement foundation exposes only gated forward dispatch
-The system SHALL expose movement creation, mutation, submission, review, rejection, correction, and approval only for forward dispatch through version-aware production routes guarded by an activation boundary, action permissions, operational ownership, and stock-visibility projections; other movement types MUST remain without production-facing surfaces in this change.
+### Requirement: Movement foundation exposes gated forward dispatch and receipt
+The system SHALL expose movement creation, mutation, submission, review, rejection, correction, and approval for forward dispatch and forward receipt through version-aware routes guarded by route eligibility, action permissions, operational ownership, scoped aggregate identity, and stock-visibility projections; return movement types MUST remain without production-facing surfaces in this change.
 
-#### Scenario: Authorized version 2 dispatch preparation
-- **WHEN** activation is enabled in a permitted environment and an eligible origin user invokes forward-dispatch preparation
-- **THEN** the gated movement surface is available using the user's blind or privileged projection
+#### Scenario: Authorized origin dispatch action
+- **WHEN** an eligible origin user invokes a workflow version `2` forward-dispatch action
+- **THEN** the dispatch movement surface is available using the user's permitted projection
 
-#### Scenario: Receipt or return movement route attempted
-- **WHEN** any user attempts to access a forward-receipt, return-dispatch, or return-receipt production movement surface in this change
+#### Scenario: Authorized destination receipt action
+- **WHEN** an eligible destination user invokes a workflow version `2` forward-receipt action
+- **THEN** preparation uses the universally blind projection and approval uses the approver's visibility-aware projection
+
+#### Scenario: Return movement route attempted
+- **WHEN** any user attempts to access a return-dispatch or return-receipt movement surface in this change
 - **THEN** no such surface is available and no movement or inventory effect occurs
 
-#### Scenario: Activation remains disabled
-- **WHEN** a user holds every movement permission but production version `2` activation is disabled
-- **THEN** no new operational movement action is available and version `1` behavior remains unchanged
+#### Scenario: Ineligible route attempts version 2
+- **WHEN** a PKP-involved transfer invokes a version `2` movement action before Delivery 7
+- **THEN** the action is rejected and version `1` remains authoritative
 
 ### Requirement: Confirmed zero is a complete movement observation
 Movement lines SHALL store count confirmation independently from quantity, and a submitted forward-dispatch attempt SHALL treat a confirmed zero expected-product line as complete while treating an unconfirmed line as incomplete.
@@ -188,3 +196,29 @@ Movement lines SHALL store count confirmation independently from quantity, and a
 #### Scenario: Unconfirmed zero remains incomplete
 - **WHEN** an approved product has zero quantity without explicit confirmation
 - **THEN** the forward-dispatch attempt cannot be submitted
+
+### Requirement: Empty receipt confirmation is explicit and auditable
+A forward-receipt movement SHALL store document-level physical-count confirmation independently from movement lines, including confirmer and timestamp, so an intentional empty observation can be submitted without exposing or synthesizing expected lines.
+
+#### Scenario: Explicitly confirm empty receipt
+- **WHEN** an authorized destination preparer confirms that no goods were physically received
+- **THEN** the draft records the confirmation actor and timestamp and may be submitted empty
+
+#### Scenario: Empty draft is not confirmed
+- **WHEN** a draft contains no positive observations and lacks current document-level confirmation
+- **THEN** it is incomplete and cannot be submitted
+
+#### Scenario: Observations change after confirmation
+- **WHEN** receipt observations are added, removed, or changed after empty confirmation
+- **THEN** the obsolete document-level confirmation is cleared
+
+### Requirement: Receipt corrections restart blind
+A correction created for a rejected forward receipt SHALL reference and preserve the rejected revision but SHALL start with no copied lines, serials, quantities, or hidden expectations.
+
+#### Scenario: Correct rejected receipt
+- **WHEN** an authorized destination preparer starts a correction for a rejected receipt
+- **THEN** the next revision is an empty blind draft linked through `supersedes_movement_id`
+
+#### Scenario: Inspect correction payload
+- **WHEN** the correction is rendered for preparation
+- **THEN** neither rejected observations nor source dispatch expectations appear unless newly entered by the operator

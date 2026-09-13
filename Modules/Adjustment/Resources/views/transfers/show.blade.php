@@ -310,54 +310,100 @@
 
                                 {{-- Dispatch: only ORIGIN on APPROVED --}}
                             @elseif($transfer->status === Transfer::STATUS_APPROVED && $isOrigin)
-                                @can('stockTransfers.dispatch')
-                                    @can('stockTransfers.view-system-stock')
-                                        @if(session()->has('drift_exception'))
-                                            {{-- Drift detected: show confirmation form --}}
-                                            <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST" class="d-inline">
-                                                @csrf
-                                                <input type="hidden" name="acknowledged_hash" value="{{ session('drift_exception.hash') }}">
-                                                <button class="btn btn-danger">Konfirmasi Pengiriman (dengan perubahan alokasi)</button>
-                                            </form>
-                                            <button class="btn btn-secondary" onclick="location.reload()">Batalkan & Muat Ulang</button>
-                                        @else
-                                            {{-- Normal dispatch --}}
-                                            <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST" class="d-inline">
-                                                @csrf
-                                                <button class="btn btn-primary">Keluarkan</button>
-                                            </form>
-                                        @endif
-                                    @else
-                                        @if(session()->has('drift_exception_blind'))
-                                            {{-- Blind neutral retry: no hash, no allocation
-                                                 payload -- just a signal to acknowledge and
-                                                 retry with the authoritative server-side
-                                                 allocation. --}}
-                                            <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST" class="d-inline">
-                                                @csrf
-                                                <input type="hidden" name="retry_after_drift" value="1">
-                                                <button class="btn btn-danger">Coba Kirim Ulang</button>
-                                            </form>
-                                            <button class="btn btn-secondary" onclick="location.reload()">Batalkan & Muat Ulang</button>
-                                        @else
-                                            {{-- Normal dispatch --}}
-                                            <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST" class="d-inline">
-                                                @csrf
-                                                <button class="btn btn-primary">Keluarkan</button>
-                                            </form>
+                                @if((int)$transfer->workflow_version === 2 && config('stock_transfers.v2_dispatch_enabled', false) && app(\Modules\Adjustment\Services\TransferWorkflowEligibilityService::class)->isEligibleForV2($transfer))
+                                    @can('stockTransfers.dispatch.create')
+                                        @php
+                                            $openDispatch = $transfer->movements->first(fn($m) => $m->type === \Modules\Adjustment\Entities\TransferMovement::TYPE_FORWARD_DISPATCH && in_array($m->status, [\Modules\Adjustment\Entities\TransferMovement::STATUS_DRAFT, \Modules\Adjustment\Entities\TransferMovement::STATUS_PENDING]));
+                                        @endphp
+                                        @if(!$openDispatch || $openDispatch->status === \Modules\Adjustment\Entities\TransferMovement::STATUS_DRAFT)
+                                            <a href="{{ route('transfers.movements.prepare', $transfer->id) }}" class="btn btn-primary">
+                                                <i class="bi bi-box-arrow-up mr-1"></i> Persiapan Pengiriman (V2)
+                                            </a>
                                         @endif
                                     @endcan
-                                @endcan
+                                    @can('stockTransfers.dispatch.approval')
+                                        @php
+                                            $pendingDispatch = $transfer->movements->first(fn($m) => $m->type === \Modules\Adjustment\Entities\TransferMovement::TYPE_FORWARD_DISPATCH && $m->status === \Modules\Adjustment\Entities\TransferMovement::STATUS_PENDING);
+                                        @endphp
+                                        @if($pendingDispatch)
+                                            <a href="{{ route('transfers.movements.review', ['transfer' => $transfer->id, 'movement' => $pendingDispatch->id]) }}" class="btn btn-warning">
+                                                <i class="bi bi-eye mr-1"></i> Tinjau Pengiriman (V2)
+                                            </a>
+                                        @endif
+                                    @endcan
+                                @else
+                                    @can('stockTransfers.dispatch')
+                                        @can('stockTransfers.view-system-stock')
+                                            @if(session()->has('drift_exception'))
+                                                {{-- Drift detected: show confirmation form --}}
+                                                <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST" class="d-inline">
+                                                    @csrf
+                                                    <input type="hidden" name="acknowledged_hash" value="{{ session('drift_exception.hash') }}">
+                                                    <button class="btn btn-danger">Konfirmasi Pengiriman (dengan perubahan alokasi)</button>
+                                                </form>
+                                                <button class="btn btn-secondary" onclick="location.reload()">Batalkan & Muat Ulang</button>
+                                            @else
+                                                {{-- Normal dispatch --}}
+                                                <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST" class="d-inline">
+                                                    @csrf
+                                                    <button class="btn btn-primary">Keluarkan</button>
+                                                </form>
+                                            @endif
+                                        @else
+                                            @if(session()->has('drift_exception_blind'))
+                                                {{-- Blind neutral retry: no hash, no allocation
+                                                     payload -- just a signal to acknowledge and
+                                                     retry with the authoritative server-side
+                                                     allocation. --}}
+                                                <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST" class="d-inline">
+                                                    @csrf
+                                                    <input type="hidden" name="retry_after_drift" value="1">
+                                                    <button class="btn btn-danger">Coba Kirim Ulang</button>
+                                                </form>
+                                                <button class="btn btn-secondary" onclick="location.reload()">Batalkan & Muat Ulang</button>
+                                            @else
+                                                {{-- Normal dispatch --}}
+                                                <form action="{{ route('transfers.dispatch', $transfer) }}" method="POST" class="d-inline">
+                                                    @csrf
+                                                    <button class="btn btn-primary">Keluarkan</button>
+                                                </form>
+                                            @endif
+                                        @endcan
+                                    @endcan
+                                @endif
 
                                 {{-- Receive: only DESTINATION on DISPATCHED --}}
                             @elseif($transfer->status === Transfer::STATUS_DISPATCHED && $isDestination)
-                                @can('stockTransfers.receive')
-                                    <form action="{{ route('transfers.receive', $transfer) }}" method="POST"
-                                          class="d-inline">
-                                        @csrf
-                                        <button class="btn btn-success">Terima</button>
-                                    </form>
-                                @endcan
+                                @if((int)$transfer->workflow_version === 2 && config('stock_transfers.v2_dispatch_enabled', false) && app(\Modules\Adjustment\Services\TransferWorkflowEligibilityService::class)->isEligibleForV2($transfer))
+                                    @can('stockTransfers.receive.create')
+                                        @php
+                                            $openReceipt = $transfer->movements->first(fn($m) => $m->type === \Modules\Adjustment\Entities\TransferMovement::TYPE_FORWARD_RECEIPT && in_array($m->status, [\Modules\Adjustment\Entities\TransferMovement::STATUS_DRAFT, \Modules\Adjustment\Entities\TransferMovement::STATUS_PENDING]));
+                                        @endphp
+                                        @if(!$openReceipt || $openReceipt->status === \Modules\Adjustment\Entities\TransferMovement::STATUS_DRAFT)
+                                            <a href="{{ route('transfers.movements.receipt.prepare', $transfer->id) }}" class="btn btn-primary">
+                                                <i class="bi bi-box-arrow-in-down mr-1"></i> Persiapan Penerimaan (V2)
+                                            </a>
+                                        @endif
+                                    @endcan
+                                    @can('stockTransfers.receive.approval')
+                                        @php
+                                            $pendingReceipt = $transfer->movements->first(fn($m) => $m->type === \Modules\Adjustment\Entities\TransferMovement::TYPE_FORWARD_RECEIPT && $m->status === \Modules\Adjustment\Entities\TransferMovement::STATUS_PENDING);
+                                        @endphp
+                                        @if($pendingReceipt)
+                                            <a href="{{ route('transfers.movements.receipt.review', ['transfer' => $transfer->id, 'movement' => $pendingReceipt->id]) }}" class="btn btn-warning">
+                                                <i class="bi bi-eye mr-1"></i> Tinjau Penerimaan (V2)
+                                            </a>
+                                        @endif
+                                    @endcan
+                                @else
+                                    @can('stockTransfers.receive')
+                                        <form action="{{ route('transfers.receive', $transfer) }}" method="POST"
+                                              class="d-inline">
+                                            @csrf
+                                            <button class="btn btn-success">Terima</button>
+                                        </form>
+                                    @endcan
+                                @endif
                             @elseif($transfer->status === Transfer::STATUS_AWAITING_RETURN && $isDestination)
                                 @can('stockTransfers.dispatch')
                                     <form action="{{ route('transfers.return-dispatch', $transfer) }}" method="POST"

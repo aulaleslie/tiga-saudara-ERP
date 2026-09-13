@@ -56,6 +56,8 @@ class ForwardDispatchApprovalExecutor
                 throw new RuntimeException("Version 2 approval executor only applies to workflow version 2 transfers.");
             }
 
+            app(TransferWorkflowEligibilityService::class)->validateV2Eligibility($lockedTransfer);
+
             if ((int) $lockedMovement->transfer_id !== (int) $lockedTransfer->id) {
                 throw new RuntimeException("Movement transfer ID mismatch.");
             }

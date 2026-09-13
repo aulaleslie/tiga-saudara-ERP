@@ -45,5 +45,17 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::post('/transfers/{transfer}/movements/{movement}/approve', 'ForwardDispatchMovementController@approve')->name('transfers.movements.approve');
     Route::post('/transfers/{transfer}/movements/{movement}/reject', 'ForwardDispatchMovementController@reject')->name('transfers.movements.reject');
 
+    // Version 2 Forward Receipt Movement Routes (Gated by v2_dispatch_enabled config)
+    Route::get('/transfers/{transfer}/movements/receipt/prepare', 'ForwardReceiptMovementController@prepare')->name('transfers.movements.receipt.prepare');
+    Route::post('/transfers/{transfer}/movements/{movement}/receipt/confirm-empty', 'ForwardReceiptMovementController@confirmEmpty')->name('transfers.movements.receipt.confirm-empty');
+    Route::post('/transfers/{transfer}/movements/{movement}/receipt/scan', 'ForwardReceiptMovementController@scan')->name('transfers.movements.receipt.scan');
+    Route::post('/transfers/{transfer}/movements/{movement}/receipt/set-quantity', 'ForwardReceiptMovementController@setQuantity')->name('transfers.movements.receipt.set-quantity');
+    Route::post('/transfers/{transfer}/movements/{movement}/receipt/submit', 'ForwardReceiptMovementController@submit')->name('transfers.movements.receipt.submit');
+    Route::post('/transfers/{transfer}/movements/{movement}/receipt/cancel', 'ForwardReceiptMovementController@cancel')->name('transfers.movements.receipt.cancel');
+    Route::post('/transfers/{transfer}/movements/{movement}/receipt/correct', 'ForwardReceiptMovementController@correct')->name('transfers.movements.receipt.correct');
+    Route::get('/transfers/{transfer}/movements/{movement}/receipt/review', 'ForwardReceiptMovementController@review')->name('transfers.movements.receipt.review');
+    Route::post('/transfers/{transfer}/movements/{movement}/receipt/approve', 'ForwardReceiptMovementController@approve')->name('transfers.movements.receipt.approve');
+    Route::post('/transfers/{transfer}/movements/{movement}/receipt/reject', 'ForwardReceiptMovementController@reject')->name('transfers.movements.receipt.reject');
+
     Route::resource('transfers', 'TransferStockController');
 });

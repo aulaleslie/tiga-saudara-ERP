@@ -65,16 +65,21 @@ class TransferMovement extends BaseModel
         'reviewed_at',
         'rejection_reason',
         'cancellation_reason',
+        'empty_count_confirmed',
+        'empty_count_confirmed_by',
+        'empty_count_confirmed_at',
         'metadata',
     ];
 
     protected $casts = [
-        'revision'          => 'integer',
-        'lock_version'     => 'integer',
-        'transfer_revision' => 'integer',
-        'submitted_at'      => 'datetime',
-        'reviewed_at'       => 'datetime',
-        'metadata'          => 'array',
+        'revision'                 => 'integer',
+        'lock_version'            => 'integer',
+        'transfer_revision'        => 'integer',
+        'empty_count_confirmed'    => 'boolean',
+        'submitted_at'             => 'datetime',
+        'reviewed_at'              => 'datetime',
+        'empty_count_confirmed_at' => 'datetime',
+        'metadata'                 => 'array',
     ];
 
     public function transfer(): BelongsTo
@@ -120,6 +125,11 @@ class TransferMovement extends BaseModel
     public function reviewedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    public function emptyCountConfirmedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'empty_count_confirmed_by');
     }
 
     public function lines(): HasMany

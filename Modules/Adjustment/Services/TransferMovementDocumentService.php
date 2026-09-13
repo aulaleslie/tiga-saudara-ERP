@@ -285,8 +285,11 @@ class TransferMovementDocumentService
             $this->persistLinesAndSerials($lockedMovement, $linesData);
 
             $lockedMovement->update([
-                'lock_version' => $lockedMovement->lock_version + 1,
-                'updated_by'   => $userId,
+                'lock_version'               => $lockedMovement->lock_version + 1,
+                'empty_count_confirmed'      => false,
+                'empty_count_confirmed_by'   => null,
+                'empty_count_confirmed_at'   => null,
+                'updated_by'                 => $userId,
             ]);
 
             $this->recordHistory(
@@ -345,37 +348,41 @@ class TransferMovementDocumentService
                 throw new RuntimeException("Transfer revision mismatch: transfer has advanced to revision {$lockedTransfer->revision}.");
             }
 
-            // Validate that movement has lines and serials match line quantity
+            // Validate lines or document-level empty confirmation
             $lockedMovement->load(['lines.serials', 'lines.product']);
             if ($lockedMovement->lines->isEmpty()) {
-                throw new RuntimeException("Cannot submit movement with zero lines.");
-            }
-
-            foreach ($lockedMovement->lines as $line) {
-                $qty = (float) $line->quantity;
-                if ($qty < 0) {
-                    throw new RuntimeException("Movement line quantity for product ID {$line->product_id} cannot be negative.");
+                if (!($lockedMovement->type === TransferMovement::TYPE_FORWARD_RECEIPT && $lockedMovement->empty_count_confirmed)) {
+                    throw new RuntimeException("Cannot submit movement with zero lines.");
                 }
-
-                if ($qty === 0.0 && !$line->count_confirmed) {
-                    throw new RuntimeException("Unconfirmed line for product ID {$line->product_id} cannot be submitted.");
-                }
-
-                $product = $line->product;
-                if ($product && (bool) ($product->serial_number_required ?? false)) {
-                    $serialCount = $line->serials->count();
-                    $lineQty = (float) $line->quantity;
-                    if ((float) $serialCount !== $lineQty) {
-                        throw new RuntimeException("Serialized product ID {$line->product_id} expects {$lineQty} serials, found {$serialCount}.");
+            } else {
+                foreach ($lockedMovement->lines as $line) {
+                    $qty = (float) $line->quantity;
+                    if ($qty < 0) {
+                        throw new RuntimeException("Movement line quantity for product ID {$line->product_id} cannot be negative.");
                     }
 
-                    // Re-query and lock every live serial during submission to ensure state has not drifted
-                    foreach ($line->serials as $movSerial) {
-                        $liveSerial = ProductSerialNumber::where('id', $movSerial->product_serial_number_id)
-                            ->lockForUpdate()
-                            ->first();
+                    if ($qty === 0.0 && !$line->count_confirmed) {
+                        throw new RuntimeException("Unconfirmed line for product ID {$line->product_id} cannot be submitted.");
+                    }
 
-                        $this->validateLiveSerialForMovement($liveSerial, $movSerial->serial_number, (int) $line->product_id, $lockedMovement);
+                    $product = $line->product;
+                    if ($product && (bool) ($product->serial_number_required ?? false)) {
+                        $serialCount = $line->serials->count();
+                        $lineQty = (float) $line->quantity;
+                        if ((float) $serialCount !== $lineQty) {
+                            throw new RuntimeException("Serialized product ID {$line->product_id} expects {$lineQty} serials, found {$serialCount}.");
+                        }
+
+                        // Re-query and lock every live serial during submission to ensure state has not drifted (for dispatch movements)
+                        if ($lockedMovement->type === TransferMovement::TYPE_FORWARD_DISPATCH) {
+                            foreach ($line->serials as $movSerial) {
+                                $liveSerial = ProductSerialNumber::where('id', $movSerial->product_serial_number_id)
+                                    ->lockForUpdate()
+                                    ->first();
+
+                                $this->validateLiveSerialForMovement($liveSerial, $movSerial->serial_number, (int) $line->product_id, $lockedMovement);
+                            }
+                        }
                     }
                 }
             }
@@ -603,9 +610,9 @@ class TransferMovementDocumentService
     {
         $transfer = Transfer::where('id', $transferId)->lockForUpdate()->firstOrFail();
 
-        // For the movement foundation, only APPROVED transfers are eligible for movement creation/operations
-        if ($transfer->status !== Transfer::STATUS_APPROVED) {
-            throw new RuntimeException("Transfer is in status [{$transfer->status}], but only APPROVED transfers are eligible for movement operations.");
+        // For the movement foundation, APPROVED or DISPATCHED transfers are eligible for movement creation/operations
+        if (!in_array($transfer->status, [Transfer::STATUS_APPROVED, Transfer::STATUS_DISPATCHED], true)) {
+            throw new RuntimeException("Transfer is in status [{$transfer->status}], but only APPROVED or DISPATCHED transfers are eligible for movement operations.");
         }
 
         if (!$transfer->hasExplicitCondition()) {
@@ -693,23 +700,27 @@ class TransferMovementDocumentService
                     $suppliedSerialId = is_array($serialItem) ? ($serialItem['product_serial_number_id'] ?? null) : null;
 
                     if ($suppliedSerialId !== null) {
-                        $liveSerial = ProductSerialNumber::find($suppliedSerialId);
-                        if (!$liveSerial) {
-                            throw new RuntimeException("Supplied product_serial_number_id {$suppliedSerialId} does not exist.");
+                        $foundSerial = ProductSerialNumber::find($suppliedSerialId);
+                        if ($foundSerial && TransferMovementSerial::normalize((string) $foundSerial->serial_number) === $normalized) {
+                            $liveSerial = $foundSerial;
                         }
-
-                        if ($liveSerial->serial_number !== $normalized) {
-                            throw new RuntimeException("Supplied product_serial_number_id {$suppliedSerialId} text [{$liveSerial->serial_number}] does not match entered text [{$normalized}].");
-                        }
-                    } else {
-                        $liveSerial = ProductSerialNumber::where('product_id', $productId)
-                            ->where('serial_number', $normalized)
-                            ->first();
                     }
 
-                    $this->validateLiveSerialForMovement($liveSerial, $normalized, $productId, $movement);
+                    if ($liveSerial === null) {
+                        $liveSerial = ProductSerialNumber::where('serial_number', $normalized)
+                            ->where('product_id', $productId)
+                            ->first();
 
-                    $taxId = $liveSerial->tax_id;
+                        if ($liveSerial === null) {
+                            $liveSerial = ProductSerialNumber::where('serial_number', $normalized)->first();
+                        }
+                    }
+
+                    if ($movement->type === TransferMovement::TYPE_FORWARD_DISPATCH) {
+                        $this->validateLiveSerialForMovement($liveSerial, $normalized, $productId, $movement);
+                    }
+
+                    $taxId = $liveSerial?->tax_id;
                     $taxName = null;
                     $taxRate = null;
 
@@ -725,7 +736,7 @@ class TransferMovementDocumentService
                         'transfer_movement_id'      => $movement->id,
                         'transfer_movement_line_id' => $line->id,
                         'product_id'                => $productId,
-                        'product_serial_number_id'  => $liveSerial->id,
+                        'product_serial_number_id'  => $liveSerial?->id,
                         'serial_number'             => $normalized,
                         'stock_condition'           => $movement->stock_condition,
                         'tax_id'                    => $taxId,

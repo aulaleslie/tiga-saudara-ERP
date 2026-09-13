@@ -308,12 +308,15 @@ class ForwardDispatchApprovalAndInventoryTest extends TestCase
         $approvalExecutor = app(ForwardDispatchApprovalExecutor::class);
 
         $movement = $prepService->getOrCreateDraft($transfer, $this->user->id);
-        // Force set line quantity to 1 without scanning serials
-        $movement = $prepService->setLineQuantity($movement, $this->serializedProduct->id, 1, true, $movement->lock_version, $this->user->id);
+        // Force update existing seeded line with quantity 1 without serials
+        $movement->lines()->where('product_id', $this->serializedProduct->id)->update([
+            'quantity'        => 1,
+            'count_confirmed' => true,
+        ]);
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('expects 1 serials, found 0');
-        $prepService->submit($movement, $movement->lock_version, $this->user->id);
+        $prepService->submit($movement->fresh(['lines.serials']), $movement->lock_version, $this->user->id);
     }
 
     /** @test */
