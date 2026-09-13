@@ -12,10 +12,12 @@ use Modules\Adjustment\Entities\TransferMovement;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Tests\TestCase;
+use Modules\Adjustment\Tests\Support\CreatesRoutePolicySnapshot;
 
 class TransferMovementReceiptMigrationAndModelTest extends TestCase
 {
     use RefreshDatabase;
+    use CreatesRoutePolicySnapshot;
 
     protected User $user;
     protected Setting $setting;
@@ -49,6 +51,8 @@ class TransferMovementReceiptMigrationAndModelTest extends TestCase
             'stock_condition'         => Transfer::CONDITION_GOOD,
             'created_by'              => $this->user->id,
         ]);
+
+        $this->createRoutePolicySnapshot($this->transfer, $this->origin, $this->destination, $this->user);
     }
 
     public function test_migration_adds_empty_count_confirmation_columns(): void

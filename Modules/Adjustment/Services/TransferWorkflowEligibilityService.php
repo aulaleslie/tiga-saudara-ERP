@@ -9,12 +9,15 @@ use Modules\Setting\Entities\Setting;
 class TransferWorkflowEligibilityService
 {
     /**
-     * Determine if a transfer or origin/destination route is eligible for workflow version 2.
+     * Determine if a transfer or origin/destination route is prospectively
+     * eligible for workflow version 2.
      *
-     * Rules:
-     * - Same business (origin setting_id == destination setting_id): ELIGIBLE
-     * - Cross business where both businesses are non-PKP: ELIGIBLE
-     * - Any route involving a PKP business (origin or destination is_pkp == true): INELIGIBLE (Version 1)
+     * All five route classes are eligible once a route-policy snapshot can
+     * be committed at approval: same-business (any PKP combination),
+     * cross-business non-PKP-to-non-PKP, and cross-business routes
+     * involving any PKP business. Eligibility here is a prospective,
+     * live-settings estimate used at draft/creation time only; the
+     * authoritative decision is the immutable snapshot created at approval.
      */
     public function isEligibleForV2(Transfer|Location|int $origin, Location|int|null $destination = null): bool
     {
@@ -31,16 +34,15 @@ class TransferWorkflowEligibilityService
             return false;
         }
 
-        // If destination is not yet selected (draft stage), we check origin business
         $originSetting = $originLoc->setting ?? Setting::find($originLoc->setting_id);
         if (!$originSetting) {
             return false;
         }
 
         if (!$destLoc) {
-            // Without destination, if origin is PKP, it's definitely not eligible for v2 non-PKP cross-transfer,
-            // but if same-business is chosen later it might be. However, standard check requires knowing destination or defaults to origin PKP status.
-            return !(bool) $originSetting->is_pkp;
+            // Destination not yet chosen (draft stage): every route class is
+            // prospectively eligible once destination is known, so estimate optimistically.
+            return true;
         }
 
         $destSetting = $destLoc->setting ?? Setting::find($destLoc->setting_id);
@@ -48,20 +50,13 @@ class TransferWorkflowEligibilityService
             return false;
         }
 
-        // Same business route
-        if ((int) $originSetting->id === (int) $destSetting->id) {
-            return true;
-        }
-
-        // Cross business: eligible ONLY if both are non-PKP
-        $originIsPkp = (bool) $originSetting->is_pkp;
-        $destIsPkp = (bool) $destSetting->is_pkp;
-
-        return !$originIsPkp && !$destIsPkp;
+        return true;
     }
 
     /**
-     * Resolve the initial workflow version for a new transfer.
+     * Resolve the initial workflow version for a new transfer. This is a
+     * prospective estimate at draft-creation time; the authoritative
+     * workflow version and route policy are committed at approval.
      */
     public function resolveWorkflowVersion(Location|int $origin, Location|int|null $destination = null): int
     {
@@ -69,7 +64,9 @@ class TransferWorkflowEligibilityService
     }
 
     /**
-     * Assert that a transfer is eligible for workflow version 2. Throws RuntimeException if not.
+     * Assert that a transfer is eligible for workflow version 2 execution
+     * (dispatch/receipt). Requires an immutable route-policy snapshot
+     * committed at approval; live settings are never re-evaluated here.
      */
     public function validateV2Eligibility(Transfer $transfer): void
     {
@@ -77,8 +74,10 @@ class TransferWorkflowEligibilityService
             throw new \RuntimeException("This operation is only supported for workflow version 2 transfers.");
         }
 
-        if (!$this->isEligibleForV2($transfer)) {
-            throw new \RuntimeException("This transfer route is not eligible for workflow version 2.");
+        $hasSnapshot = \Modules\Adjustment\Entities\TransferRoutePolicy::where('transfer_id', $transfer->id)->exists();
+
+        if (!$hasSnapshot) {
+            throw new \RuntimeException("This transfer has no approved route-policy snapshot and is not eligible for workflow version 2 execution.");
         }
     }
 }

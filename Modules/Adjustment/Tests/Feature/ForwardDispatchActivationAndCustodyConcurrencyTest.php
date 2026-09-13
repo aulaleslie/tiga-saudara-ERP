@@ -15,10 +15,12 @@ use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Unit;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
+use Modules\Adjustment\Tests\Support\CreatesRoutePolicySnapshot;
 
 class ForwardDispatchActivationAndCustodyConcurrencyTest extends TestCase
 {
     use RefreshDatabase;
+    use CreatesRoutePolicySnapshot;
 
     private const GUARD = 'web';
 
@@ -88,6 +90,8 @@ class ForwardDispatchActivationAndCustodyConcurrencyTest extends TestCase
             'workflow_version'        => 2,
         ]);
 
+        $this->createRoutePolicySnapshot($transfer, $this->origin, $this->destination, $this->user);
+
         $response = $this->actingAs($this->user)
             ->withSession(['setting_id' => $this->setting->id])
             ->get(route('transfers.movements.prepare', $transfer->id));
@@ -133,6 +137,8 @@ class ForwardDispatchActivationAndCustodyConcurrencyTest extends TestCase
             'workflow_version'        => 2,
         ]);
 
+        $this->createRoutePolicySnapshot($transferA, $this->origin, $this->destination, $this->user);
+
         $transferB = Transfer::create([
             'origin_location_id'      => $this->origin->id,
             'destination_location_id' => $this->destination->id,
@@ -142,6 +148,8 @@ class ForwardDispatchActivationAndCustodyConcurrencyTest extends TestCase
             'revision'                => 1,
             'workflow_version'        => 2,
         ]);
+
+        $this->createRoutePolicySnapshot($transferB, $this->origin, $this->destination, $this->user);
 
         $prepService = app(\Modules\Adjustment\Services\ForwardDispatchPreparationService::class);
         $movementA = $prepService->getOrCreateDraft($transferA, $this->user->id);

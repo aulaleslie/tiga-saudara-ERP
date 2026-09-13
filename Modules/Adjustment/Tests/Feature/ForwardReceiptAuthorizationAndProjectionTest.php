@@ -20,10 +20,12 @@ use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Unit;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
+use Modules\Adjustment\Tests\Support\CreatesRoutePolicySnapshot;
 
 class ForwardReceiptAuthorizationAndProjectionTest extends TestCase
 {
     use RefreshDatabase;
+    use CreatesRoutePolicySnapshot;
 
     private const GUARD = 'web';
 
@@ -114,6 +116,8 @@ class ForwardReceiptAuthorizationAndProjectionTest extends TestCase
             'stock_condition'         => Transfer::CONDITION_GOOD,
             'created_by'              => $this->privilegedUser->id,
         ]);
+
+        $this->createRoutePolicySnapshot($this->transfer, $this->origin, $this->destination, $this->privilegedUser);
 
         $this->dispatchMovement = TransferMovement::create([
             'transfer_id'              => $this->transfer->id,

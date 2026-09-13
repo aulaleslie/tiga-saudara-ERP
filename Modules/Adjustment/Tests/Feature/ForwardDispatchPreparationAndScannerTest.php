@@ -20,10 +20,12 @@ use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Unit;
 use RuntimeException;
 use Tests\TestCase;
+use Modules\Adjustment\Tests\Support\CreatesRoutePolicySnapshot;
 
 class ForwardDispatchPreparationAndScannerTest extends TestCase
 {
     use RefreshDatabase;
+    use CreatesRoutePolicySnapshot;
 
     protected User $user;
     protected Setting $setting;
@@ -145,6 +147,8 @@ class ForwardDispatchPreparationAndScannerTest extends TestCase
             'workflow_version'        => 2,
         ]);
 
+        $this->createRoutePolicySnapshot($transfer, $this->origin, $this->destination, $this->user);
+
         TransferProduct::create([
             'transfer_id' => $transfer->id,
             'product_id'  => $this->nonSerializedProduct->id,
@@ -175,6 +179,8 @@ class ForwardDispatchPreparationAndScannerTest extends TestCase
             'revision'                => 1,
             'workflow_version'        => 2,
         ]);
+
+        $this->createRoutePolicySnapshot($transfer, $this->origin, $this->destination, $this->user);
 
         TransferProduct::create([
             'transfer_id' => $transfer->id,
@@ -213,6 +219,8 @@ class ForwardDispatchPreparationAndScannerTest extends TestCase
             'workflow_version'        => 2,
         ]);
 
+        $this->createRoutePolicySnapshot($transfer, $this->origin, $this->destination, $this->user);
+
         TransferProduct::create([
             'transfer_id'    => $transfer->id,
             'product_id'     => $this->serializedProduct->id,
@@ -250,6 +258,8 @@ class ForwardDispatchPreparationAndScannerTest extends TestCase
             'revision'                => 1,
             'workflow_version'        => 2,
         ]);
+
+        $this->createRoutePolicySnapshot($transfer, $this->origin, $this->destination, $this->user);
 
         TransferProduct::create([
             'transfer_id' => $transfer->id,
@@ -298,6 +308,8 @@ class ForwardDispatchPreparationAndScannerTest extends TestCase
             'workflow_version'        => 2,
         ]);
 
+        $this->createRoutePolicySnapshot($transfer, $this->origin, $this->destination, $this->user);
+
         TransferProduct::create([
             'transfer_id' => $transfer->id,
             'product_id'  => $this->nonSerializedProduct->id,
@@ -329,6 +341,8 @@ class ForwardDispatchPreparationAndScannerTest extends TestCase
             'revision'                => 1,
             'workflow_version'        => 2,
         ]);
+
+        $this->createRoutePolicySnapshot($transfer, $this->origin, $this->destination, $this->user);
 
         TransferProduct::create([
             'transfer_id' => $transfer->id,
@@ -363,6 +377,8 @@ class ForwardDispatchPreparationAndScannerTest extends TestCase
             'revision'                => 1,
             'workflow_version'        => 2,
         ]);
+
+        $this->createRoutePolicySnapshot($transfer, $this->origin, $this->destination, $this->user);
 
         TransferProduct::create([
             'transfer_id' => $transfer->id,
@@ -411,6 +427,8 @@ class ForwardDispatchPreparationAndScannerTest extends TestCase
             'revision'                => 1,
             'workflow_version'        => 2,
         ]);
+
+        $this->createRoutePolicySnapshot($transfer, $this->origin, $this->destination, $this->user);
 
         TransferProduct::create([
             'transfer_id' => $transfer->id,

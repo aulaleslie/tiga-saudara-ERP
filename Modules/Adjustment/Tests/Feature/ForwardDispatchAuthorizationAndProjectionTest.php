@@ -19,10 +19,12 @@ use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Unit;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
+use Modules\Adjustment\Tests\Support\CreatesRoutePolicySnapshot;
 
 class ForwardDispatchAuthorizationAndProjectionTest extends TestCase
 {
     use RefreshDatabase;
+    use CreatesRoutePolicySnapshot;
 
     private const GUARD = 'web';
 
@@ -105,6 +107,8 @@ class ForwardDispatchAuthorizationAndProjectionTest extends TestCase
             'workflow_version'        => 2,
         ]);
 
+        $this->createRoutePolicySnapshot($transfer, $this->origin, $this->destination, $this->blindDispatcher);
+
         TransferProduct::create([
             'transfer_id' => $transfer->id,
             'product_id'  => $this->product->id,
@@ -138,6 +142,8 @@ class ForwardDispatchAuthorizationAndProjectionTest extends TestCase
             'revision'                => 1,
             'workflow_version'        => 2,
         ]);
+
+        $this->createRoutePolicySnapshot($transfer, $this->origin, $this->destination, $this->blindDispatcher);
 
         TransferProduct::create([
             'transfer_id' => $transfer->id,

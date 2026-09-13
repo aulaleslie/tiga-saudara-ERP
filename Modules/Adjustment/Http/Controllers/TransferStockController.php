@@ -188,6 +188,8 @@ class TransferStockController extends Controller
             'returnDispatchedBy',
             'returnReceivedBy',
             'movements.histories',
+            'routePolicies',
+            'movementReturnObligations.product',
         ]);
 
         $currentSettingId = (int) session('setting_id');
@@ -199,11 +201,19 @@ class TransferStockController extends Controller
         $isDestination = $destinationSettingId !== null && $currentSettingId === (int) $destinationSettingId;
         $requiresReturn = $transfer->requiresReturn();
 
+        // Authorized audit projection of the immutable v2 route-policy snapshot
+        // and outstanding full-quantity return obligations, if any. Neither
+        // grants a return-dispatch/receipt mutation route: this is read-only.
+        $routePolicy = $transfer->routePolicies->sortByDesc('transfer_revision')->first();
+        $returnObligations = $transfer->movementReturnObligations;
+
         return view('adjustment::transfers.show', compact(
             'transfer',
             'isOrigin',
             'isDestination',
-            'requiresReturn'
+            'requiresReturn',
+            'routePolicy',
+            'returnObligations'
         ));
     }
 

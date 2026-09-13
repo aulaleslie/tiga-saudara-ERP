@@ -6,10 +6,36 @@ use Modules\Adjustment\Entities\Transfer;
 use Modules\Adjustment\Entities\TransferMovement;
 use Modules\Adjustment\Entities\TransferMovementLine;
 use Modules\Adjustment\Entities\TransferMovementSerial;
+use Modules\Adjustment\Entities\TransferRoutePolicy;
 use RuntimeException;
 
 class ForwardReceiptComparatorService
 {
+    /**
+     * Require the exact approved route-policy snapshot for the transfer's
+     * current revision at the time the movement was created, rejecting a
+     * missing, stale, or inconsistent policy before any mutation occurs.
+     */
+    public function requirePolicy(Transfer $transfer, TransferMovement $receiptMovement): TransferRoutePolicy
+    {
+        $policy = TransferRoutePolicy::where('transfer_id', $transfer->id)
+            ->where('transfer_revision', $receiptMovement->transfer_revision)
+            ->lockForUpdate()
+            ->first();
+
+        if (!$policy) {
+            throw new RuntimeException("No approved route-policy snapshot exists for transfer revision {$receiptMovement->transfer_revision}.");
+        }
+
+        if ((int) $policy->origin_location_id !== (int) $receiptMovement->origin_location_id ||
+            (int) $policy->destination_location_id !== (int) $receiptMovement->destination_location_id ||
+            $policy->stock_condition !== $receiptMovement->stock_condition) {
+            throw new RuntimeException("Route-policy snapshot does not match the receipt movement's route identity.");
+        }
+
+        return $policy;
+    }
+
     /**
      * Compare submitted forward receipt movement against the approved source forward dispatch movement.
      *

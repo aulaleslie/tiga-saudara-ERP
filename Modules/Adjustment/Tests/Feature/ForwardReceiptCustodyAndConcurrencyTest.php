@@ -21,10 +21,12 @@ use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Unit;
 use RuntimeException;
 use Tests\TestCase;
+use Modules\Adjustment\Tests\Support\CreatesRoutePolicySnapshot;
 
 class ForwardReceiptCustodyAndConcurrencyTest extends TestCase
 {
     use RefreshDatabase;
+    use CreatesRoutePolicySnapshot;
 
     protected User $user;
     protected Setting $setting;
@@ -104,6 +106,8 @@ class ForwardReceiptCustodyAndConcurrencyTest extends TestCase
             'stock_condition'         => Transfer::CONDITION_GOOD,
             'created_by'              => $this->user->id,
         ]);
+
+        $this->createRoutePolicySnapshot($this->transfer, $this->origin, $this->destination, $this->user);
 
         $this->dispatchMovement = TransferMovement::create([
             'transfer_id'              => $this->transfer->id,

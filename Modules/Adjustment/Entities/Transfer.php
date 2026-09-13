@@ -232,6 +232,16 @@ class Transfer extends BaseModel
         return $this->hasMany(TransferActionHistory::class);
     }
 
+    public function routePolicies(): HasMany
+    {
+        return $this->hasMany(TransferRoutePolicy::class);
+    }
+
+    public function movementReturnObligations(): HasMany
+    {
+        return $this->hasMany(TransferMovementReturnObligation::class);
+    }
+
     public function returnObligations(): HasMany
     {
         return $this->hasMany(TransferReturnObligation::class);

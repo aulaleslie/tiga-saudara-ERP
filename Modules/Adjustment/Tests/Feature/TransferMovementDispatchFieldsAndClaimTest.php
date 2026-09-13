@@ -18,10 +18,12 @@ use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Tests\TestCase;
+use Modules\Adjustment\Tests\Support\CreatesRoutePolicySnapshot;
 
 class TransferMovementDispatchFieldsAndClaimTest extends TestCase
 {
     use RefreshDatabase;
+    use CreatesRoutePolicySnapshot;
 
     protected User $user;
     protected Setting $setting;
@@ -82,6 +84,8 @@ class TransferMovementDispatchFieldsAndClaimTest extends TestCase
             'workflow_version'        => 2,
         ]);
 
+        $this->createRoutePolicySnapshot($transfer, $this->origin, $this->destination, $this->user);
+
         $movement = TransferMovement::create([
             'transfer_id'             => $transfer->id,
             'type'                    => TransferMovement::TYPE_FORWARD_DISPATCH,
@@ -140,6 +144,8 @@ class TransferMovementDispatchFieldsAndClaimTest extends TestCase
             'revision'                => 1,
             'workflow_version'        => 2,
         ]);
+
+        $this->createRoutePolicySnapshot($transfer, $this->origin, $this->destination, $this->user);
 
         $movement = TransferMovement::create([
             'transfer_id'             => $transfer->id,

@@ -21,6 +21,8 @@ class TransferMovementLine extends BaseModel
         'stock_snapshot_before',
         'stock_snapshot_after',
         'inventory_transaction_reference',
+        'source_allocation',
+        'destination_classification',
         'metadata',
     ];
 
@@ -33,6 +35,7 @@ class TransferMovementLine extends BaseModel
         'applied_quantity_broken_tax'     => 'decimal:4',
         'stock_snapshot_before'           => 'array',
         'stock_snapshot_after'            => 'array',
+        'source_allocation'               => 'array',
         'metadata'                        => 'array',
     ];
 

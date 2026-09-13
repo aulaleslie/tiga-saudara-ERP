@@ -78,23 +78,27 @@ For workflow version `2`, only approval of an exact pending forward-dispatch mov
 - **THEN** no partial inventory, custody, transaction, history, movement, or header effect remains
 
 ### Requirement: Receiving mirrors actual dispatched provenance
-For workflow version `2` eligible no-return routes, approved forward receipt SHALL add exactly the approved source dispatch's immutable applied quantities and serials to the destination under recorded tax and broken provenance rather than recalculating from editable, planned, or client-provided quantities. Workflow version `1` receiving SHALL retain its established behavior for PKP-involved routes until Delivery 7.
+For workflow version `2`, approved forward receipt SHALL use the approved source dispatch as immutable quantity provenance, then apply those exact totals to destination buckets according to the approved route-policy snapshot: preserve source buckets for same-business routes, use only the applicable tax bucket for cross-business PKP destinations, and use only the applicable non-tax bucket for cross-business non-PKP destinations. Good/broken condition MUST remain unchanged.
 
-#### Scenario: Receive mixed dispatched quantities in version 2
-- **WHEN** an exact approved receipt references a dispatched line containing three non-tax and two taxed units
-- **THEN** destination stock increases by those exact bucket quantities and the receipt transaction records the same provenance
+#### Scenario: Same-business receipt
+- **WHEN** an exact receipt approves under `PRESERVE` classification
+- **THEN** destination stock receives the immutable source tax/non-tax allocation in the corresponding condition buckets
 
-#### Scenario: Receive a version 2 dispatched serial
-- **WHEN** an exact serialized receipt is approved
-- **THEN** every source-dispatched serial must own the expected active custody claim before its live location moves to destination and custody closes
+#### Scenario: Cross-business PKP destination
+- **WHEN** an exact receipt approves for a PKP destination
+- **THEN** the full received total is applied only to the destination tax bucket for the transfer condition
+
+#### Scenario: Cross-business non-PKP destination
+- **WHEN** an exact receipt approves for a non-PKP destination
+- **THEN** the full received total is applied only to the destination non-tax bucket for the transfer condition
+
+#### Scenario: Serialized reclassification
+- **WHEN** a serialized receipt approves under tax or non-tax classification
+- **THEN** each exact live serial receives the snapshotted destination tax ID or `null` respectively and immutable history preserves its prior and resulting tax identity
 
 #### Scenario: Client supplies different provenance
-- **WHEN** a receipt request supplies tax, broken, allocation, stock, or claim values different from the source dispatch
-- **THEN** the system ignores or rejects them and applies only locked immutable source provenance
-
-#### Scenario: Receive through version 1
-- **WHEN** a PKP-involved workflow version `1` transfer is received before Delivery 7
-- **THEN** established legacy receiving behavior remains authoritative
+- **WHEN** a receipt request supplies tax, allocation, stock, policy, or obligation values
+- **THEN** the system ignores or rejects them and applies only locked authoritative source and route-policy records
 
 ### Requirement: Inventory movement transitions are atomic and concurrency safe
 Dispatch and receiving MUST execute their status transition, stock updates, serial movement, inventory transactions, history, custody, claim, and applicable return effects within one database transaction using locked authoritative state.
@@ -127,16 +131,20 @@ Only an authorized user acting under the origin tenant SHALL prepare, submit, or
 - **THEN** both the route boundary and locked domain executor reject it without effects
 
 ### Requirement: Version 2 forward-receipt approval is the atomic destination boundary
-For eligible workflow version `2` routes, only approval of an exact pending `FORWARD_RECEIPT` SHALL add destination inventory, move exact serials to destination, close custody, remove active claims, create receipt transactions, approve/history-stamp the movement, and project the transfer header to `COMPLETED`.
+For workflow version `2`, only approval of an exact pending `FORWARD_RECEIPT` SHALL apply destination-classified inventory, reclassify and move exact serials, close custody, remove active claims, create receipt transactions and snapshots, create any full-return obligations, approve/history-stamp the movement, and project the header to `COMPLETED` or `AWAITING_RETURN` according to the immutable policy.
 
 #### Scenario: Submit receipt without approval
 - **WHEN** a forward-receipt draft is submitted
-- **THEN** it becomes pending without adding stock, moving serials, changing custody or claims, or changing transfer status
+- **THEN** it becomes pending without adding stock, reclassifying or moving serials, changing custody or claims, creating obligations, or changing transfer status
 
-#### Scenario: Approve receipt once
-- **WHEN** an exact and valid pending receipt is approved
-- **THEN** its complete destination inventory, custody, serial, audit, movement, and header effects commit together exactly once
+#### Scenario: Approve no-return receipt
+- **WHEN** an exact receipt approves under a no-return policy
+- **THEN** destination effects commit once, no obligation is created, and the transfer becomes `COMPLETED`
+
+#### Scenario: Approve mandatory-return receipt
+- **WHEN** an exact receipt approves under a mandatory-return policy
+- **THEN** destination effects and full-product obligations commit once and the transfer becomes `AWAITING_RETURN`
 
 #### Scenario: Receipt approval fails
-- **WHEN** comparison, provenance, stock, serial, custody, aggregate, or concurrency validation fails
-- **THEN** no partial destination inventory, transaction, serial, custody, claim, history, movement, or header effect remains
+- **WHEN** comparison, policy, tax resolution, provenance, stock, serial, custody, obligation, aggregate, or concurrency validation fails
+- **THEN** no partial inventory, transaction, serial, custody, claim, obligation, history, movement, or header effect remains

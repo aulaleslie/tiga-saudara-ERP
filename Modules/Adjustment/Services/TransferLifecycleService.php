@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Log;
 use Modules\Adjustment\Entities\Transfer;
 use Modules\Adjustment\Entities\TransferActionHistory;
 use Modules\Adjustment\Entities\TransferProduct;
+use Modules\Adjustment\Entities\TransferRoutePolicy;
 use RuntimeException;
 use Throwable;
 
@@ -266,9 +267,15 @@ class TransferLifecycleService
                 throw new RuntimeException('Only PENDING transfers can be approved.');
             }
 
+            $newRevision = $transfer->revision + 1;
+
+            if ((int) $transfer->workflow_version === 2) {
+                $this->createRoutePolicySnapshot($transfer, $newRevision, $userId);
+            }
+
             $transfer->update([
                 'status'      => Transfer::STATUS_APPROVED,
-                'revision'    => $transfer->revision + 1,
+                'revision'    => $newRevision,
                 'approved_by' => $userId,
                 'approved_at' => now(),
             ]);
@@ -277,6 +284,102 @@ class TransferLifecycleService
 
             return $transfer;
         });
+    }
+
+    /**
+     * Create the immutable route-policy snapshot for a workflow version 2
+     * transfer being approved at the given revision. Idempotent: replaying
+     * the same approval leaves exactly one snapshot for the revision.
+     */
+    private function createRoutePolicySnapshot(Transfer $transfer, int $revision, int $userId): TransferRoutePolicy
+    {
+        $existing = TransferRoutePolicy::where('transfer_id', $transfer->id)
+            ->where('transfer_revision', $revision)
+            ->lockForUpdate()
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
+        if (!$transfer->origin_location_id || !$transfer->destination_location_id) {
+            throw new RuntimeException('Transfer must have both an origin and destination location to be approved.');
+        }
+
+        $locationIds = array_unique([(int) $transfer->origin_location_id, (int) $transfer->destination_location_id]);
+        sort($locationIds);
+
+        $lockedLocations = \Modules\Setting\Entities\Location::whereIn('id', $locationIds)
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+
+        $originLocation = $lockedLocations->get((int) $transfer->origin_location_id);
+        $destinationLocation = $lockedLocations->get((int) $transfer->destination_location_id);
+
+        if (!$originLocation || !$destinationLocation) {
+            throw new RuntimeException('Transfer must have both an origin and destination location to be approved.');
+        }
+
+        $settingIds = array_unique([(int) $originLocation->setting_id, (int) $destinationLocation->setting_id]);
+        sort($settingIds);
+
+        $lockedSettings = \Modules\Setting\Entities\Setting::whereIn('id', $settingIds)
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+
+        $originSetting = $lockedSettings->get((int) $originLocation->setting_id);
+        $destinationSetting = $lockedSettings->get((int) $destinationLocation->setting_id);
+
+        if (!$originSetting || !$destinationSetting) {
+            throw new RuntimeException('Transfer origin and destination locations must belong to a configured business.');
+        }
+
+        $sameBusiness = (int) $originSetting->id === (int) $destinationSetting->id;
+        $originIsPkp = (bool) $originSetting->is_pkp;
+        $destinationIsPkp = (bool) $destinationSetting->is_pkp;
+
+        $resolver = app(TransferRoutePolicyResolver::class);
+        $decision = $resolver->resolveClassification($sameBusiness, $originIsPkp, $destinationIsPkp);
+
+        $taxSnapshot = [
+            'tax_id'     => null,
+            'tax_name'   => null,
+            'tax_rate'   => null,
+            'provenance' => null,
+        ];
+
+        if ($decision['classification'] === TransferRoutePolicy::CLASSIFICATION_TAX) {
+            $resolvedTax = $resolver->resolveDestinationTax();
+            $taxSnapshot = [
+                'tax_id'     => $resolvedTax['tax_id'],
+                'tax_name'   => $resolvedTax['tax_name'],
+                'tax_rate'   => $resolvedTax['tax_rate'],
+                'provenance' => $resolvedTax['provenance'],
+            ];
+        }
+
+        return TransferRoutePolicy::create([
+            'transfer_id'                 => $transfer->id,
+            'transfer_revision'           => $revision,
+            'origin_location_id'          => $originLocation->id,
+            'destination_location_id'     => $destinationLocation->id,
+            'origin_setting_id'           => $originSetting->id,
+            'destination_setting_id'      => $destinationSetting->id,
+            'origin_is_pkp'               => $originIsPkp,
+            'destination_is_pkp'          => $destinationIsPkp,
+            'same_business'               => $sameBusiness,
+            'stock_condition'             => $transfer->stock_condition,
+            'destination_classification'  => $decision['classification'],
+            'mandatory_return'            => $decision['mandatory_return'],
+            'resolved_tax_id'             => $taxSnapshot['tax_id'],
+            'resolved_tax_name'           => $taxSnapshot['tax_name'],
+            'resolved_tax_rate'           => $taxSnapshot['tax_rate'],
+            'tax_resolver_provenance'     => $taxSnapshot['provenance'],
+            'approved_by'                 => $userId,
+            'approved_at'                 => now(),
+        ]);
     }
 
     /**
@@ -520,6 +623,10 @@ class TransferLifecycleService
                 throw new RuntimeException('Transfer is not available for return dispatch.');
             }
 
+            if ((int) $transfer->workflow_version === 2) {
+                throw new RuntimeException('Workflow version 2 return dispatch is not yet available.');
+            }
+
             app(\Modules\Adjustment\Services\TransferMovementService::class)->dispatchReturn($transfer);
 
             $this->recordHistory($transfer, TransferActionHistory::ACTION_RETURN_DISPATCHED, Transfer::STATUS_AWAITING_RETURN, $transfer->status, $userId, 'Transfer return dispatched');
@@ -543,6 +650,10 @@ class TransferLifecycleService
 
             if ($transfer->status !== Transfer::STATUS_RETURN_DISPATCHED) {
                 throw new RuntimeException('Transfer must be in return dispatched status.');
+            }
+
+            if ((int) $transfer->workflow_version === 2) {
+                throw new RuntimeException('Workflow version 2 return receipt is not yet available.');
             }
 
             $previousStatus = $transfer->status;

@@ -38,6 +38,9 @@ class TransferMovementSerial extends BaseModel
         'tax_id',
         'tax_name',
         'tax_rate',
+        'previous_tax_id',
+        'previous_tax_name',
+        'previous_tax_rate',
         'transit_custody_status',
         'custody_started_at',
         'custody_closed_at',
@@ -48,6 +51,7 @@ class TransferMovementSerial extends BaseModel
     protected $casts = [
         'serial_number'      => 'string',
         'tax_rate'           => 'decimal:4',
+        'previous_tax_rate'  => 'decimal:4',
         'custody_started_at' => 'datetime',
         'custody_closed_at'  => 'datetime',
     ];
@@ -85,6 +89,11 @@ class TransferMovementSerial extends BaseModel
     public function tax(): BelongsTo
     {
         return $this->belongsTo(Tax::class);
+    }
+
+    public function previousTax(): BelongsTo
+    {
+        return $this->belongsTo(Tax::class, 'previous_tax_id');
     }
 
     public function originLocation(): BelongsTo

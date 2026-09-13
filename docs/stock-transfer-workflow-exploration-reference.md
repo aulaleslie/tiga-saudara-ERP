@@ -485,6 +485,7 @@ This delivery should be additive and migration-safe.
 - Add destination inventory only after receipt approval.
 - Mark same-business and eligible non-PKP cross-business transfers complete when no return is required.
 
+[x]
 ### Delivery 7 — PKP route-policy snapshot and stock reclassification
 
 - Snapshot same-business/cross-business and origin/destination PKP status at transfer approval.

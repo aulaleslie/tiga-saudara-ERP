@@ -1,8 +1,5 @@
-# stock-transfer-cross-tenant-tax-return Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change harden-stock-transfer-lifecycle-and-scanning. Update Purpose after archive.
-## Requirements
 ### Requirement: Cross-tenant return obligations derive from approved route policy and full receipt
 For a transfer whose origin and destination belong to different businesses, the system SHALL create full-product return obligations when the immutable route-policy snapshot shows either business is PKP, and SHALL create no return obligation when both businesses are non-PKP. Obligation quantities SHALL equal the exact approved forward-receipt quantities independent of tax provenance, and serialized obligations SHALL identify product and condition without requiring the original forward serial for later return dispatch.
 
@@ -58,4 +55,16 @@ The system SHALL apply the new policy only prospectively and SHALL preserve exis
 #### Scenario: New transfer is approved after activation
 - **WHEN** a new route is approved after Delivery 7 activation
 - **THEN** its immutable policy snapshot determines workflow version, receipt classification, and obligation behavior
+
+## REMOVED Requirements
+
+### Requirement: Return dispatch moves only outstanding obligated provenance
+**Reason**: The taxed-only and exact-original-serial contract conflicts with the confirmed full-product obligation and substitute-serial policy.
+
+**Migration**: Delivery 8 will define return dispatch against full product/condition obligations, requiring full outstanding quantity while allowing eligible substitute serials.
+
+### Requirement: Return receipt completes the obligation atomically
+**Reason**: Return receipt execution belongs to Delivery 9 and must compare against the approved return-dispatch manifest rather than the superseded taxed-only obligation model.
+
+**Migration**: Delivery 9 will define blind return receipt and final obligation completion atomically.
 

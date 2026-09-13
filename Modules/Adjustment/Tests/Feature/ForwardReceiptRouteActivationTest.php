@@ -56,18 +56,18 @@ class ForwardReceiptRouteActivationTest extends TestCase
         $this->assertEquals(2, $this->eligibilityService->resolveWorkflowVersion($loc1, $loc2));
     }
 
-    public function test_pkp_involved_routes_are_not_eligible_for_v2_and_remain_v1(): void
+    public function test_pkp_involved_routes_are_prospectively_eligible_for_v2(): void
     {
         $locPkp = Location::create(['setting_id' => $this->pkpSetting->id, 'name' => 'PKP Loc']);
         $locNonPkp = Location::create(['setting_id' => $this->nonPkpSetting1->id, 'name' => 'Non-PKP Loc']);
 
         // PKP origin -> Non-PKP destination
-        $this->assertFalse($this->eligibilityService->isEligibleForV2($locPkp, $locNonPkp));
-        $this->assertEquals(1, $this->eligibilityService->resolveWorkflowVersion($locPkp, $locNonPkp));
+        $this->assertTrue($this->eligibilityService->isEligibleForV2($locPkp, $locNonPkp));
+        $this->assertEquals(2, $this->eligibilityService->resolveWorkflowVersion($locPkp, $locNonPkp));
 
         // Non-PKP origin -> PKP destination
-        $this->assertFalse($this->eligibilityService->isEligibleForV2($locNonPkp, $locPkp));
-        $this->assertEquals(1, $this->eligibilityService->resolveWorkflowVersion($locNonPkp, $locPkp));
+        $this->assertTrue($this->eligibilityService->isEligibleForV2($locNonPkp, $locPkp));
+        $this->assertEquals(2, $this->eligibilityService->resolveWorkflowVersion($locNonPkp, $locPkp));
     }
 
     public function test_transfer_lifecycle_service_assigns_v2_when_eligible(): void
@@ -160,6 +160,23 @@ class ForwardReceiptRouteActivationTest extends TestCase
             'applied_quantity_broken_tax'     => 0,
             'applied_quantity_broken_non_tax' => 0,
             'inventory_transaction_reference' => (string) $trx->id,
+        ]);
+
+        \Modules\Adjustment\Entities\TransferRoutePolicy::create([
+            'transfer_id'                => $transfer->id,
+            'transfer_revision'          => 1,
+            'origin_location_id'         => $originLoc->id,
+            'destination_location_id'    => $destLoc->id,
+            'origin_setting_id'          => $this->nonPkpSetting1->id,
+            'destination_setting_id'     => $this->nonPkpSetting2->id,
+            'origin_is_pkp'              => false,
+            'destination_is_pkp'         => false,
+            'same_business'              => false,
+            'stock_condition'            => Transfer::CONDITION_GOOD,
+            'destination_classification' => \Modules\Adjustment\Entities\TransferRoutePolicy::CLASSIFICATION_NON_TAX,
+            'mandatory_return'           => false,
+            'approved_by'                => $this->user->id,
+            'approved_at'                => now(),
         ]);
 
         $prepService = app(\Modules\Adjustment\Services\ForwardReceiptPreparationService::class);

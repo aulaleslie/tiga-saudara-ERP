@@ -9,7 +9,9 @@ use Modules\Adjustment\Entities\Transfer;
 use Modules\Adjustment\Entities\TransferActiveSerialClaim;
 use Modules\Adjustment\Entities\TransferMovement;
 use Modules\Adjustment\Entities\TransferMovementLine;
+use Modules\Adjustment\Entities\TransferMovementReturnObligation;
 use Modules\Adjustment\Entities\TransferMovementSerial;
+use Modules\Adjustment\Entities\TransferRoutePolicy;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
@@ -112,6 +114,9 @@ class ForwardReceiptApprovalExecutor
                 throw new RuntimeException("Transfer revision mismatch: transfer has advanced to revision {$lockedTransfer->revision}.");
             }
 
+            // Require the exact approved route-policy snapshot before any mutation
+            $policy = $this->comparator->requirePolicy($lockedTransfer, $lockedMovement);
+
             // Canonical Comparison with exact source dispatch manifest
             $comparison = $this->comparator->compare($lockedMovement, $sourceMovement);
             if (!$comparison['matches']) {
@@ -213,11 +218,18 @@ class ForwardReceiptApprovalExecutor
                     }
                 }
 
-                $allocNonTax = (int) $nonTaxStr;
-                $allocTax = (int) $taxStr;
-                $allocBrokenNonTax = (int) $brokenNonTaxStr;
-                $allocBrokenTax = (int) $brokenTaxStr;
-                $totalToAdd = $allocNonTax + $allocTax + $allocBrokenNonTax + $allocBrokenTax;
+                $sourceAllocNonTax = (int) $nonTaxStr;
+                $sourceAllocTax = (int) $taxStr;
+                $sourceAllocBrokenNonTax = (int) $brokenNonTaxStr;
+                $sourceAllocBrokenTax = (int) $brokenTaxStr;
+                $totalToAdd = $sourceAllocNonTax + $sourceAllocTax + $sourceAllocBrokenNonTax + $sourceAllocBrokenTax;
+
+                $sourceAllocationSnapshot = [
+                    'non_tax'        => $sourceAllocNonTax,
+                    'tax'            => $sourceAllocTax,
+                    'broken_non_tax' => $sourceAllocBrokenNonTax,
+                    'broken_tax'     => $sourceAllocBrokenTax,
+                ];
 
                 if ($totalToAdd <= 0) {
                     if ($receiptLine) {
@@ -229,9 +241,29 @@ class ForwardReceiptApprovalExecutor
                             'stock_snapshot_before'           => null,
                             'stock_snapshot_after'            => null,
                             'inventory_transaction_reference' => null,
+                            'source_allocation'               => $sourceAllocationSnapshot,
+                            'destination_classification'      => $policy->destination_classification,
                         ]);
                     }
                     continue;
+                }
+
+                // Reclassify the exact received total into destination buckets per policy
+                if ($policy->destination_classification === TransferRoutePolicy::CLASSIFICATION_PRESERVE) {
+                    $allocNonTax = $sourceAllocNonTax;
+                    $allocTax = $sourceAllocTax;
+                    $allocBrokenNonTax = $sourceAllocBrokenNonTax;
+                    $allocBrokenTax = $sourceAllocBrokenTax;
+                } elseif ($policy->destination_classification === TransferRoutePolicy::CLASSIFICATION_TAX) {
+                    $allocNonTax = 0;
+                    $allocBrokenNonTax = 0;
+                    $allocTax = $isGoodCondition ? $totalToAdd : 0;
+                    $allocBrokenTax = $isGoodCondition ? 0 : $totalToAdd;
+                } else { // NON_TAX
+                    $allocTax = 0;
+                    $allocBrokenTax = 0;
+                    $allocNonTax = $isGoodCondition ? $totalToAdd : 0;
+                    $allocBrokenNonTax = $isGoodCondition ? 0 : $totalToAdd;
                 }
 
                 // Verify source dispatch inventory transaction reference exists and is valid
@@ -433,7 +465,68 @@ class ForwardReceiptApprovalExecutor
                         'stock_snapshot_before'           => $snapshot['previous_stock'],
                         'stock_snapshot_after'            => $snapshot['current_stock'],
                         'inventory_transaction_reference' => (string) $trx->id,
+                        'source_allocation'               => $sourceAllocationSnapshot,
+                        'destination_classification'      => $policy->destination_classification,
                     ]);
+                }
+
+                // Reclassify serialized receipt tax identity per snapshotted policy
+                if ($product->serial_number_required && $receiptLine) {
+                    $newTaxId = null;
+                    $newTaxName = null;
+                    $newTaxRate = null;
+
+                    if ($policy->destination_classification === TransferRoutePolicy::CLASSIFICATION_TAX) {
+                        $newTaxId = $policy->resolved_tax_id;
+                        $newTaxName = $policy->resolved_tax_name;
+                        $newTaxRate = $policy->resolved_tax_rate;
+                    }
+
+                    foreach ($receiptLine->serials as $rSerial) {
+                        if ($policy->destination_classification === TransferRoutePolicy::CLASSIFICATION_PRESERVE) {
+                            continue;
+                        }
+
+                        $rSerial->update([
+                            'previous_tax_id'   => $rSerial->tax_id,
+                            'previous_tax_name' => $rSerial->tax_name,
+                            'previous_tax_rate' => $rSerial->tax_rate,
+                            'tax_id'            => $newTaxId,
+                            'tax_name'          => $newTaxName,
+                            'tax_rate'          => $newTaxRate,
+                        ]);
+
+                        if ($rSerial->product_serial_number_id) {
+                            $liveReceiptSerial = $liveSerials->get($rSerial->product_serial_number_id);
+                            if ($liveReceiptSerial) {
+                                $liveReceiptSerial->update([
+                                    'tax_id' => $newTaxId,
+                                ]);
+                            }
+                        }
+                    }
+                }
+
+                // Create full-quantity return obligation when the route requires return
+                if ($policy->mandatory_return) {
+                    $conditionValue = $lockedMovement->stock_condition === TransferMovement::CONDITION_GOOD
+                        ? TransferMovementReturnObligation::CONDITION_GOOD
+                        : TransferMovementReturnObligation::CONDITION_BREAKAGE;
+
+                    TransferMovementReturnObligation::firstOrCreate(
+                        [
+                            'transfer_id'         => $lockedTransfer->id,
+                            'receipt_movement_id' => $lockedMovement->id,
+                            'product_id'          => $productId,
+                            'stock_condition'     => $conditionValue,
+                        ],
+                        [
+                            'transfer_route_policy_id' => $policy->id,
+                            'required_quantity'        => $totalToAdd,
+                            'returned_quantity'        => 0,
+                            'status'                   => TransferMovementReturnObligation::STATUS_OUTSTANDING,
+                        ]
+                    );
                 }
             }
 
@@ -456,9 +549,9 @@ class ForwardReceiptApprovalExecutor
                 'idempotency_key'      => $idempotencyKey,
             ]);
 
-            // Project Transfer header to COMPLETED
+            // Project Transfer header to AWAITING_RETURN or COMPLETED per the immutable policy
             $lockedTransfer->update([
-                'status'      => Transfer::STATUS_COMPLETED,
+                'status'      => $policy->mandatory_return ? Transfer::STATUS_AWAITING_RETURN : Transfer::STATUS_COMPLETED,
                 'revision'    => $lockedTransfer->revision + 1,
                 'received_by' => $userId,
                 'received_at' => $now,

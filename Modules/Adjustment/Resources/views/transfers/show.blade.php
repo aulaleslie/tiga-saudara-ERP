@@ -211,6 +211,49 @@
                             </tbody>
                         </table>
 
+                        @if((int) $transfer->workflow_version === 2 && $routePolicy)
+                            @can('stockTransfers.view-system-stock')
+                                <div class="card mt-3">
+                                    <div class="card-header py-2"><strong>Kebijakan Rute (V2)</strong></div>
+                                    <div class="card-body py-2">
+                                        <div class="row small">
+                                            <div class="col-md-3"><strong>Klasifikasi Tujuan:</strong> {{ $routePolicy->destination_classification }}</div>
+                                            <div class="col-md-3"><strong>Wajib Retur:</strong> {{ $routePolicy->mandatory_return ? 'Ya' : 'Tidak' }}</div>
+                                            <div class="col-md-3"><strong>Bisnis Sama:</strong> {{ $routePolicy->same_business ? 'Ya' : 'Tidak' }}</div>
+                                            <div class="col-md-3"><strong>Pajak Tujuan:</strong> {{ $routePolicy->resolved_tax_name ?? '-' }}</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                @if($returnObligations->isNotEmpty())
+                                    <table class="table table-sm table-bordered mt-2">
+                                        <thead>
+                                            <tr>
+                                                <th>Produk</th>
+                                                <th>Kondisi</th>
+                                                <th class="text-center">Wajib</th>
+                                                <th class="text-center">Sudah Diretur</th>
+                                                <th class="text-center">Sisa</th>
+                                                <th class="text-center">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach($returnObligations as $obligation)
+                                                <tr>
+                                                    <td>{{ $obligation->product->product_name ?? '-' }}</td>
+                                                    <td>{{ $obligation->stock_condition }}</td>
+                                                    <td class="text-center">{{ $obligation->required_quantity }}</td>
+                                                    <td class="text-center">{{ $obligation->returned_quantity }}</td>
+                                                    <td class="text-center">{{ $obligation->outstandingQuantity() }}</td>
+                                                    <td class="text-center">{{ $obligation->status }}</td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                @endif
+                            @endcan
+                        @endif
+
                         {{-- Drift confirmation panel (privileged): show when drift exception is in session --}}
                         @can('stockTransfers.view-system-stock')
                             @if(session()->has('drift_exception'))
@@ -404,7 +447,7 @@
                                         </form>
                                     @endcan
                                 @endif
-                            @elseif($transfer->status === Transfer::STATUS_AWAITING_RETURN && $isDestination)
+                            @elseif($transfer->status === Transfer::STATUS_AWAITING_RETURN && $isDestination && (int) $transfer->workflow_version !== 2)
                                 @can('stockTransfers.dispatch')
                                     <form action="{{ route('transfers.return-dispatch', $transfer) }}" method="POST"
                                           class="d-inline">
@@ -412,7 +455,7 @@
                                         <button class="btn btn-warning">Kirim Kembali</button>
                                     </form>
                                 @endcan
-                            @elseif($transfer->status === Transfer::STATUS_RETURN_DISPATCHED && $isOrigin)
+                            @elseif($transfer->status === Transfer::STATUS_RETURN_DISPATCHED && $isOrigin && (int) $transfer->workflow_version !== 2)
                                 @can('stockTransfers.receive')
                                     <form action="{{ route('transfers.return-receive', $transfer) }}" method="POST"
                                           class="d-inline">

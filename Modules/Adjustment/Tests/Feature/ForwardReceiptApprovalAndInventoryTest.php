@@ -10,6 +10,7 @@ use Modules\Adjustment\Entities\Transfer;
 use Modules\Adjustment\Entities\TransferMovement;
 use Modules\Adjustment\Entities\TransferMovementLine;
 use Modules\Adjustment\Entities\TransferMovementSerial;
+use Modules\Adjustment\Entities\TransferRoutePolicy;
 use Modules\Adjustment\Services\ForwardReceiptApprovalExecutor;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductStock;
@@ -129,6 +130,23 @@ class ForwardReceiptApprovalAndInventoryTest extends TestCase
             'applied_quantity_broken_tax'     => 0,
             'applied_quantity_broken_non_tax' => 0,
             'inventory_transaction_reference' => (string) $trx->id,
+        ]);
+
+        TransferRoutePolicy::create([
+            'transfer_id'                => $this->transfer->id,
+            'transfer_revision'          => 1,
+            'origin_location_id'         => $this->origin->id,
+            'destination_location_id'    => $this->destination->id,
+            'origin_setting_id'          => $this->setting->id,
+            'destination_setting_id'     => $this->setting->id,
+            'origin_is_pkp'              => false,
+            'destination_is_pkp'         => false,
+            'same_business'              => true,
+            'stock_condition'            => Transfer::CONDITION_GOOD,
+            'destination_classification' => TransferRoutePolicy::CLASSIFICATION_PRESERVE,
+            'mandatory_return'           => false,
+            'approved_by'                => $this->user->id,
+            'approved_at'                => now(),
         ]);
 
         $this->approvalExecutor = app(ForwardReceiptApprovalExecutor::class);

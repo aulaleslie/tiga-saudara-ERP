@@ -6,19 +6,23 @@ Staged versioned movement foundation, monotonically increasing superseding revis
 ## Requirements
 
 ### Requirement: Transfers support a staged versioned movement foundation
-The system SHALL store a workflow version on every stock transfer, SHALL assign workflow version `2` only to new same-business and cross-business non-PKP-to-non-PKP transfers once forward dispatch and forward receipt are available, and SHALL retain workflow version `1` for PKP-involved routes until Delivery 7 completes their policy lifecycle.
+The system SHALL store a workflow version on every stock transfer and SHALL assign workflow version `2` prospectively to new same-business, cross-business non-PKP-to-non-PKP, and PKP-involved transfers once the applicable route-policy snapshot can be committed at approval. Existing transfers SHALL retain their stored workflow version and behavior without backfill or reinterpretation.
 
-#### Scenario: Eligible new transfer uses version 2
+#### Scenario: New no-return transfer uses version 2
 - **WHEN** a new transfer is same-business or both participating businesses are non-PKP
-- **THEN** it is eligible for workflow version `2` forward dispatch and forward receipt
+- **THEN** approval snapshots the route and enables workflow version `2` forward dispatch and receipt
 
-#### Scenario: PKP-involved transfer remains version 1
-- **WHEN** either participating business is PKP before Delivery 7 activation
-- **THEN** the transfer remains workflow version `1` and no version `2` movement surface is available
+#### Scenario: New PKP-involved transfer uses version 2
+- **WHEN** a new cross-business transfer involving PKP is approved after Delivery 7 activation
+- **THEN** approval snapshots destination classification and mandatory-return policy before enabling workflow version `2`
+
+#### Scenario: Policy snapshot cannot be created
+- **WHEN** route or tax policy cannot be resolved authoritatively during approval
+- **THEN** approval fails without changing workflow version or transfer state
 
 #### Scenario: No historical transfer migration
-- **WHEN** Delivery 6 is deployed
-- **THEN** the system performs no legacy transfer-transaction backfill or reinterpretation because stock transfer has no operational historical population
+- **WHEN** Delivery 7 is deployed
+- **THEN** existing transfer records receive no legacy transaction backfill, policy snapshot, obligation, reopening, or reinterpretation
 
 ### Requirement: Movement attempts identify type, revision, and operational context
 The system SHALL represent each movement submission attempt as a record bound to one transfer, one movement type, one revision, the exact approved transfer revision, explicit operational source and destination locations, and one stock condition.
