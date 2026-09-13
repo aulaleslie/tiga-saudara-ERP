@@ -85,6 +85,12 @@ class PurchaseOrderSerialNumberLoader extends Component
             return;
         }
 
+        if ($serial->hasActiveTransferCustody()) {
+            $this->error_message = 'Serial number sedang dalam proses transfer stok (in transit).';
+            $this->dispatch('error-occurred', ['index' => $this->index]);
+            return;
+        }
+
         if (strtoupper($serial->status) !== ProductSerialNumber::STATUS_ACTIVE) {
             $this->error_message = "Serial number tidak aktif ({$serial->status}).";
             $this->dispatch('error-occurred', ['index' => $this->index]);

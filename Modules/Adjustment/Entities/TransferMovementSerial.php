@@ -39,11 +39,17 @@ class TransferMovementSerial extends BaseModel
         'tax_name',
         'tax_rate',
         'transit_custody_status',
+        'custody_started_at',
+        'custody_closed_at',
+        'origin_location_id',
+        'destination_location_id',
     ];
 
     protected $casts = [
-        'serial_number' => 'string',
-        'tax_rate'      => 'decimal:4',
+        'serial_number'      => 'string',
+        'tax_rate'           => 'decimal:4',
+        'custody_started_at' => 'datetime',
+        'custody_closed_at'  => 'datetime',
     ];
 
     public static function normalize(string $serialNumber): string
@@ -79,5 +85,20 @@ class TransferMovementSerial extends BaseModel
     public function tax(): BelongsTo
     {
         return $this->belongsTo(Tax::class);
+    }
+
+    public function originLocation(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Setting\Entities\Location::class, 'origin_location_id');
+    }
+
+    public function destinationLocation(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Setting\Entities\Location::class, 'destination_location_id');
+    }
+
+    public function activeClaim(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(TransferActiveSerialClaim::class, 'transfer_movement_serial_id');
     }
 }

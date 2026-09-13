@@ -491,4 +491,36 @@ class TransferScanResolverServiceTest extends TestCase
         $resGoodInBroken = $this->service->resolve($this->setting->id, 'GOOD-BARCODE-1', $this->location->id, true);
         $this->assertEquals('none', $resGoodInBroken['type']);
     }
+
+    public function test_allow_zero_stock_does_not_resolve_cross_tenant_products()
+    {
+        $otherSetting = Setting::create([
+            'company_name'   => 'Other Company',
+            'company_email'  => 'other@example.com',
+            'company_phone'  => '081234567891',
+            'notification_email' => 'other@example.com',
+            'default_currency_id' => 1,
+            'default_currency_position' => 'prefix',
+        ]);
+
+        $otherProduct = Product::create([
+            'setting_id'    => $otherSetting->id,
+            'product_name'  => 'Other Tenant Product',
+            'product_code'  => 'OTP-001',
+            'barcode'       => 'OTHER-BARCODE-1',
+            'stock_managed' => true,
+            'product_cost'  => 1000,
+            'product_price' => 2000,
+        ]);
+
+        // When scanning in this->setting, even with allowZeroStock = true, other tenant product is not resolved
+        $res = $this->service->resolve($this->setting->id, 'OTHER-BARCODE-1', $this->location->id, null, true);
+        $this->assertEquals('not_found', $res['status']);
+        $this->assertEquals('none', $res['type']);
+
+        // Text search also does not resolve cross-tenant products
+        $resText = $this->service->resolve($this->setting->id, 'Other Tenant', $this->location->id, null, true);
+        $this->assertEquals('not_found', $resText['status']);
+        $this->assertEquals('none', $resText['type']);
+    }
 }

@@ -22,7 +22,8 @@ class SerialNumberHistoryService
         string $eventType,
         ?int $locationId = null,
         ?Model $reference = null,
-        ?string $note = null
+        ?string $note = null,
+        ?int $userId = null
     ): SerialNumberHistory {
         return SerialNumberHistory::create([
             'product_serial_number_id' => $serialNumberId,
@@ -30,7 +31,7 @@ class SerialNumberHistoryService
             'location_id' => $locationId,
             'reference_type' => $reference ? get_class($reference) : null,
             'reference_id' => $reference?->getKey(),
-            'user_id' => auth()->id(),
+            'user_id' => $userId ?? auth()->id(),
             'note' => $note,
         ]);
     }

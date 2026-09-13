@@ -169,6 +169,7 @@ trait ValidatesPurchaseReturnForm
                             'histories',
                             'receivedNoteDetails.purchaseDetail',
                             'receivedNoteDetail.purchaseDetail',
+                            'transferActiveClaim',
                         ])
                         ->get();
 
@@ -189,6 +190,12 @@ trait ValidatesPurchaseReturnForm
                             $validator->errors()->add(
                                 "rows.$index.serial_numbers",
                                 "Nomor seri '{$psn->serial_number}' tidak aktif ({$psn->status})."
+                            );
+                        }
+                        if ($psn->hasActiveTransferCustody()) {
+                            $validator->errors()->add(
+                                "rows.$index.serial_numbers",
+                                "Nomor seri '{$psn->serial_number}' sedang dalam proses transfer stok (in transit)."
                             );
                         }
                         if ($psn->is_in_return_process) {

@@ -271,4 +271,82 @@ class PurchaseReturnSerialLookupTest extends TestCase
             ->assertSet('error_message', 'Nomor seri berasal dari lokasi yang berbeda, tambahkan baris baru dan scan ulang nomor seri.')
             ->assertNotDispatched('serialNumberSelected');
     }
+
+    /**
+     * Scenario: Purchase return form validation rejects serial with active transfer custody
+     */
+    public function test_purchase_return_form_validation_rejects_serial_with_active_transfer_custody(): void
+    {
+        $serialObj = ProductSerialNumber::where('serial_number', 'SN123')->first();
+
+        $transfer = \Modules\Adjustment\Entities\Transfer::create([
+            'origin_location_id'      => $this->location->id,
+            'destination_location_id' => $this->location->id,
+            'stock_condition'         => \Modules\Adjustment\Entities\Transfer::CONDITION_GOOD,
+            'created_by'              => $this->user->id,
+            'status'                  => \Modules\Adjustment\Entities\Transfer::STATUS_APPROVED,
+            'revision'                => 1,
+            'workflow_version'        => 2,
+        ]);
+
+        $movement = \Modules\Adjustment\Entities\TransferMovement::create([
+            'transfer_id'             => $transfer->id,
+            'type'                    => \Modules\Adjustment\Entities\TransferMovement::TYPE_FORWARD_DISPATCH,
+            'status'                  => \Modules\Adjustment\Entities\TransferMovement::STATUS_APPROVED,
+            'stock_condition'         => \Modules\Adjustment\Entities\TransferMovement::CONDITION_GOOD,
+            'origin_location_id'      => $this->location->id,
+            'destination_location_id' => $this->location->id,
+            'transfer_revision'       => 1,
+            'created_by'              => $this->user->id,
+        ]);
+
+        $movLine = \Modules\Adjustment\Entities\TransferMovementLine::create([
+            'transfer_movement_id' => $movement->id,
+            'product_id'           => $this->product->id,
+            'quantity'             => '1.0000',
+            'count_confirmed'      => true,
+        ]);
+
+        $movSerial = \Modules\Adjustment\Entities\TransferMovementSerial::create([
+            'transfer_movement_id'      => $movement->id,
+            'transfer_movement_line_id' => $movLine->id,
+            'product_id'                => $this->product->id,
+            'product_serial_number_id'  => $serialObj->id,
+            'serial_number'             => $serialObj->serial_number,
+            'stock_condition'           => \Modules\Adjustment\Entities\TransferMovement::CONDITION_GOOD,
+            'transit_custody_status'    => \Modules\Adjustment\Entities\TransferMovementSerial::CUSTODY_IN_TRANSIT,
+            'origin_location_id'        => $this->location->id,
+            'destination_location_id'   => $this->location->id,
+        ]);
+
+        // Create active transfer claim for serialObj
+        \Modules\Adjustment\Entities\TransferActiveSerialClaim::create([
+            'product_serial_number_id'    => $serialObj->id,
+            'transfer_movement_id'        => $movement->id,
+            'transfer_movement_serial_id' => $movSerial->id,
+        ]);
+
+        $component = Livewire::test(PurchaseReturnCreateForm::class)
+            ->set('supplier_id', $this->supplier->id)
+            ->set('rows', [
+                [
+                    'product_id'        => $this->product->id,
+                    'product_name'      => $this->product->product_name,
+                    'product_code'      => $this->product->product_code,
+                    'purchase_price'    => 5000,
+                    'quantity'          => 1,
+                    'location_id'       => $this->location->id,
+                    'serial_numbers'    => [$serialObj->serial_number],
+                    'total'             => 5000,
+                ]
+            ]);
+
+        try {
+            $component->call('submit');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            // Expected validation failure
+        }
+
+        $component->assertHasErrors(['rows.0.serial_numbers']);
+    }
 }

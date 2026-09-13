@@ -92,6 +92,13 @@ class SerialNumberController extends Controller
             ], 200);
         }
 
+        if ($serial->hasActiveTransferCustody()) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number sedang dalam proses transfer stok (in transit).',
+            ], 200);
+        }
+
         if ($serial->status !== ProductSerialNumber::STATUS_ACTIVE) {
             return response()->json([
                 'valid' => false,
@@ -206,6 +213,13 @@ class SerialNumberController extends Controller
             return response()->json([
                 'valid' => false,
                 'message' => "Serial number tidak aktif ({$serial->status}).",
+            ], 200);
+        }
+
+        if ($serial->hasActiveTransferCustody()) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number sedang dalam proses transfer stok (in transit).',
             ], 200);
         }
 

@@ -304,6 +304,7 @@ class StockOpnameApprovalService
 
             $activeClaimSerialIds = collect();
             $allocatedSerialIds = collect();
+            $activeTransferClaimSerialIds = collect();
             if ($candidateSerialIds->isNotEmpty() && class_exists(\Modules\Consignment\Entities\ConsignmentActiveSerialClaim::class)) {
                 $activeClaimSerialIds = \Modules\Consignment\Entities\ConsignmentActiveSerialClaim::whereIn('product_serial_number_id', $candidateSerialIds)
                     ->pluck('product_serial_number_id')
@@ -311,6 +312,11 @@ class StockOpnameApprovalService
             }
             if ($candidateSerialIds->isNotEmpty() && class_exists(\Modules\Consignment\Entities\ConsignmentSerializedAllocation::class)) {
                 $allocatedSerialIds = \Modules\Consignment\Entities\ConsignmentSerializedAllocation::whereIn('product_serial_number_id', $candidateSerialIds)
+                    ->pluck('product_serial_number_id')
+                    ->unique();
+            }
+            if ($candidateSerialIds->isNotEmpty() && class_exists(\Modules\Adjustment\Entities\TransferActiveSerialClaim::class)) {
+                $activeTransferClaimSerialIds = \Modules\Adjustment\Entities\TransferActiveSerialClaim::whereIn('product_serial_number_id', $candidateSerialIds)
                     ->pluck('product_serial_number_id')
                     ->unique();
             }
@@ -352,6 +358,7 @@ class StockOpnameApprovalService
                         destinationSerialsByProduct: $destinationSerialsByProduct,
                         activeClaimSerialIds: $activeClaimSerialIds,
                         allocatedSerialIds: $allocatedSerialIds,
+                        activeTransferClaimSerialIds: $activeTransferClaimSerialIds,
                     );
 
                     $plan = $this->planSerializedRow($product, $classification, $location);

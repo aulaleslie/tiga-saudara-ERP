@@ -48,6 +48,7 @@ class StockOpnameSerialClassifier
         Collection $destinationSerialsByProduct,
         Collection $activeClaimSerialIds,
         Collection $allocatedSerialIds,
+        ?Collection $activeTransferClaimSerialIds = null,
     ): array {
         if (!$product->serial_number_required) {
             return ['entered' => [], 'omitted' => [], 'warnings' => [], 'conflicts' => [], 'newSerialCount' => 0];
@@ -118,7 +119,8 @@ class StockOpnameSerialClassifier
                 $ownProductMatch,
                 $movementEligibleLocationIds,
                 $activeClaimSerialIds,
-                $allocatedSerialIds
+                $allocatedSerialIds,
+                $activeTransferClaimSerialIds
             );
             if ($conflictReason !== null) {
                 $conflicts[] = sprintf(
@@ -220,7 +222,7 @@ class StockOpnameSerialClassifier
             if (isset($enteredTexts[$existingSerial->serial_number])) {
                 continue;
             }
-            if ($this->isUnavailableForCounting($existingSerial)) {
+            if ($this->isUnavailableForCounting($existingSerial, $activeTransferClaimSerialIds)) {
                 // Not currently available at this location for counting
                 // purposes; omission is expected, not a discrepancy. This
                 // includes MISSING: a serial already flagged missing by a
@@ -263,15 +265,23 @@ class StockOpnameSerialClassifier
     /**
      * A destination serial in this state is not an omission discrepancy: it
      * is already known to be unavailable for ordinary counting/movement
-     * (sold, mid-return, or already flagged missing by an earlier opname).
+     * (sold, mid-return, in-transit transfer, or already flagged missing by an earlier opname).
      */
-    public function isUnavailableForCounting(ProductSerialNumber $serial): bool
+    public function isUnavailableForCounting(ProductSerialNumber $serial, ?Collection $activeTransferClaimSerialIds = null): bool
     {
-        return in_array($serial->status, [
+        if (in_array($serial->status, [
             ProductSerialNumber::STATUS_SOLD,
             ProductSerialNumber::STATUS_RETURN_IN_PROCESS,
             ProductSerialNumber::STATUS_MISSING,
-        ], true);
+        ], true)) {
+            return true;
+        }
+
+        if ($activeTransferClaimSerialIds !== null && $activeTransferClaimSerialIds->contains($serial->id)) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -285,6 +295,7 @@ class StockOpnameSerialClassifier
         Collection $movementEligibleLocationIds,
         Collection $activeClaimSerialIds,
         Collection $allocatedSerialIds,
+        ?Collection $activeTransferClaimSerialIds = null,
     ): ?string {
         if ($serial->dispatch_detail_id !== null) {
             return 'Nomor seri terkait dengan pengiriman aktif.';
@@ -311,6 +322,9 @@ class StockOpnameSerialClassifier
         }
         if ($allocatedSerialIds->contains($serial->id)) {
             return 'Nomor seri memiliki alokasi konsinyasi aktif.';
+        }
+        if ($activeTransferClaimSerialIds !== null && $activeTransferClaimSerialIds->contains($serial->id)) {
+            return 'Nomor seri sedang dalam proses transfer stok (in transit).';
         }
 
         // Movement eligibility is deliberately broader than the same-owner

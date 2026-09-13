@@ -1,8 +1,10 @@
 # stock-transfer-inventory-movement Specification
 
 ## Purpose
-TBD - created by archiving change harden-stock-transfer-lifecycle-and-scanning. Update Purpose after archive.
+Authoritative tax-allocation drift review, immutable actual dispatch provenance, atomic inventory deduction, and version-aware forward-dispatch lifecycle transitions.
+
 ## Requirements
+
 ### Requirement: Dispatch calculates authoritative non-tax-first allocation
 At dispatch, the system MUST lock the transfer, relevant origin stock, and selected serial records, reload authoritative data, and calculate actual non-serialized allocation by consuming the applicable non-tax bucket before the corresponding taxed bucket.
 
@@ -26,31 +28,54 @@ At dispatch, the system MUST lock the transfer, relevant origin stock, and selec
 - **WHEN** an approved line explicitly requests broken stock
 - **THEN** dispatch consumes broken non-tax before broken taxed stock and does not consume normal stock
 
-### Requirement: Tax-allocation drift requires informed acknowledgement
-The system SHALL compare authoritative dispatch allocation with the approved preview and MUST obtain explicit acknowledgement when the actual taxed quantity or mandatory return obligation increases.
+### Requirement: Tax-allocation drift uses version-aware dispatch review
+For legacy workflow version `1`, the system SHALL preserve established tax-allocation drift acknowledgement. For workflow version `2`, the system SHALL derive and persist authoritative origin bucket allocation during forward-dispatch approval, SHALL treat bucket drift independently from product/quantity/serial request comparison, and SHALL expose exact allocation only to a user with stock visibility.
 
-#### Scenario: Actual allocation matches approved preview
-- **WHEN** live dispatch allocation does not increase the approved taxed quantity or mandatory return obligation
-- **THEN** an authorized origin dispatcher can complete dispatch without an additional drift acknowledgement
+#### Scenario: Legacy taxed allocation increases
+- **WHEN** a version `1` dispatch would increase taxed quantity or its legacy mandatory-return impact
+- **THEN** the existing permission-aware drift acknowledgement behavior remains unchanged
 
-#### Scenario: Actual taxed allocation increases
-- **WHEN** non-tax stock changed after approval and dispatch would consume more taxed quantity than the approved preview
-- **THEN** the system presents the recalculated line-level allocation and mandatory return impact and does not mutate inventory until the dispatcher acknowledges it
+#### Scenario: Version 2 physical count matches but allocation changes
+- **WHEN** product, quantity, condition, and serial comparison passes but locked origin bucket allocation differs from the approved preview
+- **THEN** bucket drift alone does not make the physical count a mismatch and approval may apply the authoritative allocation when total eligible stock is sufficient
 
-#### Scenario: Allocation changes after acknowledgement
-- **WHEN** stock changes after a dispatcher acknowledges an allocation but before execution obtains its locks
-- **THEN** the system refuses to apply the stale acknowledgement and requires review of the new allocation
+#### Scenario: Blind version 2 approver encounters allocation drift
+- **WHEN** authoritative allocation differs for an approver without stock visibility
+- **THEN** no exact bucket, quantity, difference, hash, or return-impact information is sent to the browser
+
+#### Scenario: Stock changes before approval locks
+- **WHEN** total eligible stock becomes insufficient before version `2` approval obtains its locks
+- **THEN** approval fails atomically without applying a stale allocation
 
 ### Requirement: Dispatch persists immutable actual provenance
-Successful dispatch SHALL persist actual base quantities by tax and broken bucket, selected serial snapshots, dispatcher identity, timestamp, and inventory transaction references independently from the approved preview.
+Successful dispatch SHALL persist actual base quantities by tax and broken bucket, selected serial snapshots, dispatcher and approver identities, timestamps, and inventory transaction references independently from the approved preview. Version `1` SHALL retain its established serial-location behavior, while version `2` approved forward dispatch SHALL represent serialized goods through exclusive in-transit custody and leave live serial location at the last confirmed origin until receipt approval.
 
 #### Scenario: Persist mixed actual allocation
 - **WHEN** dispatch moves three non-tax and two taxed base units
-- **THEN** the line records dispatched non-tax quantity three and dispatched taxed quantity two and inventory transactions reflect the same bucket changes
+- **THEN** the applicable immutable dispatch line records three non-tax and two taxed units and inventory transactions reflect the same origin bucket changes
 
-#### Scenario: Dispatch selected serials
-- **WHEN** a serialized line is dispatched
-- **THEN** the system validates each locked serial at the origin, derives its authoritative tax and broken provenance, moves it to the destination, and records the exact dispatched serial snapshot and history
+#### Scenario: Dispatch selected serials through legacy workflow
+- **WHEN** a workflow version `1` serialized line is dispatched
+- **THEN** the established live-serial movement and exact dispatch snapshot behavior remains unchanged
+
+#### Scenario: Dispatch selected serials through version 2
+- **WHEN** a workflow version `2` serialized forward-dispatch movement is approved
+- **THEN** the system validates each locked serial at the origin, derives authoritative tax and condition provenance, activates exclusive transit custody, retains origin as the live serial's last confirmed location, and records immutable serial and inventory history
+
+### Requirement: Version 2 forward-dispatch approval is the atomic origin boundary
+For workflow version `2`, only approval of an exact pending forward-dispatch movement SHALL deduct origin inventory, activate serial custody, create inventory transactions, approve the movement, record history, and project the transfer header to `DISPATCHED`, and all effects MUST occur in one locked idempotent transaction.
+
+#### Scenario: Submit dispatch without approval
+- **WHEN** a version `2` forward-dispatch draft is submitted
+- **THEN** it becomes pending without deducting stock, creating inventory transactions, activating custody, or changing transfer status
+
+#### Scenario: Approve dispatch once
+- **WHEN** an exact and fulfillable pending forward dispatch is approved
+- **THEN** its complete origin inventory, custody, audit, movement, and header effects commit together exactly once
+
+#### Scenario: Approval fails or races
+- **WHEN** validation fails, a later line fails, or concurrent approval loses the locked race
+- **THEN** no partial inventory, custody, transaction, history, movement, or header effect remains
 
 ### Requirement: Receiving mirrors actual dispatched provenance
 Destination receiving SHALL add exactly the actual dispatched quantities and serials to the destination under their recorded tax and broken provenance rather than recalculating from editable or planned quantities.
@@ -88,4 +113,3 @@ Only an authorized user acting under the origin tenant SHALL dispatch an approve
 #### Scenario: Origin user attempts destination receipt
 - **WHEN** an origin-tenant user directly invokes destination receiving
 - **THEN** the system rejects the action without inventory mutation
-

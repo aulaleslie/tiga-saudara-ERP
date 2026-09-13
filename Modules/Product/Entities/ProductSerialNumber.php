@@ -223,6 +223,11 @@ class ProductSerialNumber extends BaseModel
         return null;
     }
 
+    public function transferActiveClaim(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(\Modules\Adjustment\Entities\TransferActiveSerialClaim::class, 'product_serial_number_id');
+    }
+
     public function consignmentActiveClaim(): \Illuminate\Database\Eloquent\Relations\HasOne
     {
         return $this->hasOne(\Modules\Consignment\Entities\ConsignmentActiveSerialClaim::class, 'product_serial_number_id');
@@ -239,6 +244,7 @@ class ProductSerialNumber extends BaseModel
      * - Not in return process (is_in_return_process = false)
      * - Status is active-compatible (NULL or ACTIVE), OR legacy BROKEN compatible
      * - Excludes SOLD, RETURNED, RETURN_IN_PROCESS, MISSING.
+     * - Excludes serials in active transit custody (transferActiveClaim).
      *
      * @param \Illuminate\Database\Eloquent\Builder $query
      * @return \Illuminate\Database\Eloquent\Builder
@@ -247,6 +253,7 @@ class ProductSerialNumber extends BaseModel
     {
         return $query->whereNull('dispatch_detail_id')
             ->where('is_in_return_process', false)
+            ->whereDoesntHave('transferActiveClaim')
             ->where(function ($q) {
                 $q->whereNull('status')
                     ->orWhereIn('status', [self::STATUS_ACTIVE, self::STATUS_BROKEN]);
@@ -258,6 +265,7 @@ class ProductSerialNumber extends BaseModel
      * - Operationally available
      * - Physical condition is good (is_broken = false)
      * - Status is active-compatible (NULL or ACTIVE), NEVER legacy BROKEN.
+     * - Excludes serials in active transit custody (transferActiveClaim).
      *
      * @param \Illuminate\Database\Eloquent\Builder $query
      * @return \Illuminate\Database\Eloquent\Builder
@@ -267,6 +275,7 @@ class ProductSerialNumber extends BaseModel
         return $query->whereNull('dispatch_detail_id')
             ->where('is_in_return_process', false)
             ->where('is_broken', false)
+            ->whereDoesntHave('transferActiveClaim')
             ->where(function ($q) {
                 $q->whereNull('status')
                     ->orWhere('status', self::STATUS_ACTIVE);
@@ -277,6 +286,7 @@ class ProductSerialNumber extends BaseModel
      * Scope to available broken serial numbers:
      * - Operationally available
      * - Either is_broken = true (with active-compatible status) OR legacy status = BROKEN
+     * - Excludes serials in active transit custody (transferActiveClaim).
      *
      * @param \Illuminate\Database\Eloquent\Builder $query
      * @return \Illuminate\Database\Eloquent\Builder
@@ -285,6 +295,7 @@ class ProductSerialNumber extends BaseModel
     {
         return $query->whereNull('dispatch_detail_id')
             ->where('is_in_return_process', false)
+            ->whereDoesntHave('transferActiveClaim')
             ->where(function ($q) {
                 $q->where(function ($activeBroken) {
                     $activeBroken->where('is_broken', true)
@@ -295,6 +306,15 @@ class ProductSerialNumber extends BaseModel
                         });
                 })->orWhere('status', self::STATUS_BROKEN);
             });
+    }
+
+    public function hasActiveTransferCustody(): bool
+    {
+        if ($this->relationLoaded('transferActiveClaim')) {
+            return $this->transferActiveClaim !== null;
+        }
+
+        return $this->transferActiveClaim()->exists();
     }
 
     /**
@@ -314,6 +334,10 @@ class ProductSerialNumber extends BaseModel
             return false;
         }
 
+        if ($this->hasActiveTransferCustody()) {
+            return false;
+        }
+
         $rawStatus = strtoupper($this->attributes['status'] ?? self::STATUS_ACTIVE);
 
         return $rawStatus === self::STATUS_ACTIVE;
@@ -329,6 +353,10 @@ class ProductSerialNumber extends BaseModel
         }
 
         if ($this->is_in_return_process) {
+            return false;
+        }
+
+        if ($this->hasActiveTransferCustody()) {
             return false;
         }
 
@@ -371,6 +399,14 @@ class ProductSerialNumber extends BaseModel
                 'key' => 'return_in_process',
                 'label' => 'Dalam Proses Retur',
                 'badge_class' => 'badge-warning',
+            ];
+        }
+
+        if ($this->relationLoaded('transferActiveClaim') && $this->transferActiveClaim !== null) {
+            return [
+                'key' => 'in_transit',
+                'label' => 'Dalam Pengiriman (Transfer)',
+                'badge_class' => 'badge-info',
             ];
         }
 

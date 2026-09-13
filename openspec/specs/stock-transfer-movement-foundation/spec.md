@@ -1,19 +1,24 @@
-## ADDED Requirements
+# stock-transfer-movement-foundation Specification
 
-### Requirement: Transfers support a dormant versioned movement foundation
-The system SHALL store a workflow version on every stock transfer, SHALL preserve all existing transfers under legacy workflow version `1`, and MUST NOT route production stock-transfer actions through movement documents in this change.
+## Purpose
+Staged versioned movement foundation, monotonically increasing superseding revisions, exclusive active transit custody, explicit confirmed-zero observation semantics, and permission isolation.
 
-#### Scenario: Existing transfer receives the compatibility version
-- **WHEN** the movement-foundation migration is applied to an existing transfer in any lifecycle state
-- **THEN** the transfer remains workflow version `1` with its status and current lifecycle behavior unchanged
+## Requirements
 
-#### Scenario: Newly created transfer remains legacy during the dormant delivery
-- **WHEN** a transfer is created after this foundation is deployed but before a later workflow cutover
+### Requirement: Transfers support a staged versioned movement foundation
+The system SHALL store a workflow version on every stock transfer, SHALL preserve existing and newly approved production transfers under legacy workflow version `1` while version `2` activation is disabled, and SHALL permit only the gated forward-dispatch capability to exercise version `2` movement effects in focused non-production verification until forward receipt is available.
+
+#### Scenario: Existing transfer remains compatible
+- **WHEN** the approved-forward-dispatch change is deployed for an existing transfer in any lifecycle state
+- **THEN** its workflow version, status, and current lifecycle behavior remain unchanged
+
+#### Scenario: Newly created production transfer remains legacy before coordinated cutover
+- **WHEN** a production transfer is created or approved while version `2` activation is disabled
 - **THEN** it remains workflow version `1` and follows the existing header lifecycle
 
-#### Scenario: Dormant movement approval has no operational effects
-- **WHEN** a movement attempt is approved through the foundation domain service in focused verification
-- **THEN** no product stock, inventory transaction, return obligation, serial location, serial availability, or transfer-header status is changed
+#### Scenario: Gated version 2 forward-dispatch approval
+- **WHEN** the version `2` forward-dispatch path is exercised through an authorized focused-test or non-production activation boundary
+- **THEN** only the defined forward-dispatch approval effects occur atomically and no destination receipt, tax reclassification, or return movement effect occurs
 
 ### Requirement: Movement attempts identify type, revision, and operational context
 The system SHALL represent each movement submission attempt as a record bound to one transfer, one movement type, one revision, the exact approved transfer revision, explicit operational source and destination locations, and one stock condition.
@@ -113,16 +118,20 @@ The system SHALL store each selected serial as a normalized row linked to its mo
 - **WHEN** a serialized line's entered quantity differs from its unique serial count
 - **THEN** submission is rejected without changing movement state
 
-### Requirement: Transit custody storage remains inactive
-The system SHALL provide movement-serial fields and relationships capable of recording later in-transit custody, but this change MUST NOT activate custody, alter serialized-product location, or change serial availability.
+### Requirement: Transit custody activates only for approved version 2 forward dispatch
+The system SHALL activate serialized transit custody only as part of successful workflow version `2` forward-dispatch approval, SHALL leave live serial location at its last confirmed origin, and MUST NOT change custody for draft, pending, rejected, cancelled, failed, or legacy movements.
 
-#### Scenario: Approve a dormant movement containing serials
-- **WHEN** a movement containing serialized rows is approved under this foundation
-- **THEN** its serial snapshots remain stored while the live serial location, status, reservation flags, and availability remain unchanged
+#### Scenario: Approve version 2 serialized forward dispatch
+- **WHEN** an eligible serialized forward dispatch completes approval atomically
+- **THEN** its movement serials become exclusively in transit while live serial locations remain unchanged
 
-#### Scenario: Existing serial query runs after deployment
-- **WHEN** an existing sale, dispatch, return, or transfer query resolves serial availability
-- **THEN** dormant movement rows do not change the query result
+#### Scenario: Movement does not approve
+- **WHEN** preparation, submission, comparison, stock validation, serial validation, or approval fails
+- **THEN** transit custody remains inactive and existing serial availability is unchanged
+
+#### Scenario: Legacy serial dispatch
+- **WHEN** a workflow version `1` transfer dispatches through the existing path
+- **THEN** its established serial behavior remains unchanged by the movement-custody capability
 
 ### Requirement: Movement actions are idempotent within their exact scope
 The system SHALL scope idempotency to movement, revision, and action and MUST NOT duplicate transitions, history, or related records when the same completed action is repeated with the same key.
@@ -154,13 +163,28 @@ The system SHALL register separate dispatch-create, dispatch-approval, receive-c
 - **WHEN** an existing production dispatch or receipt route is invoked after this foundation is deployed
 - **THEN** its existing legacy permission and lifecycle behavior remain in effect
 
-### Requirement: Movement foundation has no production-facing surface
-The system MUST NOT expose movement creation, mutation, approval, quantities, manifests, serial snapshots, comparisons, or custody through production routes, Livewire components, browser views, APIs, prints, or exports in this change.
+### Requirement: Movement foundation exposes only gated forward dispatch
+The system SHALL expose movement creation, mutation, submission, review, rejection, correction, and approval only for forward dispatch through version-aware production routes guarded by an activation boundary, action permissions, operational ownership, and stock-visibility projections; other movement types MUST remain without production-facing surfaces in this change.
 
-#### Scenario: User holds every new movement permission
-- **WHEN** a user with all four new permissions navigates the existing stock-transfer interface
-- **THEN** no new movement action or sensitive movement data is exposed and the existing workflow remains unchanged
+#### Scenario: Authorized version 2 dispatch preparation
+- **WHEN** activation is enabled in a permitted environment and an eligible origin user invokes forward-dispatch preparation
+- **THEN** the gated movement surface is available using the user's blind or privileged projection
 
-#### Scenario: Existing transfer response is inspected
-- **WHEN** an existing transfer page or Livewire payload is rendered after deployment
-- **THEN** dormant movement data is absent from the response regardless of the user's movement permissions
+#### Scenario: Receipt or return movement route attempted
+- **WHEN** any user attempts to access a forward-receipt, return-dispatch, or return-receipt production movement surface in this change
+- **THEN** no such surface is available and no movement or inventory effect occurs
+
+#### Scenario: Activation remains disabled
+- **WHEN** a user holds every movement permission but production version `2` activation is disabled
+- **THEN** no new operational movement action is available and version `1` behavior remains unchanged
+
+### Requirement: Confirmed zero is a complete movement observation
+Movement lines SHALL store count confirmation independently from quantity, and a submitted forward-dispatch attempt SHALL treat a confirmed zero expected-product line as complete while treating an unconfirmed line as incomplete.
+
+#### Scenario: Persist confirmed zero
+- **WHEN** an operator explicitly confirms zero for an approved product
+- **THEN** its movement line retains zero quantity with confirmed state for immutable submission and comparison
+
+#### Scenario: Unconfirmed zero remains incomplete
+- **WHEN** an approved product has zero quantity without explicit confirmation
+- **THEN** the forward-dispatch attempt cannot be submitted

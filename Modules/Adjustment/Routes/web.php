@@ -33,5 +33,17 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::post('/transfers/{transfer}/receive', 'TransferStockController@receive')->name('transfers.receive');
     Route::post('/transfers/{transfer}/return-dispatch', 'TransferStockController@dispatchReturn')->name('transfers.return-dispatch');
     Route::post('/transfers/{transfer}/return-receive', 'TransferStockController@receiveReturn')->name('transfers.return-receive');
+
+    // Version 2 Forward Dispatch Movement Routes (Gated by v2_dispatch_enabled config)
+    Route::get('/transfers/{transfer}/movements/prepare', 'ForwardDispatchMovementController@prepare')->name('transfers.movements.prepare');
+    Route::post('/transfers/{transfer}/movements/{movement}/scan', 'ForwardDispatchMovementController@scan')->name('transfers.movements.scan');
+    Route::post('/transfers/{transfer}/movements/{movement}/set-quantity', 'ForwardDispatchMovementController@setQuantity')->name('transfers.movements.set-quantity');
+    Route::post('/transfers/{transfer}/movements/{movement}/submit', 'ForwardDispatchMovementController@submit')->name('transfers.movements.submit');
+    Route::post('/transfers/{transfer}/movements/{movement}/cancel', 'ForwardDispatchMovementController@cancel')->name('transfers.movements.cancel');
+    Route::post('/transfers/{transfer}/movements/{movement}/correct', 'ForwardDispatchMovementController@correct')->name('transfers.movements.correct');
+    Route::get('/transfers/{transfer}/movements/{movement}/review', 'ForwardDispatchMovementController@review')->name('transfers.movements.review');
+    Route::post('/transfers/{transfer}/movements/{movement}/approve', 'ForwardDispatchMovementController@approve')->name('transfers.movements.approve');
+    Route::post('/transfers/{transfer}/movements/{movement}/reject', 'ForwardDispatchMovementController@reject')->name('transfers.movements.reject');
+
     Route::resource('transfers', 'TransferStockController');
 });

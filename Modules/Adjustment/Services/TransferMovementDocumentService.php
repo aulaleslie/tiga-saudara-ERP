@@ -352,8 +352,13 @@ class TransferMovementDocumentService
             }
 
             foreach ($lockedMovement->lines as $line) {
-                if ($line->quantity <= 0) {
-                    throw new RuntimeException("Movement line quantity for product ID {$line->product_id} must be positive.");
+                $qty = (float) $line->quantity;
+                if ($qty < 0) {
+                    throw new RuntimeException("Movement line quantity for product ID {$line->product_id} cannot be negative.");
+                }
+
+                if ($qty === 0.0 && !$line->count_confirmed) {
+                    throw new RuntimeException("Unconfirmed line for product ID {$line->product_id} cannot be submitted.");
                 }
 
                 $product = $line->product;
@@ -618,6 +623,7 @@ class TransferMovementDocumentService
         // 1. Group and canonicalize quantities per product_id with exact decimal string arithmetic
         $canonicalLines = [];
         $serialsByProduct = [];
+        $confirmedByProduct = [];
 
         foreach ($linesData as $row) {
             $productId = (int) ($row['product_id'] ?? 0);
@@ -627,13 +633,18 @@ class TransferMovementDocumentService
 
             $rawQuantity = $row['quantity'] ?? 0;
             $qtyStr = $this->validateAndNormalizeQuantityString($rawQuantity, $productId);
+            $confirmed = (bool) ($row['count_confirmed'] ?? false);
 
             if (!isset($canonicalLines[$productId])) {
                 $canonicalLines[$productId] = '0.0000';
                 $serialsByProduct[$productId] = [];
+                $confirmedByProduct[$productId] = false;
             }
 
             $canonicalLines[$productId] = bcadd($canonicalLines[$productId], $qtyStr, 4);
+            if ($confirmed) {
+                $confirmedByProduct[$productId] = true;
+            }
 
             if (!empty($row['serials']) && is_array($row['serials'])) {
                 foreach ($row['serials'] as $s) {
@@ -659,6 +670,7 @@ class TransferMovementDocumentService
                 'transfer_movement_id' => $movement->id,
                 'product_id'           => $productId,
                 'quantity'             => $totalQuantityStr,
+                'count_confirmed'      => $confirmedByProduct[$productId] ?? false,
             ]);
 
             $rawSerials = $serialsByProduct[$productId] ?? [];
@@ -915,6 +927,9 @@ class TransferMovementDocumentService
         }
         if ($liveSerial->is_in_return_process) {
             throw new RuntimeException("Serial [{$normalized}] is currently in a return process.");
+        }
+        if ($liveSerial->hasActiveTransferCustody()) {
+            throw new RuntimeException("Serial [{$normalized}] is currently in transit custody.");
         }
         
         $status = $liveSerial->status;
