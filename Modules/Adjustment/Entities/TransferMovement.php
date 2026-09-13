@@ -23,6 +23,15 @@ class TransferMovement extends BaseModel
         self::TYPE_RETURN_RECEIPT,
     ];
 
+    /**
+     * Fixed lineage discriminator written for every FORWARD_DISPATCH, FORWARD_RECEIPT, and
+     * RETURN_RECEIPT movement (types that still have exactly one lineage per (transfer_id, type)).
+     * return_batch_id is NOT NULL on every row so the (transfer_id, type, return_batch_id, revision)
+     * unique index cannot be defeated by "NULLs are distinct" — only RETURN_DISPATCH movements get
+     * a real per-batch UUID here instead.
+     */
+    public const SINGLETON_LINEAGE = '00000000-0000-0000-0000-000000000000';
+
     public const STATUS_DRAFT     = 'DRAFT';
     public const STATUS_PENDING   = 'PENDING';
     public const STATUS_APPROVED  = 'APPROVED';
@@ -57,6 +66,7 @@ class TransferMovement extends BaseModel
         'destination_location_id',
         'source_movement_id',
         'supersedes_movement_id',
+        'return_batch_id',
         'created_by',
         'updated_by',
         'submitted_by',
@@ -147,6 +157,11 @@ class TransferMovement extends BaseModel
         return $this->hasMany(TransferMovementHistory::class);
     }
 
+    public function returnObligationReservations(): HasMany
+    {
+        return $this->hasMany(TransferReturnObligationReservation::class);
+    }
+
     public function isDraft(): bool
     {
         return $this->status === self::STATUS_DRAFT;
@@ -170,5 +185,14 @@ class TransferMovement extends BaseModel
     public function isCancelled(): bool
     {
         return $this->status === self::STATUS_CANCELLED;
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $movement): void {
+            if (empty($movement->return_batch_id)) {
+                $movement->return_batch_id = self::SINGLETON_LINEAGE;
+            }
+        });
     }
 }

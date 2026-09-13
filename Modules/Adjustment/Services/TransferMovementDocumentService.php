@@ -48,11 +48,24 @@ class TransferMovementDocumentService
         int $userId,
         array $linesData = [],
         ?int $sourceMovementId = null,
-        ?string $idempotencyKey = null
+        ?string $idempotencyKey = null,
+        ?string $returnBatchId = null
     ): TransferMovement {
         $idempotencyKey = $idempotencyKey ? trim($idempotencyKey) : null;
+        $isBatchLineage = $type === TransferMovement::TYPE_RETURN_DISPATCH;
 
-        return DB::transaction(function () use ($transfer, $type, $userId, $linesData, $sourceMovementId, $idempotencyKey) {
+        if ($isBatchLineage) {
+            if (!$returnBatchId) {
+                $returnBatchId = (string) \Illuminate\Support\Str::uuid();
+            }
+        } else {
+            // Non-batch types keep exactly one lineage per (transfer_id, type); return_batch_id must
+            // still be non-null so the (transfer_id, type, return_batch_id, revision) unique index
+            // enforces that invariant at the database level (a nullable component would not).
+            $returnBatchId = TransferMovement::SINGLETON_LINEAGE;
+        }
+
+        return DB::transaction(function () use ($transfer, $type, $userId, $linesData, $sourceMovementId, $idempotencyKey, $returnBatchId, $isBatchLineage) {
             // Lock parent transfer and validate eligible approved transfer state
             $lockedTransfer = $this->lockAndValidateTransferForMovement($transfer->id);
 
@@ -73,23 +86,33 @@ class TransferMovementDocumentService
 
             $this->validateMovementTypeEligibility($lockedTransfer, $type);
 
-            // One open attempt rule: check if any draft or pending attempt exists for this transfer + type
-            $hasOpenAttempt = TransferMovement::where('transfer_id', $lockedTransfer->id)
+            // One open attempt rule, scoped per return-batch lineage for RETURN_DISPATCH so multiple
+            // independent batches may each carry their own single open draft/pending attempt.
+            $openAttemptQuery = TransferMovement::where('transfer_id', $lockedTransfer->id)
                 ->where('type', $type)
-                ->whereIn('status', [TransferMovement::STATUS_DRAFT, TransferMovement::STATUS_PENDING])
-                ->lockForUpdate()
-                ->exists();
+                ->whereIn('status', [TransferMovement::STATUS_DRAFT, TransferMovement::STATUS_PENDING]);
+
+            if ($isBatchLineage) {
+                $openAttemptQuery->where('return_batch_id', $returnBatchId);
+            }
+
+            $hasOpenAttempt = $openAttemptQuery->lockForUpdate()->exists();
 
             if ($hasOpenAttempt) {
                 throw new RuntimeException("An open attempt (DRAFT or PENDING) already exists for this transfer and type [{$type}].");
             }
 
-            // One approved attempt rule: check if an approved attempt already exists
-            $hasApprovedAttempt = TransferMovement::where('transfer_id', $lockedTransfer->id)
+            // One approved attempt rule, scoped per return-batch lineage for RETURN_DISPATCH: many
+            // batches may each become independently APPROVED, but a lineage cannot be approved twice.
+            $approvedAttemptQuery = TransferMovement::where('transfer_id', $lockedTransfer->id)
                 ->where('type', $type)
-                ->where('status', TransferMovement::STATUS_APPROVED)
-                ->lockForUpdate()
-                ->exists();
+                ->where('status', TransferMovement::STATUS_APPROVED);
+
+            if ($isBatchLineage) {
+                $approvedAttemptQuery->where('return_batch_id', $returnBatchId);
+            }
+
+            $hasApprovedAttempt = $approvedAttemptQuery->lockForUpdate()->exists();
 
             if ($hasApprovedAttempt) {
                 throw new RuntimeException("An approved attempt already exists for this transfer and type [{$type}].");
@@ -111,10 +134,15 @@ class TransferMovementDocumentService
             // Determine operational locations
             [$originLocationId, $destinationLocationId] = $this->resolveOperationalLocations($lockedTransfer, $type);
 
-            // Determine revision: max revision + 1
-            $latestRevision = TransferMovement::where('transfer_id', $lockedTransfer->id)
-                ->where('type', $type)
-                ->max('revision') ?? 0;
+            // Determine revision: max revision + 1, scoped per lineage for RETURN_DISPATCH
+            $revisionQuery = TransferMovement::where('transfer_id', $lockedTransfer->id)
+                ->where('type', $type);
+
+            if ($isBatchLineage) {
+                $revisionQuery->where('return_batch_id', $returnBatchId);
+            }
+
+            $latestRevision = $revisionQuery->max('revision') ?? 0;
 
             $nextRevision = $latestRevision + 1;
 
@@ -129,6 +157,7 @@ class TransferMovementDocumentService
                 'origin_location_id'      => $originLocationId,
                 'destination_location_id' => $destinationLocationId,
                 'source_movement_id'      => $sourceMovement?->id,
+                'return_batch_id'         => $returnBatchId,
                 'created_by'              => $userId,
                 'updated_by'              => $userId,
             ]);
@@ -187,21 +216,32 @@ class TransferMovementDocumentService
                 throw new RuntimeException('A correction can only be started from a REJECTED movement attempt.');
             }
 
-            // Check no open attempt already exists
-            $hasOpenAttempt = TransferMovement::where('transfer_id', $lockedTransfer->id)
+            $isBatchLineage = $lockedRejected->type === TransferMovement::TYPE_RETURN_DISPATCH;
+
+            // Check no open attempt already exists within the same lineage
+            $openAttemptQuery = TransferMovement::where('transfer_id', $lockedTransfer->id)
                 ->where('type', $lockedRejected->type)
-                ->whereIn('status', [TransferMovement::STATUS_DRAFT, TransferMovement::STATUS_PENDING])
-                ->lockForUpdate()
-                ->exists();
+                ->whereIn('status', [TransferMovement::STATUS_DRAFT, TransferMovement::STATUS_PENDING]);
+
+            if ($isBatchLineage) {
+                $openAttemptQuery->where('return_batch_id', $lockedRejected->return_batch_id);
+            }
+
+            $hasOpenAttempt = $openAttemptQuery->lockForUpdate()->exists();
 
             if ($hasOpenAttempt) {
                 throw new RuntimeException("An open attempt (DRAFT or PENDING) already exists for this transfer and type.");
             }
 
-            // Determine next revision
-            $latestRevision = TransferMovement::where('transfer_id', $lockedTransfer->id)
-                ->where('type', $lockedRejected->type)
-                ->max('revision') ?? $lockedRejected->revision;
+            // Determine next revision, scoped to the same lineage for RETURN_DISPATCH
+            $revisionQuery = TransferMovement::where('transfer_id', $lockedTransfer->id)
+                ->where('type', $lockedRejected->type);
+
+            if ($isBatchLineage) {
+                $revisionQuery->where('return_batch_id', $lockedRejected->return_batch_id);
+            }
+
+            $latestRevision = $revisionQuery->max('revision') ?? $lockedRejected->revision;
 
             $nextRevision = $latestRevision + 1;
 
@@ -217,6 +257,7 @@ class TransferMovementDocumentService
                 'destination_location_id' => $lockedRejected->destination_location_id,
                 'source_movement_id'      => $lockedRejected->source_movement_id,
                 'supersedes_movement_id'  => $lockedRejected->id,
+                'return_batch_id'         => $lockedRejected->return_batch_id,
                 'created_by'              => $userId,
                 'updated_by'              => $userId,
             ]);
@@ -374,7 +415,7 @@ class TransferMovementDocumentService
                         }
 
                         // Re-query and lock every live serial during submission to ensure state has not drifted (for dispatch movements)
-                        if ($lockedMovement->type === TransferMovement::TYPE_FORWARD_DISPATCH) {
+                        if (in_array($lockedMovement->type, [TransferMovement::TYPE_FORWARD_DISPATCH, TransferMovement::TYPE_RETURN_DISPATCH], true)) {
                             foreach ($line->serials as $movSerial) {
                                 $liveSerial = ProductSerialNumber::where('id', $movSerial->product_serial_number_id)
                                     ->lockForUpdate()
@@ -446,13 +487,17 @@ class TransferMovementDocumentService
                 throw new RuntimeException("Transfer revision mismatch: transfer has advanced to revision {$lockedTransfer->revision}.");
             }
 
-            // Enforce one approved attempt per (transfer_id, type)
-            $hasOtherApproved = TransferMovement::where('transfer_id', $lockedTransfer->id)
+            // Enforce one approved attempt per (transfer_id, type), scoped per lineage for RETURN_DISPATCH
+            $hasOtherApprovedQuery = TransferMovement::where('transfer_id', $lockedTransfer->id)
                 ->where('type', $lockedMovement->type)
                 ->where('status', TransferMovement::STATUS_APPROVED)
-                ->where('id', '!=', $lockedMovement->id)
-                ->lockForUpdate()
-                ->exists();
+                ->where('id', '!=', $lockedMovement->id);
+
+            if ($lockedMovement->type === TransferMovement::TYPE_RETURN_DISPATCH) {
+                $hasOtherApprovedQuery->where('return_batch_id', $lockedMovement->return_batch_id);
+            }
+
+            $hasOtherApproved = $hasOtherApprovedQuery->lockForUpdate()->exists();
 
             if ($hasOtherApproved) {
                 throw new RuntimeException("Another attempt for transfer ID {$lockedTransfer->id} and type [{$lockedMovement->type}] is already APPROVED.");
@@ -610,9 +655,19 @@ class TransferMovementDocumentService
     {
         $transfer = Transfer::where('id', $transferId)->lockForUpdate()->firstOrFail();
 
-        // For the movement foundation, APPROVED or DISPATCHED transfers are eligible for movement creation/operations
-        if (!in_array($transfer->status, [Transfer::STATUS_APPROVED, Transfer::STATUS_DISPATCHED], true)) {
-            throw new RuntimeException("Transfer is in status [{$transfer->status}], but only APPROVED or DISPATCHED transfers are eligible for movement operations.");
+        // For the movement foundation, APPROVED/DISPATCHED transfers are eligible for forward-leg
+        // movement operations, and AWAITING_RETURN/RETURN_DISPATCHED transfers are eligible for
+        // return-leg movement operations (return dispatch batches may be prepared and approved
+        // independently and concurrently once the transfer is awaiting return).
+        $eligibleStatuses = [
+            Transfer::STATUS_APPROVED,
+            Transfer::STATUS_DISPATCHED,
+            Transfer::STATUS_AWAITING_RETURN,
+            Transfer::STATUS_RETURN_DISPATCHED,
+        ];
+
+        if (!in_array($transfer->status, $eligibleStatuses, true)) {
+            throw new RuntimeException("Transfer is in status [{$transfer->status}], but only APPROVED, DISPATCHED, AWAITING_RETURN, or RETURN_DISPATCHED transfers are eligible for movement operations.");
         }
 
         if (!$transfer->hasExplicitCondition()) {
@@ -716,7 +771,7 @@ class TransferMovementDocumentService
                         }
                     }
 
-                    if ($movement->type === TransferMovement::TYPE_FORWARD_DISPATCH) {
+                    if (in_array($movement->type, [TransferMovement::TYPE_FORWARD_DISPATCH, TransferMovement::TYPE_RETURN_DISPATCH], true)) {
                         $this->validateLiveSerialForMovement($liveSerial, $normalized, $productId, $movement);
                     }
 
@@ -915,6 +970,24 @@ class TransferMovementDocumentService
 
         if ((int) $liveSerial->product_id !== $productId) {
             throw new RuntimeException("Serial [{$normalized}] belongs to product ID {$liveSerial->product_id}, not line product ID {$productId}.");
+        }
+
+        // Return dispatch may select any eligible substitute serial, but its live tax classification
+        // must match the destination-side classification committed by the transfer's route policy,
+        // since serial provenance must agree with the inventory bucket being deducted.
+        if ($movement->type === TransferMovement::TYPE_RETURN_DISPATCH) {
+            $policy = \Modules\Adjustment\Entities\TransferRoutePolicy::where('transfer_id', $movement->transfer_id)
+                ->orderByDesc('transfer_revision')
+                ->first();
+
+            if ($policy && $policy->destination_classification !== \Modules\Adjustment\Entities\TransferRoutePolicy::CLASSIFICATION_PRESERVE) {
+                $expectsTax = $policy->destination_classification === \Modules\Adjustment\Entities\TransferRoutePolicy::CLASSIFICATION_TAX;
+                $isTax = (bool) $liveSerial->tax_id;
+
+                if ($expectsTax !== $isTax) {
+                    throw new RuntimeException("Serial [{$normalized}] tax classification does not match the committed destination-side classification.");
+                }
+            }
         }
 
         // Check live serial condition vs movement condition

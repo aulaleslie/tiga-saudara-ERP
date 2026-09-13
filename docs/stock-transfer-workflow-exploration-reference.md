@@ -496,6 +496,7 @@ This delivery should be additive and migration-safe.
 - Apply the same behavior to good and broken transfers using their respective buckets.
 - Ensure historical in-progress transfers receive deterministic compatibility behavior rather than being silently reinterpreted.
 
+[x]
 ### Delivery 8 — Approved return dispatch
 
 - Create a return-dispatch draft for a full outstanding obligation.

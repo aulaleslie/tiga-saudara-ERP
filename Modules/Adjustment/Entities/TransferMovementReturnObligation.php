@@ -4,6 +4,7 @@ namespace Modules\Adjustment\Entities;
 
 use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Product\Entities\Product;
 
 class TransferMovementReturnObligation extends BaseModel
@@ -31,8 +32,8 @@ class TransferMovementReturnObligation extends BaseModel
     ];
 
     protected $casts = [
-        'required_quantity' => 'integer',
-        'returned_quantity' => 'integer',
+        'required_quantity' => 'decimal:4',
+        'returned_quantity' => 'decimal:4',
     ];
 
     public function transfer(): BelongsTo
@@ -55,8 +56,50 @@ class TransferMovementReturnObligation extends BaseModel
         return $this->belongsTo(Product::class);
     }
 
-    public function outstandingQuantity(): int
+    public function reservations(): HasMany
     {
-        return max(0, $this->required_quantity - $this->returned_quantity);
+        return $this->hasMany(TransferReturnObligationReservation::class, 'transfer_movement_return_obligation_id');
+    }
+
+    public function activeReservations(): HasMany
+    {
+        return $this->reservations()->where('status', TransferReturnObligationReservation::STATUS_ACTIVE);
+    }
+
+    /**
+     * Sum of quantity across all ACTIVE reservations (approved return-dispatch batches still in transit).
+     * Caller MUST have already locked this obligation and its reservation rows for update.
+     *
+     * Folds via bcadd() from '0.0000' rather than Collection::sum(), which coerces each value to a
+     * PHP float before adding — silently reintroducing floating-point rounding error into an
+     * otherwise exact-decimal reservation ledger.
+     */
+    public function activeInTransitQuantity(): string
+    {
+        $total = '0.0000';
+        foreach ($this->activeReservations as $reservation) {
+            $total = bcadd($total, (string) $reservation->quantity, 4);
+        }
+
+        return $total;
+    }
+
+    /**
+     * Remaining capacity available for new approvals: required - returned - active in transit.
+     * Never negative.
+     */
+    public function availableCapacity(): string
+    {
+        $committed = bcadd((string) $this->returned_quantity, $this->activeInTransitQuantity(), 4);
+        $remaining = bcsub((string) $this->required_quantity, $committed, 4);
+
+        return bccomp($remaining, '0', 4) > 0 ? $remaining : '0.0000';
+    }
+
+    public function outstandingQuantity(): string
+    {
+        $remaining = bcsub((string) $this->required_quantity, (string) $this->returned_quantity, 4);
+
+        return bccomp($remaining, '0', 4) > 0 ? $remaining : '0.0000';
     }
 }

@@ -201,7 +201,7 @@ class TransferMovementDocumentDomainTest extends TestCase
         ]);
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('Transfer is in status [DRAFT], but only APPROVED transfers are eligible for movement operations.');
+        $this->expectExceptionMessage('Transfer is in status [DRAFT], but only APPROVED, DISPATCHED, AWAITING_RETURN, or RETURN_DISPATCHED transfers are eligible for movement operations.');
 
         $this->service->createDraft(
             $draftTransfer,

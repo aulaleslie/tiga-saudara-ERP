@@ -57,5 +57,17 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::post('/transfers/{transfer}/movements/{movement}/receipt/approve', 'ForwardReceiptMovementController@approve')->name('transfers.movements.receipt.approve');
     Route::post('/transfers/{transfer}/movements/{movement}/receipt/reject', 'ForwardReceiptMovementController@reject')->name('transfers.movements.receipt.reject');
 
+    // Version 2 Return Dispatch Movement Routes (Gated by v2_dispatch_enabled config)
+    Route::post('/transfers/{transfer}/movements/return/create', 'ReturnDispatchMovementController@create')->name('transfers.movements.return.create');
+    Route::get('/transfers/{transfer}/movements/return/prepare', 'ReturnDispatchMovementController@prepare')->name('transfers.movements.return.prepare');
+    Route::post('/transfers/{transfer}/movements/{movement}/return/scan', 'ReturnDispatchMovementController@scan')->name('transfers.movements.return.scan');
+    Route::post('/transfers/{transfer}/movements/{movement}/return/set-quantity', 'ReturnDispatchMovementController@setQuantity')->name('transfers.movements.return.set-quantity');
+    Route::post('/transfers/{transfer}/movements/{movement}/return/submit', 'ReturnDispatchMovementController@submit')->name('transfers.movements.return.submit');
+    Route::post('/transfers/{transfer}/movements/{movement}/return/cancel', 'ReturnDispatchMovementController@cancel')->name('transfers.movements.return.cancel');
+    Route::post('/transfers/{transfer}/movements/{movement}/return/correct', 'ReturnDispatchMovementController@correct')->name('transfers.movements.return.correct');
+    Route::get('/transfers/{transfer}/movements/{movement}/return/review', 'ReturnDispatchMovementController@review')->name('transfers.movements.return.review');
+    Route::post('/transfers/{transfer}/movements/{movement}/return/approve', 'ReturnDispatchMovementController@approve')->name('transfers.movements.return.approve');
+    Route::post('/transfers/{transfer}/movements/{movement}/return/reject', 'ReturnDispatchMovementController@reject')->name('transfers.movements.return.reject');
+
     Route::resource('transfers', 'TransferStockController');
 });
