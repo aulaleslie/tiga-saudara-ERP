@@ -6,6 +6,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.1",
+        "ext-bcmath": "*",
         "algolia/algoliasearch-client-php": "^4.29",
         "anayarojo/shoppingcart": "^4.2",
         "bacon/bacon-qr-code": "^3.0",

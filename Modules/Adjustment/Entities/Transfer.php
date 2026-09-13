@@ -48,6 +48,7 @@ class Transfer extends BaseModel
         'archived_by',
         'status',
         'revision',
+        'workflow_version',
         'transfer_date',
         'approved_at',
         'rejected_at',
@@ -70,6 +71,7 @@ class Transfer extends BaseModel
         'return_received_at'   => 'datetime',
         'archived_at'          => 'datetime',
         'revision'             => 'integer',
+        'workflow_version'     => 'integer',
     ];
 
     protected static function booted(): void
@@ -233,6 +235,11 @@ class Transfer extends BaseModel
     public function returnObligations(): HasMany
     {
         return $this->hasMany(TransferReturnObligation::class);
+    }
+
+    public function movements(): HasMany
+    {
+        return $this->hasMany(TransferMovement::class);
     }
 
     public function archivedBy(): BelongsTo

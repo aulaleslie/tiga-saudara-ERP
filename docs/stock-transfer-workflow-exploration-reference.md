@@ -450,6 +450,7 @@ This is a security boundary and should land before new recount screens.
 
 Prefer tests and narrow corrections; avoid replacing the existing resolver without evidence.
 
+[x]
 ### Delivery 4 — Movement-document and permission foundation
 
 - Add movement, movement-line, and movement-serial records.
