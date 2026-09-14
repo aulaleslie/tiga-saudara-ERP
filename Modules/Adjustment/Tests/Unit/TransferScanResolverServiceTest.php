@@ -499,6 +499,8 @@ class TransferScanResolverServiceTest extends TestCase
             'company_email'  => 'other@example.com',
             'company_phone'  => '081234567891',
             'notification_email' => 'other@example.com',
+            'footer_text' => 'Other Footer',
+            'company_address' => 'Other Address',
             'default_currency_id' => 1,
             'default_currency_position' => 'prefix',
         ]);
@@ -522,5 +524,76 @@ class TransferScanResolverServiceTest extends TestCase
         $resText = $this->service->resolve($this->setting->id, 'Other Tenant', $this->location->id, null, true);
         $this->assertEquals('not_found', $resText['status']);
         $this->assertEquals('none', $resText['type']);
+    }
+
+    /** @test */
+    public function cross_catalogue_product_with_stock_at_authorized_origin_resolves_barcode_and_conversion()
+    {
+        $otherSetting = Setting::factory()->create();
+
+        $crossProduct = Product::create([
+            'setting_id'    => $otherSetting->id,
+            'product_name'  => 'Cross Catalogue Product',
+            'product_code'  => 'CCP-001',
+            'barcode'       => '2029194594988',
+            'stock_managed' => true,
+            'product_cost'  => 50000,
+            'product_price' => 75000,
+        ]);
+
+        $unit = Unit::create([
+            'name' => 'Dus',
+            'short_name' => 'DUS',
+        ]);
+        $crossProduct->update(['base_unit_id' => $unit->id]);
+
+        $conversion = ProductUnitConversion::create([
+            'product_id' => $crossProduct->id,
+            'unit_id' => $unit->id,
+            'base_unit_id' => $unit->id,
+            'unit_conversion_name' => 'Karton',
+            'unit_conversion_code' => 'KRT',
+            'conversion_factor' => 24,
+            'barcode' => 'CONV-2029194594988',
+        ]);
+
+        // Stock exists at this->location (which belongs to this->setting)
+        ProductStock::create([
+            'product_id' => $crossProduct->id,
+            'location_id' => $this->location->id,
+            'quantity' => 10,
+            'quantity_tax' => 10,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        // 1. Exact barcode 2029194594988 resolves
+        $resBarcode = $this->service->resolve($this->setting->id, '2029194594988', $this->location->id, false);
+        $this->assertEquals('resolved', $resBarcode['status']);
+        $this->assertEquals('product_exact', $resBarcode['type']);
+        $this->assertEquals($crossProduct->id, $resBarcode['product']['id']);
+
+        // 2. Conversion barcode resolves
+        $resConv = $this->service->resolve($this->setting->id, 'CONV-2029194594988', $this->location->id, false);
+        $this->assertEquals('resolved', $resConv['status']);
+        $this->assertEquals('product_exact', $resConv['type']);
+        $this->assertEquals($crossProduct->id, $resConv['product']['id']);
+        $this->assertEquals(24, $resConv['product']['conversion']['conversion_factor']);
+
+        // 3. Opposite condition (broken mode) rejects since stock is only good
+        $resBroken = $this->service->resolve($this->setting->id, '2029194594988', $this->location->id, true);
+        $this->assertEquals('not_found', $resBroken['status']);
+        $this->assertEquals('none', $resBroken['type']);
+
+        // 4. At another location with no stock, returns not found
+        $otherLocation = Location::create([
+            'setting_id' => $this->setting->id,
+            'name' => 'Empty Warehouse',
+        ]);
+        $resOtherLoc = $this->service->resolve($this->setting->id, '2029194594988', $otherLocation->id, false);
+        $this->assertEquals('not_found', $resOtherLoc['status']);
+        $this->assertEquals('none', $resOtherLoc['type']);
     }
 }

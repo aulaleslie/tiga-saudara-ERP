@@ -488,4 +488,98 @@ class TransferProductEntryModeFilterTest extends TestCase
             })
             ->assertDispatched('restore-scanner-focus');
     }
+
+    /** @test */
+    public function cross_catalogue_product_stocked_at_origin_is_discoverable_via_search()
+    {
+        $otherSetting = Setting::factory()->create();
+
+        $crossProduct = Product::create([
+            'setting_id'    => $otherSetting->id,
+            'product_name'  => 'Cross Catalogue Widget',
+            'product_code'  => 'CCW-999',
+            'product_cost'  => 1000,
+            'product_price' => 2000,
+            'stock_managed' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $crossProduct->id,
+            'location_id' => $this->origin->id,
+            'quantity' => 10,
+            'quantity_tax' => 10,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        Livewire::actingAs($this->user)
+            ->test(SearchProduct::class, [
+                'locationId' => $this->origin->id,
+                'stockCondition' => Transfer::CONDITION_GOOD,
+            ])
+            ->set('query', 'Cross Catalogue')
+            ->assertSee('Cross Catalogue Widget');
+    }
+
+    /** @test */
+    public function cross_catalogue_serial_at_origin_is_selectable_in_transfer_table()
+    {
+        $otherSetting = Setting::factory()->create();
+
+        $crossSerializedProduct = Product::create([
+            'setting_id' => $otherSetting->id,
+            'product_name' => 'Cross Serialized Gizmo',
+            'product_code' => 'CSG-001',
+            'product_cost' => 1000,
+            'product_price' => 2000,
+            'serial_number_required' => true,
+            'stock_managed' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $crossSerializedProduct->id,
+            'location_id' => $this->origin->id,
+            'quantity' => 5,
+            'quantity_tax' => 5,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        $serial = ProductSerialNumber::create([
+            'product_id' => $crossSerializedProduct->id,
+            'location_id' => $this->origin->id,
+            'serial_number' => 'SN-CROSS-001',
+            'status' => ProductSerialNumber::STATUS_ACTIVE,
+            'is_broken' => 0,
+        ]);
+
+        $table = Livewire::actingAs($this->user)
+            ->test(TransferProductTable::class, [
+                'originLocationId' => $this->origin->id,
+                'stockCondition' => Transfer::CONDITION_GOOD,
+            ])
+            ->call('productSelected', [
+                'id' => $crossSerializedProduct->id,
+                'is_broken_mode' => false,
+            ]);
+
+        $table->call('serialNumberSelected', [
+            'productCompositeKey' => 0,
+            'serialNumber' => [
+                'id' => $serial->id,
+                'serial_number' => $serial->serial_number,
+                'tax_id' => $serial->tax_id,
+                'is_broken' => false,
+            ],
+        ]);
+
+        $products = $table->get('products');
+        $this->assertCount(1, $products);
+        $this->assertCount(1, $products[0]['serial_numbers']);
+        $this->assertEquals($serial->id, $products[0]['serial_numbers'][0]['id']);
+    }
 }

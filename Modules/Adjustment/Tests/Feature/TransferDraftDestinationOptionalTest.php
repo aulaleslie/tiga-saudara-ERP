@@ -515,6 +515,80 @@ class TransferDraftDestinationOptionalTest extends TestCase
     }
 
     /** @test */
+    public function draft_with_two_serialized_selections_persists_without_destination_and_initializes_dispatch_counters_to_zero()
+    {
+        $serializedProduct = Product::create([
+            'setting_id' => $this->setting->id,
+            'product_name' => 'Serialized Product',
+            'product_code' => 'SP-' . uniqid(),
+            'product_cost' => 1000,
+            'product_price' => 2000,
+            'serial_number_required' => true,
+            'stock_managed' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $serializedProduct->id,
+            'location_id' => $this->origin->id,
+            'quantity' => 10,
+            'quantity_tax' => 10,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        $serial1 = \Modules\Product\Entities\ProductSerialNumber::create([
+            'product_id' => $serializedProduct->id,
+            'location_id' => $this->origin->id,
+            'serial_number' => 'SN-TEST-001',
+            'status' => \Modules\Product\Entities\ProductSerialNumber::STATUS_ACTIVE,
+            'is_broken' => 0,
+        ]);
+
+        $serial2 = \Modules\Product\Entities\ProductSerialNumber::create([
+            'product_id' => $serializedProduct->id,
+            'location_id' => $this->origin->id,
+            'serial_number' => 'SN-TEST-002',
+            'status' => \Modules\Product\Entities\ProductSerialNumber::STATUS_ACTIVE,
+            'is_broken' => 0,
+        ]);
+
+        $line = new TransferFormLineState(
+            $serializedProduct->id,
+            $serializedProduct->product_name,
+            $serializedProduct->product_code,
+            null,
+            true,
+            false,
+            2.0
+        );
+        $line->selectedSerials = [$serial1->id, $serial2->id];
+
+        $state = new TransferFormState($this->origin->id, null, Transfer::CONDITION_GOOD);
+        $state->addLine($line);
+
+        $transfer = app(TransferDraftService::class)->saveDraft($state, $this->user, $this->setting->id);
+
+        $this->assertEquals(Transfer::STATUS_DRAFT, $transfer->status);
+        $this->assertNull($transfer->destination_location_id);
+        $this->assertCount(1, $transfer->products);
+
+        $transferProduct = $transfer->products->first();
+        $this->assertEquals($serializedProduct->id, $transferProduct->product_id);
+        $this->assertEquals(2, $transferProduct->quantity);
+        $this->assertEquals(0, $transferProduct->dispatched_quantity);
+        $this->assertEquals(0, $transferProduct->dispatched_quantity_tax);
+        $this->assertEquals(0, $transferProduct->dispatched_quantity_non_tax);
+        $this->assertEquals(0, $transferProduct->dispatched_quantity_broken_tax);
+        $this->assertEquals(0, $transferProduct->dispatched_quantity_broken_non_tax);
+
+        $persistedSerials = collect($transferProduct->serial_numbers)->pluck('id')->all();
+        $this->assertContains($serial1->id, $persistedSerials);
+        $this->assertContains($serial2->id, $persistedSerials);
+    }
+
+    /** @test */
     public function draft_retention_still_permits_saving_an_unchanged_draft_with_a_deactivated_origin()
     {
         $state = new TransferFormState($this->origin->id, null, Transfer::CONDITION_GOOD);

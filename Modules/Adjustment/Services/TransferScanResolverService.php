@@ -55,34 +55,37 @@ class TransferScanResolverService
         $candidates = [];
         $rejections = [];
 
-        // 1. Exact barcode match on active, stock-managed products for current tenant
+        // 1. Exact barcode match on active, stock-managed products with eligible stock at allowed origin
         $productMatches = Product::query()
             ->active()
-            ->where('setting_id', $settingId)
             ->where('stock_managed', true)
             ->whereRaw('LOWER(barcode) = ?', [$queryLower])
             ->with(['baseUnit', 'conversions.unit'])
             ->get();
 
         foreach ($productMatches as $productByBarcode) {
-            if ($allowZeroStock || $this->hasStockInAllowedLocations($productByBarcode->id, $allowedLocationIds, $isBrokenMode)) {
+            $hasStock = $this->hasStockInAllowedLocations($productByBarcode->id, $allowedLocationIds, $isBrokenMode);
+            if ($hasStock || ($allowZeroStock && (int)$productByBarcode->setting_id === $settingId)) {
                 $candidates[] = $this->formatProductExact($productByBarcode, $settingId);
             }
         }
 
-        // 2. Exact barcode match on product_unit_conversions (active, stock-managed product for current tenant)
+        // 2. Exact barcode match on product_unit_conversions (active, stock-managed product with eligible stock at allowed origin)
         $conversionMatches = ProductUnitConversion::query()
-            ->whereHas('product', fn ($q) => $q->active()->where('setting_id', $settingId)->where('stock_managed', true))
+            ->whereHas('product', fn ($q) => $q->active()->where('stock_managed', true))
             ->whereRaw('LOWER(barcode) = ?', [$queryLower])
             ->with(['product.baseUnit', 'unit'])
             ->get();
 
         foreach ($conversionMatches as $unitConversionBarcode) {
-            if ($unitConversionBarcode->product && ($allowZeroStock || $this->hasStockInAllowedLocations($unitConversionBarcode->product->id, $allowedLocationIds, $isBrokenMode))) {
-                $factor = (float) $unitConversionBarcode->conversion_factor;
-                // Only valid positive whole numbers are eligible conversion candidates
-                if ($factor > 0 && abs($factor - round($factor)) < 1e-6) {
-                    $candidates[] = $this->formatProductExact($unitConversionBarcode->product, $settingId, $unitConversionBarcode);
+            if ($unitConversionBarcode->product) {
+                $hasStock = $this->hasStockInAllowedLocations($unitConversionBarcode->product->id, $allowedLocationIds, $isBrokenMode);
+                if ($hasStock || ($allowZeroStock && (int)$unitConversionBarcode->product->setting_id === $settingId)) {
+                    $factor = (float) $unitConversionBarcode->conversion_factor;
+                    // Only valid positive whole numbers are eligible conversion candidates
+                    if ($factor > 0 && abs($factor - round($factor)) < 1e-6) {
+                        $candidates[] = $this->formatProductExact($unitConversionBarcode->product, $settingId, $unitConversionBarcode);
+                    }
                 }
             }
         }
@@ -92,7 +95,7 @@ class TransferScanResolverService
         $serialMatches = ProductSerialNumber::query()
             ->where('serial_number', $normalizedSerial)
             ->whereIn('location_id', $allowedLocationIds)
-            ->whereHas('product', fn ($q) => $q->active()->where('setting_id', $settingId)->where('stock_managed', true))
+            ->whereHas('product', fn ($q) => $q->active()->where('stock_managed', true))
             ->with(['product.baseUnit', 'location'])
             ->get();
 
@@ -165,9 +168,8 @@ class TransferScanResolverService
         if (count($candidates) === 0 && empty($rejections)) {
             $tokens = array_filter(explode(' ', $queryLower));
             if (!empty($tokens)) {
-                $textMatches = Product::query()
+                $textMatchesQuery = Product::query()
                     ->active()
-                    ->where('setting_id', $settingId)
                     ->where('stock_managed', true)
                     ->where(function ($q) use ($tokens, $queryLower) {
                         $q->whereRaw('LOWER(product_code) = ?', [$queryLower])
@@ -177,14 +179,45 @@ class TransferScanResolverService
                                 }
                             });
                     })
-                    ->with(['baseUnit', 'conversions.unit'])
-                    ->limit(10)
-                    ->get();
+                    ->with(['baseUnit', 'conversions.unit']);
+
+                if (! $allowZeroStock) {
+                    $textMatchesQuery->whereHas('productStocks', function ($stockQuery) use ($allowedLocationIds, $isBrokenMode) {
+                        $stockQuery->whereIn('location_id', $allowedLocationIds);
+                        if ($isBrokenMode === true) {
+                            $stockQuery->whereRaw('(COALESCE(broken_quantity_tax, 0) + COALESCE(broken_quantity_non_tax, 0)) > 0');
+                        } elseif ($isBrokenMode === false) {
+                            $stockQuery->where(function ($sub) {
+                                $sub->whereRaw('(COALESCE(quantity_tax, 0) + COALESCE(quantity_non_tax, 0)) > 0')
+                                    ->orWhereRaw('(COALESCE(quantity, 0) - COALESCE(broken_quantity_tax, 0) - COALESCE(broken_quantity_non_tax, 0)) > 0');
+                            });
+                        } else {
+                            $stockQuery->where('quantity', '>', 0);
+                        }
+                    });
+                } else {
+                    $textMatchesQuery->where(function ($q) use ($settingId, $allowedLocationIds, $isBrokenMode) {
+                        $q->where('setting_id', $settingId)
+                            ->orWhereHas('productStocks', function ($stockQuery) use ($allowedLocationIds, $isBrokenMode) {
+                                $stockQuery->whereIn('location_id', $allowedLocationIds);
+                                if ($isBrokenMode === true) {
+                                    $stockQuery->whereRaw('(COALESCE(broken_quantity_tax, 0) + COALESCE(broken_quantity_non_tax, 0)) > 0');
+                                } elseif ($isBrokenMode === false) {
+                                    $stockQuery->where(function ($sub) {
+                                        $sub->whereRaw('(COALESCE(quantity_tax, 0) + COALESCE(quantity_non_tax, 0)) > 0')
+                                            ->orWhereRaw('(COALESCE(quantity, 0) - COALESCE(broken_quantity_tax, 0) - COALESCE(broken_quantity_non_tax, 0)) > 0');
+                                    });
+                                } else {
+                                    $stockQuery->where('quantity', '>', 0);
+                                }
+                            });
+                    });
+                }
+
+                $textMatches = $textMatchesQuery->limit(10)->get();
 
                 foreach ($textMatches as $productByText) {
-                    if ($allowZeroStock || $this->hasStockInAllowedLocations($productByText->id, $allowedLocationIds, $isBrokenMode)) {
-                        $candidates[] = $this->formatProductExact($productByText, $settingId);
-                    }
+                    $candidates[] = $this->formatProductExact($productByText, $settingId);
                 }
             }
         }
