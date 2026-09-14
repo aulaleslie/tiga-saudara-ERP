@@ -122,6 +122,8 @@ class LocationSearchDropdown extends Component
     public function select(int|string $id): void
     {
         if (!$this->isSelectionInScope($id)) {
+            $this->dispatch('location-dropdown-selection-rejected', name: $this->name, value: $id);
+
             return;
         }
 

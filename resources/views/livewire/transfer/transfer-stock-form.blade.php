@@ -1,7 +1,35 @@
-<div>
+<div x-data="{
+    isDestinationPending: false,
+    destinationSyncError: null,
+    pendingTimer: null,
+    startDestinationPending() {
+        this.isDestinationPending = true;
+        this.destinationSyncError = null;
+        clearTimeout(this.pendingTimer);
+        this.pendingTimer = setTimeout(() => {
+            if (this.isDestinationPending) {
+                this.isDestinationPending = false;
+                this.destinationSyncError = 'Sinkronisasi lokasi tujuan memakan waktu terlalu lama. Silakan pilih ulang lokasi tujuan.';
+            }
+        }, 10000);
+    },
+    clearDestinationPending() {
+        this.isDestinationPending = false;
+        this.destinationSyncError = null;
+        clearTimeout(this.pendingTimer);
+    },
+    handleDestinationRejected() {
+        this.isDestinationPending = false;
+        this.destinationSyncError = 'Lokasi tujuan yang dipilih tidak valid atau sama dengan lokasi asal.';
+        clearTimeout(this.pendingTimer);
+    }
+}"
+x-on:destination-selection-confirmed.window="clearDestinationPending()"
+x-on:location-dropdown-selection-rejected.window="if (($event.detail && $event.detail.name) === 'destination_location') handleDestinationRejected()"
+>
     @include('utils.alerts')
 
-    <form wire:submit.prevent="saveDraft">
+    <form x-on:submit.prevent="if (isDestinationPending || Boolean(destinationSyncError)) { return false; } $wire.saveDraft()">
         @csrf
 
         <div class="row mt-3">
@@ -87,7 +115,7 @@
                         </div>
                         <div class="modal-footer">
                             <button type="button" wire:click="cancelConditionChange" class="btn btn-secondary">Batal</button>
-                            <button type="button" wire:click="confirmConditionChange" class="btn btn-warning">Ya, Ganti &amp; Hapus Baris</button>
+                            <button type="button" wire:click="confirmConditionChange" class="btn btn-warning">Ya, Ganti & Hapus Baris</button>
                         </div>
                     </div>
                 </div>
@@ -120,16 +148,19 @@
                 @endif
             </div>
 
-            <div class="col-md-6">
+            <div class="col-md-6" @click.capture="if ($event.target.closest('.dropdown-item')) startDestinationPending()">
                 <label class="form-label">Lokasi Tujuan</label>
-                @livewire('modules.setting.location-search-dropdown', [
-                    'name' => 'destination_location',
-                    'selected' => $destinationLocation,
-                    'placeholder' => 'Pilih Lokasi Tujuan...',
-                    'dispatchTo' => 'transfer.transfer-stock-form',
-                    'excludedLocationIds' => $originLocation ? [(int) $originLocation] : [],
-                    'crossBusiness' => true,
-                ], key('destination-location-dropdown-' . ($originLocation ?? 'none')))
+                <livewire:modules.setting.location-search-dropdown
+                    name="destination_location"
+                    placeholder="Pilih Lokasi Tujuan..."
+                    :selected="$destinationLocation"
+                    :excludedLocationIds="$originLocation ? [(int) $originLocation] : []"
+                    :crossBusiness="true"
+                    :key="'destination-location-dropdown-' . ($originLocation ?? 'none')"
+                />
+                <template x-if="destinationSyncError">
+                    <span class="text-danger d-block mt-1" x-text="destinationSyncError"></span>
+                </template>
                 @if(!empty($selfManagedValidationErrors['destination_location']))
                     <span class="text-danger">
                         {{ $selfManagedValidationErrors['destination_location'] }}
@@ -163,18 +194,33 @@
         <div class="text-right mt-4">
             @if(isset($transfer) && $transfer->exists)
                 @can('stockTransfers.edit')
-                <button type="button" wire:click="saveDraft" class="btn btn-secondary">
+                <button type="button"
+                        wire:click="saveDraft"
+                        :disabled="isDestinationPending || Boolean(destinationSyncError)"
+                        wire:loading.attr="disabled"
+                        wire:target="saveDraft,submitForApproval,onLocationDropdownSelected,locationDropdownSelected,selectStockCondition"
+                        class="btn btn-secondary">
                     Simpan Draf <i class="bi bi-save"></i>
                 </button>
                 @if($transfer->status === \Modules\Adjustment\Entities\Transfer::STATUS_DRAFT)
-                <button type="button" wire:click="submitForApproval" class="btn btn-primary">
+                <button type="button"
+                        wire:click="submitForApproval"
+                        :disabled="isDestinationPending || Boolean(destinationSyncError)"
+                        wire:loading.attr="disabled"
+                        wire:target="saveDraft,submitForApproval,onLocationDropdownSelected,locationDropdownSelected,selectStockCondition"
+                        class="btn btn-primary">
                     Ajukan Persetujuan <i class="bi bi-check"></i>
                 </button>
                 @endif
                 @endcan
             @else
                 @can('stockTransfers.create')
-                <button type="button" wire:click="saveDraft" class="btn btn-success">
+                <button type="button"
+                        wire:click="saveDraft"
+                        :disabled="isDestinationPending || Boolean(destinationSyncError)"
+                        wire:loading.attr="disabled"
+                        wire:target="saveDraft,submitForApproval,onLocationDropdownSelected,locationDropdownSelected,selectStockCondition"
+                        class="btn btn-success">
                     Simpan Draf <i class="bi bi-save"></i>
                 </button>
                 @endcan

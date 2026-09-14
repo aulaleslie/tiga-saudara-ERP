@@ -100,7 +100,7 @@ class TransferStockFormTest extends TestCase
             ->test(TransferStockForm::class)
             ->call('onOriginLocationSelected', ['id' => $this->origin->id])
             ->call('onDestinationLocationSelected', ['id' => $this->destination->id])
-            ->set('stockCondition', Transfer::CONDITION_GOOD)
+            ->call('selectStockCondition', Transfer::CONDITION_GOOD)
             ->set('rows', [
                 [
                     'id' => $this->product->id,

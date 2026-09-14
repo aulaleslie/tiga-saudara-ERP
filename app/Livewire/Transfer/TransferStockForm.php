@@ -98,7 +98,7 @@ class TransferStockForm extends Component
     }
 
     /**
-     * Routes the shared LocationSearchDropdown's targeted selection event to
+     * Routes the shared LocationSearchDropdown's bubbling selection event to
      * the origin or destination handler based on the field name.
      */
     public function onLocationDropdownSelected($name, $value): void
@@ -158,17 +158,33 @@ class TransferStockForm extends Component
      * Destination selection/change/clear never affects rows: it does not
      * change source stock availability.
      */
-    public function onDestinationLocationSelected($payload)
+    public function updatedDestinationLocation($value): void
     {
-        Log::info('onDestinationLocationSelected', ['payload' => $payload]);
-
-        $this->destinationLocation = $payload['id'] ?? null;
+        $this->destinationLocation = $value ? (int) $value : null;
 
         if ($this->destinationLocation) {
             unset($this->selfManagedValidationErrors['destination_location']);
         }
 
         $this->notifyLocationChange();
+    }
+
+    /**
+     * Destination selection/change/clear never affects rows: it does not
+     * change source stock availability.
+     */
+    public function onDestinationLocationSelected($payload)
+    {
+        Log::info('onDestinationLocationSelected', ['payload' => $payload]);
+
+        $this->destinationLocation = !empty($payload['id']) ? (int) $payload['id'] : null;
+
+        if ($this->destinationLocation) {
+            unset($this->selfManagedValidationErrors['destination_location']);
+        }
+
+        $this->notifyLocationChange();
+        $this->dispatch('destination-selection-confirmed', destinationLocationId: $this->destinationLocation);
     }
 
     /**
@@ -436,9 +452,21 @@ class TransferStockForm extends Component
                     || array_key_exists('broken_quantity_tax', $row)
                     || array_key_exists('broken_quantity_non_tax', $row);
 
-                if (! $hasBucketState && empty($serials)) {
+                if (! $hasBucketState) {
                     if ($requiresSerial && empty($serials)) {
                         $tableErrors["products.{$i}.serial_numbers"] = 'Produk ini memerlukan nomor seri.';
+                    }
+
+                    if (! empty($serials)) {
+                        $distinctSerialCount = count($serials);
+                        if ($requestedQuantity > 0 && $distinctSerialCount !== $requestedQuantity) {
+                            $tableErrors["products.{$i}.requested_quantity"] = $canViewSystemStock
+                                ? "Jumlah yang diminta ({$requestedQuantity}) tidak sesuai dengan jumlah nomor seri ({$distinctSerialCount})."
+                                : "Jumlah yang dimasukkan untuk item ini tidak sesuai.";
+                        }
+                        if ($requestedQuantity <= 0 && $distinctSerialCount > 0) {
+                            $requestedQuantity = $distinctSerialCount;
+                        }
                     }
 
                     if ($requestedQuantity <= 0) {
@@ -555,10 +583,13 @@ class TransferStockForm extends Component
 
     protected function notifyLocationChange(): void
     {
-        $this->dispatch('locationsConfirmed', [
+        $payload = [
             'originLocationId'      => $this->originLocation,
             'destinationLocationId' => $this->destinationLocation,
-        ]);
+        ];
+
+        $this->dispatch('locationsConfirmed', $payload);
+        $this->dispatch('locations-confirmed', $payload);
     }
 
     private function normalizeSerialPayload(array $serials): array
@@ -585,6 +616,7 @@ class TransferStockForm extends Component
                 ];
             })
             ->filter()
+            ->unique('id')
             ->values()
             ->toArray();
     }
