@@ -176,7 +176,9 @@ class TransferStockController extends Controller
     {
         abort_if(Gate::denies('stockTransfers.show'), 403);
 
-        $transfer->load([
+        $canViewSystemStock = TransferStockVisibility::canView();
+
+        $relations = [
             'originLocation.setting',
             'destinationLocation.setting',
             'products.product',
@@ -188,9 +190,15 @@ class TransferStockController extends Controller
             'returnDispatchedBy',
             'returnReceivedBy',
             'movements.histories',
-            'routePolicies',
-            'movementReturnObligations.product',
-        ]);
+        ];
+
+        if ($canViewSystemStock) {
+            $relations[] = 'products.returnObligation';
+            $relations[] = 'routePolicies';
+            $relations[] = 'movementReturnObligations.product';
+        }
+
+        $transfer->load($relations);
 
         $currentSettingId = (int) session('setting_id');
 
@@ -199,13 +207,17 @@ class TransferStockController extends Controller
 
         $isOrigin      = $originSettingId !== null && $currentSettingId === (int) $originSettingId;
         $isDestination = $destinationSettingId !== null && $currentSettingId === (int) $destinationSettingId;
-        $requiresReturn = $transfer->requiresReturn();
+        $requiresReturn = $canViewSystemStock ? $transfer->requiresReturn() : false;
 
         // Authorized audit projection of the immutable v2 route-policy snapshot
         // and outstanding full-quantity return obligations, if any. Neither
         // grants a return-dispatch/receipt mutation route: this is read-only.
-        $routePolicy = $transfer->routePolicies->sortByDesc('transfer_revision')->first();
-        $returnObligations = $transfer->movementReturnObligations;
+        $routePolicy = $canViewSystemStock
+            ? $transfer->routePolicies->sortByDesc('transfer_revision')->first()
+            : null;
+        $returnObligations = $canViewSystemStock
+            ? $transfer->movementReturnObligations
+            : collect();
 
         return view('adjustment::transfers.show', compact(
             'transfer',

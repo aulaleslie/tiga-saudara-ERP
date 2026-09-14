@@ -150,15 +150,15 @@
                             </thead>
                             <tbody>
                             @foreach($transfer->products as $i => $item)
-                                @php
-                                    $ob = $item->returnObligation;
-                                @endphp
                                 <tr>
                                     <td class="text-center">{{ $i + 1 }}</td>
                                     <td>{{ $item->product->product_name }}</td>
                                     <td>{{ $item->product->product_code }}</td>
 
                                     @can('stockTransfers.view-system-stock')
+                                        @php
+                                            $ob = $item->returnObligation;
+                                        @endphp
                                         <td class="text-center bg-light">{{ $item->quantity_tax }}</td>
                                         <td class="text-center bg-light">{{ $item->quantity_non_tax }}</td>
                                         <td class="text-center bg-light">{{ $item->quantity_broken_tax }}</td>
