@@ -447,6 +447,63 @@
                                         </form>
                                     @endcan
                                 @endif
+                            @elseif(in_array($transfer->status, [Transfer::STATUS_AWAITING_RETURN, Transfer::STATUS_RETURN_DISPATCHED]) && (int)$transfer->workflow_version === 2 && config('stock_transfers.v2_dispatch_enabled', false) && app(\Modules\Adjustment\Services\TransferWorkflowEligibilityService::class)->isEligibleForV2($transfer))
+                                {{-- Return Dispatch (Destination Side) --}}
+                                @if($isDestination)
+                                    @can('stockTransfers.dispatch.create')
+                                        @php
+                                            $openReturnDispatches = $transfer->movements->filter(fn($m) => $m->type === \Modules\Adjustment\Entities\TransferMovement::TYPE_RETURN_DISPATCH && in_array($m->status, [\Modules\Adjustment\Entities\TransferMovement::STATUS_DRAFT, \Modules\Adjustment\Entities\TransferMovement::STATUS_PENDING]));
+                                        @endphp
+                                        <form action="{{ route('transfers.movements.return.create', $transfer->id) }}" method="POST" class="d-inline mr-2">
+                                            @csrf
+                                            <button type="submit" class="btn btn-warning">
+                                                <i class="bi bi-box-arrow-up-right mr-1"></i> Buat Batch Pengiriman Retur (V2)
+                                            </button>
+                                        </form>
+                                        @foreach($openReturnDispatches as $openRetDisp)
+                                            @if($openRetDisp->status === \Modules\Adjustment\Entities\TransferMovement::STATUS_DRAFT)
+                                                <a href="{{ route('transfers.movements.return.prepare', ['transfer' => $transfer->id, 'batch' => $openRetDisp->return_batch_id]) }}" class="btn btn-outline-warning mr-2">
+                                                    <i class="bi bi-pencil mr-1"></i> Lanjutkan Draft Retur ({{ substr($openRetDisp->return_batch_id, 0, 8) }}...)
+                                                </a>
+                                            @endif
+                                        @endforeach
+                                    @endcan
+                                    @can('stockTransfers.dispatch.approval')
+                                        @php
+                                            $pendingReturnDispatches = $transfer->movements->filter(fn($m) => $m->type === \Modules\Adjustment\Entities\TransferMovement::TYPE_RETURN_DISPATCH && $m->status === \Modules\Adjustment\Entities\TransferMovement::STATUS_PENDING);
+                                        @endphp
+                                        @foreach($pendingReturnDispatches as $pRetDisp)
+                                            <a href="{{ route('transfers.movements.return.review', ['transfer' => $transfer->id, 'movement' => $pRetDisp->id]) }}" class="btn btn-warning mr-2">
+                                                <i class="bi bi-eye mr-1"></i> Tinjau Pengiriman Retur ({{ substr($pRetDisp->return_batch_id, 0, 8) }}...)
+                                            </a>
+                                        @endforeach
+                                    @endcan
+                                @endif
+
+                                {{-- Return Receipt (Origin Side) --}}
+                                @if($isOrigin)
+                                    @php
+                                        $approvedDispatches = $transfer->movements->filter(fn($m) => $m->type === \Modules\Adjustment\Entities\TransferMovement::TYPE_RETURN_DISPATCH && $m->status === \Modules\Adjustment\Entities\TransferMovement::STATUS_APPROVED);
+                                    @endphp
+                                    @foreach($approvedDispatches as $appRetDisp)
+                                        @php
+                                            $receiptForBatch = $transfer->movements->first(fn($m) => $m->type === \Modules\Adjustment\Entities\TransferMovement::TYPE_RETURN_RECEIPT && $m->return_batch_id === $appRetDisp->return_batch_id);
+                                        @endphp
+                                        @if(!$receiptForBatch || $receiptForBatch->status === \Modules\Adjustment\Entities\TransferMovement::STATUS_DRAFT)
+                                            @can('stockTransfers.receive.create')
+                                                <a href="{{ route('transfers.movements.return-receipt.prepare', ['transfer' => $transfer->id, 'batch' => $appRetDisp->return_batch_id]) }}" class="btn btn-success mr-2">
+                                                    <i class="bi bi-box-arrow-in-down mr-1"></i> Terima Retur (Batch {{ substr($appRetDisp->return_batch_id, 0, 8) }}...)
+                                                </a>
+                                            @endcan
+                                        @elseif($receiptForBatch->status === \Modules\Adjustment\Entities\TransferMovement::STATUS_PENDING)
+                                            @can('stockTransfers.receive.approval')
+                                                <a href="{{ route('transfers.movements.return-receipt.review', ['transfer' => $transfer->id, 'movement' => $receiptForBatch->id]) }}" class="btn btn-warning mr-2">
+                                                    <i class="bi bi-eye mr-1"></i> Tinjau Penerimaan Retur (Batch {{ substr($appRetDisp->return_batch_id, 0, 8) }}...)
+                                                </a>
+                                            @endcan
+                                        @endif
+                                    @endforeach
+                                @endif
                             @elseif($transfer->status === Transfer::STATUS_AWAITING_RETURN && $isDestination && (int) $transfer->workflow_version !== 2)
                                 @can('stockTransfers.dispatch')
                                     <form action="{{ route('transfers.return-dispatch', $transfer) }}" method="POST"

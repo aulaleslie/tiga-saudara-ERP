@@ -508,6 +508,7 @@ This delivery should be additive and migration-safe.
 - Deduct destination inventory only after approval.
 - Persist the exact approved return manifest.
 
+[x]
 ### Delivery 9 — Blind return receipt and completion
 
 - Start origin return-receipt recount from zero.

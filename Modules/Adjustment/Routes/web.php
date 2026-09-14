@@ -67,7 +67,17 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::post('/transfers/{transfer}/movements/{movement}/return/correct', 'ReturnDispatchMovementController@correct')->name('transfers.movements.return.correct');
     Route::get('/transfers/{transfer}/movements/{movement}/return/review', 'ReturnDispatchMovementController@review')->name('transfers.movements.return.review');
     Route::post('/transfers/{transfer}/movements/{movement}/return/approve', 'ReturnDispatchMovementController@approve')->name('transfers.movements.return.approve');
-    Route::post('/transfers/{transfer}/movements/{movement}/return/reject', 'ReturnDispatchMovementController@reject')->name('transfers.movements.return.reject');
+    // Version 2 Return Receipt Movement Routes (Gated by v2_dispatch_enabled config)
+    Route::get('/transfers/{transfer}/movements/return-receipt/prepare', 'ReturnReceiptMovementController@prepare')->name('transfers.movements.return-receipt.prepare');
+    Route::post('/transfers/{transfer}/movements/{movement}/return-receipt/confirm-empty', 'ReturnReceiptMovementController@confirmEmpty')->name('transfers.movements.return-receipt.confirm-empty');
+    Route::post('/transfers/{transfer}/movements/{movement}/return-receipt/scan', 'ReturnReceiptMovementController@scan')->name('transfers.movements.return-receipt.scan');
+    Route::post('/transfers/{transfer}/movements/{movement}/return-receipt/set-quantity', 'ReturnReceiptMovementController@setQuantity')->name('transfers.movements.return-receipt.set-quantity');
+    Route::post('/transfers/{transfer}/movements/{movement}/return-receipt/submit', 'ReturnReceiptMovementController@submit')->name('transfers.movements.return-receipt.submit');
+    Route::post('/transfers/{transfer}/movements/{movement}/return-receipt/cancel', 'ReturnReceiptMovementController@cancel')->name('transfers.movements.return-receipt.cancel');
+    Route::post('/transfers/{transfer}/movements/{movement}/return-receipt/correct', 'ReturnReceiptMovementController@correct')->name('transfers.movements.return-receipt.correct');
+    Route::get('/transfers/{transfer}/movements/{movement}/return-receipt/review', 'ReturnReceiptMovementController@review')->name('transfers.movements.return-receipt.review');
+    Route::post('/transfers/{transfer}/movements/{movement}/return-receipt/approve', 'ReturnReceiptMovementController@approve')->name('transfers.movements.return-receipt.approve');
+    Route::post('/transfers/{transfer}/movements/{movement}/return-receipt/reject', 'ReturnReceiptMovementController@reject')->name('transfers.movements.return-receipt.reject');
 
     Route::resource('transfers', 'TransferStockController');
 });

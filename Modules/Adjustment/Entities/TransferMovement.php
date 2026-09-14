@@ -78,6 +78,12 @@ class TransferMovement extends BaseModel
         'empty_count_confirmed',
         'empty_count_confirmed_by',
         'empty_count_confirmed_at',
+        'tax_setting_id',
+        'tax_id',
+        'tax_name',
+        'tax_rate',
+        'tax_resolver_provenance',
+        'tax_resolved_at',
         'metadata',
     ];
 
@@ -86,9 +92,11 @@ class TransferMovement extends BaseModel
         'lock_version'            => 'integer',
         'transfer_revision'        => 'integer',
         'empty_count_confirmed'    => 'boolean',
+        'tax_rate'                 => 'decimal:4',
         'submitted_at'             => 'datetime',
         'reviewed_at'              => 'datetime',
         'empty_count_confirmed_at' => 'datetime',
+        'tax_resolved_at'          => 'datetime',
         'metadata'                 => 'array',
     ];
 
@@ -115,6 +123,16 @@ class TransferMovement extends BaseModel
     public function supersedesMovement(): BelongsTo
     {
         return $this->belongsTo(TransferMovement::class, 'supersedes_movement_id');
+    }
+
+    public function taxSetting(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Setting\Entities\Setting::class, 'tax_setting_id');
+    }
+
+    public function tax(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Setting\Entities\Tax::class, 'tax_id');
     }
 
     public function createdBy(): BelongsTo

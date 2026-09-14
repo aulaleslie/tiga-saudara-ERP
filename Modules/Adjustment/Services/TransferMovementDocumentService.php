@@ -52,11 +52,15 @@ class TransferMovementDocumentService
         ?string $returnBatchId = null
     ): TransferMovement {
         $idempotencyKey = $idempotencyKey ? trim($idempotencyKey) : null;
-        $isBatchLineage = $type === TransferMovement::TYPE_RETURN_DISPATCH;
+        $isBatchLineage = in_array($type, [TransferMovement::TYPE_RETURN_DISPATCH, TransferMovement::TYPE_RETURN_RECEIPT], true);
 
         if ($isBatchLineage) {
             if (!$returnBatchId) {
-                $returnBatchId = (string) \Illuminate\Support\Str::uuid();
+                if ($type === TransferMovement::TYPE_RETURN_DISPATCH) {
+                    $returnBatchId = (string) \Illuminate\Support\Str::uuid();
+                } else {
+                    throw new RuntimeException("return_batch_id is required for RETURN_RECEIPT movement creation.");
+                }
             }
         } else {
             // Non-batch types keep exactly one lineage per (transfer_id, type); return_batch_id must
@@ -72,9 +76,12 @@ class TransferMovementDocumentService
             if ($idempotencyKey) {
                 $existingHistory = TransferMovementHistory::where('action', TransferMovementHistory::ACTION_CREATED)
                     ->where('idempotency_key', $idempotencyKey)
-                    ->whereHas('movement', function ($query) use ($lockedTransfer, $type) {
+                    ->whereHas('movement', function ($query) use ($lockedTransfer, $type, $returnBatchId, $isBatchLineage) {
                         $query->where('transfer_id', $lockedTransfer->id)
                             ->where('type', $type);
+                        if ($isBatchLineage) {
+                            $query->where('return_batch_id', $returnBatchId);
+                        }
                     })
                     ->lockForUpdate()
                     ->first();
@@ -86,8 +93,25 @@ class TransferMovementDocumentService
 
             $this->validateMovementTypeEligibility($lockedTransfer, $type);
 
-            // One open attempt rule, scoped per return-batch lineage for RETURN_DISPATCH so multiple
-            // independent batches may each carry their own single open draft/pending attempt.
+            // Validate source movement reference if applicable
+            $sourceMovement = null;
+            if ($sourceMovementId !== null) {
+                $sourceMovement = $this->validateAndResolveSourceMovement($lockedTransfer, $type, $sourceMovementId);
+                if ($type === TransferMovement::TYPE_RETURN_RECEIPT) {
+                    if ($sourceMovement->return_batch_id !== $returnBatchId) {
+                        throw new RuntimeException("RETURN_RECEIPT return_batch_id [{$returnBatchId}] does not match source dispatch return_batch_id [{$sourceMovement->return_batch_id}].");
+                    }
+                }
+            } elseif (in_array($type, [
+                TransferMovement::TYPE_FORWARD_RECEIPT,
+                TransferMovement::TYPE_RETURN_DISPATCH,
+                TransferMovement::TYPE_RETURN_RECEIPT,
+            ], true)) {
+                // Receipts and return dispatches MUST reference an exact approved source movement
+                throw new RuntimeException("Source movement reference is required for movement type [{$type}].");
+            }
+
+            // One open attempt rule, scoped per return-batch lineage for RETURN_DISPATCH and RETURN_RECEIPT
             $openAttemptQuery = TransferMovement::where('transfer_id', $lockedTransfer->id)
                 ->where('type', $type)
                 ->whereIn('status', [TransferMovement::STATUS_DRAFT, TransferMovement::STATUS_PENDING]);
@@ -102,8 +126,7 @@ class TransferMovementDocumentService
                 throw new RuntimeException("An open attempt (DRAFT or PENDING) already exists for this transfer and type [{$type}].");
             }
 
-            // One approved attempt rule, scoped per return-batch lineage for RETURN_DISPATCH: many
-            // batches may each become independently APPROVED, but a lineage cannot be approved twice.
+            // One approved attempt rule, scoped per return-batch lineage for RETURN_DISPATCH and RETURN_RECEIPT
             $approvedAttemptQuery = TransferMovement::where('transfer_id', $lockedTransfer->id)
                 ->where('type', $type)
                 ->where('status', TransferMovement::STATUS_APPROVED);
@@ -118,23 +141,10 @@ class TransferMovementDocumentService
                 throw new RuntimeException("An approved attempt already exists for this transfer and type [{$type}].");
             }
 
-            // Validate source movement reference if applicable
-            $sourceMovement = null;
-            if ($sourceMovementId !== null) {
-                $sourceMovement = $this->validateAndResolveSourceMovement($lockedTransfer, $type, $sourceMovementId);
-            } elseif (in_array($type, [
-                TransferMovement::TYPE_FORWARD_RECEIPT,
-                TransferMovement::TYPE_RETURN_DISPATCH,
-                TransferMovement::TYPE_RETURN_RECEIPT,
-            ], true)) {
-                // Receipts and return dispatches MUST reference an exact approved source movement
-                throw new RuntimeException("Source movement reference is required for movement type [{$type}].");
-            }
-
             // Determine operational locations
             [$originLocationId, $destinationLocationId] = $this->resolveOperationalLocations($lockedTransfer, $type);
 
-            // Determine revision: max revision + 1, scoped per lineage for RETURN_DISPATCH
+            // Determine revision: max revision + 1, scoped per lineage for RETURN_DISPATCH and RETURN_RECEIPT
             $revisionQuery = TransferMovement::where('transfer_id', $lockedTransfer->id)
                 ->where('type', $type);
 
@@ -216,7 +226,7 @@ class TransferMovementDocumentService
                 throw new RuntimeException('A correction can only be started from a REJECTED movement attempt.');
             }
 
-            $isBatchLineage = $lockedRejected->type === TransferMovement::TYPE_RETURN_DISPATCH;
+            $isBatchLineage = in_array($lockedRejected->type, [TransferMovement::TYPE_RETURN_DISPATCH, TransferMovement::TYPE_RETURN_RECEIPT], true);
 
             // Check no open attempt already exists within the same lineage
             $openAttemptQuery = TransferMovement::where('transfer_id', $lockedTransfer->id)
@@ -233,7 +243,7 @@ class TransferMovementDocumentService
                 throw new RuntimeException("An open attempt (DRAFT or PENDING) already exists for this transfer and type.");
             }
 
-            // Determine next revision, scoped to the same lineage for RETURN_DISPATCH
+            // Determine next revision, scoped to the same lineage for RETURN_DISPATCH and RETURN_RECEIPT
             $revisionQuery = TransferMovement::where('transfer_id', $lockedTransfer->id)
                 ->where('type', $lockedRejected->type);
 
@@ -487,13 +497,13 @@ class TransferMovementDocumentService
                 throw new RuntimeException("Transfer revision mismatch: transfer has advanced to revision {$lockedTransfer->revision}.");
             }
 
-            // Enforce one approved attempt per (transfer_id, type), scoped per lineage for RETURN_DISPATCH
+            // Enforce one approved attempt per (transfer_id, type), scoped per lineage for RETURN_DISPATCH and RETURN_RECEIPT
             $hasOtherApprovedQuery = TransferMovement::where('transfer_id', $lockedTransfer->id)
                 ->where('type', $lockedMovement->type)
                 ->where('status', TransferMovement::STATUS_APPROVED)
                 ->where('id', '!=', $lockedMovement->id);
 
-            if ($lockedMovement->type === TransferMovement::TYPE_RETURN_DISPATCH) {
+            if (in_array($lockedMovement->type, [TransferMovement::TYPE_RETURN_DISPATCH, TransferMovement::TYPE_RETURN_RECEIPT], true)) {
                 $hasOtherApprovedQuery->where('return_batch_id', $lockedMovement->return_batch_id);
             }
 

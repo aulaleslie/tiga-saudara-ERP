@@ -78,19 +78,19 @@ The system SHALL allow only `DRAFT` to `PENDING`, `PENDING` to `APPROVED` or `RE
 - **THEN** the transition is rejected without changing movement or history records
 
 ### Requirement: Movement attempts prevent competing operational documents
-The system MUST serialize revision creation within each movement lineage, MUST permit at most one open `DRAFT` or `PENDING` attempt per lineage, and MUST permit at most one approved attempt in a forward movement or receipt lineage. It SHALL permit multiple independently approved `RETURN_DISPATCH` lineages for one transfer so concurrent partial batches can exist, while assigning unique stable identities and increasing correction revisions within each lineage.
+The system MUST serialize revisions within each movement lineage, MUST permit at most one open `DRAFT` or `PENDING` attempt and one approved attempt per lineage, and SHALL scope both `RETURN_DISPATCH` and `RETURN_RECEIPT` lineages by return batch so multiple batches can progress independently while corrections retain increasing revisions.
 
-#### Scenario: Competing open attempt in one lineage
-- **WHEN** a draft or pending correction already exists for a movement lineage and another actor attempts to create a competing revision
-- **THEN** creation is rejected and only the original open attempt remains
+#### Scenario: Competing receipt attempt for one batch
+- **WHEN** an open return receipt exists for a source batch
+- **THEN** another receipt attempt for that batch is rejected
 
-#### Scenario: Duplicate approved attempt in one lineage
-- **WHEN** an approved attempt already exists in a lineage
-- **THEN** another revision in that lineage cannot be approved
+#### Scenario: Receipt for another batch
+- **WHEN** a different approved return-dispatch batch remains active
+- **THEN** an independent return-receipt lineage may be created
 
-#### Scenario: Separate partial return batches
-- **WHEN** one return-dispatch batch is already approved and capacity remains outstanding
-- **THEN** a new independent return-dispatch lineage may be created and approved
+#### Scenario: Correction revision
+- **WHEN** a rejected receipt is corrected
+- **THEN** the next unique revision is created in the same return-batch lineage
 
 #### Scenario: Concurrent revision creation
 - **WHEN** concurrent requests try to create the next correction revision in the same lineage
@@ -176,27 +176,31 @@ The system SHALL register separate dispatch-create, dispatch-approval, receive-c
 - **THEN** its existing legacy permission and lifecycle behavior remain in effect
 
 ### Requirement: Movement foundation exposes gated forward dispatch and receipt
-The system SHALL expose movement creation, mutation, submission, review, rejection, correction, and approval for forward dispatch, forward receipt, and eligible return dispatch through version-aware routes guarded by route eligibility, action permissions, operational ownership, scoped aggregate identity, route policy, source lineage, and stock-visibility projections; return receipt MUST remain without a production-facing surface in this change.
+The system SHALL expose authorized workflow version `2` forward dispatch, forward receipt, return dispatch, and return receipt surfaces with movement-type, tenant, operational-side, aggregate, lineage, source, lifecycle, permission, and visibility guards.
 
-#### Scenario: Authorized origin forward-dispatch action
-- **WHEN** an eligible origin user invokes a workflow version `2` forward-dispatch action
-- **THEN** the dispatch movement surface is available using the user's permitted projection
+#### Scenario: Authorized original-side return receipt
+- **WHEN** an original-location user has receive-create or receive-approval permission for the corresponding action and selects an approved return batch
+- **THEN** the return-receipt surface is available under its universally blind or approval projection
 
-#### Scenario: Authorized destination forward-receipt action
-- **WHEN** an eligible destination user invokes a workflow version `2` forward-receipt action
-- **THEN** preparation uses the universally blind projection and approval uses the approver's visibility-aware projection
-
-#### Scenario: Authorized destination return-dispatch action
-- **WHEN** a destination-side user with the applicable dispatch action permission accesses an eligible mandatory-return workflow version `2` transfer
-- **THEN** the return-dispatch surface is available using the user's visibility-aware projection
-
-#### Scenario: Return-receipt route attempted
-- **WHEN** any user attempts to access a return-receipt movement surface in this change
-- **THEN** no such surface is available and no movement, inventory, obligation, or custody effect occurs
+#### Scenario: Wrong-side return receipt
+- **WHEN** a user outside the original transfer location's active business invokes a receipt action
+- **THEN** access is rejected without exposing or mutating the source manifest
 
 #### Scenario: Legacy workflow invokes movement route
-- **WHEN** a workflow version `1` transfer invokes a version `2` movement action
-- **THEN** the action is rejected and established legacy behavior remains authoritative
+- **WHEN** a workflow version `1` transfer invokes the version `2` return-receipt surface
+- **THEN** it is rejected and established legacy behavior remains authoritative
+
+### Requirement: Return receipt source linkage is exact
+Every return-receipt revision SHALL retain the approved return-dispatch movement, shared return-batch discriminator, transfer revision/policy context, reversed operational locations, and stock condition.
+
+#### Scenario: Source dispatch is not approved
+- **WHEN** receipt creation references a draft, pending, rejected, or cancelled return dispatch
+- **THEN** creation fails without persisting a receipt
+
+#### Scenario: Batch identity mismatches source
+- **WHEN** a crafted receipt carries a return-batch identity different from its source dispatch
+- **THEN** submission or approval fails without effects
+
 
 ### Requirement: Return-dispatch movements retain exact source and batch lineage
 Every return-dispatch lineage SHALL reference the exact approved forward receipt that created its obligations, the committed transfer policy/revision, and a stable batch identity shared by its rejected and correction revisions.
