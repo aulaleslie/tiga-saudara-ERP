@@ -231,9 +231,7 @@ class PurchaseReceivingCompletionService
                         'tax_id' => $normalizedDetail['tax_id'] ?? null,
                     ]);
                 } else {
-                    if (!$this->hasReceivingHistory($detail)) {
-                        $detail->delete();
-                    }
+                    $detail->delete();
                 }
             }
 
@@ -313,6 +311,19 @@ class PurchaseReceivingCompletionService
         }
 
         $approvedReceivedByDetail = $this->aggregateApprovedReceivedQuantities($purchase);
+        $hasPositiveReceived = false;
+
+        foreach ($purchase->purchaseDetails as $detail) {
+            if (($approvedReceivedByDetail[$detail->id] ?? 0) > 0) {
+                $hasPositiveReceived = true;
+                break;
+            }
+        }
+
+        if (!$hasPositiveReceived) {
+            throw new Exception("Purchase {$purchase->reference} has no approved received quantity.");
+        }
+
         $hasShortfall = false;
 
         foreach ($purchase->purchaseDetails as $detail) {
@@ -362,13 +373,6 @@ class PurchaseReceivingCompletionService
             ->where('purchase_id', $purchase->id)
             ->where('status', 'ACTIVE')
             ->sum('amount');
-    }
-
-    private function hasReceivingHistory(PurchaseDetail $detail): bool
-    {
-        return ReceivedNoteDetail::query()
-            ->where('po_detail_id', $detail->id)
-            ->exists();
     }
 
     private function captureOriginalSnapshot(Purchase $purchase): array

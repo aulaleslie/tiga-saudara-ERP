@@ -505,6 +505,355 @@ class ReceivingCompletionServiceTest extends TestCase
         $this->assertEquals($preview['final']['due_amount'], $purchase->due_amount);
     }
 
+    public function test_approved_receiving_note_with_no_positive_detail_quantity_rejects_preview_and_completion()
+    {
+        $supplier = Supplier::create([
+            'supplier_name' => 'Test Supplier',
+            'supplier_email' => 'test@example.com',
+            'supplier_phone' => '12345678',
+            'city' => 'Jakarta',
+            'country' => 'Indonesia',
+            'address' => 'Test Address',
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $product = Product::create([
+            'product_name' => 'Test Product',
+            'product_code' => 'TEST-001',
+            'base_unit_id' => \Modules\Setting\Entities\Unit::first()->id,
+            'setting_id' => $this->setting->id,
+            'product_cost' => 500,
+            'product_price' => 1000,
+        ]);
+
+        $location = \Modules\Setting\Entities\Location::factory()->create(['setting_id' => $this->setting->id]);
+
+        $purchase = Purchase::create([
+            'date' => now(),
+            'due_date' => now()->addDays(30),
+            'reference' => 'PO-' . uniqid(),
+            'supplier_id' => $supplier->id,
+            'status' => Purchase::STATUS_RECEIVED_PARTIALLY,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 10000,
+            'paid_amount' => 0,
+            'due_amount' => 10000,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $detail = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 10,
+            'unit_price' => 1000,
+            'price' => 1000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'sub_total' => 10000,
+            'product_tax_amount' => 0,
+            'tax_id' => null,
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'date' => now(),
+            'status' => ReceivedNote::STATUS_APPROVED,
+            'approved_at' => now(),
+            'approved_by' => $this->user->id,
+            'location_id' => $location->id,
+        ]);
+
+        ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $detail->id,
+            'quantity_received' => 0,
+        ]);
+
+        // Preview should be rejected
+        try {
+            $this->service->preview($purchase);
+            $this->fail('Preview should have thrown an exception for no positive approved quantity.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('no approved received quantity', $e->getMessage());
+        }
+
+        // Completion should be rejected
+        try {
+            $this->service->complete($purchase, 'Attempting completion with 0 received qty', $this->user->id);
+            $this->fail('Complete should have thrown an exception for no positive approved quantity.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('no approved received quantity', $e->getMessage());
+        }
+
+        $purchase->refresh();
+        $this->assertEquals(Purchase::STATUS_RECEIVED_PARTIALLY, $purchase->status);
+        $this->assertCount(1, $purchase->purchaseDetails);
+        $this->assertEquals(10, $purchase->purchaseDetails->first()->quantity);
+    }
+
+    public function test_receival_with_at_least_one_positive_row_is_eligible_and_positive_line_is_retained_and_normalized()
+    {
+        $supplier = Supplier::create([
+            'supplier_name' => 'Test Supplier',
+            'supplier_email' => 'test@example.com',
+            'supplier_phone' => '12345678',
+            'city' => 'Jakarta',
+            'country' => 'Indonesia',
+            'address' => 'Test Address',
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $productA = Product::create([
+            'product_name' => 'Product A',
+            'product_code' => 'PROD-A',
+            'base_unit_id' => \Modules\Setting\Entities\Unit::first()->id,
+            'setting_id' => $this->setting->id,
+            'product_cost' => 500,
+            'product_price' => 1000,
+        ]);
+
+        $productB = Product::create([
+            'product_name' => 'Product B',
+            'product_code' => 'PROD-B',
+            'base_unit_id' => \Modules\Setting\Entities\Unit::first()->id,
+            'setting_id' => $this->setting->id,
+            'product_cost' => 500,
+            'product_price' => 1000,
+        ]);
+
+        $location = \Modules\Setting\Entities\Location::factory()->create(['setting_id' => $this->setting->id]);
+
+        $purchase = Purchase::create([
+            'date' => now(),
+            'due_date' => now()->addDays(30),
+            'reference' => 'PO-' . uniqid(),
+            'supplier_id' => $supplier->id,
+            'status' => Purchase::STATUS_RECEIVED_PARTIALLY,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 15000,
+            'paid_amount' => 0,
+            'due_amount' => 15000,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $detailA = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $productA->id,
+            'product_name' => $productA->product_name,
+            'product_code' => $productA->product_code,
+            'quantity' => 10,
+            'unit_price' => 1000,
+            'price' => 1000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'sub_total' => 10000,
+            'product_tax_amount' => 0,
+            'tax_id' => null,
+        ]);
+
+        $detailB = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $productB->id,
+            'product_name' => $productB->product_name,
+            'product_code' => $productB->product_code,
+            'quantity' => 5,
+            'unit_price' => 1000,
+            'price' => 1000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'sub_total' => 5000,
+            'product_tax_amount' => 0,
+            'tax_id' => null,
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'date' => now(),
+            'status' => ReceivedNote::STATUS_APPROVED,
+            'approved_at' => now(),
+            'approved_by' => $this->user->id,
+            'location_id' => $location->id,
+        ]);
+
+        ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $detailA->id,
+            'quantity_received' => 6,
+        ]);
+
+        ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $detailB->id,
+            'quantity_received' => 0,
+        ]);
+
+        // Preview should succeed
+        $preview = $this->service->preview($purchase);
+        $this->assertCount(1, $preview['retained']);
+        $this->assertEquals($detailA->id, $preview['retained'][0]['po_detail_id']);
+        $this->assertEquals(6, $preview['retained'][0]['retained_quantity']);
+        $this->assertCount(1, $preview['removed']);
+        $this->assertEquals($detailB->id, $preview['removed'][0]['po_detail_id']);
+
+        // Completion should succeed
+        $completion = $this->service->complete($purchase, 'Shortfall completion', $this->user->id);
+        $this->assertNotNull($completion);
+
+        $purchase->refresh();
+        $this->assertEquals(Purchase::STATUS_RECEIVED, $purchase->status);
+        $this->assertCount(1, $purchase->purchaseDetails);
+        $retainedLine = $purchase->purchaseDetails->first();
+        $this->assertEquals($detailA->id, $retainedLine->id);
+        $this->assertEquals(6, $retainedLine->quantity);
+        $this->assertEquals(6000, $retainedLine->sub_total);
+        $this->assertEquals(6000, $purchase->total_amount);
+    }
+
+    public function test_zero_approved_purchase_line_is_removed_even_with_zero_quantity_receiving_detail_and_recorded_in_audit()
+    {
+        $supplier = Supplier::create([
+            'supplier_name' => 'Test Supplier',
+            'supplier_email' => 'test@example.com',
+            'supplier_phone' => '12345678',
+            'city' => 'Jakarta',
+            'country' => 'Indonesia',
+            'address' => 'Test Address',
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $productA = Product::create([
+            'product_name' => 'Product A',
+            'product_code' => 'PROD-A',
+            'base_unit_id' => \Modules\Setting\Entities\Unit::first()->id,
+            'setting_id' => $this->setting->id,
+            'product_cost' => 500,
+            'product_price' => 1000,
+        ]);
+
+        $productB = Product::create([
+            'product_name' => 'Product B',
+            'product_code' => 'PROD-B',
+            'base_unit_id' => \Modules\Setting\Entities\Unit::first()->id,
+            'setting_id' => $this->setting->id,
+            'product_cost' => 500,
+            'product_price' => 1000,
+        ]);
+
+        $location = \Modules\Setting\Entities\Location::factory()->create(['setting_id' => $this->setting->id]);
+
+        $purchase = Purchase::create([
+            'date' => now(),
+            'due_date' => now()->addDays(30),
+            'reference' => 'PO-' . uniqid(),
+            'supplier_id' => $supplier->id,
+            'status' => Purchase::STATUS_RECEIVED_PARTIALLY,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 18000,
+            'paid_amount' => 0,
+            'due_amount' => 18000,
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $detailA = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $productA->id,
+            'product_name' => $productA->product_name,
+            'product_code' => $productA->product_code,
+            'quantity' => 10,
+            'unit_price' => 1000,
+            'price' => 1000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'sub_total' => 10000,
+            'product_tax_amount' => 0,
+            'tax_id' => null,
+        ]);
+
+        $detailB = PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $productB->id,
+            'product_name' => $productB->product_name,
+            'product_code' => $productB->product_code,
+            'quantity' => 8,
+            'unit_price' => 1000,
+            'price' => 1000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'sub_total' => 8000,
+            'product_tax_amount' => 0,
+            'tax_id' => null,
+        ]);
+
+        $receivedNote = ReceivedNote::create([
+            'po_id' => $purchase->id,
+            'date' => now(),
+            'status' => ReceivedNote::STATUS_APPROVED,
+            'approved_at' => now(),
+            'approved_by' => $this->user->id,
+            'location_id' => $location->id,
+        ]);
+
+        $rnDetailA = ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $detailA->id,
+            'quantity_received' => 5,
+        ]);
+
+        $rnDetailB = ReceivedNoteDetail::create([
+            'received_note_id' => $receivedNote->id,
+            'po_detail_id' => $detailB->id,
+            'quantity_received' => 0,
+        ]);
+
+        $detailBId = $detailB->id;
+        $rnDetailBId = $rnDetailB->id;
+        $rnDetailAId = $rnDetailA->id;
+        $receivedNoteId = $receivedNote->id;
+
+        // Enable foreign keys in SQLite to verify production cascade behavior and constraint safety
+        \Illuminate\Support\Facades\DB::statement('PRAGMA foreign_keys = ON');
+
+        $completion = $this->service->complete(
+            $purchase,
+            'Supplier could not deliver product B',
+            $this->user->id
+        );
+
+        // Assert detail B was deleted
+        $this->assertNull(PurchaseDetail::find($detailBId));
+
+        // Assert detail B's zero-quantity receiving detail was cascade-deleted by foreign key constraint
+        $this->assertNull(ReceivedNoteDetail::find($rnDetailBId));
+
+        // Assert received note header and positive receiving detail remain intact
+        $this->assertNotNull(ReceivedNote::find($receivedNoteId));
+        $this->assertNotNull(ReceivedNoteDetail::find($rnDetailAId));
+
+        // Assert detail A was kept with updated quantity
+        $purchase->refresh();
+        $this->assertCount(1, $purchase->purchaseDetails);
+        $this->assertEquals(5, $purchase->purchaseDetails->first()->quantity);
+
+        // Assert audit record captures the removal
+        $sourceLines = $completion->source_snapshot['lines'];
+        $finalLines = $completion->final_snapshot['lines'];
+
+        $this->assertCount(2, $sourceLines);
+        $this->assertCount(1, $finalLines);
+
+        $sourceDetailIds = array_column($sourceLines, 'po_detail_id');
+        $finalDetailIds = array_column($finalLines, 'po_detail_id');
+
+        $this->assertContains($detailBId, $sourceDetailIds);
+        $this->assertNotContains($detailBId, $finalDetailIds);
+        $this->assertContains($detailA->id, $finalDetailIds);
+    }
+
     private function createPurchaseWithDetails(array $details, string $status = Purchase::STATUS_RECEIVED_PARTIALLY)
     {
         $supplier = Supplier::create([
