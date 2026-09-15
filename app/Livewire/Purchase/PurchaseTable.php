@@ -394,24 +394,28 @@ class PurchaseTable extends Component
                 }
             })
             ->when($this->search, function ($q) {
-                $q->where(function ($qq) {
-                    $search = $this->search;
-                    $qq->where('reference', 'like', "%{$search}%")
-                        ->orWhere('supplier_purchase_number', 'like', "%{$search}%")
-                        ->orWhere('tax_ref_no', 'like', "%{$search}%")
-                        ->orWhere('supplier_reference_no', 'like', "%{$search}%")
-                        ->orWhere('note', 'like', "%{$search}%")
-                        ->orWhereHas('supplier', function ($q2) use ($search) {
-                            $q2->where('supplier_name', 'like', "%{$search}%");
-                        })
-                        ->orWhereHas('tags', function ($q2) use ($search) {
-                            $q2->where('name->en', 'like', "%{$search}%");
-                        })
-                        ->orWhereHas('purchaseDetails', function ($q2) use ($search) {
-                            $q2->where('product_name', 'like', "%{$search}%")
-                               ->orWhere('product_code', 'like', "%{$search}%");
-                        });
-                });
+                if ($this->globalMode) {
+                    \App\Support\GlobalPaymentSearchQuery::applyPurchaseSearch($q, $this->search);
+                } else {
+                    $q->where(function ($qq) {
+                        $search = $this->search;
+                        $qq->where('reference', 'like', "%{$search}%")
+                            ->orWhere('supplier_purchase_number', 'like', "%{$search}%")
+                            ->orWhere('tax_ref_no', 'like', "%{$search}%")
+                            ->orWhere('supplier_reference_no', 'like', "%{$search}%")
+                            ->orWhere('note', 'like', "%{$search}%")
+                            ->orWhereHas('supplier', function ($q2) use ($search) {
+                                $q2->where('supplier_name', 'like', "%{$search}%");
+                            })
+                            ->orWhereHas('tags', function ($q2) use ($search) {
+                                $q2->where('name->en', 'like', "%{$search}%");
+                            })
+                            ->orWhereHas('purchaseDetails', function ($q2) use ($search) {
+                                $q2->where('product_name', 'like', "%{$search}%")
+                                   ->orWhere('product_code', 'like', "%{$search}%");
+                            });
+                    });
+                }
             })
             ->orderBy($this->sortField, $this->sortDirection);
 

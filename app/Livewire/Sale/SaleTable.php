@@ -378,39 +378,43 @@ class SaleTable extends Component
                 }
             })
             ->when($this->search, function ($q) {
-                $q->where(function ($qq) {
-                    $search = $this->search;
-                    $qq->where('reference', 'like', "%{$search}%")
-                        ->orWhere('imported_sales_reference_number', 'like', "%{$search}%")
-                        ->orWhere('tax_ref_no', 'like', "%{$search}%")
-                        ->orWhere('note', 'like', "%{$search}%")
-                        ->orWhereHas('customer', function ($q2) use ($search) {
-                            $q2->where('customer_name', 'like', "%{$search}%")
-                                ->orWhere('contact_name', 'like', "%{$search}%");
-                        })
-                        ->orWhereHas('saleDetails', function ($q2) use ($search) {
-                            $q2->where('product_name', 'like', "%{$search}%")
-                               ->orWhere('product_code', 'like', "%{$search}%");
-                        })
-                        ->orWhereHas('tags', function ($q2) use ($search) {
-                            $q2->where('name->en', 'like', "%{$search}%");
-                        })
-                        ->orWhereHas('posCheckout', function ($q2) use ($search) {
-                            $q2->where('receipt_number', 'like', "%{$search}%")
-                               ->orWhereHas('transaction', function ($q3) use ($search) {
-                                   $q3->where('code', 'like', "%{$search}%");
-                               });
-                        })
-                        ->orWhereHas('checkoutSale.checkout', function ($q2) use ($search) {
-                            $q2->where('receipt_number', 'like', "%{$search}%")
-                               ->orWhereHas('transaction', function ($q3) use ($search) {
-                                   $q3->where('code', 'like', "%{$search}%");
-                               });
-                        })
-                        ->orWhereHas('bundleItems', function ($q2) use ($search) {
-                            $q2->where('name', 'like', "%{$search}%");
-                        });
-                });
+                if ($this->globalMode) {
+                    \App\Support\GlobalPaymentSearchQuery::applySaleSearch($q, $this->search);
+                } else {
+                    $q->where(function ($qq) {
+                        $search = $this->search;
+                        $qq->where('reference', 'like', "%{$search}%")
+                            ->orWhere('imported_sales_reference_number', 'like', "%{$search}%")
+                            ->orWhere('tax_ref_no', 'like', "%{$search}%")
+                            ->orWhere('note', 'like', "%{$search}%")
+                            ->orWhereHas('customer', function ($q2) use ($search) {
+                                $q2->where('customer_name', 'like', "%{$search}%")
+                                    ->orWhere('contact_name', 'like', "%{$search}%");
+                            })
+                            ->orWhereHas('saleDetails', function ($q2) use ($search) {
+                                $q2->where('product_name', 'like', "%{$search}%")
+                                   ->orWhere('product_code', 'like', "%{$search}%");
+                            })
+                            ->orWhereHas('tags', function ($q2) use ($search) {
+                                $q2->where('name->en', 'like', "%{$search}%");
+                            })
+                            ->orWhereHas('posCheckout', function ($q2) use ($search) {
+                                $q2->where('receipt_number', 'like', "%{$search}%")
+                                   ->orWhereHas('transaction', function ($q3) use ($search) {
+                                       $q3->where('code', 'like', "%{$search}%");
+                                   });
+                            })
+                            ->orWhereHas('checkoutSale.checkout', function ($q2) use ($search) {
+                                $q2->where('receipt_number', 'like', "%{$search}%")
+                                   ->orWhereHas('transaction', function ($q3) use ($search) {
+                                       $q3->where('code', 'like', "%{$search}%");
+                                   });
+                            })
+                            ->orWhereHas('bundleItems', function ($q2) use ($search) {
+                                $q2->where('name', 'like', "%{$search}%");
+                            });
+                    });
+                }
             })
             ->orderBy($this->sortField, $this->sortDirection);
 
