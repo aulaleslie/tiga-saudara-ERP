@@ -62,6 +62,11 @@ class ReceivedNote extends BaseModel
         return $this->hasMany(ReceivedNoteDetail::class);
     }
 
+    public function statusTransitionAudits(): HasMany
+    {
+        return $this->hasMany(PurchaseStatusTransitionAudit::class, 'received_note_id');
+    }
+
     public function scopeByPurchase($query) {
         return $query->where('po_id', request()->route('purchase_id'));
     }

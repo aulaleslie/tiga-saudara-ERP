@@ -553,65 +553,85 @@ class PurchaseController extends Controller
         }
 
         DB::transaction(function () use ($request, $purchase, $cartItems) {
+            /** @var Purchase $lockedPurchase */
+            $lockedPurchase = Purchase::query()
+                ->where('id', $purchase->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            PurchaseSourceGuard::assertCommercialEditAllowed($lockedPurchase);
+
+            $editMode = $lockedPurchase->resolveEditMode();
+            if ($editMode === Purchase::EDIT_MODE_NONE) {
+                abort(403, 'Anda tidak memiliki akses untuk memperbarui pembelian ini pada status saat ini.');
+            }
+            if ($editMode === Purchase::EDIT_MODE_MONETARY_ONLY) {
+                abort(422, 'Pembelian yang sudah diterima hanya dapat diubah melalui mode edit moneter.');
+            }
+
+            $lifecycleService = app(\Modules\Purchase\Services\PurchaseLifecycleService::class);
+            if ($lifecycleService->hasPositiveApprovedReceiving($lockedPurchase)) {
+                abort(422, 'Pembelian yang sudah memiliki penerimaan barang tidak dapat diubah secara penuh.');
+            }
+
             $isPkp = (bool) (Setting::query()->whereKey((int) session('setting_id'))->value('is_pkp') ?? false);
-            $setting_id = $purchase->setting_id ?: session('setting_id');
+            $setting_id = $lockedPurchase->setting_id ?: session('setting_id');
             $normalizedPurchase = app(PurchaseNormalizer::class)->normalize([
-                'tax_id' => $request->tax_id ?? $purchase->tax_id,
-                'tax_percentage' => $request->tax_percentage ?? $purchase->tax_percentage,
-                'discount_percentage' => $request->discount_percentage ?? $purchase->discount_percentage,
-                'discount_amount' => $request->discount_amount ?? $purchase->discount_amount,
-                'shipping_amount' => $request->shipping_amount ?? $purchase->shipping_amount,
-                'paid_amount' => $request->paid_amount ?? $purchase->paid_amount,
-                'is_tax_included' => $request->is_tax_included ?? $purchase->is_tax_included,
-            ], $cartItems, $isPkp, (int) $setting_id, $purchase);
+                'tax_id' => $request->tax_id ?? $lockedPurchase->tax_id,
+                'tax_percentage' => $request->tax_percentage ?? $lockedPurchase->tax_percentage,
+                'discount_percentage' => $request->discount_percentage ?? $lockedPurchase->discount_percentage,
+                'discount_amount' => $request->discount_amount ?? $lockedPurchase->discount_amount,
+                'shipping_amount' => $request->shipping_amount ?? $lockedPurchase->shipping_amount,
+                'paid_amount' => $request->paid_amount ?? $lockedPurchase->paid_amount,
+                'is_tax_included' => $request->is_tax_included ?? $lockedPurchase->is_tax_included,
+            ], $cartItems, $isPkp, (int) $setting_id, $lockedPurchase);
             $header = $normalizedPurchase['header'];
 
-            // Fields to update, only if new values are passed in the request
+            // Fields to update, only if new values are passed in the request. Note: status is never modified here.
             $updateData = array_filter([
-                'date' => $request->filled('date') && $request->date !== $purchase->date ? $request->date : null,
-                'due_date' => $request->filled('due_date') && $request->due_date !== $purchase->due_date ? $request->due_date : null,
-                'supplier_id' => $request->filled('supplier_id') && $request->supplier_id !== $purchase->supplier_id ? $request->supplier_id : null,
-                'tax_id' => $header['tax_id'] !== $purchase->tax_id ? $header['tax_id'] : null,
-                'tax_percentage' => $header['tax_percentage'] != $purchase->tax_percentage ? $header['tax_percentage'] : null,
-                'tax_amount' => $header['tax_amount'] != $purchase->tax_amount ? $header['tax_amount'] : null,
-                'discount_percentage' => $header['discount_percentage'] != $purchase->discount_percentage ? $header['discount_percentage'] : null,
-                'discount_amount' => $header['discount_amount'] != $purchase->discount_amount ? $header['discount_amount'] : null,
-                'shipping_amount' => $header['shipping_amount'] != $purchase->shipping_amount ? $header['shipping_amount'] : null,
-                'paid_amount' => $request->filled('paid_amount') && $request->paid_amount != $purchase->paid_amount ? $request->paid_amount : null,
-                'total_amount' => $header['total_amount'] != $purchase->total_amount ? $header['total_amount'] : null,
-                'due_amount' => $header['due_amount'] != $purchase->due_amount ? $header['due_amount'] : null,
-                'status' => $request->filled('status') && $request->status !== $purchase->status ? $request->status : null,
-                'payment_method' => $request->filled('payment_method') && $request->payment_method !== $purchase->payment_method ? $request->payment_method : null,
-                'note' => $request->filled('note') && $request->note !== $purchase->note ? $request->note : null,
-                'payment_term_id' => $request->filled('payment_term') && $request->payment_term != $purchase->payment_term_id ? $request->payment_term : null,
+                'date' => $request->filled('date') && $request->date !== $lockedPurchase->date ? $request->date : null,
+                'due_date' => $request->filled('due_date') && $request->due_date !== $lockedPurchase->due_date ? $request->due_date : null,
+                'supplier_id' => $request->filled('supplier_id') && $request->supplier_id !== $lockedPurchase->supplier_id ? $request->supplier_id : null,
+                'tax_id' => $header['tax_id'] !== $lockedPurchase->tax_id ? $header['tax_id'] : null,
+                'tax_percentage' => $header['tax_percentage'] != $lockedPurchase->tax_percentage ? $header['tax_percentage'] : null,
+                'tax_amount' => $header['tax_amount'] != $lockedPurchase->tax_amount ? $header['tax_amount'] : null,
+                'discount_percentage' => $header['discount_percentage'] != $lockedPurchase->discount_percentage ? $header['discount_percentage'] : null,
+                'discount_amount' => $header['discount_amount'] != $lockedPurchase->discount_amount ? $header['discount_amount'] : null,
+                'shipping_amount' => $header['shipping_amount'] != $lockedPurchase->shipping_amount ? $header['shipping_amount'] : null,
+                'paid_amount' => $request->filled('paid_amount') && $request->paid_amount != $lockedPurchase->paid_amount ? $request->paid_amount : null,
+                'total_amount' => $header['total_amount'] != $lockedPurchase->total_amount ? $header['total_amount'] : null,
+                'due_amount' => $header['due_amount'] != $lockedPurchase->due_amount ? $header['due_amount'] : null,
+                'payment_method' => $request->filled('payment_method') && $request->payment_method !== $lockedPurchase->payment_method ? $request->payment_method : null,
+                'note' => $request->filled('note') && $request->note !== $lockedPurchase->note ? $request->note : null,
+                'payment_term_id' => $request->filled('payment_term') && $request->payment_term != $lockedPurchase->payment_term_id ? $request->payment_term : null,
             ], function ($value) {
                 return $value !== null;
             });
 
-            if ($request->has('supplier_purchase_number') && $request->supplier_purchase_number !== $purchase->supplier_purchase_number) {
+            if ($request->has('supplier_purchase_number') && $request->supplier_purchase_number !== $lockedPurchase->supplier_purchase_number) {
                 $updateData['supplier_purchase_number'] = $request->supplier_purchase_number;
             }
 
-            if ($request->has('tax_ref_no') && $request->tax_ref_no !== $purchase->tax_ref_no) {
+            if ($request->has('tax_ref_no') && $request->tax_ref_no !== $lockedPurchase->tax_ref_no) {
                 $updateData['tax_ref_no'] = $request->tax_ref_no;
             }
 
-            if ($header['tax_id'] === null && $purchase->tax_id !== null) {
+            if ($header['tax_id'] === null && $lockedPurchase->tax_id !== null) {
                 $updateData['tax_id'] = null;
             }
 
             if (!empty($updateData)) {
                 // Update the purchase record
-                $purchase->update($updateData);
+                $lockedPurchase->update($updateData);
             }
 
             // Clear existing purchase details
-            $purchase->purchaseDetails()->delete();
+            $lockedPurchase->purchaseDetails()->delete();
 
             // Re-add updated cart items
             foreach ($normalizedPurchase['details'] as $detail) {
                 PurchaseDetail::create([
-                    'purchase_id' => $purchase->id,
+                    'purchase_id' => $lockedPurchase->id,
                     'product_id' => $detail['product_id'],
                     'product_name' => $detail['product_name'],
                     'product_code' => $detail['product_code'],
@@ -694,9 +714,7 @@ class PurchaseController extends Controller
 
     public function updateStatus(Request $request, Purchase $purchase): RedirectResponse
     {
-        abort_unless(Gate::any(['purchases.update', 'purchases.approval']), 403);
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
-        PurchaseSourceGuard::assertCommercialEditAllowed($purchase);
 
         $validated = $request->validate([
             'status' => 'required|string|in:' . implode(',', [
@@ -709,25 +727,17 @@ class PurchaseController extends Controller
         ]);
 
         try {
-            $data = ['status' => $validated['status']];
-            if (isset($validated['rejection_note'])) {
-                $data['rejection_note'] = $validated['rejection_note'];
-            }
-            $purchase->update($data);
-
-            $notificationService = app(\App\Services\Notification\DocumentNotificationService::class);
-            if ($validated['status'] === Purchase::STATUS_WAITING_APPROVAL) {
-                $notificationService->notifyApprovalNeeded($purchase, $purchase->reference, $purchase->setting_id);
-                $notificationService->resolveRevision($purchase);
-            } elseif ($validated['status'] === Purchase::STATUS_REJECTED) {
-                $notificationService->notifyRevisionNeeded($purchase, $purchase->reference, $purchase->setting_id, $validated['rejection_note'] ?? '');
-                $notificationService->resolveApproval($purchase);
-            } else {
-                $notificationService->resolveApproval($purchase);
-                $notificationService->resolveRevision($purchase);
-            }
+            $lifecycleService = app(\Modules\Purchase\Services\PurchaseLifecycleService::class);
+            $lifecycleService->transitionUserStatus(
+                $purchase,
+                $validated['status'],
+                $validated['rejection_note'] ?? null,
+                auth()->user()
+            );
 
             toast("Status pembelian diperbarui menjadi {$validated['status']}!", 'success');
+        } catch (\Modules\Purchase\Exceptions\PurchaseLifecycleTransitionException $e) {
+            toast($e->getMessage(), 'error');
         } catch (Exception $e) {
             Log::error('Failed to update purchase status', ['error' => $e->getMessage()]);
             toast('Gagal memperbarui status pembelian.', 'error');
@@ -1107,67 +1117,89 @@ class PurchaseController extends Controller
 
                 try {
                 DB::transaction(function () use ($receivedNote) {
-                    // Take the row lock with an executed query. `$model->lockForUpdate()`
-                    // only returns a builder, so the previous call locked nothing.
-                    $receivedNote = ReceivedNote::query()
-                        ->where('id', $receivedNote->id)
-                        ->lockForUpdate()
-                        ->firstOrFail();
-
-                    // Re-check pending status under the row lock: a concurrent approval
-                    // may have committed between the pre-flight check and this point.
-                    if (!$receivedNote->isPending()) {
-                        throw new ReceivingApprovalConflict('already_processed', 'Penerimaan ini sudah diproses sebelumnya.');
-                    }
-
-                    // Revalidate purchase status under lock
+                    // Lock shared records in agreed deterministic order:
+                    // 1. Purchase
                     $purchase = Purchase::query()
                         ->where('id', $receivedNote->po_id)
                         ->lockForUpdate()
                         ->firstOrFail();
 
+                    // Guard against non-ordinary or archived purchase
+                    PurchaseSourceGuard::assertReceivingAllowed($purchase);
+
+                    if ($purchase->archived_at) {
+                        throw new ReceivingApprovalConflict('purchase_archived', 'Pembelian ini sudah diarsipkan. Tidak dapat menyetujui penerimaan.');
+                    }
+
                     if ($purchase->status === Purchase::STATUS_RECEIVED) {
-                        throw new \Exception('Pembelian ini sudah ditutup. Tidak dapat menyetujui penerimaan lebih lanjut.');
+                        throw new ReceivingApprovalConflict('purchase_closed', 'Pembelian ini sudah ditutup. Tidak dapat menyetujui penerimaan lebih lanjut.');
                     }
 
-                    // Over-receipt is decided HERE, inside the transaction and after the
-                    // row locks, so the approved totals it reads cannot change before the
-                    // stock posting below commits. The cache lock outside is only an
-                    // optimization: its lease can expire mid-approval, so it cannot be
-                    // relied on for this invariant.
-                    //
-                    // Quantities are decimal and can come from conversion factors, so
-                    // every comparison runs through BigDecimal: float arithmetic would
-                    // let 0.001 + 0.063 leave 0.93599999999999994 and wrongly reject a
-                    // legitimate final receipt of 0.936.
-                    $receivedNote->load('receivedNoteDetails.purchaseDetail.product');
-
-                    // Lock the Purchase detail rows this note touches, so a concurrent
-                    // approval against the same lines serializes behind us.
-                    $lockedDetailIds = $receivedNote->receivedNoteDetails
-                        ->pluck('po_detail_id')
-                        ->filter()
-                        ->unique()
-                        ->values();
-                    if ($lockedDetailIds->isNotEmpty()) {
-                        PurchaseDetail::query()
-                            ->whereIn('id', $lockedDetailIds)
-                            ->lockForUpdate()
-                            ->get();
+                    if (!in_array($purchase->status, [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY], true)) {
+                        throw new ReceivingApprovalConflict('invalid_purchase_status', "Status pembelian saat ini ({$purchase->status}) tidak mengizinkan persetujuan penerimaan.");
                     }
 
+                    // 2. Received Note
+                    $receivedNote = ReceivedNote::query()
+                        ->where('id', $receivedNote->id)
+                        ->where('po_id', $purchase->id)
+                        ->lockForUpdate()
+                        ->firstOrFail();
+
+                    if (!$receivedNote->isPending()) {
+                        throw new ReceivingApprovalConflict('already_processed', 'Penerimaan ini sudah diproses sebelumnya.');
+                    }
+
+                    // 3. Purchase Details & Receiving Details
+                    $receivedNoteDetails = $receivedNote->receivedNoteDetails()->lockForUpdate()->get();
+                    if ($receivedNoteDetails->isEmpty()) {
+                        throw new ReceivingApprovalConflict('empty_receiving_details', 'Penerimaan tidak memiliki detail produk.');
+                    }
+
+                    // Revalidate location (must be active standard location)
+                    $receivingLocation = Location::query()->find($receivedNote->location_id);
+                    if (!$receivingLocation || !$receivingLocation->is_active || (int) $receivingLocation->setting_id !== (int) $purchase->setting_id || $receivingLocation->is_consignment) {
+                        throw new ReceivingApprovalConflict('invalid_location', 'Lokasi penerimaan tidak valid, tidak aktif, atau merupakan lokasi konsinyasi.');
+                    }
+
+                    // Revalidate positive quantity invariant
+                    $hasPositiveQuantity = false;
+                    $lockedDetailIds = [];
+                    foreach ($receivedNoteDetails as $detail) {
+                        if ((float) $detail->quantity_received > 0) {
+                            $hasPositiveQuantity = true;
+                        }
+                        if (!$detail->po_detail_id) {
+                            throw new ReceivingApprovalConflict('missing_purchase_detail_link', 'Detail penerimaan kehilangan relasi ke detail pembelian.');
+                        }
+                        $lockedDetailIds[] = $detail->po_detail_id;
+                    }
+
+                    if (!$hasPositiveQuantity) {
+                        throw new ReceivingApprovalConflict('all_zero_quantity', 'Minimal satu produk harus memiliki jumlah diterima lebih dari 0.');
+                    }
+
+                    $lockedDetailIds = array_values(array_unique($lockedDetailIds));
+                    $purchaseDetails = PurchaseDetail::query()
+                        ->whereIn('id', $lockedDetailIds)
+                        ->where('purchase_id', $purchase->id)
+                        ->lockForUpdate()
+                        ->get()
+                        ->keyBy('id');
+
+                    // Every receiving detail must have a matching purchase detail belonging to this purchase
+                    foreach ($receivedNoteDetails as $detail) {
+                        if (!$purchaseDetails->has($detail->po_detail_id)) {
+                            throw new ReceivingApprovalConflict('unmatched_purchase_detail', "Detail pembelian #{$detail->po_detail_id} tidak ditemukan untuk pembelian ini.");
+                        }
+                    }
+
+                    // Over-receiving check
                     $quantityService = app(\Modules\Purchase\Services\PurchaseReceivingQuantityService::class);
                     $overReceivingErrors = [];
 
-                    foreach ($receivedNote->receivedNoteDetails as $detail) {
-                        $purchaseDetail = $detail->purchaseDetail;
-                        if (!$purchaseDetail) {
-                            continue;
-                        }
-
-                        // This note is still PENDING, so it is not part of the approved
-                        // total; excluding it by id keeps the check correct even if the
-                        // status changed underneath us.
+                    foreach ($receivedNoteDetails as $detail) {
+                        $purchaseDetail = $purchaseDetails->get($detail->po_detail_id);
                         $alreadyReceivedBd = $quantityService->approvedReceivedCanonical($purchaseDetail, $receivedNote->id);
                         $orderedBd = $quantityService->orderedCanonical($purchaseDetail);
                         $pendingBd = \Brick\Math\BigDecimal::of((string) $detail->quantity_received);
@@ -1186,8 +1218,6 @@ class PurchaseController extends Controller
                     }
 
                     if (!empty($overReceivingErrors)) {
-                        // Abort the transaction so nothing is posted, carrying the
-                        // detail out to the caller for rendering.
                         throw new ReceivingApprovalConflict(
                             'over_receiving',
                             'Jumlah penerimaan melebihi jumlah pesanan',
@@ -1195,34 +1225,48 @@ class PurchaseController extends Controller
                         );
                     }
 
-                    $receivingLocation = Location::query()->find($receivedNote->location_id);
-                    if (!$receivingLocation || $receivingLocation->setting_id !== $purchase->setting_id || $receivingLocation->is_consignment) {
-                        throw new \Exception('Lokasi penerimaan tidak valid atau merupakan lokasi konsinyasi.');
-                    }
-
                     $settingLocationIds = Location::where('setting_id', $purchase->setting_id)->pluck('id');
-                    
-                    // Load received note details with purchase details
-                    $receivedNote->load('receivedNoteDetails.purchaseDetail.product');
-                    
-                    $productIds = $receivedNote->receivedNoteDetails->pluck('purchaseDetail.product_id')->unique();
-                    $products = Product::whereIn('id', $productIds)->lockForUpdate()->get();
+
+                    // 4. Products & Product Stocks in deterministic lock order
+                    $productIds = $purchaseDetails->pluck('product_id')->unique()->sort()->values();
+                    $products = Product::whereIn('id', $productIds)->lockForUpdate()->get()->keyBy('id');
                     $productStocks = ProductStock::whereIn('product_id', $productIds)
                         ->where('location_id', $receivedNote->location_id)
                         ->lockForUpdate()
-                        ->get();
+                        ->get()
+                        ->keyBy('product_id');
 
-                    foreach ($receivedNote->receivedNoteDetails as $detail) {
-                        $purchaseDetail = $detail->purchaseDetail;
-                        $receivedQuantity = $detail->quantity_received;
+                    // Revalidate serials if any before mutation
+                    foreach ($receivedNoteDetails as $detail) {
+                        $purchaseDetail = $purchaseDetails->get($detail->po_detail_id);
+                        $receivedQuantity = (float) $detail->quantity_received;
+
+                        if ($receivedQuantity > 0 && !empty($detail->pending_serial_numbers) && is_array($detail->pending_serial_numbers)) {
+                            foreach ($detail->pending_serial_numbers as $serialNumber) {
+                                $existingSerial = ProductSerialNumber::where('product_id', $purchaseDetail->product_id)
+                                    ->where('serial_number', $serialNumber)
+                                    ->lockForUpdate()
+                                    ->first();
+
+                                if ($existingSerial && !in_array($existingSerial->status, [ProductSerialNumber::STATUS_RETURNED, ProductSerialNumber::STATUS_SOLD], true)) {
+                                    throw new ReceivingApprovalConflict('serial_conflict', "Serial number {$serialNumber} sudah ada dan statusnya bukan RETURNED atau SOLD.");
+                                }
+                            }
+                        }
+                    }
+
+                    foreach ($receivedNoteDetails as $detail) {
+                        $purchaseDetail = $purchaseDetails->get($detail->po_detail_id);
+                        $receivedQuantity = (float) $detail->quantity_received;
 
                         if ($receivedQuantity > 0) {
-                            $product = $products->where('id', $purchaseDetail->product_id)->first();
+                            $product = $products->get($purchaseDetail->product_id);
+                            if (!$product) {
+                                throw new ReceivingApprovalConflict('missing_product', "Produk #{$purchaseDetail->product_id} tidak ditemukan.");
+                            }
 
                             // Update product stock
-                            $productStock = $productStocks->where('product_id', $purchaseDetail->product_id)
-                                ->where('location_id', $receivedNote->location_id)
-                                ->first();
+                            $productStock = $productStocks->get($purchaseDetail->product_id);
 
                             if (!$productStock) {
                                 $productStock = ProductStock::create([
@@ -1235,6 +1279,7 @@ class PurchaseController extends Controller
                                     'broken_quantity_tax' => 0,
                                     'broken_quantity' => 0,
                                 ]);
+                                $productStocks->put($purchaseDetail->product_id, $productStock);
                             }
 
                             // Capture previous stock
@@ -1341,11 +1386,11 @@ class PurchaseController extends Controller
                             // Commit pending serial numbers to product_serial_numbers table
                             if (!empty($detail->pending_serial_numbers) && is_array($detail->pending_serial_numbers)) {
                                 foreach ($detail->pending_serial_numbers as $serialNumber) {
-                                    
                                     $existingSerial = ProductSerialNumber::where('product_id', $purchaseDetail->product_id)
                                         ->where('serial_number', $serialNumber)
+                                        ->lockForUpdate()
                                         ->first();
-                                        
+
                                     if ($existingSerial) {
                                         if (in_array($existingSerial->status, [ProductSerialNumber::STATUS_RETURNED, ProductSerialNumber::STATUS_SOLD], true)) {
                                             // Reactivate existing serial
@@ -1353,14 +1398,16 @@ class PurchaseController extends Controller
                                                 'status' => ProductSerialNumber::STATUS_ACTIVE,
                                                 'location_id' => $receivedNote->location_id,
                                                 'tax_id' => $purchaseDetail->tax_id,
-                                                // 'received_note_detail_id' => $detail->id, // Legacy: Stop updating to preserve history
                                                 'purchase_return_id' => null,
                                                 'is_in_return_process' => false,
                                             ]);
                                             $existingSerial->receivedNoteDetails()->syncWithoutDetaching([$detail->id]);
                                             $serialRecord = $existingSerial;
                                         } else {
-                                            throw new Exception("Serial number {$serialNumber} sudah ada dan statusnya bukan RETURNED atau SOLD.");
+                                            throw new ReceivingApprovalConflict(
+                                                'serial_conflict',
+                                                "Serial number {$serialNumber} sudah ada dan statusnya bukan RETURNED atau SOLD."
+                                            );
                                         }
                                     } else {
                                         $serialRecord = ProductSerialNumber::create([
@@ -1368,7 +1415,6 @@ class PurchaseController extends Controller
                                             'location_id' => $receivedNote->location_id,
                                             'serial_number' => $serialNumber,
                                             'tax_id' => $purchaseDetail->tax_id,
-                                            // 'received_note_detail_id' => $detail->id, // Legacy: Stop updating
                                         ]);
                                         $serialRecord->receivedNoteDetails()->attach($detail->id);
                                     }
@@ -1397,16 +1443,11 @@ class PurchaseController extends Controller
                     app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($receivedNote);
                     app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($receivedNote);
 
-                    // Calculate and update purchase status based on all APPROVED
-                    // receivings. The comparison runs through BigDecimal for the same
-                    // reason as the over-receipt check above: a PHP `<` would coerce
-                    // the decimal operands to float, so a line received in parts
-                    // (0.001 + 0.063 + 0.936 = exactly 1.000) could compare as short
-                    // of its ordered 1.000 and leave the Purchase stuck PARTIALLY.
+                    // Calculate and update purchase status based on all APPROVED receivings
                     $allFullyReceived = true;
-                    foreach ($purchase->purchaseDetails()->get() as $detail) {
-                        $receivedBd = $quantityService->approvedReceivedCanonical($detail);
-                        $orderedBd = $quantityService->orderedCanonical($detail);
+                    foreach ($purchase->purchaseDetails()->get() as $pDetail) {
+                        $receivedBd = $quantityService->approvedReceivedCanonical($pDetail);
+                        $orderedBd = $quantityService->orderedCanonical($pDetail);
 
                         if ($receivedBd->compareTo($orderedBd) < 0) {
                             $allFullyReceived = false;
@@ -1414,8 +1455,20 @@ class PurchaseController extends Controller
                         }
                     }
 
+                    $oldPurchaseStatus = $purchase->status;
                     $status = $allFullyReceived ? Purchase::STATUS_RECEIVED : Purchase::STATUS_RECEIVED_PARTIALLY;
                     $purchase->update(['status' => $status]);
+
+                    // Record status transition audit
+                    app(\Modules\Purchase\Services\PurchaseLifecycleService::class)->recordDerivedTransition(
+                        purchase: $purchase,
+                        oldStatus: $oldPurchaseStatus,
+                        newStatus: $status,
+                        source: \Modules\Purchase\Services\PurchaseLifecycleService::SOURCE_RECEIVING_APPROVAL,
+                        receivedNoteId: $receivedNote->id,
+                        actorUserId: auth()->id(),
+                        reason: null
+                    );
                 });
                 } catch (ReceivingApprovalConflict $conflict) {
                     // The transaction has already rolled back; nothing was posted.

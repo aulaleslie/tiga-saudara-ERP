@@ -244,6 +244,10 @@ class Purchase extends BaseModel implements HasMedia
         return $this->morphMany(DueDateAudit::class, 'auditable');
     }
 
+    public function statusTransitionAudits() {
+        return $this->hasMany(PurchaseStatusTransitionAudit::class, 'purchase_id', 'id');
+    }
+
     public function getEffectiveDateAttribute(): ?\Carbon\CarbonInterface {
         return $this->reporting_date ?? $this->date;
     }

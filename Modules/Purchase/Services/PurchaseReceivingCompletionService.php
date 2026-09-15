@@ -258,6 +258,17 @@ class PurchaseReceivingCompletionService
             // Recalculate payment summary from active payments
             $this->recalculatePaymentSummary($purchase);
 
+            // Record Purchase status transition audit
+            app(\Modules\Purchase\Services\PurchaseLifecycleService::class)->recordDerivedTransition(
+                purchase: $purchase,
+                oldStatus: Purchase::STATUS_RECEIVED_PARTIALLY,
+                newStatus: Purchase::STATUS_RECEIVED,
+                source: \Modules\Purchase\Services\PurchaseLifecycleService::SOURCE_SHORTFALL_COMPLETION,
+                receivedNoteId: null,
+                actorUserId: $actorUserId,
+                reason: $reason
+            );
+
             // Capture final snapshot
             $finalSnapshot = $this->captureFinalSnapshot($purchase);
 
