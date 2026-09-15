@@ -74,11 +74,15 @@ The system SHALL apply permission-aware projections to transfer create, edit, de
 - **THEN** the controller explicitly eager-loads the protected relationships and the detail renders the authorized obligation information without lazy-loading queries
 
 ### Requirement: Transfer mutations SHALL rely only on authoritative server data
-Stock-transfer scan, selection, quantity update, save, submit, approval, dispatch, receipt, and return mutation boundaries SHALL reload and validate applicable location, product, conversion, stock, condition, and serial data on the server. Client-provided stock snapshots, allocation fields, maximums, tax provenance, serial state, or other protected metadata MUST NOT be trusted, including when submitted by a privileged client.
+Stock-transfer scan, selection, quantity update, save, submit, approval, dispatch, receipt, and return mutation boundaries SHALL reload and validate applicable location, product, conversion, stock, condition, and serial data on the server. Client-provided stock snapshots, allocation fields, maximums, tax provenance, serial state, or other protected metadata MUST NOT be trusted, including when submitted by a privileged client. When a blind serialized row contains only permitted serial identity, omitted protected provenance and stock fields MUST be treated as absent rather than as non-tax, good-condition, unavailable, or zero-stock values; the mutation boundary MUST rehydrate the current serial tuple and derive allocation from authoritative records.
 
 #### Scenario: Blind draft saves without stock snapshot
 - **WHEN** a blind editor saves valid operator intent whose Livewire state contains no stock or allocation fields
 - **THEN** the system derives the authoritative allocation and persists the valid draft without requiring protected fields from the client
+
+#### Scenario: Blind serialized draft retains authoritative taxed allocation
+- **WHEN** a blind editor saves a serialized row containing only requested quantity and distinct serial identities whose current authoritative records are taxed and eligible at the origin
+- **THEN** the system validates the identities, derives the taxed allocation from current server records, and persists the row without interpreting omitted provenance as non-tax or omitted stock as zero
 
 #### Scenario: Client injects protected metadata
 - **WHEN** a crafted request supplies modified stock, allocation, tax, condition-provenance, or serial-availability fields

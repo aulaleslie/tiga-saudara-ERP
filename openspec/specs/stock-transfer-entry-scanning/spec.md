@@ -5,7 +5,7 @@ Define requirements and interaction contracts for stock-transfer entry, product 
 
 ## Requirements
 ### Requirement: Authorized origin users can create and edit stock-transfer requests
-The system SHALL allow a user with `stockTransfers.create` to create a `DRAFT` stock-transfer request with an active origin owned by the active tenant, one explicit stock condition, and at least one valid product quantity while allowing destination to remain unset. The system SHALL require `stockTransfers.edit` to discover, open, edit, or submit an existing transfer, SHALL allow mutation only while its current lifecycle state is `DRAFT` or `PENDING`, and SHALL require the origin to belong to the active tenant. A material mutation to a `PENDING` transfer SHALL atomically return it to `DRAFT` and require explicit resubmission; a no-op save SHALL NOT change lifecycle state, revision, lines, or history.
+The system SHALL allow a user with `stockTransfers.create` to create a `DRAFT` stock-transfer request with an active origin owned by the active tenant, one explicit stock condition, and at least one valid product quantity while allowing destination to remain unset. The system SHALL require `stockTransfers.edit` to discover, open, edit, or submit an existing transfer, SHALL allow mutation only while its current lifecycle state is `DRAFT` or `PENDING`, and SHALL require the origin to belong to the active tenant. A material mutation to a `PENDING` transfer SHALL atomically return it to `DRAFT` and require explicit resubmission; a no-op save SHALL NOT change lifecycle state, revision, lines, or history. A destination accepted through the transfer form's nested location selector MUST remain synchronized with the parent form through the subsequent save or submission request without clearing existing product or serial intent.
 
 #### Scenario: Save a draft without destination
 - **WHEN** an authorized user saves a new transfer with a valid active origin, one transfer mode, and at least one valid product quantity but no destination
@@ -14,6 +14,10 @@ The system SHALL allow a user with `stockTransfers.create` to create a `DRAFT` s
 #### Scenario: Save a draft with destination
 - **WHEN** an authorized user saves a draft with a destination
 - **THEN** the system authoritatively validates that the destination is active, distinct from the origin, and compatible with the origin before storing it
+
+#### Scenario: Add destination to an existing serialized draft
+- **WHEN** an authorized origin user opens a destination-less `DRAFT` containing serialized product intent, selects a valid destination through the nested location selector, and saves
+- **THEN** the selected destination and unchanged serialized intent persist atomically without the destination reverting to unset or the product rows being cleared
 
 #### Scenario: Discover a saved draft edit action
 - **WHEN** an origin-tenant user with `stockTransfers.edit` views the transfer list containing a `DRAFT` or `PENDING` transfer
