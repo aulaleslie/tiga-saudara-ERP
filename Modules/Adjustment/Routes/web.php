@@ -67,6 +67,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::post('/transfers/{transfer}/movements/{movement}/return/correct', 'ReturnDispatchMovementController@correct')->name('transfers.movements.return.correct');
     Route::get('/transfers/{transfer}/movements/{movement}/return/review', 'ReturnDispatchMovementController@review')->name('transfers.movements.return.review');
     Route::post('/transfers/{transfer}/movements/{movement}/return/approve', 'ReturnDispatchMovementController@approve')->name('transfers.movements.return.approve');
+    Route::post('/transfers/{transfer}/movements/{movement}/return/reject', 'ReturnDispatchMovementController@reject')->name('transfers.movements.return.reject');
     // Version 2 Return Receipt Movement Routes (Gated by v2_dispatch_enabled config)
     Route::get('/transfers/{transfer}/movements/return-receipt/prepare', 'ReturnReceiptMovementController@prepare')->name('transfers.movements.return-receipt.prepare');
     Route::post('/transfers/{transfer}/movements/{movement}/return-receipt/confirm-empty', 'ReturnReceiptMovementController@confirmEmpty')->name('transfers.movements.return-receipt.confirm-empty');

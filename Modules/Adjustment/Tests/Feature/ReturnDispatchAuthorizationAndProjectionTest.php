@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Adjustment\Entities\Transfer;
 use Modules\Adjustment\Entities\TransferMovement;
+use Modules\Adjustment\Entities\TransferMovementHistory;
 use Modules\Adjustment\Entities\TransferMovementReturnObligation;
 use Modules\Adjustment\Entities\TransferProduct;
 use Modules\Adjustment\Entities\TransferRoutePolicy;
@@ -305,5 +306,64 @@ class ReturnDispatchAuthorizationAndProjectionTest extends TestCase
             ]);
 
         $response->assertStatus(404);
+    }
+
+    /** @test */
+    public function authorized_approver_can_render_pending_return_dispatch_review_page_with_rejection_route(): void
+    {
+        $prepService = app(ReturnDispatchPreparationService::class);
+        $movement = $prepService->getOrCreateBatch($this->transfer, $this->privilegedUser->id);
+        $movement = $prepService->setLineQuantity($movement, $this->product->id, 2, true, $movement->lock_version, $this->privilegedUser->id);
+        $pending = $prepService->submit($movement, $movement->lock_version, $this->privilegedUser->id);
+
+        $response = $this->actingAs($this->privilegedUser)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->get(route('transfers.movements.return.review', [
+                'transfer' => $this->transfer->id,
+                'movement' => $pending->id,
+            ]));
+
+        $response->assertOk();
+        $expectedRejectUrl = route('transfers.movements.return.reject', [
+            'transfer' => $this->transfer->id,
+            'movement' => $pending->id,
+        ]);
+        $response->assertSee($expectedRejectUrl, false);
+        $response->assertSee('Tolak Batch');
+    }
+
+    /** @test */
+    public function authorized_approver_can_reject_pending_return_dispatch_batch_via_named_route(): void
+    {
+        $prepService = app(ReturnDispatchPreparationService::class);
+        $movement = $prepService->getOrCreateBatch($this->transfer, $this->privilegedUser->id);
+        $movement = $prepService->setLineQuantity($movement, $this->product->id, 2, true, $movement->lock_version, $this->privilegedUser->id);
+        $pending = $prepService->submit($movement, $movement->lock_version, $this->privilegedUser->id);
+
+        $rejectionReason = 'Barang rusak saat persiapan retur.';
+
+        $response = $this->actingAs($this->privilegedUser)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->post(route('transfers.movements.return.reject', [
+                'transfer' => $this->transfer->id,
+                'movement' => $pending->id,
+            ]), [
+                'reason' => $rejectionReason,
+            ]);
+
+        $response->assertRedirect(route('transfers.show', $this->transfer->id));
+
+        $pending->refresh();
+        $this->assertSame(TransferMovement::STATUS_REJECTED, $pending->status);
+        $this->assertSame(mb_strtoupper($rejectionReason, 'UTF-8'), $pending->rejection_reason);
+        $this->assertSame($this->privilegedUser->id, $pending->reviewed_by);
+        $this->assertNotNull($pending->reviewed_at);
+
+        $this->assertDatabaseHas('transfer_movement_histories', [
+            'transfer_movement_id' => $pending->id,
+            'action'               => TransferMovementHistory::ACTION_REJECTED,
+            'reason'               => mb_strtoupper($rejectionReason, 'UTF-8'),
+            'actor_id'             => $this->privilegedUser->id,
+        ]);
     }
 }
