@@ -59,7 +59,7 @@ class TransferRoutePolicyApprovalTest extends TestCase
         $this->assertNull($policy->resolved_tax_id);
     }
 
-    public function test_cross_business_non_pkp_to_non_pkp_snapshots_non_tax_with_no_return(): void
+    public function test_cross_business_non_pkp_to_non_pkp_snapshots_non_tax_with_mandatory_return(): void
     {
         $originSetting = Setting::factory()->create(['is_pkp' => false]);
         $destSetting = Setting::factory()->create(['is_pkp' => false]);
@@ -70,7 +70,7 @@ class TransferRoutePolicyApprovalTest extends TestCase
 
         $policy = TransferRoutePolicy::where('transfer_id', $transfer->id)->firstOrFail();
         $this->assertEquals(TransferRoutePolicy::CLASSIFICATION_NON_TAX, $policy->destination_classification);
-        $this->assertFalse($policy->mandatory_return);
+        $this->assertTrue($policy->mandatory_return);
         $this->assertNull($policy->resolved_tax_id);
     }
 
@@ -138,7 +138,7 @@ class TransferRoutePolicyApprovalTest extends TestCase
 
         $policy->refresh();
         $this->assertEquals(TransferRoutePolicy::CLASSIFICATION_NON_TAX, $policy->destination_classification);
-        $this->assertFalse($policy->mandatory_return);
+        $this->assertTrue($policy->mandatory_return);
     }
 
     public function test_approval_fails_atomically_when_pkp_destination_has_no_applicable_tax(): void

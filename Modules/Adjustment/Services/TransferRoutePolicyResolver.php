@@ -11,7 +11,7 @@ class TransferRoutePolicyResolver
 {
     /**
      * Resolve the destination classification and mandatory-return decision
-     * for the five agreed same/cross-business PKP route combinations.
+     * for the agreed same/cross-business PKP route combinations.
      *
      * @return array{classification: string, mandatory_return: bool}
      */
@@ -20,13 +20,6 @@ class TransferRoutePolicyResolver
         if ($sameBusiness) {
             return [
                 'classification'   => TransferRoutePolicy::CLASSIFICATION_PRESERVE,
-                'mandatory_return' => false,
-            ];
-        }
-
-        if (!$originIsPkp && !$destinationIsPkp) {
-            return [
-                'classification'   => TransferRoutePolicy::CLASSIFICATION_NON_TAX,
                 'mandatory_return' => false,
             ];
         }

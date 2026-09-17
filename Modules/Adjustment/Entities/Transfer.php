@@ -267,6 +267,14 @@ class Transfer extends BaseModel
             return false;
         }
 
+        $latestPolicy = $this->relationLoaded('routePolicies')
+            ? $this->routePolicies->sortByDesc('transfer_revision')->first()
+            : $this->routePolicies()->orderByDesc('transfer_revision')->first();
+
+        if ($latestPolicy !== null) {
+            return (bool) $latestPolicy->mandatory_return;
+        }
+
         if (! $this->hasDestination()) {
             return false;
         }

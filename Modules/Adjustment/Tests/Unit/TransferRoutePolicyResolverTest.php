@@ -32,12 +32,12 @@ class TransferRoutePolicyResolverTest extends TestCase
         $this->assertFalse($decision['mandatory_return']);
     }
 
-    public function test_cross_business_non_pkp_to_non_pkp_resolves_non_tax_with_no_return(): void
+    public function test_cross_business_non_pkp_to_non_pkp_resolves_non_tax_with_mandatory_return(): void
     {
         $decision = $this->resolver->resolveClassification(false, false, false);
 
         $this->assertEquals(TransferRoutePolicy::CLASSIFICATION_NON_TAX, $decision['classification']);
-        $this->assertFalse($decision['mandatory_return']);
+        $this->assertTrue($decision['mandatory_return']);
     }
 
     public function test_cross_business_pkp_to_non_pkp_resolves_non_tax_with_mandatory_return(): void

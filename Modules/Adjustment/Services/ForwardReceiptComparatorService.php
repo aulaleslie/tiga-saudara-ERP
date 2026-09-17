@@ -19,7 +19,8 @@ class ForwardReceiptComparatorService
     public function requirePolicy(Transfer $transfer, TransferMovement $receiptMovement): TransferRoutePolicy
     {
         $policy = TransferRoutePolicy::where('transfer_id', $transfer->id)
-            ->where('transfer_revision', $receiptMovement->transfer_revision)
+            ->where('transfer_revision', '<=', $receiptMovement->transfer_revision)
+            ->orderByDesc('transfer_revision')
             ->lockForUpdate()
             ->first();
 
