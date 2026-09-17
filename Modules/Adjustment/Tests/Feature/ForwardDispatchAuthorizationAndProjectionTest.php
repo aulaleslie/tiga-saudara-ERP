@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Modules\Adjustment\Tests\Feature;
 
 use App\Models\User;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Adjustment\Entities\Transfer;
 use Modules\Adjustment\Entities\TransferMovement;
@@ -35,9 +36,14 @@ class ForwardDispatchAuthorizationAndProjectionTest extends TestCase
     protected Location $destination;
     protected Product $product;
 
+    protected Product $product2;
+    private bool $originalPreventsLazyLoading;
+
     protected function setUp(): void
     {
         parent::setUp();
+
+        $this->originalPreventsLazyLoading = Model::preventsLazyLoading();
 
         $permissions = [
             'stockTransfers.access',
@@ -82,6 +88,18 @@ class ForwardDispatchAuthorizationAndProjectionTest extends TestCase
             'stock_managed'          => true,
         ]);
 
+        $this->product2 = Product::create([
+            'product_name'           => 'Second Product Serialized',
+            'product_code'           => 'SPS-002',
+            'setting_id'             => $this->setting->id,
+            'unit_id'                => $unit->id,
+            'product_quantity'       => 50,
+            'product_cost'           => 2000,
+            'product_price'          => 3000,
+            'serial_number_required' => true,
+            'stock_managed'          => true,
+        ]);
+
         ProductStock::create([
             'product_id'              => $this->product->id,
             'location_id'             => $this->origin->id,
@@ -92,6 +110,23 @@ class ForwardDispatchAuthorizationAndProjectionTest extends TestCase
             'broken_quantity_non_tax' => 0,
             'broken_quantity_tax'     => 0,
         ]);
+
+        ProductStock::create([
+            'product_id'              => $this->product2->id,
+            'location_id'             => $this->origin->id,
+            'quantity'                => 50,
+            'quantity_non_tax'        => 50,
+            'quantity_tax'            => 0,
+            'broken_quantity'         => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax'     => 0,
+        ]);
+    }
+
+    protected function tearDown(): void
+    {
+        Model::preventLazyLoading($this->originalPreventsLazyLoading);
+        parent::tearDown();
     }
 
     /** @test */
@@ -172,5 +207,109 @@ class ForwardDispatchAuthorizationAndProjectionTest extends TestCase
         $this->assertArrayHasKey('summary', $privApprovalProj);
         $this->assertArrayHasKey('details', $privApprovalProj);
         $this->assertEquals('SHORTAGE', $privApprovalProj['details'][$this->product->id]['status']);
+    }
+
+    /** @test */
+    public function html_preparation_page_renders_new_and_resumed_drafts_with_lazy_loading_disabled(): void
+    {
+        config(['stock_transfers.v2_dispatch_enabled' => true]);
+        Model::preventLazyLoading(true);
+
+        $transfer = Transfer::create([
+            'origin_location_id'      => $this->origin->id,
+            'destination_location_id' => $this->destination->id,
+            'stock_condition'         => Transfer::CONDITION_GOOD,
+            'created_by'              => $this->blindDispatcher->id,
+            'status'                  => Transfer::STATUS_APPROVED,
+            'revision'                => 1,
+            'workflow_version'        => 2,
+        ]);
+
+        $this->createRoutePolicySnapshot($transfer, $this->origin, $this->destination, $this->blindDispatcher);
+
+        TransferProduct::create([
+            'transfer_id' => $transfer->id,
+            'product_id'  => $this->product->id,
+            'quantity'    => 10,
+        ]);
+
+        TransferProduct::create([
+            'transfer_id' => $transfer->id,
+            'product_id'  => $this->product2->id,
+            'quantity'    => 5,
+        ]);
+
+        // 1. Initial request (creates new draft and renders HTML)
+        $responseNew = $this->actingAs($this->blindDispatcher)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->get(route('transfers.movements.prepare', $transfer->id));
+
+        $responseNew->assertOk();
+        $responseNew->assertViewIs('adjustment::transfers.forward_dispatch_prepare');
+        $responseNew->assertSee('Secret Inventory Item');
+        $responseNew->assertSee('SII-001');
+        $responseNew->assertSee('Second Product Serialized');
+        $responseNew->assertSee('SPS-002');
+        $responseNew->assertDontSee('Permintaan Sistem');
+
+        // 2. Second request (resumes existing draft and renders HTML)
+        $responseResumed = $this->actingAs($this->blindDispatcher)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->get(route('transfers.movements.prepare', $transfer->id));
+
+        $responseResumed->assertOk();
+        $responseResumed->assertViewIs('adjustment::transfers.forward_dispatch_prepare');
+        $responseResumed->assertSee('Secret Inventory Item');
+        $responseResumed->assertSee('SII-001');
+        $responseResumed->assertSee('Second Product Serialized');
+        $responseResumed->assertSee('SPS-002');
+    }
+
+    /** @test */
+    public function html_preparation_page_shows_requested_quantities_only_for_stock_visible_dispatcher(): void
+    {
+        config(['stock_transfers.v2_dispatch_enabled' => true]);
+        Model::preventLazyLoading(true);
+
+        $sentinelQuantity = 7742;
+
+        $transfer = Transfer::create([
+            'origin_location_id'      => $this->origin->id,
+            'destination_location_id' => $this->destination->id,
+            'stock_condition'         => Transfer::CONDITION_GOOD,
+            'created_by'              => $this->privilegedDispatcher->id,
+            'status'                  => Transfer::STATUS_APPROVED,
+            'revision'                => 1,
+            'workflow_version'        => 2,
+        ]);
+
+        $this->createRoutePolicySnapshot($transfer, $this->origin, $this->destination, $this->privilegedDispatcher);
+
+        TransferProduct::create([
+            'transfer_id' => $transfer->id,
+            'product_id'  => $this->product->id,
+            'quantity'    => $sentinelQuantity,
+        ]);
+
+        // Blind dispatcher opens preparation
+        $responseBlind = $this->actingAs($this->blindDispatcher)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->get(route('transfers.movements.prepare', $transfer->id));
+
+        $responseBlind->assertOk();
+        $responseBlind->assertDontSee('Permintaan Sistem');
+        $this->assertStringNotContainsString((string) $sentinelQuantity, $responseBlind->getContent());
+        $this->assertDoesNotMatchRegularExpression('/<th class="text-center">\s*Permintaan Sistem\s*<\/th>/', $responseBlind->getContent());
+        $this->assertDoesNotMatchRegularExpression('/<td class="text-center">\s*' . $sentinelQuantity . '\s*<\/td>/', $responseBlind->getContent());
+
+        // Privileged dispatcher opens preparation
+        $responsePrivileged = $this->actingAs($this->privilegedDispatcher)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->get(route('transfers.movements.prepare', $transfer->id));
+
+        $responsePrivileged->assertOk();
+        $responsePrivileged->assertSee('Permintaan Sistem');
+        $this->assertMatchesRegularExpression('/<th class="text-center">\s*Permintaan Sistem\s*<\/th>/', $responsePrivileged->getContent());
+        $this->assertMatchesRegularExpression('/<td class="text-center">\s*' . $sentinelQuantity . '\s*<\/td>/', $responsePrivileged->getContent());
     }
 }

@@ -89,6 +89,15 @@ class ForwardDispatchMovementController extends Controller
                 );
             }
 
+            $movement->loadMissing([
+                'lines.product',
+                'lines.serials',
+            ]);
+
+            if ($canViewSystemStock) {
+                $transfer->loadMissing('products');
+            }
+
             return view('adjustment::transfers.forward_dispatch_prepare', compact('transfer', 'movement', 'canViewSystemStock'));
         } catch (Throwable $e) {
             Log::error('Failed to prepare forward dispatch', ['transfer_id' => $transfer->id, 'error' => $e->getMessage()]);
