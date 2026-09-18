@@ -511,9 +511,9 @@ class ConsignmentBillingConversionServiceTest extends TestCase
         $previewService = new class extends ConsignmentBillingPreviewService {
             public array $dropReceiptIds = [];
 
-            public function generatePreview(int $confirmationId, int $settingId, array $metadata): array
+            public function generatePreview(int $confirmationId, int $settingId, array $metadata, array $pricingIntent = []): array
             {
-                $preview = parent::generatePreview($confirmationId, $settingId, $metadata);
+                $preview = parent::generatePreview($confirmationId, $settingId, $metadata, $pricingIntent);
 
                 foreach ($preview['lines'] as $i => $line) {
                     $preview['lines'][$i]['allocations'] = array_values(array_filter(
@@ -556,9 +556,9 @@ class ConsignmentBillingConversionServiceTest extends TestCase
         [$confirmation] = $this->createApprovedTwoLineSerializedConfirmation();
 
         $previewService = new class extends ConsignmentBillingPreviewService {
-            public function generatePreview(int $confirmationId, int $settingId, array $metadata): array
+            public function generatePreview(int $confirmationId, int $settingId, array $metadata, array $pricingIntent = []): array
             {
-                $preview = parent::generatePreview($confirmationId, $settingId, $metadata);
+                $preview = parent::generatePreview($confirmationId, $settingId, $metadata, $pricingIntent);
 
                 // Append an allocation belonging to no line of this confirmation, as a
                 // grouping or join defect could. All authoritative allocations remain
@@ -1505,5 +1505,236 @@ class ConsignmentBillingConversionServiceTest extends TestCase
 
         $this->assertEquals('2026-10-27', $log->snapshot['metadata']['due_date']);
         $this->assertEquals($term->id, $log->snapshot['metadata']['payment_term_id']);
+    }
+
+    /** @test */
+    public function it_persists_reviewed_row_discount_and_tax_terms_on_conversion()
+    {
+        $confirmation = $this->createApprovedConfirmation();
+
+        $preview = (new ConsignmentBillingPreviewService())->generatePreview(
+            $confirmation->id,
+            $this->setting->id,
+            ['supplier_invoice_number' => 'PREVIEW', 'invoice_date' => '2026-08-28', 'due_date' => '2026-09-28'],
+        );
+        $rowId = $preview['lines'][0]['row_id'];
+
+        $metadata = [
+            'supplier_invoice_number' => 'INV-CONV-DISC',
+            'invoice_date' => '2026-08-28',
+            'due_date' => '2026-09-28',
+        ];
+
+        $pricingIntent = [
+            'is_tax_included' => false,
+            'global_discount_type' => 'fixed',
+            'global_discount_value' => 5000,
+            'rows' => [
+                $rowId => [
+                    'discount_type' => 'fixed',
+                    'discount_value' => 2000,
+                ],
+            ],
+        ];
+
+        $purchase = $this->conversionService->convert(
+            $confirmation->id,
+            $this->setting->id,
+            $this->user->id,
+            $metadata,
+            [],
+            $pricingIntent
+        );
+
+        // 4 units @ (50000 - 2000) = 192000 sub_total, 11% tax = 21120, gross 213120, minus 5000 global discount.
+        $this->assertEquals(21120.0, $purchase->tax_amount);
+        $this->assertEquals(5000.0, $purchase->discount_amount);
+        $this->assertEquals(false, (bool) $purchase->is_tax_included);
+        $this->assertEquals(208120.0, $purchase->total_amount);
+        $this->assertEquals(208120.0, $purchase->due_amount);
+
+        $detail = $purchase->purchaseDetails()->first();
+        $this->assertEqualsIgnoringCase('fixed', $detail->product_discount_type);
+        $this->assertEquals(2000.0, $detail->product_discount_amount);
+        $this->assertEquals($this->tax11->id, $detail->tax_id);
+
+        $lineage = ConsignmentPurchaseDetailLineage::where('purchase_id', $purchase->id)->first();
+        $this->assertEquals(2000.0, $lineage->commercial_snapshot['billing_terms']['final_discount_amount']);
+        $this->assertEquals(50000.0, $lineage->commercial_snapshot['billing_terms']['original_unit_price']);
+    }
+
+    /** @test */
+    public function unchanged_conversion_submission_preserves_the_original_allocation_based_payable()
+    {
+        $confirmation = $this->createApprovedConfirmation();
+
+        $metadata = [
+            'supplier_invoice_number' => 'INV-CONV-UNCHANGED',
+            'invoice_date' => '2026-08-28',
+            'due_date' => '2026-09-28',
+        ];
+
+        $purchase = $this->conversionService->convert(
+            $confirmation->id,
+            $this->setting->id,
+            $this->user->id,
+            $metadata,
+            [],
+            [] // No pricing intent submitted at all.
+        );
+
+        $this->assertEquals(222000.0, $purchase->total_amount);
+        $this->assertEquals(0.0, $purchase->discount_amount);
+    }
+
+    /** @test */
+    public function conversion_rejects_a_row_total_override_that_produces_an_invalid_amount()
+    {
+        $confirmation = $this->createApprovedConfirmation();
+
+        $preview = (new ConsignmentBillingPreviewService())->generatePreview(
+            $confirmation->id,
+            $this->setting->id,
+            ['supplier_invoice_number' => 'PREVIEW', 'invoice_date' => '2026-08-28', 'due_date' => '2026-09-28'],
+        );
+        $rowId = $preview['lines'][0]['row_id'];
+
+        $metadata = [
+            'supplier_invoice_number' => 'INV-CONV-BADROW',
+            'invoice_date' => '2026-08-28',
+            'due_date' => '2026-09-28',
+        ];
+
+        $pricingIntent = [
+            'rows' => [
+                $rowId => [
+                    'discount_type' => 'percentage',
+                    'discount_value' => 150, // invalid: exceeds 100%
+                ],
+            ],
+        ];
+
+        $this->expectException(\DomainException::class);
+
+        $this->conversionService->convert(
+            $confirmation->id,
+            $this->setting->id,
+            $this->user->id,
+            $metadata,
+            [],
+            $pricingIntent
+        );
+
+        $this->assertNull($confirmation->fresh()->purchase_id);
+    }
+
+    /** @test */
+    public function conversion_rejects_a_stale_row_id_that_no_longer_matches_approved_allocations()
+    {
+        $confirmation = $this->createApprovedConfirmation();
+
+        $metadata = [
+            'supplier_invoice_number' => 'INV-CONV-STALE',
+            'invoice_date' => '2026-08-28',
+            'due_date' => '2026-09-28',
+        ];
+
+        $pricingIntent = [
+            'rows' => [
+                'stale-row-id-that-does-not-exist' => [
+                    'discount_type' => 'fixed',
+                    'discount_value' => 1000,
+                ],
+            ],
+        ];
+
+        // A submitted row ID that matches no current commercial group must reject the
+        // conversion outright rather than silently dropping the adjustment: a stale
+        // preview (e.g. approved evidence changed between preview and submit) must
+        // never produce a Purchase.
+        $this->expectException(\DomainException::class);
+
+        $this->conversionService->convert(
+            $confirmation->id,
+            $this->setting->id,
+            $this->user->id,
+            $metadata,
+            [],
+            $pricingIntent
+        );
+
+        $this->assertNull($confirmation->fresh()->purchase_id);
+    }
+
+    /** @test */
+    public function repeated_conversion_with_pricing_intent_does_not_alter_the_linked_purchase()
+    {
+        $confirmation = $this->createApprovedConfirmation();
+
+        $preview = (new ConsignmentBillingPreviewService())->generatePreview(
+            $confirmation->id,
+            $this->setting->id,
+            ['supplier_invoice_number' => 'PREVIEW', 'invoice_date' => '2026-08-28', 'due_date' => '2026-09-28'],
+        );
+        $rowId = $preview['lines'][0]['row_id'];
+
+        $metadata = [
+            'supplier_invoice_number' => 'INV-CONV-IDEMPOTENT',
+            'invoice_date' => '2026-08-28',
+            'due_date' => '2026-09-28',
+        ];
+
+        $pricingIntent = [
+            'rows' => [
+                $rowId => ['discount_type' => 'fixed', 'discount_value' => 1000],
+            ],
+        ];
+
+        $firstPurchase = $this->conversionService->convert(
+            $confirmation->id, $this->setting->id, $this->user->id, $metadata, [], $pricingIntent
+        );
+
+        // Retry with different pricing intent: the already-linked Purchase must not change.
+        $secondPricingIntent = [
+            'rows' => [
+                $rowId => ['discount_type' => 'fixed', 'discount_value' => 9999],
+            ],
+        ];
+
+        $secondPurchase = $this->conversionService->convert(
+            $confirmation->id, $this->setting->id, $this->user->id, $metadata, [], $secondPricingIntent
+        );
+
+        $this->assertEquals($firstPurchase->id, $secondPurchase->id);
+        $this->assertEquals($firstPurchase->total_amount, $secondPurchase->fresh()->total_amount);
+    }
+
+    /** @test */
+    public function pkp_purchase_detail_sub_total_is_gross_matching_ordinary_purchase_convention()
+    {
+        // Ordinary Purchase create (PurchaseNormalizer) stores PurchaseDetail.sub_total
+        // as the tax-inclusive row amount for a PKP row. The consignment conversion
+        // path must match that convention exactly, or the detail total disagrees with
+        // the header payable and any report/view summing PurchaseDetail.sub_total.
+        $confirmation = $this->createApprovedConfirmation();
+
+        $metadata = [
+            'supplier_invoice_number' => 'INV-CONV-GROSS-SUBTOTAL',
+            'invoice_date' => '2026-08-28',
+            'due_date' => '2026-09-28',
+        ];
+
+        $purchase = $this->conversionService->convert(
+            $confirmation->id, $this->setting->id, $this->user->id, $metadata, [], []
+        );
+
+        $detail = $purchase->purchaseDetails()->first();
+
+        // 4 units @ 50000 = 200000 net, 11% tax = 22000, gross total = 222000.
+        // Recall Purchase.sub_total itself is silently dropped today (not in
+        // $fillable), pre-existing and unrelated to this fix; assert against the
+        // authoritative preview-derived amounts instead.
+        $this->assertEquals(222000.0, (float) $detail->sub_total);
+        $this->assertEquals($purchase->total_amount, (float) $detail->sub_total);
     }
 }

@@ -44,11 +44,13 @@ class ConsignmentBillingConversionService
      *     billing_notes?: ?string
      * } $metadata
      * @param array<mixed> $attachments
+     * @param array $pricingIntent Billing pricing intent: is_tax_included, global_discount_type,
+     *     global_discount_value, rows keyed by row_id. See ConsignmentBillingPreviewService.
      * @return Purchase
      *
      * @throws \DomainException|\InvalidArgumentException
      */
-    public function convert(int $confirmationId, int $settingId, int $userId, array $metadata, array $attachments = []): Purchase
+    public function convert(int $confirmationId, int $settingId, int $userId, array $metadata, array $attachments = [], array $pricingIntent = []): Purchase
     {
         // 1. Initial setting-scoped idempotency check BEFORE attachment validation
         // so that retries with consumed staging file paths return the existing Purchase immediately.
@@ -81,7 +83,7 @@ class ConsignmentBillingConversionService
             // so validation policy failures trigger durable audit logging without acquiring locks.
             $this->validateAttachments($attachments);
 
-            $purchase = DB::transaction(function () use ($confirmationId, $settingId, $userId, $metadata, $attachmentNames, $attachments, &$createdMedia) {
+            $purchase = DB::transaction(function () use ($confirmationId, $settingId, $userId, $metadata, $attachmentNames, $attachments, $pricingIntent, &$createdMedia) {
                 /** @var ConsignmentBillingConfirmation|null $confirmation */
                 // Scoped by active setting so a foreign confirmation is indistinguishable
                 // from a nonexistent one.
@@ -214,8 +216,10 @@ class ConsignmentBillingConversionService
                     }
                 }
 
-                // Run preview validation under lock
-                $preview = $this->previewService->generatePreview($confirmationId, $settingId, $metadata);
+                // Run preview validation under lock, using the same pricing intent the
+                // operator reviewed -- this is the authoritative recalculation, not a
+                // separate calculation path.
+                $preview = $this->previewService->generatePreview($confirmationId, $settingId, $metadata, $pricingIntent);
 
                 if (!$preview['valid']) {
                     $reasonStr = implode('; ', $preview['blockers']);
@@ -250,6 +254,11 @@ class ConsignmentBillingConversionService
                     'total_amount' => $preview['totals']['total_amount'],
                     'sub_total' => $preview['totals']['sub_total'],
                     'tax_amount' => $preview['totals']['tax_amount'],
+                    'discount_percentage' => $preview['totals']['global_discount_type'] === 'percentage'
+                        ? ($pricingIntent['global_discount_value'] ?? 0.0)
+                        : 0.0,
+                    'discount_amount' => $preview['totals']['global_discount_amount'],
+                    'is_tax_included' => $preview['is_tax_included'] ?? false,
                     'paid_amount' => 0.0,
                     'due_amount' => $preview['totals']['total_amount'],
                     'status' => Purchase::STATUS_RECEIVED,
@@ -265,6 +274,16 @@ class ConsignmentBillingConversionService
                 $createdLineageIds = [];
 
                 foreach ($preview['lines'] as $line) {
+                    // PurchaseDetail.sub_total follows the ordinary Purchase convention
+                    // (PurchaseNormalizer): for a PKP row it is the gross, tax-inclusive
+                    // row amount; only a non-PKP row's sub_total is tax-exclusive. The
+                    // preview's own 'sub_total' is always tax-exclusive (used for the
+                    // header's separate Subtotal/Tax display), so it must not be written
+                    // to this column directly for PKP rows.
+                    $purchaseDetailSubTotal = ($preview['is_pkp'] ?? false)
+                        ? $line['total_amount']
+                        : $line['sub_total'];
+
                     $purchaseDetail = PurchaseDetail::create([
                         'purchase_id' => $purchase->id,
                         'product_id' => $line['product_id'],
@@ -273,11 +292,12 @@ class ConsignmentBillingConversionService
                         'quantity' => $line['quantity'],
                         'price' => $line['unit_price'],
                         'unit_price' => $line['unit_price'],
-                        'sub_total' => $line['sub_total'],
+                        'sub_total' => $purchaseDetailSubTotal,
                         'tax_id' => $line['tax_id'],
                         'product_tax_amount' => $line['product_tax_amount'],
-                        'product_discount_type' => 'fixed',
-                        'product_discount_amount' => 0.0,
+                        'product_discount_type' => $line['discount_type'] ?? 'fixed',
+                        'product_discount_amount' => $line['discount_amount'] ?? 0.0,
+                        'pricing_source' => 'consignment_billing',
                     ]);
 
                     $createdDetailIds[] = $purchaseDetail->id;
@@ -326,6 +346,15 @@ class ConsignmentBillingConversionService
                                         'original_stored_tax_amount' => $allocMeta['original_stored_tax_amount'] ?? $allocMeta['tax_amount'],
                                         'is_legacy_full_lot_tax' => $allocMeta['is_legacy_full_lot_tax'] ?? false,
                                         'tax_snapshot_version' => $allocMeta['tax_snapshot_version'] ?? null,
+                                        'billing_terms' => [
+                                            'original_unit_price' => $line['original_unit_price'] ?? $allocMeta['unit_dpp'],
+                                            'original_total' => $line['original_total'] ?? null,
+                                            'final_unit_price' => $line['unit_price'],
+                                            'final_discount_type' => $line['discount_type'] ?? 'fixed',
+                                            'final_discount_amount' => $line['discount_amount'] ?? 0.0,
+                                            'final_tax_id' => $line['tax_id'],
+                                            'final_total' => $line['total_amount'],
+                                        ],
                                     ],
                                 ]);
 
@@ -357,6 +386,15 @@ class ConsignmentBillingConversionService
                                     'original_stored_tax_amount' => $allocMeta['original_stored_tax_amount'] ?? $allocMeta['tax_amount'],
                                     'is_legacy_full_lot_tax' => $allocMeta['is_legacy_full_lot_tax'] ?? false,
                                     'tax_snapshot_version' => $allocMeta['tax_snapshot_version'] ?? null,
+                                    'billing_terms' => [
+                                        'original_unit_price' => $line['original_unit_price'] ?? $allocMeta['unit_dpp'],
+                                        'original_total' => $line['original_total'] ?? null,
+                                        'final_unit_price' => $line['unit_price'],
+                                        'final_discount_type' => $line['discount_type'] ?? 'fixed',
+                                        'final_discount_amount' => $line['discount_amount'] ?? 0.0,
+                                        'final_tax_id' => $line['tax_id'],
+                                        'final_total' => $line['total_amount'],
+                                    ],
                                 ],
                             ]);
 
@@ -444,6 +482,9 @@ class ConsignmentBillingConversionService
                         'purchase_id' => $purchase->id,
                         'purchase_reference' => $purchase->reference,
                         'totals' => $preview['totals'],
+                        'is_pkp' => $preview['is_pkp'] ?? false,
+                        'is_tax_included' => $preview['is_tax_included'] ?? false,
+                        'pricing_intent' => $pricingIntent,
                         'metadata' => $sanitizedMetadata,
                         // Generated evidence identities, so the audit record stands on its own.
                         'purchase_detail_ids' => $createdDetailIds,

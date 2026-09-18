@@ -319,6 +319,98 @@ class ConsignmentPhase3FeatureTest extends TestCase
     }
 
     /** @test */
+    public function it_rejects_a_row_unit_price_beyond_the_decimal_15_6_column_limit()
+    {
+        $this->actingAs($this->billingUser)
+            ->withSession(['setting_id' => $this->setting1->id]);
+
+        $preview = $this->postJson(route('consignments.billing.preview', $this->confirmation->id), [
+            'supplier_invoice_number' => 'INV-FEAT-OVERFLOW',
+            'invoice_date' => '2026-08-28',
+            'due_date' => '2026-09-28',
+        ]);
+        $rowId = $preview->json('lines.0.row_id');
+
+        $overflowResponse = $this->postJson(route('consignments.billing.preview', $this->confirmation->id), [
+            'supplier_invoice_number' => 'INV-FEAT-OVERFLOW',
+            'invoice_date' => '2026-08-28',
+            'due_date' => '2026-09-28',
+            'rows' => [
+                $rowId => ['unit_price' => 1000000000.0],
+            ],
+        ]);
+
+        $overflowResponse->assertStatus(422);
+    }
+
+    /** @test */
+    public function it_accepts_a_row_total_override_beyond_the_unit_price_limit_but_within_its_own_column_range()
+    {
+        // row_total_override lands in purchase_details.sub_total (DECIMAL(15,2),
+        // max 9999999999999.99) -- a much wider range than unit_price's
+        // DECIMAL(15,6) ceiling (999999999.999999). A value between those two
+        // limits must be accepted by validation, not rejected as if it were a
+        // unit price. The fixture confirmation's row has quantity 3, so this
+        // override (2,999,999,997) still back-solves to a unit price
+        // (999,999,999) safely under DECIMAL(15,6)'s own ceiling -- isolating
+        // this test to the validation-layer limit alone.
+        $this->actingAs($this->billingUser)
+            ->withSession(['setting_id' => $this->setting1->id]);
+
+        $preview = $this->postJson(route('consignments.billing.preview', $this->confirmation->id), [
+            'supplier_invoice_number' => 'INV-FEAT-BIGTOTAL',
+            'invoice_date' => '2026-08-28',
+            'due_date' => '2026-09-28',
+        ]);
+        $rowId = $preview->json('lines.0.row_id');
+
+        $response = $this->postJson(route('consignments.billing.preview', $this->confirmation->id), [
+            'supplier_invoice_number' => 'INV-FEAT-BIGTOTAL',
+            'invoice_date' => '2026-08-28',
+            'due_date' => '2026-09-28',
+            'rows' => [
+                $rowId => ['row_total_override' => 2999999997.0],
+            ],
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('valid', true);
+    }
+
+    /** @test */
+    public function it_renders_billing_rows_on_preview_with_completely_blank_metadata()
+    {
+        $this->actingAs($this->billingUser)
+            ->withSession(['setting_id' => $this->setting1->id]);
+
+        // No supplier_invoice_number, invoice_date, due_date, or payment_term_id at
+        // all -- the pricing table must still render so amounts can be reviewed and
+        // edited before any invoice header field is filled in.
+        $previewResponse = $this->postJson(route('consignments.billing.preview', $this->confirmation->id), []);
+
+        $previewResponse->assertStatus(200);
+        $previewResponse->assertJsonPath('valid', false);
+        $previewResponse->assertJsonCount(1, 'lines');
+    }
+
+    /** @test */
+    public function it_returns_http_400_when_converting_without_due_date_or_payment_term()
+    {
+        $this->actingAs($this->billingUser)
+            ->withSession(['setting_id' => $this->setting1->id]);
+
+        $convertResponse = $this->post(route('consignments.billing.convert', $this->confirmation->id), [
+            'supplier_invoice_number' => 'INV-FEAT-NODUE',
+            'invoice_date' => '2026-08-28',
+        ]);
+
+        $convertResponse->assertStatus(400);
+        $this->assertDatabaseMissing('purchases', [
+            'supplier_purchase_number' => 'INV-FEAT-NODUE',
+        ]);
+    }
+
+    /** @test */
     public function it_blocks_status_update_and_corrections_on_consignment_billing_purchases()
     {
         // Grant permissions for purchase management & correction to user

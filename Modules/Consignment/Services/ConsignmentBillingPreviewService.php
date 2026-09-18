@@ -11,6 +11,13 @@ use Modules\Setting\Entities\Setting;
 
 class ConsignmentBillingPreviewService
 {
+    protected ConsignmentBillingPricingCalculator $pricingCalculator;
+
+    public function __construct(?ConsignmentBillingPricingCalculator $pricingCalculator = null)
+    {
+        $this->pricingCalculator = $pricingCalculator ?? new ConsignmentBillingPricingCalculator();
+    }
+
     /**
      * Build preview for an approved billing-ready confirmation with user invoice metadata.
      *
@@ -25,6 +32,18 @@ class ConsignmentBillingPreviewService
      *     tax_ref_no?: ?string,
      *     billing_notes?: ?string
      * } $metadata
+     * @param array{
+     *     is_tax_included?: bool,
+     *     global_discount_type?: string,
+     *     global_discount_value?: float,
+     *     rows?: array<string, array{
+     *         unit_price?: float|null,
+     *         discount_type?: string|null,
+     *         discount_value?: float|null,
+     *         tax_id?: int|null,
+     *         row_total_override?: float|null
+     *     }>
+     * } $pricingIntent
      * @return array{
      *     valid: bool,
      *     blockers: array<string>,
@@ -41,9 +60,17 @@ class ConsignmentBillingPreviewService
      *     }
      * }
      */
-    public function generatePreview(int $confirmationId, int $settingId, array $metadata): array
+    public function generatePreview(int $confirmationId, int $settingId, array $metadata, array $pricingIntent = []): array
     {
-        $blockers = [];
+        // Evidence blockers make the confirmation itself unbillable (wrong status,
+        // inactive supplier, foreign setting) -- these must suppress the pricing
+        // table entirely, since the underlying evidence cannot be trusted.
+        $evidenceBlockers = [];
+        // Metadata blockers are about invoice header completeness (invoice number,
+        // date, due date/payment term) -- these only block final conversion. The
+        // operator must be able to see and edit billing rows/pricing before any
+        // header field is filled in, so these never suppress the pricing table.
+        $metadataBlockers = [];
         $resolvedDueDate = null;
         $paymentTermId = null;
 
@@ -77,35 +104,37 @@ class ConsignmentBillingPreviewService
         $supplier = \Modules\People\Entities\Supplier::find($confirmation->supplier_id);
 
         if (!$supplier) {
-            $blockers[] = "Supplier #{$confirmation->supplier_id} is not available.";
+            $evidenceBlockers[] = "Supplier #{$confirmation->supplier_id} is not available.";
         } elseif (isset($supplier->is_active) && !$supplier->is_active) {
-            $blockers[] = "Supplier #{$supplier->id} ({$supplier->supplier_name}) is inactive.";
+            $evidenceBlockers[] = "Supplier #{$supplier->id} ({$supplier->supplier_name}) is inactive.";
         }
 
         if (!$confirmation->isApproved()) {
-            $blockers[] = "Confirmation status is [{$confirmation->status}]; must be [APPROVED].";
+            $evidenceBlockers[] = "Confirmation status is [{$confirmation->status}]; must be [APPROVED].";
         }
 
         if (!$confirmation->is_ready_for_billing || $confirmation->isBilled()) {
-            $blockers[] = "Confirmation is not ready for billing or has already been converted.";
+            $evidenceBlockers[] = "Confirmation is not ready for billing or has already been converted.";
         }
 
-        // Validate metadata
+        // Validate metadata. These are completeness/correctness requirements for
+        // FINAL CONVERSION only -- the pricing table must still render so an operator
+        // can review and edit amounts before any of these fields are filled in.
         $supplierInvoiceNumber = trim($metadata['supplier_invoice_number'] ?? '');
         if (empty($supplierInvoiceNumber)) {
-            $blockers[] = "Supplier invoice number is required.";
+            $metadataBlockers[] = "Supplier invoice number is required.";
         }
 
         $invoiceDateStr = $metadata['invoice_date'] ?? null;
         if (empty($invoiceDateStr)) {
-            $blockers[] = "Invoice date is required.";
+            $metadataBlockers[] = "Invoice date is required.";
         }
 
         $dueDateStr = $metadata['due_date'] ?? null;
         $paymentTermId = !empty($metadata['payment_term_id']) ? (int) $metadata['payment_term_id'] : null;
 
         if (empty($dueDateStr) && empty($paymentTermId)) {
-            $blockers[] = "At least one of due date or payment term is required.";
+            $metadataBlockers[] = "At least one of due date or payment term is required.";
         }
 
         $paymentTerm = null;
@@ -114,7 +143,7 @@ class ConsignmentBillingPreviewService
                 ->where('is_active', true)
                 ->first();
             if (!$paymentTerm) {
-                $blockers[] = "Selected payment term #{$paymentTermId} is invalid or inactive.";
+                $metadataBlockers[] = "Selected payment term #{$paymentTermId} is invalid or inactive.";
             }
         }
 
@@ -124,7 +153,7 @@ class ConsignmentBillingPreviewService
             if (!empty($dueDateStr)) {
                 $dueCarbon = \Carbon\Carbon::parse($dueDateStr)->startOfDay();
                 if ($dueCarbon->lt($invoiceCarbon)) {
-                    $blockers[] = "Due date [{$dueDateStr}] cannot be before invoice date [{$invoiceDateStr}].";
+                    $metadataBlockers[] = "Due date [{$dueDateStr}] cannot be before invoice date [{$invoiceDateStr}].";
                 } else {
                     $resolvedDueDate = $dueCarbon->format('Y-m-d');
                 }
@@ -133,11 +162,13 @@ class ConsignmentBillingPreviewService
             }
         }
 
-        if (empty($blockers) === false && count($blockers) > 0) {
-            // Header level blockers prevent preview construction
+        if (!empty($evidenceBlockers)) {
+            // Only evidence-level blockers (confirmation status, supplier, foreign
+            // setting) suppress the pricing table entirely -- that evidence cannot be
+            // trusted, so no line items can be computed from it.
             return [
                 'valid' => false,
-                'blockers' => $blockers,
+                'blockers' => array_merge($evidenceBlockers, $metadataBlockers),
                 'confirmation' => $confirmation ? [
                     'id' => $confirmation->id,
                     'confirmation_number' => $confirmation->confirmation_number,
@@ -152,6 +183,9 @@ class ConsignmentBillingPreviewService
                 'totals' => [
                     'sub_total' => 0.0,
                     'tax_amount' => 0.0,
+                    'gross_total' => 0.0,
+                    'global_discount_type' => 'fixed',
+                    'global_discount_amount' => 0.0,
                     'total_amount' => 0.0,
                     'paid_amount' => 0.0,
                     'due_amount' => 0.0,
@@ -159,14 +193,66 @@ class ConsignmentBillingPreviewService
             ];
         }
 
+        // Evidence is sound; metadata completeness/correctness issues (if any) are
+        // still reported in the final result but no longer block line computation.
+        $blockers = $metadataBlockers;
+
+        $isPkp = (bool) ($confirmation->setting->is_pkp ?? false);
+
+        $globalDiscountType = strtolower((string) ($pricingIntent['global_discount_type'] ?? 'fixed'));
+        if (!in_array($globalDiscountType, ['fixed', 'percentage'], true)) {
+            $globalDiscountType = 'fixed';
+        }
+        $globalDiscountValue = (float) ($pricingIntent['global_discount_value'] ?? 0.0);
+        $isTaxIncluded = $isPkp ? (bool) ($pricingIntent['is_tax_included'] ?? true) : false;
+
+        if (!$isPkp && $this->intentHasTaxInputs($pricingIntent)) {
+            $blockers[] = "Tax selection and tax-inclusion controls are not permitted for a non-PKP setting.";
+        }
+
         // Build deterministic commercial line items from allocations
-        $linesResult = $this->buildPreviewLines($confirmation);
+        $linesResult = $this->buildPreviewLines($confirmation, $isPkp, $isTaxIncluded, $pricingIntent['rows'] ?? []);
         $blockers = array_merge($blockers, $linesResult['blockers']);
+
+        // purchases.total_amount (and sub_total/tax_amount/due_amount) are
+        // DECIMAL(15,2): 13 integer digits before the point, max 9999999999999.99.
+        // Each row total is individually kept within that same column's range
+        // (ConsignmentBillingPricingCalculator), but summing several large,
+        // individually-valid row totals can still overflow the header column even
+        // though no single row did -- this must be caught before conversion, not
+        // discovered as a database error at insert time.
+        $maxHeaderAmount = 9999999999999.99;
+        if ($linesResult['totals']['gross_total'] > $maxHeaderAmount) {
+            $blockers[] = "The combined row total [{$linesResult['totals']['gross_total']}] exceeds the maximum payable amount that can be recorded.";
+        }
+
+        // A global discount only ever reduces the payable, so bounding gross_total
+        // above is sufficient to bound total_amount too; no separate check needed
+        // after applying it.
+        $globalDiscountResult = $this->pricingCalculator->applyGlobalDiscount(
+            $linesResult['totals']['gross_total'],
+            $globalDiscountType,
+            $globalDiscountValue
+        );
+        $blockers = array_merge($blockers, $globalDiscountResult['errors']);
+
+        $totals = [
+            'sub_total' => $linesResult['totals']['sub_total'],
+            'tax_amount' => $linesResult['totals']['tax_amount'],
+            'gross_total' => $linesResult['totals']['gross_total'],
+            'global_discount_type' => $globalDiscountType,
+            'global_discount_amount' => $globalDiscountResult['discount_amount'],
+            'total_amount' => $globalDiscountResult['total_amount'],
+            'paid_amount' => 0.0,
+            'due_amount' => $globalDiscountResult['total_amount'],
+        ];
 
         return [
             'valid' => empty($blockers),
             'resolved_due_date' => $resolvedDueDate,
             'payment_term_id' => $paymentTermId,
+            'is_pkp' => $isPkp,
+            'is_tax_included' => $isTaxIncluded,
             'blockers' => $blockers,
             'confirmation' => [
                 'id' => $confirmation->id,
@@ -188,7 +274,7 @@ class ConsignmentBillingPreviewService
                 'billing_notes' => $metadata['billing_notes'] ?? null,
             ],
             'lines' => $linesResult['lines'],
-            'totals' => $linesResult['totals'],
+            'totals' => $totals,
         ];
     }
 
@@ -207,7 +293,7 @@ class ConsignmentBillingPreviewService
      *     blockers: array<string>
      * }
      */
-    protected function buildPreviewLines(ConsignmentBillingConfirmation $confirmation): array
+    protected function buildPreviewLines(ConsignmentBillingConfirmation $confirmation, bool $isPkp = false, bool $isTaxIncluded = false, array $rowIntents = []): array
     {
         $blockers = [];
         $groups = [];
@@ -556,54 +642,155 @@ class ConsignmentBillingPreviewService
         $previewLines = [];
         $headerSubTotal = 0.0;
         $headerTaxAmount = 0.0;
+        $headerGrossTotal = 0.0;
+        $knownRowIds = [];
 
         foreach ($groups as $key => $grp) {
             $qty = (float) $grp['quantity'];
-            $unitPrice = (float) $grp['unit_price'];
-            $lineSubTotal = round($qty * $unitPrice, 2);
+            $originalUnitPrice = (float) $grp['unit_price'];
+            $originalSubTotal = round($qty * $originalUnitPrice, 2);
+            $allocationTaxRate = (float) $grp['tax_rate'];
+            $originalTaxAmount = round(array_sum(array_column($grp['allocations'], 'tax_amount')), 2);
+            $originalTotal = round($originalSubTotal + $originalTaxAmount, 2);
 
-            $taxRate = (float) $grp['tax_rate'];
-            $lineTaxAmount = round(array_sum(array_column($grp['allocations'], 'tax_amount')), 2);
-            $lineTotalAmount = round($lineSubTotal + $lineTaxAmount, 2);
+            $allocationIds = array_map(static fn ($a) => (int) $a['receipt_allocation_id'], $grp['allocations']);
+            $rowId = $this->pricingCalculator->buildRowId($key, $allocationIds);
+            $knownRowIds[$rowId] = true;
 
-            // Sanity check monetary values
-            if (is_nan($lineTotalAmount) || is_infinite($lineTotalAmount) || $lineTotalAmount < 0) {
-                $blockers[] = "Calculated line total [{$lineTotalAmount}] for product #{$grp['product_id']} is invalid.";
+            $rowIntent = $rowIntents[$rowId] ?? null;
+            $isRowUnchanged = $rowIntent === null || $this->isRowIntentEmpty($rowIntent, $grp['tax_id']);
+
+            $resolvedTaxRate = null;
+            if ($isPkp && !$isRowUnchanged) {
+                $intentTaxId = ($rowIntent['tax_id'] ?? null) !== null && $rowIntent['tax_id'] !== ''
+                    ? (int) $rowIntent['tax_id']
+                    : $grp['tax_id'];
+
+                if ($intentTaxId !== null && $intentTaxId !== $grp['tax_id']) {
+                    $resolvedTaxRate = \Modules\Setting\Entities\Tax::active()->whereKey($intentTaxId)->value('value');
+                    $resolvedTaxRate = $resolvedTaxRate !== null ? (float) $resolvedTaxRate : null;
+                    if ($resolvedTaxRate === null) {
+                        $blockers[] = "Row [{$rowId}] (product #{$grp['product_id']}): selected tax [{$intentTaxId}] is not a valid active tax.";
+                    }
+                }
             }
 
-            $headerSubTotal += $lineSubTotal;
-            $headerTaxAmount += $lineTaxAmount;
+            $calc = $this->pricingCalculator->calculateRow(
+                [
+                    'quantity' => $qty,
+                    'original_unit_price' => $originalUnitPrice,
+                    'original_sub_total' => $originalSubTotal,
+                    'original_tax_amount' => $originalTaxAmount,
+                    'original_total' => $originalTotal,
+                    'allocation_tax_id' => $grp['tax_id'],
+                    'allocation_tax_rate' => $allocationTaxRate,
+                ],
+                $rowIntent ?? [],
+                $isPkp,
+                $isTaxIncluded,
+                $isRowUnchanged,
+                $resolvedTaxRate
+            );
+
+            foreach ($calc['errors'] as $err) {
+                $blockers[] = "Row [{$rowId}] (product #{$grp['product_id']}): {$err}";
+            }
+
+            if (is_nan($calc['total']) || is_infinite($calc['total']) || $calc['total'] < 0) {
+                $blockers[] = "Calculated line total [{$calc['total']}] for product #{$grp['product_id']} is invalid.";
+            }
+
+            $headerSubTotal += $calc['sub_total'];
+            $headerTaxAmount += $calc['tax_amount'];
+            $headerGrossTotal += $calc['total'];
 
             $previewLines[] = [
+                'row_id' => $rowId,
                 'product_id' => $grp['product_id'],
                 'product_name' => $grp['product_name'],
                 'product_code' => $grp['product_code'],
                 'quantity' => $qty,
-                'unit_price' => $unitPrice,
-                'sub_total' => $lineSubTotal,
-                'tax_id' => $grp['tax_id'],
-                'tax_rate' => $taxRate,
+                'original_unit_price' => $originalUnitPrice,
+                'original_total' => $originalTotal,
+                'unit_price' => $calc['unit_price'],
+                'sub_total' => $calc['sub_total'],
+                'discount_type' => $calc['discount_type'],
+                'discount_amount' => $calc['discount_amount'],
+                'tax_id' => $calc['tax_id'],
+                'tax_rate' => $calc['tax_rate'],
                 'tax_name' => $grp['tax_name'],
-                'product_tax_amount' => $lineTaxAmount,
-                'total_amount' => $lineTotalAmount,
+                'product_tax_amount' => $calc['tax_amount'],
+                'total_amount' => $calc['total'],
                 'allocations' => $grp['allocations'],
                 'serialized_allocations' => $grp['serialized_allocations'],
             ];
         }
 
-        $headerTotalAmount = round($headerSubTotal + $headerTaxAmount, 2);
+        // A submitted row ID that matches no current commercial group is stale or
+        // unknown evidence -- silently ignoring it would let a price adjustment for a
+        // row that no longer exists be dropped instead of rejected.
+        $staleRowIds = array_diff(array_keys($rowIntents), array_keys($knownRowIds));
+        if (!empty($staleRowIds)) {
+            $blockers[] = "Pricing intent references unknown or stale row(s): " . implode(', ', $staleRowIds) . ".";
+        }
 
         return [
             'lines' => $previewLines,
             'totals' => [
                 'sub_total' => round($headerSubTotal, 2),
                 'tax_amount' => round($headerTaxAmount, 2),
-                'total_amount' => round($headerTotalAmount, 2),
-                'paid_amount' => 0.0,
-                'due_amount' => round($headerTotalAmount, 2),
+                'gross_total' => round($headerGrossTotal, 2),
             ],
             'blockers' => $blockers,
         ];
+    }
+
+    /**
+     * A row intent counts as "no edit" only when it carries no actual monetary
+     * change. The form always submits a discount_type and the row's own current
+     * tax_id as UI state, so those two are excluded unless paired with a real
+     * value: a nonzero discount_value, or a tax_id that actually differs from
+     * the allocation's own tax identity.
+     */
+    private function isRowIntentEmpty(array $rowIntent, ?int $allocationTaxId): bool
+    {
+        if (array_key_exists('unit_price', $rowIntent) && $rowIntent['unit_price'] !== null && $rowIntent['unit_price'] !== '') {
+            return false;
+        }
+
+        if (array_key_exists('row_total_override', $rowIntent) && $rowIntent['row_total_override'] !== null && $rowIntent['row_total_override'] !== '') {
+            return false;
+        }
+
+        if (array_key_exists('discount_value', $rowIntent) && $rowIntent['discount_value'] !== null && $rowIntent['discount_value'] !== '' && (float) $rowIntent['discount_value'] != 0.0) {
+            return false;
+        }
+
+        if (array_key_exists('tax_id', $rowIntent) && $rowIntent['tax_id'] !== null && $rowIntent['tax_id'] !== '') {
+            if ((int) $rowIntent['tax_id'] !== $allocationTaxId) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * True if the submitted pricing intent carries any tax_id or is_tax_included
+     * value -- these are only valid for a PKP setting.
+     */
+    private function intentHasTaxInputs(array $pricingIntent): bool
+    {
+        // is_tax_included is always sent by the form regardless of PKP status and is
+        // already forced to false for non-PKP settings above; only an actual tax_id
+        // selection is meaningful tax input to reject here.
+        foreach ($pricingIntent['rows'] ?? [] as $row) {
+            if (array_key_exists('tax_id', $row) && $row['tax_id'] !== null && $row['tax_id'] !== '') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function buildErrorResult(array $blockers): array
@@ -618,6 +805,9 @@ class ConsignmentBillingPreviewService
             'totals' => [
                 'sub_total' => 0.0,
                 'tax_amount' => 0.0,
+                'gross_total' => 0.0,
+                'global_discount_type' => 'fixed',
+                'global_discount_amount' => 0.0,
                 'total_amount' => 0.0,
                 'paid_amount' => 0.0,
                 'due_amount' => 0.0,

@@ -325,7 +325,11 @@ class ConsignmentBillingPreviewServiceTest extends TestCase
 
         $line = $preview['lines'][0];
         $this->assertEquals(5.0, $line['quantity']);
-        $this->assertEquals(50000.0, $line['unit_price']);
+        // PKP defaults tax-included=true, so an unchanged row's displayed unit
+        // price is the gross (tax-inclusive) price that reproduces the original
+        // total, while original_unit_price keeps the DPP evidence.
+        $this->assertEquals(50000.0, $line['original_unit_price']);
+        $this->assertEquals(55500.0, $line['unit_price']);
         $this->assertEquals(250000.0, $line['sub_total']);
         $this->assertEquals(27500.0, $line['product_tax_amount']);
         $this->assertEquals(277500.0, $line['total_amount']);
@@ -893,5 +897,181 @@ class ConsignmentBillingPreviewServiceTest extends TestCase
 
         $this->assertFalse($preview['valid']);
         $this->assertStringContainsString('cannot be before invoice date', implode('; ', $preview['blockers']));
+    }
+
+    /** @test */
+    public function non_pkp_form_default_intent_does_not_reject_its_own_submission()
+    {
+        $this->setting->update(['is_pkp' => false]);
+        $confirmation = $this->createApprovedConfirmationWithAllocations(50000, 50000);
+
+        $metadata = [
+            'supplier_invoice_number' => 'INV-NONPKP-001',
+            'invoice_date' => '2026-08-28',
+            'due_date' => '2026-09-28',
+        ];
+
+        // Mirrors exactly what the billing page always sends: is_tax_included=0 present
+        // regardless of PKP status, and no row edits.
+        $pricingIntent = [
+            'is_tax_included' => false,
+            'global_discount_type' => 'fixed',
+            'global_discount_value' => 0,
+            'rows' => [],
+        ];
+
+        $preview = $this->previewService->generatePreview($confirmation->id, $this->setting->id, $metadata, $pricingIntent);
+
+        $this->assertTrue($preview['valid']);
+        $this->assertEmpty($preview['blockers']);
+    }
+
+    /** @test */
+    public function pkp_row_with_only_default_ui_state_is_treated_as_unedited()
+    {
+        $confirmation = $this->createApprovedConfirmationWithAllocations(50000, 50000);
+
+        $metadata = [
+            'supplier_invoice_number' => 'INV-PKP-DEFAULTS',
+            'invoice_date' => '2026-08-28',
+            'due_date' => '2026-09-28',
+        ];
+
+        $preview = $this->previewService->generatePreview($confirmation->id, $this->setting->id, $metadata);
+        $rowId = $preview['lines'][0]['row_id'];
+        $originalTotal = $preview['lines'][0]['total_amount'];
+
+        // Mirrors what the form sends for a row nobody touched: its current tax_id and
+        // the default discount_type dropdown value, but no actual price/discount/tax edit.
+        $pricingIntent = [
+            'is_tax_included' => true,
+            'rows' => [
+                $rowId => [
+                    'discount_type' => 'fixed',
+                    'tax_id' => $preview['lines'][0]['tax_id'],
+                ],
+            ],
+        ];
+
+        $secondPreview = $this->previewService->generatePreview($confirmation->id, $this->setting->id, $metadata, $pricingIntent);
+
+        $this->assertTrue($secondPreview['valid']);
+        $this->assertEquals($originalTotal, $secondPreview['lines'][0]['total_amount']);
+        $this->assertEquals(50000.0, $secondPreview['lines'][0]['original_unit_price']);
+    }
+
+    /** @test */
+    public function preview_rejects_a_pricing_intent_referencing_an_unknown_row_id()
+    {
+        $confirmation = $this->createApprovedConfirmationWithAllocations(50000, 50000);
+
+        $metadata = [
+            'supplier_invoice_number' => 'INV-STALE-ROW',
+            'invoice_date' => '2026-08-28',
+            'due_date' => '2026-09-28',
+        ];
+
+        $pricingIntent = [
+            'rows' => [
+                'unknown-row-id' => ['discount_type' => 'fixed', 'discount_value' => 1000],
+            ],
+        ];
+
+        $preview = $this->previewService->generatePreview($confirmation->id, $this->setting->id, $metadata, $pricingIntent);
+
+        $this->assertFalse($preview['valid']);
+        $this->assertStringContainsString('unknown or stale row', implode('; ', $preview['blockers']));
+    }
+
+    /** @test */
+    public function preview_renders_billing_rows_with_completely_blank_metadata()
+    {
+        $confirmation = $this->createApprovedConfirmationWithAllocations(50000, 50000);
+
+        // No supplier_invoice_number, no invoice_date, no due_date, no payment_term_id
+        // at all -- the operator must be able to see and edit rows before typing
+        // anything into the invoice header.
+        $preview = $this->previewService->generatePreview($confirmation->id, $this->setting->id, []);
+
+        $this->assertFalse($preview['valid']); // metadata is incomplete, so not yet convertible
+        $this->assertNotEmpty($preview['lines']);
+        $this->assertEquals(5.0, $preview['lines'][0]['quantity']);
+        $this->assertGreaterThan(0.0, $preview['totals']['total_amount']);
+        $this->assertContains('Supplier invoice number is required.', $preview['blockers']);
+        $this->assertContains('Invoice date is required.', $preview['blockers']);
+        $this->assertContains('At least one of due date or payment term is required.', $preview['blockers']);
+    }
+
+    /** @test */
+    public function preview_recalculates_rows_from_pricing_intent_even_with_blank_metadata()
+    {
+        $confirmation = $this->createApprovedConfirmationWithAllocations(50000, 50000);
+
+        $blankPreview = $this->previewService->generatePreview($confirmation->id, $this->setting->id, []);
+        $rowId = $blankPreview['lines'][0]['row_id'];
+
+        $pricingIntent = [
+            'rows' => [
+                $rowId => ['discount_type' => 'fixed', 'discount_value' => 5000],
+            ],
+        ];
+
+        $preview = $this->previewService->generatePreview($confirmation->id, $this->setting->id, [], $pricingIntent);
+
+        $this->assertNotEmpty($preview['lines']);
+        // 5 units @ 50000, Rp5,000 fixed discount/unit, non-PKP by default in this
+        // fixture's setting -- but this fixture setting is PKP; assert the discount
+        // was applied against the row (unit price reduced) regardless of tax handling.
+        $this->assertLessThan($blankPreview['lines'][0]['total_amount'], $preview['lines'][0]['total_amount']);
+    }
+
+    /** @test */
+    public function evidence_level_blocker_still_suppresses_the_pricing_table()
+    {
+        $confirmation = $this->createApprovedConfirmationWithAllocations(50000, 50000);
+        $this->supplier->forceFill(['is_active' => false])->saveQuietly();
+
+        $preview = $this->previewService->generatePreview($confirmation->id, $this->setting->id, []);
+
+        $this->assertFalse($preview['valid']);
+        $this->assertEmpty($preview['lines']);
+    }
+
+    /** @test */
+    public function two_individually_valid_row_unit_prices_are_rejected_when_their_sum_overflows_the_header_column()
+    {
+        // purchases.total_amount is DECIMAL(15,2), max 9999999999999.99. Two
+        // distinct-cost lots produce two rows here; each row's submitted unit price
+        // is well within unit_price's own DECIMAL(15,6) range (max
+        // 999999999.999999) and each row total individually fits the header
+        // column, but their combined sum does not -- this must be caught as a
+        // preview blocker rather than surfacing only as a database error at
+        // conversion. Quantities are raised so a realistic (in-range) unit price
+        // on each row is enough to make the row totals large.
+        $confirmation = $this->createApprovedConfirmationWithAllocations(50000, 60000);
+
+        $confirmation->load('lines.receiptAllocations');
+        foreach ($confirmation->lines as $line) {
+            $line->forceFill(['allocated_base_quantity' => 5001])->saveQuietly();
+            foreach ($line->receiptAllocations as $alloc) {
+                $alloc->forceFill(['allocated_base_quantity' => 5001])->saveQuietly();
+            }
+        }
+
+        $preview = $this->previewService->generatePreview($confirmation->id, $this->setting->id, []);
+        $rowId1 = $preview['lines'][0]['row_id'];
+        $rowId2 = $preview['lines'][1]['row_id'];
+
+        $pricingIntent = [
+            'rows' => [
+                $rowId1 => ['unit_price' => 999999999.0],
+                $rowId2 => ['unit_price' => 999999999.0],
+            ],
+        ];
+
+        $result = $this->previewService->generatePreview($confirmation->id, $this->setting->id, [], $pricingIntent);
+
+        $this->assertFalse($result['valid']);
+        $this->assertStringContainsString('exceeds the maximum', implode('; ', $result['blockers']));
     }
 }
