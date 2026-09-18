@@ -883,4 +883,175 @@ class PosTransactionSnapshotMapperTest extends PosTransactionFeatureTestCase
         $this->assertNotNull($hashBefore, 'Snapshot hash must be generated based on qty (5) as authoritative');
     }
 
+    /**
+     * Regression: non-stock line hydrated from a draft must have available_qty = null,
+     * while a stock-managed line must have an int available_qty.
+     *
+     * @group pos-draft-stock-management-preservation
+     */
+    public function test_hydrate_cart_nonstock_line_has_null_available_qty(): void
+    {
+        $setting = $this->createSetting('BIZ POS AVQTY NONSTOCK');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS AVQTY NONSTOCK USER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+        ]);
+        $session = $this->openSession($setting, $terminal, $user);
+
+        // Stock-managed product with real stock
+        $stockProduct = $this->createStockedProduct($setting, $location, [
+            'product_code' => 'SKU-AVQTY-STOCK-001',
+            'stock_qty' => 10,
+        ]);
+
+        // Non-stock product (service)
+        $serviceProduct = $this->createNonStockProduct($setting, 'SVC-AVQTY-001', 'Avail Qty Service', 25000);
+
+        $transaction = PosTransaction::create([
+            'setting_id' => $setting->id,
+            'code' => 'DOC-AVQTY-NONSTOCK-001',
+            'status' => PosTransaction::STATUS_DRAFT,
+            'created_by' => $user->id,
+            'owner_user_id' => $user->id,
+            'last_saved_by' => $user->id,
+            'customer_id' => null,
+            'source_pos_session_id' => $session->id,
+            'snapshot_totals' => ['grand_total' => 75000],
+        ]);
+
+        // Persist through the normal cart-line path so line_meta is realistic
+        $cartLines = [
+            1 => [
+                'line_id' => 1,
+                'product_id' => $stockProduct->id,
+                'product_name' => $stockProduct->product_name,
+                'product_code' => $stockProduct->product_code,
+                'barcode' => $stockProduct->barcode,
+                'stock_managed' => true,
+                'serial_number_required' => false,
+                'assigned_serials' => [],
+                'qty' => 2,
+                'unit_price' => 25000,
+                'tax_id' => null,
+                'tax_name' => null,
+                'tax_rate' => 0,
+                'line_discount_type' => 'fixed',
+                'line_discount_value' => 0,
+            ],
+            2 => [
+                'line_id' => 2,
+                'product_id' => $serviceProduct->id,
+                'product_name' => $serviceProduct->product_name,
+                'product_code' => $serviceProduct->product_code,
+                'barcode' => null,
+                'stock_managed' => false,
+                'serial_number_required' => false,
+                'assigned_serials' => [],
+                'qty' => 1,
+                'unit_price' => 25000,
+                'tax_id' => null,
+                'tax_name' => null,
+                'tax_rate' => 0,
+                'line_discount_type' => 'fixed',
+                'line_discount_value' => 0,
+            ],
+        ];
+
+        $this->mapper->persistLines($transaction, $cartLines);
+
+        $transaction->refresh();
+        $hydrated = $this->mapper->hydrateCart($transaction);
+
+        $this->assertCount(2, $hydrated['lines']);
+
+        // Stock-managed line: available_qty must be an int (from product_stocks query)
+        $stockLine = $hydrated['lines'][1];
+        $this->assertTrue($stockLine['stock_managed']);
+        $this->assertIsInt($stockLine['available_qty'], 'Stock-managed line must have int available_qty');
+
+        // Non-stock line: available_qty must be null, not 0
+        $serviceLine = $hydrated['lines'][2];
+        $this->assertFalse($serviceLine['stock_managed']);
+        $this->assertNull($serviceLine['available_qty'], 'Non-stock line must have null available_qty after hydration');
+    }
+
+    /**
+     * Regression: a quantity update on a non-stock draft-reloaded line must succeed
+     * (the bug produced available_qty = 0 which blocked all qty changes).
+     *
+     * @group pos-draft-stock-management-preservation
+     */
+    public function test_hydrated_nonstock_line_allows_quantity_update(): void
+    {
+        $setting = $this->createSetting('BIZ POS AVQTY UPDATE');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS AVQTY UPDATE USER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+        ]);
+        $session = $this->openSession($setting, $terminal, $user);
+
+        // Non-stock product (service)
+        $serviceProduct = $this->createNonStockProduct($setting, 'SVC-AVQTY-UPD-001', 'Update Svc', 30000);
+
+        $transaction = PosTransaction::create([
+            'setting_id' => $setting->id,
+            'code' => 'DOC-AVQTY-UPD-001',
+            'status' => PosTransaction::STATUS_LOADED,
+            'created_by' => $user->id,
+            'owner_user_id' => $user->id,
+            'last_saved_by' => $user->id,
+            'customer_id' => null,
+            'source_pos_session_id' => $session->id,
+            'snapshot_totals' => ['grand_total' => 30000],
+        ]);
+
+        // Persist the cart line
+        $cartLines = [
+            1 => [
+                'line_id' => 1,
+                'product_id' => $serviceProduct->id,
+                'product_name' => $serviceProduct->product_name,
+                'product_code' => $serviceProduct->product_code,
+                'barcode' => null,
+                'stock_managed' => false,
+                'serial_number_required' => false,
+                'assigned_serials' => [],
+                'qty' => 1,
+                'unit_price' => 30000,
+                'tax_id' => null,
+                'tax_name' => null,
+                'tax_rate' => 0,
+                'line_discount_type' => 'fixed',
+                'line_discount_value' => 0,
+            ],
+        ];
+        $this->mapper->persistLines($transaction, $cartLines);
+
+        // Hydrate the cart from the persisted draft
+        $transaction->refresh();
+        $hydratedCart = $this->mapper->hydrateCart($transaction);
+
+        // Put the hydrated cart into the session store so updateLine can find it
+        $store = app(\Modules\Pos\Services\PosCartSessionStore::class);
+        $store->putCart($setting->id, (int) $session->id, $hydratedCart);
+
+        // Attempt to update quantity — this threw "exceeds available stock" before the fix
+        $cartService = app(\Modules\Pos\Services\PosCartService::class);
+        $snapshot = $cartService->updateLine(
+            $setting->id,
+            (int) $session->id,
+            1, // line_id
+            ['qty' => 5]
+        );
+
+        // Assert the update succeeded without exception
+        $updatedLine = collect($snapshot['lines'])->firstWhere('line_id', 1);
+        $this->assertNotNull($updatedLine);
+        $this->assertEquals(5, $updatedLine['qty'], 'Non-stock line qty must be updatable after draft reload');
+    }
+
 }

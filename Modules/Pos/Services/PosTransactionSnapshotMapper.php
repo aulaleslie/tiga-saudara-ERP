@@ -256,7 +256,9 @@ class PosTransactionSnapshotMapper
                 'serial_number_required' => $this->isSerialRequired($dbLine->product_id),
                 'assigned_serials' => $serials,
                 'qty' => $dbLine->qty,
-                'available_qty' => (int) ($availableQtyByProduct[(int) $dbLine->product_id] ?? 0),
+                'available_qty' => $stockManaged
+                    ? (int) ($availableQtyByProduct[(int) $dbLine->product_id] ?? 0)
+                    : null,
                 'unit_price' => (float) $dbLine->unit_price,
                 'line_discount_type' => $dbLine->line_discount_type,
                 'line_discount_value' => (float) $dbLine->line_discount_value,
