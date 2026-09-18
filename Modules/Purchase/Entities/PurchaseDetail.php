@@ -249,4 +249,52 @@ class PurchaseDetail extends BaseModel
     {
         return $this->hasMany(\Modules\Consignment\Entities\ConsignmentPurchaseDetailLineage::class, 'purchase_detail_id');
     }
+
+    /**
+     * Groups this detail's consignment lineage rows by source receival/receiving identity
+     * for display: summed billed quantity and unique serial numbers per source. Grouped by
+     * internal source IDs (not displayed strings) so missing or duplicate references cannot
+     * merge unrelated sources. Each group's `receival_reference` / `receiving_reference` is
+     * null when unresolved, letting the view render an explicit unavailable label rather than
+     * a database ID.
+     */
+    public function getConsignmentProvenanceGroupsAttribute(): \Illuminate\Support\Collection
+    {
+        $groups = [];
+
+        foreach ($this->consignmentLineages as $lineage) {
+            $receivingDetail = $lineage->receivingDetail;
+            $receiving = $receivingDetail?->receiving;
+            $receival = $receiving?->receival;
+            $receiptAllocation = $lineage->receiptAllocation;
+
+            $receivalReference = $receiptAllocation?->receival_reference ?: $receival?->reference;
+            $receivingReference = $receiptAllocation?->receiving_reference ?: $receiving?->receiving_number;
+
+            $receivalKey = $receival?->id ?? ($receivingDetail ? 'legacy-receiving-' . $receivingDetail->id : 'unresolved-' . $lineage->id);
+            $receivingKey = $receiving?->id ?? ($receivingDetail ? 'legacy-detail-' . $receivingDetail->id : 'unresolved-' . $lineage->id);
+            $groupKey = $receivalKey . '|' . $receivingKey;
+
+            if (!isset($groups[$groupKey])) {
+                $groups[$groupKey] = [
+                    'receival_reference' => $receivalReference ?: null,
+                    'receiving_reference' => $receivingReference ?: null,
+                    'quantity' => '0',
+                    'serial_numbers' => [],
+                ];
+            }
+
+            $groups[$groupKey]['quantity'] = bcadd($groups[$groupKey]['quantity'], (string) $lineage->billed_base_quantity, 3);
+
+            $serialNumber = $lineage->serializedAllocation?->productSerialNumber?->serial_number;
+            if ($lineage->consignment_serialized_allocation_id) {
+                $groups[$groupKey]['serial_numbers'][$serialNumber ?: '__unavailable__'] = $serialNumber ?: null;
+            }
+        }
+
+        return collect(array_values($groups))->map(function (array $group) {
+            $group['serial_numbers'] = array_values($group['serial_numbers']);
+            return $group;
+        });
+    }
 }

@@ -174,12 +174,13 @@
                                             @if($purchase->isConsignmentBilling() && $item->consignmentLineages->isNotEmpty())
                                                 <div class="mt-2 small text-muted">
                                                     <span class="badge badge-light border">Asal Konsinyasi</span>
-                                                    @foreach($item->consignmentLineages as $lineage)
+                                                    @foreach($item->consignment_provenance_groups as $group)
                                                         <div>
-                                                            Penerimaan #{{ $lineage->consignment_receiving_detail_id }}
-                                                            &middot; Qty {{ number_format($lineage->billed_base_quantity, 3) }}
-                                                            @if($lineage->consignment_serialized_allocation_id)
-                                                                &middot; SN
+                                                            Konsinyasi {{ $group['receival_reference'] ?? 'Tidak Tersedia' }}
+                                                            &middot; Penerimaan {{ $group['receiving_reference'] ?? 'Tidak Tersedia' }}
+                                                            &middot; Qty {{ number_format($group['quantity'], 3) }}
+                                                            @if(!empty($group['serial_numbers']))
+                                                                &middot; SN: {{ implode(', ', array_map(fn($sn) => $sn ?? 'Tidak Tersedia', $group['serial_numbers'])) }}
                                                             @endif
                                                         </div>
                                                     @endforeach
