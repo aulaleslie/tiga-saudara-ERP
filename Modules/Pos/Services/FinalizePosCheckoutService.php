@@ -282,8 +282,6 @@ class FinalizePosCheckoutService
             }
         }
 
-        $customerResolutionSource = (string) ($cartSnapshot['customer']['resolution_source'] ?? 'none');
-
         if ($resolvedCustomerId !== null && $resolvedCustomerId > 0) {
             $customer = \Modules\People\Entities\Customer::find($resolvedCustomerId);
             if (! $customer || ! $customer->is_active) {
@@ -291,7 +289,7 @@ class FinalizePosCheckoutService
             }
         }
 
-        if ($isDebt && ($resolvedCustomerId === null || $resolvedCustomerId <= 0 || $customerResolutionSource !== 'selected')) {
+        if ($isDebt && ($resolvedCustomerId === null || $resolvedCustomerId <= 0)) {
             throw new PosCheckoutValidationException('CUSTOMER_REQUIRED', 'Pelanggan harus dipilih untuk checkout sebagai utang.');
         }
 

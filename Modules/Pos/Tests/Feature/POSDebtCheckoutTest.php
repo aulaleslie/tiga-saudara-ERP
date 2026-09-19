@@ -161,11 +161,68 @@ class POSDebtCheckoutTest extends TestCase
                  ->assertJsonPath('code', 'PAYMENT_INVALID');
     }
 
-    public function test_debt_missing_customer_throws_validation_exception(): void
+    public function test_debt_walk_in_customer_posts_unpaid(): void
+    {
+        $context = $this->createSplitCheckoutContext(false);
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 1); // price 100k
+        // Do not select a customer explicitly; cart resolves the configured default walk-in customer.
+
+        $term = PaymentTerm::query()->create(['name' => 'Net 30', 'longevity' => 30]);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-DEBT-WALKIN-001',
+            'is_debt' => true,
+            'payment_term_id' => $term->id,
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 0, // Zero DP
+            ],
+        ]);
+
+        if ($response->status() !== 201) {
+            $response->dump();
+        }
+        $response->assertStatus(201);
+
+        $sales = Sale::query()->get();
+        $this->assertCount(1, $sales);
+
+        $sale = $sales->first();
+        $this->assertEquals(0, $sale->paid_amount);
+        $this->assertEquals($sale->total_amount, $sale->due_amount);
+        $this->assertEquals('UNPAID', strtoupper($sale->payment_status));
+        $this->assertEquals($context['customer']->id, $sale->customer_id);
+    }
+
+    public function test_debt_inactive_walk_in_customer_throws_validation_exception(): void
     {
         $context = $this->createSplitCheckoutContext(false);
         $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 1);
-        // Do not select customer (guest)
+        // Do not select a customer explicitly; cart resolves the configured default walk-in customer.
+        $context['customer']->update(['is_active' => false]);
+
+        $term = PaymentTerm::query()->create(['name' => 'Net 30', 'longevity' => 30]);
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-DEBT-WALKIN-002',
+            'is_debt' => true,
+            'payment_term_id' => $term->id,
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 0,
+            ],
+        ]);
+
+        $response->assertStatus(422)
+                 ->assertJsonPath('code', 'CUSTOMER_INVALID');
+    }
+
+    public function test_debt_missing_customer_throws_validation_exception(): void
+    {
+        $context = $this->createSplitCheckoutContext(false);
+        $context['setting']->update(['pos_walk_in_customer_id' => null]);
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 1);
+        // Do not select customer (guest) and no default walk-in customer is configured.
 
         $term = PaymentTerm::query()->create(['name' => 'Net 30', 'longevity' => 30]);
 

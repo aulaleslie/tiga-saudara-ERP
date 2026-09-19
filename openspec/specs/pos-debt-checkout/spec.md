@@ -15,15 +15,23 @@ The POS payment/checkout modal SHALL provide a "Selesaikan sebagai Utang" (finis
 - **THEN** the resulting sale MUST remain fully paid with `payment_status = 'Paid'` and `due_amount = 0`, unchanged by this capability
 
 ### Requirement: Debt checkout SHALL require a named customer
-The debt path SHALL be blocked unless the cart resolves to a named customer. A walk-in/guest or unresolved customer MUST NOT be allowed to complete as debt.
+The debt path SHALL be blocked unless the cart resolves to an active customer. An explicitly selected customer and the configured default walk-in customer SHALL both be eligible for debt checkout. An unresolved or inactive customer MUST NOT be allowed to complete as debt.
+
+#### Scenario: Debt allowed for default walk-in customer
+- **WHEN** a cashier attempts finish-as-debt while the cart resolves to the configured active default walk-in customer
+- **THEN** the system MUST allow the debt sub-flow to proceed
+
+#### Scenario: Debt allowed for named customer
+- **WHEN** a cashier attempts finish-as-debt while the cart resolves to an explicitly selected active customer
+- **THEN** the system MUST allow the debt sub-flow to proceed
 
 #### Scenario: Debt blocked for guest customer
 - **WHEN** a cashier attempts finish-as-debt while the cart has no resolved customer
-- **THEN** the system MUST reject the debt checkout and MUST prompt the cashier to select a customer
+- **THEN** the system MUST reject the debt checkout and MUST prompt the cashier to select or configure a customer
 
-#### Scenario: Debt allowed for named customer
-- **WHEN** a cashier attempts finish-as-debt while the cart resolves to a named customer
-- **THEN** the system MUST allow the debt sub-flow to proceed
+#### Scenario: Debt blocked for inactive customer
+- **WHEN** a cashier attempts finish-as-debt while the resolved customer is inactive
+- **THEN** the system MUST reject the debt checkout as having an invalid customer
 
 ### Requirement: Debt checkout SHALL require a payment term and compute the due date
 The debt path SHALL require the cashier to select a payment term from the existing `payment_terms`. The selected term SHALL remain part of the authoritative checkout context through staged payment and finalization. Every `Sale` document generated from that Kas Bon checkout, including each owner-specific Sale created by split posting, SHALL set `payment_term_id` to the selected term and set `due_date` to the checkout posting date plus the selected term's `longevity` in days.
