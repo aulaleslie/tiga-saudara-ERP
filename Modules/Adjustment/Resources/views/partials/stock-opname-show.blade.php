@@ -103,7 +103,27 @@
                         </tr>
                         <tr>
                             <th>Lokasi</th>
-                            <td>{{ $vm['location_name'] ?? '-' }}</td>
+                            <td>
+                                @if(!empty($vm['selected_locations']) && count($vm['selected_locations']) > 1)
+                                    <div>
+                                        @foreach($vm['selected_locations'] as $loc)
+                                            <span class="badge badge-light border mr-1 mb-1 p-1">
+                                                <i class="bi bi-geo-alt"></i> {{ $loc['name'] }}
+                                                @if(!empty($loc['company_name']))
+                                                    <span class="text-muted">({{ $loc['company_name'] }})</span>
+                                                @endif
+                                                @if(isset($loc['is_pkp']))
+                                                    <span class="badge {{ $loc['is_pkp'] ? 'badge-info' : 'badge-secondary' }} ml-1">
+                                                        {{ $loc['is_pkp'] ? 'PKP' : 'Non-PKP' }}
+                                                    </span>
+                                                @endif
+                                            </span>
+                                        @endforeach
+                                    </div>
+                                @else
+                                    {{ $vm['location_name'] ?? '-' }}
+                                @endif
+                            </td>
                             <th>Catatan</th>
                             <td>{{ $adjustment['note'] ?: '-' }}</td>
                         </tr>
@@ -289,6 +309,47 @@
                                             <span class="badge badge-danger mt-1 d-block">
                                                 {{ $productConflictingSerialCount }} nomor seri berkonflik — lihat rincian seri
                                             </span>
+                                        @endif
+                                        @if(!$isApproved && !empty($product['allocations']))
+                                            @php
+                                                $goodSteps = collect($product['allocations']['good']['steps'] ?? [])->filter(fn ($s) => ($s['delta'] ?? 0) !== 0);
+                                                $badSteps = collect($product['allocations']['bad']['steps'] ?? [])->filter(fn ($s) => ($s['delta'] ?? 0) !== 0);
+                                            @endphp
+                                            @if($goodSteps->isNotEmpty() || $badSteps->isNotEmpty())
+                                                <div class="mt-2 small bg-light p-2 rounded border">
+                                                    <div class="font-weight-bold text-muted mb-1"><i class="bi bi-shuffle"></i> Rencana Alokasi:</div>
+                                                    @if($goodSteps->isNotEmpty())
+                                                        <div class="mb-1">
+                                                            <span class="text-secondary font-weight-bold">Bagus:</span>
+                                                            @foreach($goodSteps as $step)
+                                                                <span class="badge badge-light border mr-1">
+                                                                    {{ $step['location_name'] }}: {{ $step['delta'] > 0 ? "+{$step['delta']}" : $step['delta'] }} (akhir: {{ $step['after_stock'] }})
+                                                                </span>
+                                                            @endforeach
+                                                        </div>
+                                                    @endif
+                                                    @if($badSteps->isNotEmpty())
+                                                        <div>
+                                                            <span class="text-secondary font-weight-bold">Rusak:</span>
+                                                            @foreach($badSteps as $step)
+                                                                <span class="badge badge-light border mr-1">
+                                                                    {{ $step['location_name'] }}: {{ $step['delta'] > 0 ? "+{$step['delta']}" : $step['delta'] }} (akhir: {{ $step['after_stock'] }})
+                                                                </span>
+                                                            @endforeach
+                                                        </div>
+                                                    @endif
+                                                </div>
+                                            @endif
+                                        @endif
+                                        @if(!$isApproved && !empty($product['location_current_stocks']) && count($product['location_current_stocks']) > 1)
+                                            <div class="mt-1 small text-muted">
+                                                <i class="bi bi-geo-alt"></i> Lokasi:
+                                                @foreach($product['location_current_stocks'] as $locStock)
+                                                    <span class="badge badge-light border mr-1">
+                                                        {{ $locStock['location_name'] }}: {{ $locStock['good'] }} bagus / {{ $locStock['bad'] }} rusak
+                                                    </span>
+                                                @endforeach
+                                            </div>
                                         @endif
                                     </td>
 

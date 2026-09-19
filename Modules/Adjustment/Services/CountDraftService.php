@@ -13,10 +13,26 @@ use Modules\Setting\Entities\Location;
 class CountDraftService
 {
     public const SCHEMA_VERSION = 1;
+    public const SCHEMA_VERSION_2 = 2;
+
+    /**
+     * Compute a deterministic fingerprint for a canonical location-ID set.
+     * Used to bind baseline tokens and signatures to a specific pool.
+     *
+     * @param array<int> $locationIds  Unique sorted ascending IDs
+     */
+    public static function locationSetFingerprint(array $locationIds): string
+    {
+        $sorted = array_values(array_unique(array_map('intval', $locationIds)));
+        sort($sorted, SORT_NUMERIC);
+
+        return hash('sha256', implode('|', $sorted));
+    }
 
     /**
      * Consolidate validation for count draft creation/updating.
      * Validates header and draft rules using clear Indonesian messages.
+     * Supports both schema version 1 (single location) and version 2 (multi-location).
      *
      * @param array $inputData
      * @param \Modules\Adjustment\Entities\Adjustment|null $existingAdjustment
@@ -25,10 +41,34 @@ class CountDraftService
      */
     public function validateDraftInput(array $inputData, ?\Modules\Adjustment\Entities\Adjustment $existingAdjustment = null): array
     {
+        $rawDraft = $inputData['count_draft'] ?? [];
+        if (is_string($rawDraft)) {
+            $rawDraft = json_decode($rawDraft, true) ?? [];
+        }
+        if (!is_array($rawDraft)) {
+            $rawDraft = [];
+        }
+
+        $hasLocationIds = !empty($inputData['location_ids']) && is_array($inputData['location_ids']);
+        $hasLocationId = !empty($inputData['location_id']);
+
+        $isV2 = $hasLocationIds
+            || (isset($rawDraft['schema_version']) && (int) $rawDraft['schema_version'] === self::SCHEMA_VERSION_2)
+            || !empty($rawDraft['location_ids'])
+            || !empty($rawDraft['locations']);
+
         $rules = [
             'reference' => 'required|string|max:255',
             'date' => 'required|date',
-            'location_id' => [
+            'note' => 'nullable|string|max:1000',
+            'count_draft' => 'nullable',
+        ];
+
+        if ($isV2) {
+            $rules['location_ids'] = 'required|array|min:1';
+            $rules['location_ids.*'] = 'required|integer|exists:locations,id';
+        } else {
+            $rules['location_id'] = [
                 'required',
                 'exists:locations,id',
                 function ($attribute, $value, $fail) {
@@ -37,10 +77,8 @@ class CountDraftService
                         $fail('Penyesuaian stok tidak dapat dilakukan pada lokasi konsinyasi.');
                     }
                 },
-            ],
-            'note' => 'nullable|string|max:1000',
-            'count_draft' => 'nullable',
-        ];
+            ];
+        }
 
         $messages = [
             'reference.required' => 'Keterangan/referensi wajib diisi.',
@@ -48,28 +86,39 @@ class CountDraftService
             'date.date' => 'Format tanggal tidak valid.',
             'location_id.required' => 'Lokasi stok opname wajib dipilih.',
             'location_id.exists' => 'Lokasi yang dipilih tidak ditemukan.',
+            'location_ids.required' => 'Minimal satu lokasi harus dipilih untuk stock opname.',
+            'location_ids.min' => 'Minimal satu lokasi harus dipilih untuk stock opname.',
         ];
+
+        // Fill location_ids from draft if present in payload but not top-level
+        if ($isV2 && !$hasLocationIds) {
+            $inferredLocIds = $rawDraft['location_ids'] ?? array_column($rawDraft['locations'] ?? [], 'location_id');
+            if (empty($inferredLocIds) && $hasLocationId) {
+                $inferredLocIds = [$inputData['location_id']];
+            }
+            $inputData['location_ids'] = $inferredLocIds;
+        }
 
         $validator = Validator::make($inputData, $rules, $messages);
         if ($validator->fails()) {
             throw new ValidationException($validator);
         }
 
-        $rawDraft = $inputData['count_draft'] ?? [];
-        if (is_string($rawDraft)) {
-            $rawDraft = json_decode($rawDraft, true) ?? [];
-        }
-
-        if (!is_array($rawDraft)) {
-            $rawDraft = [];
-        }
-
         try {
-            $structuredDraft = $this->validateAndStructureDraft(
-                $rawDraft,
-                (int) $inputData['location_id'],
-                $existingAdjustment
-            );
+            if ($isV2) {
+                $rawLocIds = $inputData['location_ids'] ?? [];
+                $structuredDraft = $this->validateAndStructureDraftV2(
+                    $rawDraft,
+                    $rawLocIds,
+                    $existingAdjustment
+                );
+            } else {
+                $structuredDraft = $this->validateAndStructureDraft(
+                    $rawDraft,
+                    (int) $inputData['location_id'],
+                    $existingAdjustment
+                );
+            }
         } catch (\InvalidArgumentException $e) {
             // Expected validation failure from domain rules (already in Indonesian)
             Log::info('[CountDraftService] Validation error in draft structure', [
@@ -91,13 +140,22 @@ class CountDraftService
             ]);
         }
 
-        return [
+        $result = [
             'reference' => $inputData['reference'],
             'date' => $inputData['date'],
-            'location_id' => (int) $inputData['location_id'],
             'note' => $inputData['note'] ?? null,
             'structured_draft' => $structuredDraft,
         ];
+
+        if ($isV2 && isset($structuredDraft['locations'])) {
+            $locIds = array_column($structuredDraft['locations'], 'location_id');
+            $result['location_ids'] = $locIds;
+            $result['location_id'] = $locIds[0] ?? null;
+        } else {
+            $result['location_id'] = (int) ($structuredDraft['location_id'] ?? $inputData['location_id']);
+        }
+
+        return $result;
     }
 
     /**
@@ -427,6 +485,366 @@ class CountDraftService
     }
 
     /**
+     * Validate and structure a count-draft payload for schema version 2
+     * (multi-location pool). Produces the canonical v2 JSON shape.
+     *
+     * @param array       $data              Client-submitted draft payload
+     * @param array<int>  $locationIds       Canonicalized location IDs (unique, sorted)
+     * @param \Modules\Adjustment\Entities\Adjustment|null $existingAdjustment
+     * @return array  Structured draft with schema_version=2
+     * @throws InvalidArgumentException
+     */
+    public function validateAndStructureDraftV2(
+        array $data,
+        array $locationIds,
+        ?\Modules\Adjustment\Entities\Adjustment $existingAdjustment = null
+    ): array {
+        // Canonicalize: unique integers in ascending order
+        $locationIds = array_values(array_unique(array_map('intval', $locationIds)));
+        sort($locationIds, SORT_NUMERIC);
+
+        if (empty($locationIds)) {
+            throw new InvalidArgumentException('Minimal satu lokasi harus dipilih untuk stock opname.');
+        }
+
+        $fingerprint = self::locationSetFingerprint($locationIds);
+
+        // Load and validate all locations
+        $locations = Location::with('setting')
+            ->whereIn('id', $locationIds)
+            ->get()
+            ->keyBy('id');
+
+        $locationMeta = [];
+        foreach ($locationIds as $position => $locId) {
+            $location = $locations->get($locId);
+            if (!$location) {
+                throw new InvalidArgumentException("Lokasi dengan ID {$locId} tidak ditemukan.");
+            }
+            if (!$location->is_active) {
+                throw new InvalidArgumentException("Lokasi '{$location->name}' tidak aktif.");
+            }
+            if ($location->is_consignment) {
+                throw new InvalidArgumentException("Lokasi '{$location->name}' adalah lokasi konsinyasi.");
+            }
+
+            $setting = $location->setting;
+            $locationMeta[] = [
+                'location_id' => (int) $location->id,
+                'location_name' => (string) $location->name,
+                'setting_id' => (int) ($setting->id ?? 0),
+                'setting_name' => (string) ($setting->company_name ?? ''),
+                'is_pkp' => (bool) ($setting->is_pkp ?? false),
+                'position' => $position + 1,
+            ];
+        }
+
+        // Build map of existing server-held baselines from a prior save of the same pool
+        $existingBaselinesByProductAndLocation = [];
+        if ($existingAdjustment && $existingAdjustment->isSchemaVersion2()) {
+            $savedDraft = $existingAdjustment->count_draft;
+            if (is_array($savedDraft) && !empty($savedDraft['rows'])) {
+                foreach ($savedDraft['rows'] as $savedRow) {
+                    $pId = (int) ($savedRow['product_id'] ?? 0);
+                    foreach (($savedRow['location_baselines'] ?? []) as $lb) {
+                        $lId = (int) ($lb['location_id'] ?? 0);
+                        if ($pId > 0 && $lId > 0) {
+                            $existingBaselinesByProductAndLocation["{$pId}_{$lId}"] = $lb;
+                        }
+                    }
+                }
+            }
+        }
+
+        $draftSessionId = !empty($data['draft_session_id']) ? (string) $data['draft_session_id'] : null;
+        $baselineCapturedAt = $data['baseline_captured_at'] ?? now()->toIso8601String();
+
+        // Atomic session-ID reuse check
+        if ($draftSessionId !== null) {
+            $boundAdjId = \Illuminate\Support\Facades\Cache::get("opname_session_adj_{$draftSessionId}");
+            if ($boundAdjId !== null) {
+                if ($existingAdjustment === null || (int) $boundAdjId !== (int) $existingAdjustment->id) {
+                    throw new InvalidArgumentException('Sesi perhitungan ini sudah digunakan untuk dokumen penyesuaian lain.');
+                }
+            }
+        }
+
+        $rawRows = $data['rows'] ?? [];
+        if (!is_array($rawRows) || empty($rawRows)) {
+            throw new InvalidArgumentException('Daftar produk tidak boleh kosong. Pindai atau pilih minimal satu produk.');
+        }
+
+        // Eager load products
+        $productIds = array_map(fn($r) => (int) ($r['product_id'] ?? 0), $rawRows);
+        $productsById = \Modules\Product\Entities\Product::with('baseUnit')
+            ->whereIn('id', $productIds)
+            ->get()
+            ->keyBy('id');
+
+        $validatedRows = [];
+        $seenProductIds = [];
+        $seenProductSerials = [];
+
+        foreach ($rawRows as $row) {
+            $productId = (int) ($row['product_id'] ?? 0);
+            if ($productId <= 0) {
+                throw new InvalidArgumentException('Produk tidak valid.');
+            }
+            if (isset($seenProductIds[$productId])) {
+                throw new InvalidArgumentException("Produk ganda ditemukan dalam daftar opname (ID {$productId}).");
+            }
+            $seenProductIds[$productId] = true;
+
+            $productEntity = $productsById->get($productId);
+            if (!$productEntity) {
+                throw new InvalidArgumentException("Produk dengan ID {$productId} tidak ditemukan.");
+            }
+
+            $productName = (string) $productEntity->product_name;
+            $productCode = (string) $productEntity->product_code;
+            $baseUnit = (string) ($productEntity->baseUnit?->unit_name ?? $productEntity->baseUnit?->name ?? $productEntity->baseUnit?->short_name ?? '');
+            $isSerialized = (bool) $productEntity->serial_number_required;
+
+            // -- Serials (same logic as v1) --
+            $rawSerials = $row['serials'] ?? [];
+            $validatedSerials = [];
+            if (!isset($seenProductSerials[$productId])) {
+                $seenProductSerials[$productId] = [];
+            }
+
+            $normalizedSerialTexts = [];
+            foreach ($rawSerials as $serial) {
+                $st = ProductSerialNumber::normalize((string) ($serial['serial_number'] ?? ''));
+                if ($st !== '') {
+                    $normalizedSerialTexts[] = $st;
+                }
+            }
+
+            $dbSerialsByText = collect();
+            if (!empty($normalizedSerialTexts)) {
+                $dbSerialsByText = ProductSerialNumber::with('location')
+                    ->where('product_id', $productId)
+                    ->whereIn('serial_number', $normalizedSerialTexts)
+                    ->get()
+                    ->keyBy('serial_number');
+            }
+
+            foreach ($rawSerials as $serial) {
+                $serialText = ProductSerialNumber::normalize((string) ($serial['serial_number'] ?? ''));
+                if ($serialText === '') {
+                    continue;
+                }
+                if (isset($seenProductSerials[$productId][$serialText])) {
+                    throw new InvalidArgumentException("Nomor seri ganda '{$serialText}' untuk produk {$productName}.");
+                }
+                $seenProductSerials[$productId][$serialText] = true;
+
+                $condition = strtolower(trim((string) ($serial['condition'] ?? 'good')));
+                if (!in_array($condition, ['good', 'bad'], true)) {
+                    $condition = 'good';
+                }
+
+                $matchedDbSerial = $dbSerialsByText->get($serialText);
+                $validatedSerials[] = [
+                    'serial_number' => $serialText,
+                    'condition' => $condition,
+                    'source_serial_id' => $matchedDbSerial ? (int) $matchedDbSerial->id : null,
+                    'source_location_id' => $matchedDbSerial?->location_id ? (int) $matchedDbSerial->location_id : null,
+                    'source_location_name' => $matchedDbSerial?->location?->name,
+                    'source_status' => $matchedDbSerial?->status,
+                    'source_tax_id' => $matchedDbSerial?->tax_id ? (int) $matchedDbSerial->tax_id : null,
+                ];
+            }
+
+            // -- Counts --
+            if ($isSerialized) {
+                $goodCount = collect($validatedSerials)->where('condition', 'good')->count();
+                $badCount = collect($validatedSerials)->where('condition', 'bad')->count();
+            } else {
+                $rawGood = $row['good_count'] ?? 0;
+                $rawBad = $row['bad_count'] ?? 0;
+
+                $isValidIntegerFormat = function ($val) {
+                    if (is_int($val)) {
+                        return $val >= 0;
+                    }
+                    if (is_string($val) || is_numeric($val)) {
+                        $str = trim((string) $val);
+                        return preg_match('/^\d+$/', $str) === 1;
+                    }
+                    return false;
+                };
+
+                if (!$isValidIntegerFormat($rawGood)) {
+                    throw new InvalidArgumentException("Jumlah fisik bagus untuk {$productName} harus berupa bilangan bulat positif atau nol.");
+                }
+                if (!$isValidIntegerFormat($rawBad)) {
+                    throw new InvalidArgumentException("Jumlah fisik rusak untuk {$productName} harus berupa bilangan bulat positif atau nol.");
+                }
+
+                $goodCount = (int) $rawGood;
+                $badCount = (int) $rawBad;
+            }
+
+            // -- Per-location baselines (v2 shape) --
+            $resolver = app(AdjustmentProductResolver::class);
+            $locationBaselines = [];
+
+            $submittedLocationBaselines = [];
+            foreach (($row['location_baselines'] ?? []) as $slb) {
+                if (isset($slb['location_id'])) {
+                    $submittedLocationBaselines[(int) $slb['location_id']] = $slb;
+                }
+            }
+
+            foreach ($locationIds as $locId) {
+                $locMeta = $locations->get($locId);
+                $locSetting = $locMeta?->setting;
+                $locIsPkp = (bool) ($locSetting?->is_pkp ?? false);
+
+                $existingKey = "{$productId}_{$locId}";
+                $submittedLb = $submittedLocationBaselines[$locId] ?? null;
+                if ($submittedLb === null && count($locationIds) === 1 && !empty($row['baseline'])) {
+                    $submittedLb = $row['baseline'];
+                }
+
+                $hasToken = !empty($submittedLb['token']);
+                $token = $hasToken ? (string) $submittedLb['token'] : null;
+                $serverHeldSnapshot = $token ? $resolver->getBaselineSnapshot(
+                    $token,
+                    $productId,
+                    $locId,
+                    auth()->id(),
+                    $draftSessionId,
+                    $existingAdjustment?->id
+                ) : null;
+
+                if (isset($existingBaselinesByProductAndLocation[$existingKey])) {
+                    $saved = $existingBaselinesByProductAndLocation[$existingKey];
+                    $lbItem = [
+                        'location_id' => $locId,
+                        'setting_id' => (int) ($locSetting?->id ?? 0),
+                        'is_pkp' => $locIsPkp,
+                        'existing_good_total' => (int) ($saved['existing_good_total'] ?? 0),
+                        'existing_good_tax' => (int) ($saved['existing_good_tax'] ?? 0),
+                        'existing_good_non_tax' => (int) ($saved['existing_good_non_tax'] ?? 0),
+                        'existing_bad_total' => (int) ($saved['existing_bad_total'] ?? 0),
+                        'existing_bad_tax' => (int) ($saved['existing_bad_tax'] ?? 0),
+                        'existing_bad_non_tax' => (int) ($saved['existing_bad_non_tax'] ?? 0),
+                        'captured_at' => $saved['captured_at'] ?? $baselineCapturedAt,
+                    ];
+                    if (!empty($saved['signature'])) {
+                        $lbItem['signature'] = $saved['signature'];
+                    }
+                    if (!empty($saved['token'])) {
+                        $lbItem['token'] = $saved['token'];
+                    }
+                    $locationBaselines[] = $lbItem;
+                } elseif ($hasToken) {
+                    if ($serverHeldSnapshot === null) {
+                        throw new InvalidArgumentException("Referensi snapshot baseline untuk produk '{$productName}' tidak valid atau telah kedaluwarsa.");
+                    }
+
+                    $locationBaselines[] = [
+                        'location_id' => $locId,
+                        'setting_id' => (int) ($locSetting?->id ?? 0),
+                        'is_pkp' => $locIsPkp,
+                        'existing_good_total' => (int) ($serverHeldSnapshot['existing_good_total'] ?? 0),
+                        'existing_good_tax' => (int) ($serverHeldSnapshot['existing_good_tax'] ?? 0),
+                        'existing_good_non_tax' => (int) ($serverHeldSnapshot['existing_good_non_tax'] ?? 0),
+                        'existing_bad_total' => (int) ($serverHeldSnapshot['existing_bad_total'] ?? 0),
+                        'existing_bad_tax' => (int) ($serverHeldSnapshot['existing_bad_tax'] ?? 0),
+                        'existing_bad_non_tax' => (int) ($serverHeldSnapshot['existing_bad_non_tax'] ?? 0),
+                        'captured_at' => $serverHeldSnapshot['captured_at'] ?? $baselineCapturedAt,
+                        'signature' => $serverHeldSnapshot['signature'] ?? null,
+                        'token' => $token,
+                    ];
+                } elseif (
+                    !empty($submittedLb)
+                    && is_array($submittedLb)
+                    && $resolver->verifyBaselineSignature($submittedLb, $productId, $locId)
+                ) {
+                    $locationBaselines[] = [
+                        'location_id' => $locId,
+                        'setting_id' => (int) ($locSetting?->id ?? 0),
+                        'is_pkp' => $locIsPkp,
+                        'existing_good_total' => (int) ($submittedLb['existing_good_total'] ?? 0),
+                        'existing_good_tax' => (int) ($submittedLb['existing_good_tax'] ?? 0),
+                        'existing_good_non_tax' => (int) ($submittedLb['existing_good_non_tax'] ?? 0),
+                        'existing_bad_total' => (int) ($submittedLb['existing_bad_total'] ?? 0),
+                        'existing_bad_tax' => (int) ($submittedLb['existing_bad_tax'] ?? 0),
+                        'existing_bad_non_tax' => (int) ($submittedLb['existing_bad_non_tax'] ?? 0),
+                        'captured_at' => $submittedLb['captured_at'] ?? $baselineCapturedAt,
+                        'signature' => $submittedLb['signature'] ?? null,
+                        'token' => $submittedLb['token'] ?? null,
+                    ];
+                } else {
+                    // Fresh capture from ProductStock
+                    $captured = $resolver->captureBaseline(
+                        $productId,
+                        $locId,
+                        auth()->id(),
+                        $draftSessionId,
+                        $existingAdjustment?->id
+                    );
+                    $locationBaselines[] = [
+                        'location_id' => $locId,
+                        'setting_id' => (int) ($locSetting?->id ?? 0),
+                        'is_pkp' => $locIsPkp,
+                        'existing_good_total' => (int) ($captured['existing_good_total'] ?? 0),
+                        'existing_good_tax' => (int) ($captured['existing_good_tax'] ?? 0),
+                        'existing_good_non_tax' => (int) ($captured['existing_good_non_tax'] ?? 0),
+                        'existing_bad_total' => (int) ($captured['existing_bad_total'] ?? 0),
+                        'existing_bad_tax' => (int) ($captured['existing_bad_tax'] ?? 0),
+                        'existing_bad_non_tax' => (int) ($captured['existing_bad_non_tax'] ?? 0),
+                        'captured_at' => $captured['captured_at'] ?? $baselineCapturedAt,
+                        'signature' => $captured['signature'] ?? null,
+                        'token' => $captured['token'] ?? null,
+                    ];
+                }
+            }
+
+            $primaryLb = $locationBaselines[0] ?? [];
+            $validatedRows[] = [
+                'product_id' => $productId,
+                'product_name' => $productName,
+                'product_code' => $productCode,
+                'base_unit' => $baseUnit,
+                'is_serialized' => $isSerialized,
+                'good_count' => $goodCount,
+                'bad_count' => $badCount,
+                'serials' => $validatedSerials,
+                'location_baselines' => $locationBaselines,
+                'baseline' => [
+                    'existing_good_total' => array_sum(array_column($locationBaselines, 'existing_good_total')),
+                    'existing_good_tax' => array_sum(array_column($locationBaselines, 'existing_good_tax')),
+                    'existing_good_non_tax' => array_sum(array_column($locationBaselines, 'existing_good_non_tax')),
+                    'existing_bad_total' => array_sum(array_column($locationBaselines, 'existing_bad_total')),
+                    'existing_bad_tax' => array_sum(array_column($locationBaselines, 'existing_bad_tax')),
+                    'existing_bad_non_tax' => array_sum(array_column($locationBaselines, 'existing_bad_non_tax')),
+                    'token' => $primaryLb['token'] ?? null,
+                    'signature' => $primaryLb['signature'] ?? null,
+                    'captured_at' => $primaryLb['captured_at'] ?? $baselineCapturedAt,
+                ],
+            ];
+        }
+
+        $result = [
+            'schema_version' => self::SCHEMA_VERSION_2,
+            'location_set_fingerprint' => $fingerprint,
+            'locations' => $locationMeta,
+            'baseline_captured_at' => $baselineCapturedAt,
+            'rows' => $validatedRows,
+        ];
+
+        if ($draftSessionId !== null) {
+            $result['draft_session_id'] = $draftSessionId;
+        }
+
+        return $result;
+    }
+
+    /**
      * Check if an adjustment is eligible for editing count drafts.
      * Normal adjustments are editable while in draft or rejected status.
      * Legacy (non-versioned) normal documents remain editable while pending,
@@ -556,12 +974,16 @@ class CountDraftService
      * Atomically save a count draft (create or update) without mutating inventory,
      * serial records, transactions, or stock histories.
      *
-     * @param array $inputData Form input data (reference, date, note, location_id, count_draft_json/array)
+     * @param array $inputData Form input data (reference, date, note, location_id/location_ids, count_draft_json/array)
      * @param \Modules\Adjustment\Entities\Adjustment|null $adjustment Existing adjustment for update, null for create
      * @return \Modules\Adjustment\Entities\Adjustment
      */
     public function saveDraft(array $inputData, ?\Modules\Adjustment\Entities\Adjustment $adjustment = null): \Modules\Adjustment\Entities\Adjustment
     {
+        if ($adjustment) {
+            app(AdjustmentOwnershipGuard::class)->assertOwned($adjustment);
+        }
+
         // Reject saving over an existing document unless it is currently
         // editable (draft or rejected). This guards direct service usage,
         // not just the controller's canEditAdjustment() pre-check, so a
@@ -573,10 +995,6 @@ class CountDraftService
             );
         }
 
-        if ($adjustment) {
-            app(AdjustmentOwnershipGuard::class)->assertOwned($adjustment);
-        }
-
         if (isset($inputData['structured_draft']) && is_array($inputData['structured_draft'])) {
             $structuredDraft = $inputData['structured_draft'];
         } else {
@@ -584,9 +1002,39 @@ class CountDraftService
                 ? json_decode($inputData['count_draft'], true)
                 : ($inputData['count_draft'] ?? []);
 
-            $authoritativeLocationId = !empty($inputData['location_id']) ? (int) $inputData['location_id'] : null;
-            $structuredDraft = $this->validateAndStructureDraft($rawDraft, $authoritativeLocationId, $adjustment);
+            $hasLocationIds = !empty($inputData['location_ids']) && is_array($inputData['location_ids']);
+            $isV2 = $hasLocationIds
+                || (isset($rawDraft['schema_version']) && (int) $rawDraft['schema_version'] === self::SCHEMA_VERSION_2)
+                || !empty($rawDraft['location_ids'])
+                || !empty($rawDraft['locations']);
+
+            if ($isV2) {
+                $rawLocIds = $inputData['location_ids'] ?? ($rawDraft['location_ids'] ?? array_column($rawDraft['locations'] ?? [], 'location_id'));
+                if (empty($rawLocIds) && !empty($inputData['location_id'])) {
+                    $rawLocIds = [$inputData['location_id']];
+                }
+                $structuredDraft = $this->validateAndStructureDraftV2($rawDraft, $rawLocIds, $adjustment);
+            } else {
+                $authoritativeLocationId = !empty($inputData['location_id']) ? (int) $inputData['location_id'] : null;
+                $structuredDraft = $this->validateAndStructureDraft($rawDraft, $authoritativeLocationId, $adjustment);
+            }
         }
+
+        $isV2 = (isset($structuredDraft['schema_version']) && (int) $structuredDraft['schema_version'] === self::SCHEMA_VERSION_2)
+            || isset($structuredDraft['locations']);
+
+        if ($adjustment && !$isV2 && !$adjustment->isSchemaVersion2()) {
+            app(AdjustmentOwnershipGuard::class)->assertOwned($adjustment);
+        }
+
+        $canonicalLocationIds = [];
+        if ($isV2) {
+            $canonicalLocationIds = array_column($structuredDraft['locations'] ?? [], 'location_id');
+        } elseif (!empty($structuredDraft['location_id'])) {
+            $canonicalLocationIds = [(int) $structuredDraft['location_id']];
+        }
+
+        $headerLocationId = $canonicalLocationIds[0] ?? ($inputData['location_id'] ?? null);
 
         $resolver = app(AdjustmentProductResolver::class);
         $newlyBoundTokens = [];
@@ -605,7 +1053,7 @@ class CountDraftService
 
         // Map persisted baselines by product ID if updating an existing adjustment
         $existingBaselines = [];
-        if ($adjustment && (int) $adjustment->location_id === (int) $structuredDraft['location_id']) {
+        if ($adjustment) {
             $savedDraft = $adjustment->count_draft;
             if (is_array($savedDraft) && !empty($savedDraft['rows'])) {
                 foreach ($savedDraft['rows'] as $savedRow) {
@@ -628,13 +1076,16 @@ class CountDraftService
                 $sessionId,
                 $existingBaselines,
                 $sessionWasAlreadyOwned,
+                $isV2,
+                $canonicalLocationIds,
+                $headerLocationId,
                 &$newlyBoundTokens,
                 &$newlyBoundSession
             ) {
                 $headerData = [
                     'reference' => $inputData['reference'],
                     'date' => $inputData['date'],
-                    'location_id' => $structuredDraft['location_id'],
+                    'location_id' => $headerLocationId,
                     'note' => $inputData['note'] ?? null,
                     'count_draft' => $structuredDraft,
                     'type' => 'normal',
@@ -642,13 +1093,6 @@ class CountDraftService
                 ];
 
                 if ($adjustment) {
-                    // Lock and reload the adjustment inside this transaction, then
-                    // revalidate ownership and editability against the authoritative
-                    // row immediately before updating. The pre-transaction checks above
-                    // only guard against an already-stale request; without this
-                    // re-check here, a concurrent submit() could transition the row to
-                    // WAITING_APPROVAL between the pre-check and this update(), and this
-                    // save would silently overwrite it back to DRAFT.
                     /** @var \Modules\Adjustment\Entities\Adjustment $lockedAdjustment */
                     $lockedAdjustment = \Modules\Adjustment\Entities\Adjustment::where('id', $adjustment->id)
                         ->lockForUpdate()
@@ -660,11 +1104,11 @@ class CountDraftService
                         );
                     }
 
-                    app(AdjustmentOwnershipGuard::class)->assertOwned($lockedAdjustment);
+                    if (!$isV2 && !$lockedAdjustment->isSchemaVersion2()) {
+                        app(AdjustmentOwnershipGuard::class)->assertOwned($lockedAdjustment);
+                    }
 
-                    // Revising a rejected document returns it to draft. Prior rejection
-                    // evidence (rejected_by/at, rejection_reason) is retained as historical
-                    // record; incompatible submission/approval metadata is cleared here.
+                    // Revising a rejected document returns it to draft.
                     $wasRejected = AdjustmentStatus::normalize($lockedAdjustment->status) === AdjustmentStatus::Rejected;
                     if ($wasRejected) {
                         $headerData['submitted_by'] = null;
@@ -686,7 +1130,19 @@ class CountDraftService
 
                 $targetAdjId = (int) $adjustment->id;
 
-                // Atomic session claiming: ensure session is not claimed by another adjustment
+                // Synchronize adjustment_locations relation rows
+                if ($isV2) {
+                    \Modules\Adjustment\Entities\AdjustmentLocation::where('adjustment_id', $targetAdjId)->delete();
+                    foreach ($canonicalLocationIds as $pos => $locId) {
+                        \Modules\Adjustment\Entities\AdjustmentLocation::create([
+                            'adjustment_id' => $targetAdjId,
+                            'location_id' => (int) $locId,
+                            'position' => $pos + 1,
+                        ]);
+                    }
+                }
+
+                // Atomic session claiming
                 if ($sessionId !== null) {
                     $sessionLock = \Illuminate\Support\Facades\Cache::lock("lock_opname_session_{$sessionId}", 5);
                     $sessionLockAcquired = $sessionLock->get(function () use ($sessionId, $targetAdjId) {
@@ -708,6 +1164,25 @@ class CountDraftService
 
                 // Atomic token claiming: claim ownership and reject if concurrently claimed by another adjustment
                 foreach ($structuredDraft['rows'] as $row) {
+                    // Multi-location: location_baselines
+                    if (!empty($row['location_baselines']) && is_array($row['location_baselines'])) {
+                        foreach ($row['location_baselines'] as $lb) {
+                            if (!empty($lb['token'])) {
+                                $token = (string) $lb['token'];
+                                $claimStatus = $resolver->bindSnapshotToAdjustment($token, $targetAdjId, $lb);
+                                if ($claimStatus === false) {
+                                    $productName = $row['product_name'] ?? 'produk';
+                                    throw new InvalidArgumentException("Snapshot baseline untuk {$productName} sudah digunakan oleh dokumen lain.");
+                                }
+
+                                if ($claimStatus === 'claimed') {
+                                    $newlyBoundTokens[] = $token;
+                                }
+                            }
+                        }
+                    }
+
+                    // Single-location v1: baseline.token
                     if (!empty($row['baseline']['token'])) {
                         $token = (string) $row['baseline']['token'];
                         $productId = (int) ($row['product_id'] ?? 0);
@@ -719,29 +1194,21 @@ class CountDraftService
                             throw new InvalidArgumentException("Snapshot baseline untuk {$productName} sudah digunakan oleh dokumen lain.");
                         }
 
-                        // Track newly acquired claims only; never release pre-existing ownership on failure
                         if ($claimStatus === 'claimed') {
                             $newlyBoundTokens[] = $token;
                         }
                     }
                 }
 
-                // Ordinary draft saves (create/update) never notify approvers.
-                // Approval-needed notifications are sent only on explicit submission (task 3.1).
-
                 return $adjustment;
             });
         } catch (\Throwable $e) {
-            // Rollback coordination: If the transaction or any later operation failed,
-            // release ONLY newly acquired claims made during this attempt so the user can retry.
-            // NEVER release pre-existing ownership belonging to an already-saved document.
             $rollbackAdjId = $adjustment?->id ? (int) $adjustment->id : null;
             if ($rollbackAdjId !== null) {
                 foreach ($newlyBoundTokens as $token) {
                     $resolver->releaseSnapshotBinding($token, $rollbackAdjId);
                 }
             } else {
-                // If it was a new adjustment creation that failed, release without requiring matched id
                 foreach ($newlyBoundTokens as $token) {
                     $key = "opname_baseline_{$token}";
                     $snapshot = \Illuminate\Support\Facades\Cache::get($key);

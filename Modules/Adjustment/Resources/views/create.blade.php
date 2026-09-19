@@ -33,15 +33,15 @@
                             </div>
 
                             <div class="form-row">
-                                <div class="col-lg-6">
+                                <div class="col-lg-12">
                                     <div class="form-group">
-                                        <label for="location">Lokasi <span class="text-danger">*</span></label>
-                                        @livewire('modules.setting.location-search-dropdown', [
-                                            'selected' => old('location_id'),
-                                            'consignmentFilter' => 'standard',
-                                            'placeholder' => 'Pilih lokasi stok opname...',
+                                        <label for="location">Lokasi Stok Opname <span class="text-danger">*</span></label>
+                                        @livewire('modules.setting.multi-location-search-dropdown', [
+                                            'selected' => old('location_ids', old('location_id') ? [old('location_id')] : []),
+                                            'placeholder' => 'Pilih satu atau lebih lokasi stok opname...',
                                             'dispatchTo' => \App\Livewire\Adjustment\AdjustmentProductTable::class,
                                         ])
+                                        @error('location_ids') <span class="text-danger small">{{ $message }}</span> @enderror
                                         @error('location_id') <span class="text-danger small">{{ $message }}</span> @enderror
                                     </div>
                                 </div>

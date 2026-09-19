@@ -26,6 +26,7 @@ class AdjustmentProductTable extends Component
         'serialNumberSelected',
         'locationSelected',
         'locationDropdownSelected',
+        'locationsSelected' => 'handleLocationsChange',
     ];
 
     /**
@@ -42,16 +43,22 @@ class AdjustmentProductTable extends Component
     public $hasAdjustments = false;
 
     /**
-     * Locked against direct client mutation: Livewire's wire protocol lets a
-     * crafted request $set() any public property regardless of which method
-     * it is bound to in the Blade template, so without #[Locked] a request
-     * could set locationId straight to a foreign-setting location and skip
-     * handleLocationChange()'s ownership check entirely. Every location
-     * transition must go through locationSelected()/locationDropdownSelected()
-     * or confirmLocationChange(), which revalidate via resolveOwnedLocation().
+     * Locked canonical array of selected location IDs for multi-location stock opname.
+     */
+    #[Locked]
+    public array $locationIds = [];
+
+    #[Locked]
+    public ?array $pendingLocationIds = null;
+
+    /**
+     * Single location ID kept for backward compatibility with legacy tests & callers.
      */
     #[Locked]
     public ?int $locationId = null;
+
+    #[Locked]
+    public ?int $pendingLocationId = null;
 
     // Redesigned Stock Opname State
     public ?string $draftSessionId = null;
@@ -78,15 +85,6 @@ class AdjustmentProductTable extends Component
     // Location confirmation modal state
     public bool $showLocationConfirmModal = false;
 
-    /**
-     * Locked for the same reason as locationId above: confirmLocationChange()
-     * trusts this value to already be an owned location because
-     * handleLocationChange() is the only path that sets it. resolveOwnedLocation()
-     * is still re-checked in applyLocationChange() as defense in depth.
-     */
-    #[Locked]
-    public ?int $pendingLocationId = null;
-
     // Product search modal state
     public bool $showSearchModal = false;
     public string $searchTerm = '';
@@ -99,12 +97,13 @@ class AdjustmentProductTable extends Component
         $is_taxables = null,
         $product_ids = null,
         $quantities = null,
-        $adjustment = null
+        $adjustment = null,
+        $locationIds = null
     ): void {
         $this->products = [];
-        $rawLocationId = $locationId ? (int) $locationId : null;
-        $resolvedLoc = $rawLocationId ? $this->resolveOwnedLocation($rawLocationId) : null;
-        $this->locationId = $resolvedLoc ? (int) $resolvedLoc->id : null;
+        $rawLocations = $locationIds ?? ($locationId ? [$locationId] : []);
+        $this->locationIds = $this->resolveEligibleLocationIds($rawLocations);
+        $this->locationId = $this->locationIds[0] ?? null;
         $this->quantities = $quantities ?? [];
         $this->draftSessionId = (string) \Illuminate\Support\Str::uuid();
 
@@ -113,11 +112,13 @@ class AdjustmentProductTable extends Component
         if ($hasOldDraft) {
             $oldDraft = old('count_draft') ?? session()->getOldInput('count_draft');
             $draftData = is_string($oldDraft) ? json_decode($oldDraft, true) : $oldDraft;
+            $oldLocationIds = old('location_ids') ?? (session()->has('_old_input') ? session()->getOldInput('location_ids') : null);
             $oldLocation = old('location_id') ?? (session()->has('_old_input') ? session()->getOldInput('location_id') : null);
 
-            $candidateLocation = $oldLocation ?: ($draftData['location_id'] ?? $this->locationId);
-            $resolvedOldLoc = $candidateLocation ? $this->resolveOwnedLocation((int) $candidateLocation) : null;
-            $this->locationId = $resolvedOldLoc ? (int) $resolvedOldLoc->id : null;
+            $candidateLocations = $oldLocationIds ?: ($oldLocation ? [$oldLocation] : ($draftData['location_ids'] ?? ($draftData['location_id'] ?? $this->locationIds)));
+            $this->locationIds = $this->resolveEligibleLocationIds($candidateLocations);
+            $this->locationId = $this->locationIds[0] ?? null;
+
             if (!empty($draftData['draft_session_id'])) {
                 $this->draftSessionId = (string) $draftData['draft_session_id'];
             }
@@ -285,6 +286,25 @@ class AdjustmentProductTable extends Component
     }
 
     /**
+     * Sanitize per-location baseline item.
+     */
+    protected function sanitizeLocationBaseline(array $lb): array
+    {
+        if ($this->canViewSystemStock()) {
+            return $lb;
+        }
+
+        return [
+            'location_id' => (int) ($lb['location_id'] ?? 0),
+            'setting_id' => (int) ($lb['setting_id'] ?? 0),
+            'is_pkp' => (bool) ($lb['is_pkp'] ?? false),
+            'token' => $lb['token'] ?? null,
+            'signature' => $lb['signature'] ?? null,
+            'captured_at' => $lb['captured_at'] ?? now()->toIso8601String(),
+        ];
+    }
+
+    /**
      * Initialize product rows from draft rows structure.
      */
     protected function initFromDraftRows(array $rows): void
@@ -301,15 +321,39 @@ class AdjustmentProductTable extends Component
             $rawGoodCount = $row['good_count'] ?? 0;
             $rawBadCount = $row['bad_count'] ?? 0;
 
-            $rawBaseline = $row['baseline'] ?? [
-                'existing_good_total' => 0,
-                'existing_good_tax' => 0,
-                'existing_good_non_tax' => 0,
-                'existing_bad_total' => 0,
-                'existing_bad_tax' => 0,
-                'existing_bad_non_tax' => 0,
-                'captured_at' => now()->toIso8601String(),
-            ];
+            $locationBaselines = $row['location_baselines'] ?? null;
+            if ($locationBaselines && is_array($locationBaselines)) {
+                $totalGood = 0;
+                $totalBad = 0;
+                foreach ($locationBaselines as $lb) {
+                    $totalGood += (int) ($lb['existing_good_total'] ?? 0);
+                    $totalBad += (int) ($lb['existing_bad_total'] ?? 0);
+                }
+                $rawBaseline = [
+                    'existing_good_total' => $totalGood,
+                    'existing_good_tax' => 0,
+                    'existing_good_non_tax' => $totalGood,
+                    'existing_bad_total' => $totalBad,
+                    'existing_bad_tax' => 0,
+                    'existing_bad_non_tax' => $totalBad,
+                    'captured_at' => now()->toIso8601String(),
+                ];
+            } else {
+                $rawBaseline = $row['baseline'] ?? [
+                    'existing_good_total' => 0,
+                    'existing_good_tax' => 0,
+                    'existing_good_non_tax' => 0,
+                    'existing_bad_total' => 0,
+                    'existing_bad_tax' => 0,
+                    'existing_bad_non_tax' => 0,
+                    'captured_at' => now()->toIso8601String(),
+                ];
+            }
+
+            $sanitizedLocationBaselines = null;
+            if ($locationBaselines && is_array($locationBaselines)) {
+                $sanitizedLocationBaselines = array_map(fn ($lb) => $this->sanitizeLocationBaseline($lb), $locationBaselines);
+            }
 
             $this->products[] = [
                 'id' => (int) $row['product_id'],
@@ -321,6 +365,7 @@ class AdjustmentProductTable extends Component
                 'bad_count' => $rawBadCount,
                 'serial_numbers' => $serials,
                 'baseline' => $this->sanitizeBaseline($rawBaseline),
+                'location_baselines' => $sanitizedLocationBaselines,
                 'quantity' => is_numeric($rawGoodCount) ? (int) $rawGoodCount : 0,
                 'quantity_tax' => (int) ($row['tax_allocation']['good_tax'] ?? 0),
                 'quantity_non_tax' => (int) ($row['tax_allocation']['good_non_tax'] ?? 0),
@@ -356,6 +401,12 @@ class AdjustmentProductTable extends Component
                 if (isset($product['baseline']) && is_array($product['baseline'])) {
                     $this->products[$index]['baseline'] = $this->sanitizeBaseline($product['baseline']);
                 }
+                if (!empty($product['location_baselines']) && is_array($product['location_baselines'])) {
+                    $this->products[$index]['location_baselines'] = array_map(
+                        fn ($lb) => $this->sanitizeLocationBaseline($lb),
+                        $product['location_baselines']
+                    );
+                }
             }
         }
     }
@@ -368,11 +419,44 @@ class AdjustmentProductTable extends Component
     }
 
     /**
-     * Every Livewire action that accepts a location ID from the client must
-     * revalidate it server-side against the active session setting and
-     * exclude consignment locations -- the LocationSearchDropdown's rendered
-     * options are a UI convenience, not a security boundary, so a crafted
-     * request could otherwise read another setting's location/stock data.
+     * Resolve eligible location IDs: must exist, be active, and not consignment.
+     * Allowed across all business settings for multi-location stock opname.
+     * Returns unique sorted ascending array of integer IDs.
+     *
+     * @param mixed $locationIds
+     * @return array<int>
+     */
+    protected function resolveEligibleLocationIds(mixed $locationIds): array
+    {
+        if (empty($locationIds)) {
+            return [];
+        }
+
+        if (!is_array($locationIds)) {
+            $locationIds = [$locationIds];
+        }
+
+        $rawIds = array_values(array_filter(array_map('intval', $locationIds), fn ($id) => $id > 0));
+        if (empty($rawIds)) {
+            return [];
+        }
+
+        $validIds = Location::query()
+            ->whereIn('id', $rawIds)
+            ->where('is_active', true)
+            ->where('is_consignment', false)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $canonical = array_values(array_unique($validIds));
+        sort($canonical, SORT_NUMERIC);
+
+        return $canonical;
+    }
+
+    /**
+     * Single location backward compatibility helper for legacy callers.
      */
     protected function resolveOwnedLocation(?int $locationId): ?Location
     {
@@ -380,11 +464,9 @@ class AdjustmentProductTable extends Component
             return null;
         }
 
-        $activeSettingId = (int) session('setting_id');
-
         return Location::with('setting')
             ->where('id', $locationId)
-            ->where('setting_id', $activeSettingId)
+            ->where('is_active', true)
             ->where('is_consignment', false)
             ->first();
     }
@@ -394,80 +476,109 @@ class AdjustmentProductTable extends Component
      */
     public function locationDropdownSelected($name, $value): void
     {
-        if ($name === 'location_id') {
-            $this->handleLocationChange($value);
+        if ($name === 'location_id' || $name === 'location_ids') {
+            $this->handleLocationsChange($value);
         }
     }
 
     public function locationSelected($locationId): void
     {
-        $this->handleLocationChange($locationId);
-    }
+        $locationId = (int) $locationId;
+        $loc = Location::where('id', $locationId)
+            ->where('setting_id', session('setting_id'))
+            ->where('is_active', true)
+            ->where('is_consignment', false)
+            ->first();
 
-    protected function handleLocationChange($newLocationId): void
-    {
-        $newLocationId = !empty($newLocationId) ? (int) $newLocationId : null;
-
-        if ($newLocationId !== null && !$this->resolveOwnedLocation($newLocationId)) {
+        if (!$loc) {
             $this->feedbackMessage = 'Lokasi tidak ditemukan atau bukan milik pengaturan aktif.';
             $this->feedbackType = 'danger';
             $this->dispatch('setSelectedLocation', locationId: $this->locationId);
             return;
         }
 
-        if ($this->locationId === $newLocationId) {
+        $this->handleLocationsChange([$locationId]);
+    }
+
+    public function handleLocationsChange(mixed $values = null, mixed $newValues = null, mixed $name = null): void
+    {
+        $input = $values ?? $newValues;
+        $candidateIds = is_array($input) ? $input : (!empty($input) ? [$input] : []);
+        $rawIds = array_values(array_filter(array_map('intval', $candidateIds), fn ($id) => $id > 0));
+
+        if (!empty($candidateIds) && empty($rawIds)) {
+            $this->feedbackMessage = 'Lokasi tidak ditemukan atau tidak valid.';
+            $this->feedbackType = 'danger';
+            $this->dispatch('setSelectedLocations', locationIds: $this->locationIds);
+            $this->dispatch('setSelectedLocation', locationId: $this->locationId);
+            return;
+        }
+
+        $canonicalNew = $this->resolveEligibleLocationIds($rawIds);
+
+        // If client provided IDs that are inactive, consignment, or non-existent
+        if (count($rawIds) > 0 && count($canonicalNew) !== count(array_unique($rawIds))) {
+            $this->feedbackMessage = 'Lokasi tidak ditemukan, tidak aktif, atau merupakan lokasi konsinyasi.';
+            $this->feedbackType = 'danger';
+            $this->dispatch('setSelectedLocations', locationIds: $this->locationIds);
+            $this->dispatch('setSelectedLocation', locationId: $this->locationId);
+            return;
+        }
+
+        if ($this->locationIds === $canonicalNew) {
             return;
         }
 
         // If rows are already populated, ask for confirmation before clearing
         if (count($this->products) > 0) {
-            $this->pendingLocationId = $newLocationId;
+            $this->pendingLocationIds = $canonicalNew;
+            $this->pendingLocationId = $canonicalNew[0] ?? null;
             $this->showLocationConfirmModal = true;
             return;
         }
 
-        // If no products, directly switch location
-        $this->applyLocationChange($newLocationId);
+        // If no products, directly switch locations
+        $this->applyLocationsChange($canonicalNew);
     }
 
     public function confirmLocationChange(): void
     {
-        $this->applyLocationChange($this->pendingLocationId);
+        $this->applyLocationsChange($this->pendingLocationIds ?? []);
         $this->showLocationConfirmModal = false;
+        $this->pendingLocationIds = null;
         $this->pendingLocationId = null;
     }
 
     public function cancelLocationChange(): void
     {
         $this->showLocationConfirmModal = false;
+        $this->pendingLocationIds = null;
         $this->pendingLocationId = null;
 
-        // Restore the dropdown's selected value back to the table's current locationId
+        // Restore the dropdown's selected value back to current locationIds
+        $this->dispatch('setSelectedLocations', locationIds: $this->locationIds);
         $this->dispatch('setSelectedLocation', locationId: $this->locationId);
     }
 
     /**
-     * Single funnel that assigns $this->locationId from PHP.
-     * Revalidates ownership again as defense in depth.
+     * Single funnel that assigns $this->locationIds from PHP.
      */
-    protected function applyLocationChange($newLocationId): void
+    protected function applyLocationsChange(array $canonicalNew): void
     {
-        $newLocationId = !empty($newLocationId) ? (int) $newLocationId : null;
+        $canonicalNew = $this->resolveEligibleLocationIds($canonicalNew);
 
-        if ($newLocationId !== null && !$this->resolveOwnedLocation($newLocationId)) {
-            $newLocationId = null;
-            $this->feedbackMessage = 'Lokasi tidak ditemukan atau bukan milik pengaturan aktif.';
-            $this->feedbackType = 'danger';
-        } else {
-            $this->feedbackMessage = 'Lokasi telah diubah. Daftar perhitungan telah diatur ulang.';
-            $this->feedbackType = 'info';
-        }
-
-        $this->locationId = $newLocationId;
+        $this->locationIds = $canonicalNew;
+        $this->locationId = $canonicalNew[0] ?? null;
         $this->products = [];
         $this->quantities = [];
         $this->serialNumberErrors = [];
         $this->hasAdjustments = false;
+
+        $this->feedbackMessage = 'Lokasi telah diubah. Daftar perhitungan telah diatur ulang.';
+        $this->feedbackType = 'info';
+
+        $this->dispatch('setSelectedLocations', locationIds: $this->locationIds);
+        $this->dispatch('setSelectedLocation', locationId: $this->locationId);
     }
 
     /**
@@ -482,9 +593,6 @@ class AdjustmentProductTable extends Component
 
     /**
      * Scan bar input handler (called on Enter / scan completion or explicit queue drain).
-     * Accepts an optional explicit $code while falling back to $this->scanInput.
-     * Also accepts an optional explicit $condition ('good' or 'bad') to preserve the condition
-     * captured when the scan was enqueued, even if $activeCondition changed later.
      */
     public function processScan(?string $code = null, ?string $condition = null): void
     {
@@ -497,7 +605,8 @@ class AdjustmentProductTable extends Component
             return;
         }
 
-        if (!$this->locationId || !$this->resolveOwnedLocation($this->locationId)) {
+        if (empty($this->locationIds) || empty($this->resolveEligibleLocationIds($this->locationIds))) {
+            $this->locationIds = [];
             $this->locationId = null;
             $this->feedbackMessage = 'Pilih lokasi terlebih dahulu sebelum memindai.';
             $this->feedbackType = 'warning';
@@ -567,7 +676,6 @@ class AdjustmentProductTable extends Component
 
     /**
      * Apply a resolved match candidate to the opname table.
-     * Returns true if application succeeded, false if rejected (e.g. duplicate serial, invalid conversion factor, or row creation failure).
      */
     protected function applyResolvedCandidate(array $candidate, ?string $targetCondition = null): bool
     {
@@ -582,7 +690,6 @@ class AdjustmentProductTable extends Component
 
         if ($type === 'product') {
             if ($productData['serial_number_required']) {
-                // Serialized barcode: create row at 0 or focus without increment
                 if ($existingIndex === null) {
                     $newIndex = $this->addProductRow($productData);
                     if ($newIndex === null) {
@@ -594,7 +701,6 @@ class AdjustmentProductTable extends Component
                 }
                 $this->feedbackType = 'info';
             } else {
-                // Ordinary barcode: add 1 to target condition
                 if ($existingIndex === null) {
                     $existingIndex = $this->addProductRow($productData);
                     if ($existingIndex === null) {
@@ -610,7 +716,6 @@ class AdjustmentProductTable extends Component
             $conversion = $candidate['conversion'];
             $factor = (float) $conversion['conversion_factor'];
 
-            // Check if factor is an integer
             if (abs($factor - round($factor)) > 1e-6) {
                 $this->feedbackMessage = "Faktor konversi {$factor} bukan bilangan bulat dan belum didukung untuk penyesuaian stok.";
                 $this->feedbackType = 'warning';
@@ -620,7 +725,6 @@ class AdjustmentProductTable extends Component
             $factorInt = (int) round($factor);
 
             if ($productData['serial_number_required']) {
-                // Serialized conversion barcode: create at 0 or focus without increment
                 if ($existingIndex === null) {
                     $newIndex = $this->addProductRow($productData);
                     if ($newIndex === null) {
@@ -654,7 +758,6 @@ class AdjustmentProductTable extends Component
                 }
             }
 
-            // Check if serial already exists on this product row
             $serials = $this->products[$existingIndex]['serial_numbers'] ?? [];
             if (collect($serials)->contains(fn($s) => ProductSerialNumber::normalize($s['serial_number']) === $serialText)) {
                 $this->feedbackMessage = "Nomor seri '{$serialText}' sudah ada pada produk ini.";
@@ -662,7 +765,6 @@ class AdjustmentProductTable extends Component
                 return false;
             }
 
-            // Add serial entry
             $this->products[$existingIndex]['serial_numbers'][] = [
                 'serial_number' => $serialText,
                 'condition' => $condition,
@@ -683,30 +785,64 @@ class AdjustmentProductTable extends Component
     }
 
     /**
-     * Add a product row initialized at zero counts with captured baseline.
+     * Add a product row initialized at zero counts with captured per-location baselines.
      */
     protected function addProductRow(array $productData): ?int
     {
-        $resolvedLocation = $this->resolveOwnedLocation($this->locationId);
-        if (!$resolvedLocation) {
+        if (empty($this->locationIds) || empty($this->resolveEligibleLocationIds($this->locationIds))) {
+            $this->locationIds = [];
             $this->locationId = null;
-            $this->feedbackMessage = 'Lokasi tidak ditemukan atau bukan milik pengaturan aktif.';
+            $this->feedbackMessage = 'Pilih lokasi terlebih dahulu sebelum menambahkan produk.';
             $this->feedbackType = 'danger';
             return null;
         }
 
         $productId = (int) $productData['id'];
+        $fingerprint = CountDraftService::locationSetFingerprint($this->locationIds);
         $resolver = app(AdjustmentProductResolver::class);
-        $baseline = $resolver->captureBaseline(
-            $productId,
-            (int) $resolvedLocation->id,
-            auth()->id(),
-            $this->draftSessionId,
-            $this->adjustmentId
-        );
+        $locations = Location::with('setting')->whereIn('id', $this->locationIds)->get()->keyBy('id');
+
+        $locationBaselines = [];
+        $totalGood = 0;
+        $totalBad = 0;
+
+        foreach ($this->locationIds as $locId) {
+            $loc = $locations->get($locId);
+            $locSetting = $loc?->setting;
+            $locIsPkp = (bool) ($locSetting?->is_pkp ?? false);
+
+            $captured = $resolver->captureBaseline(
+                $productId,
+                $locId,
+                auth()->id(),
+                $this->draftSessionId,
+                $this->adjustmentId,
+                $fingerprint
+            );
+
+            $totalGood += (int) ($captured['existing_good_total'] ?? 0);
+            $totalBad += (int) ($captured['existing_bad_total'] ?? 0);
+
+            $locationBaselines[] = [
+                'location_id' => $locId,
+                'setting_id' => (int) ($locSetting?->id ?? 0),
+                'is_pkp' => $locIsPkp,
+                'existing_good_total' => (int) ($captured['existing_good_total'] ?? 0),
+                'existing_good_tax' => (int) ($captured['existing_good_tax'] ?? 0),
+                'existing_good_non_tax' => (int) ($captured['existing_good_non_tax'] ?? 0),
+                'existing_bad_total' => (int) ($captured['existing_bad_total'] ?? 0),
+                'existing_bad_tax' => (int) ($captured['existing_bad_tax'] ?? 0),
+                'existing_bad_non_tax' => (int) ($captured['existing_bad_non_tax'] ?? 0),
+                'captured_at' => $captured['captured_at'] ?? now()->toIso8601String(),
+                'token' => $captured['token'] ?? null,
+                'signature' => $captured['signature'] ?? null,
+            ];
+        }
 
         $isSerialized = (bool) ($productData['serial_number_required'] ?? false);
         $baseUnit = $productData['base_unit'] ?? ($productData['unit'] ?? '');
+
+        $primaryLb = $locationBaselines[0] ?? [];
 
         $row = [
             'id' => $productId,
@@ -717,7 +853,18 @@ class AdjustmentProductTable extends Component
             'good_count' => 0,
             'bad_count' => 0,
             'serial_numbers' => [],
-            'baseline' => $this->sanitizeBaseline($baseline),
+            'baseline' => $this->sanitizeBaseline([
+                'existing_good_total' => $totalGood,
+                'existing_good_tax' => 0,
+                'existing_good_non_tax' => $totalGood,
+                'existing_bad_total' => $totalBad,
+                'existing_bad_tax' => 0,
+                'existing_bad_non_tax' => $totalBad,
+                'captured_at' => now()->toIso8601String(),
+                'token' => $primaryLb['token'] ?? null,
+                'signature' => $primaryLb['signature'] ?? null,
+            ]),
+            'location_baselines' => $locationBaselines,
             'quantity' => 0,
             'quantity_tax' => 0,
             'quantity_non_tax' => 0,
@@ -818,7 +965,8 @@ class AdjustmentProductTable extends Component
     {
         Log::info('AdjustmentProductTable: productSelected', ['product' => $product]);
 
-        if (!$this->locationId || !$this->resolveOwnedLocation($this->locationId)) {
+        if (empty($this->locationIds) || empty($this->resolveEligibleLocationIds($this->locationIds))) {
+            $this->locationIds = [];
             $this->locationId = null;
             session()->flash('message', 'Pilih lokasi terlebih dahulu sebelum menambahkan produk.');
             $this->feedbackMessage = 'Pilih lokasi terlebih dahulu sebelum menambahkan produk.';
@@ -984,7 +1132,7 @@ class AdjustmentProductTable extends Component
      */
     public function getCountDraftPayloadProperty(): string
     {
-        if (empty($this->locationId) || empty($this->products)) {
+        if (empty($this->locationIds) || empty($this->products)) {
             return '';
         }
 
@@ -1003,13 +1151,16 @@ class AdjustmentProductTable extends Component
                 'good_count' => $rawGood,
                 'bad_count' => $rawBad,
                 'serials' => $product['serial_numbers'] ?? [],
+                'location_baselines' => $product['location_baselines'] ?? [],
                 'baseline' => $this->sanitizeBaseline($product['baseline'] ?? []),
             ];
         }
 
         $payload = [
-            'schema_version' => CountDraftService::SCHEMA_VERSION,
-            'location_id' => (int) $this->locationId,
+            'schema_version' => CountDraftService::SCHEMA_VERSION_2,
+            'location_set_fingerprint' => CountDraftService::locationSetFingerprint($this->locationIds),
+            'location_ids' => $this->locationIds,
+            'location_id' => $this->locationIds[0] ?? null,
             'draft_session_id' => $this->draftSessionId,
             'rows' => $rows,
         ];

@@ -40,15 +40,18 @@
                             </div>
 
                             <div class="form-row">
-                                <div class="col-lg-6">
+                                <div class="col-lg-12">
                                     <div class="form-group">
-                                        <label for="location">Lokasi <span class="text-danger">*</span></label>
-                                        @livewire('modules.setting.location-search-dropdown', [
-                                            'selected' => old('location_id', $adjustment->location_id),
-                                            'consignmentFilter' => 'standard',
-                                            'placeholder' => 'Pilih lokasi...',
+                                        <label for="location">Lokasi Stok Opname <span class="text-danger">*</span></label>
+                                        @php
+                                            $selectedLocs = old('location_ids', $adjustment->selectedLocations->pluck('location_id')->all() ?: ($adjustment->location_id ? [$adjustment->location_id] : []));
+                                        @endphp
+                                        @livewire('modules.setting.multi-location-search-dropdown', [
+                                            'selected' => $selectedLocs,
+                                            'placeholder' => 'Pilih satu atau lebih lokasi stok opname...',
                                             'dispatchTo' => \App\Livewire\Adjustment\AdjustmentProductTable::class,
                                         ])
+                                        @error('location_ids') <span class="text-danger small">{{ $message }}</span> @enderror
                                         @error('location_id') <span class="text-danger small">{{ $message }}</span> @enderror
                                     </div>
                                 </div>
@@ -59,7 +62,7 @@
                             <livewire:adjustment.adjustment-product-table
                                 :adjustment="$adjustment"
                                 :adjustedProducts="$adjustment->adjustedProducts->toArray()"
-                                :locationId="old('location_id', $adjustment->location_id)"/>
+                                :locationIds="$selectedLocs"/>
 
                             <div class="form-group mt-3">
                                 <label for="note">Catatan (Jika Dibutuhkan)</label>

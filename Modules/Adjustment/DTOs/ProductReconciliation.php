@@ -46,6 +46,10 @@ class ProductReconciliation
 
         public readonly array $serials = [],
         public readonly array $omittedSerials = [],
+        public readonly array $locationBaselines = [],
+        public readonly array $locationCurrentStocks = [],
+        public readonly array $goodAllocationPlan = [],
+        public readonly array $badAllocationPlan = [],
     ) {
     }
 
@@ -99,6 +103,12 @@ class ProductReconciliation
             'drift' => $this->drift,
             'exceeds_all_location_total' => $this->exceedsAllLocationTotal,
             'potential_global_increase' => $this->potentialGlobalIncrease,
+            'location_baselines' => $this->locationBaselines,
+            'location_current_stocks' => $this->locationCurrentStocks,
+            'allocations' => [
+                'good' => $this->goodAllocationPlan,
+                'bad' => $this->badAllocationPlan,
+            ],
             'serials' => array_map(fn (SerialClassification $s) => $s->toReviewerArray(), $this->serials),
             'omitted_serials' => array_map(fn (SerialClassification $s) => $s->toReviewerArray(), $this->omittedSerials),
         ];

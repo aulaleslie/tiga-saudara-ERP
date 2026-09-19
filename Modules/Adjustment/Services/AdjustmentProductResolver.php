@@ -68,10 +68,11 @@ class AdjustmentProductResolver
 
     /**
      * Generate an HMAC signature for a baseline snapshot.
+     * Optionally binds to a canonical location-set fingerprint.
      */
-    public function generateBaselineSignature(array $baseline, int $productId, int $locationId): string
+    public function generateBaselineSignature(array $baseline, int $productId, int $locationId, ?string $locationSetFingerprint = null): string
     {
-        $payload = implode('|', [
+        $payloadParts = [
             $productId,
             $locationId,
             (int) ($baseline['existing_good_total'] ?? 0),
@@ -81,23 +82,30 @@ class AdjustmentProductResolver
             (int) ($baseline['existing_bad_tax'] ?? 0),
             (int) ($baseline['existing_bad_non_tax'] ?? 0),
             (string) ($baseline['captured_at'] ?? ''),
-        ]);
+        ];
 
+        if ($locationSetFingerprint !== null) {
+            $payloadParts[] = $locationSetFingerprint;
+        }
+
+        $payload = implode('|', $payloadParts);
         $key = (string) config('app.key');
+
         return hash_hmac('sha256', $payload, $key);
     }
 
     /**
      * Verify whether a baseline snapshot's signature is valid.
      */
-    public function verifyBaselineSignature(array $baseline, int $productId, int $locationId): bool
+    public function verifyBaselineSignature(array $baseline, int $productId, int $locationId, ?string $locationSetFingerprint = null): bool
     {
         $signature = (string) ($baseline['signature'] ?? '');
         if ($signature === '') {
             return false;
         }
 
-        $expected = $this->generateBaselineSignature($baseline, $productId, $locationId);
+        $expected = $this->generateBaselineSignature($baseline, $productId, $locationId, $locationSetFingerprint);
+
         return hash_equals($expected, $signature);
     }
 
@@ -110,7 +118,8 @@ class AdjustmentProductResolver
         int $locationId,
         ?int $userId = null,
         ?string $draftSessionId = null,
-        ?int $adjustmentId = null
+        ?int $adjustmentId = null,
+        ?string $locationSetFingerprint = null
     ): string {
         $token = (string) \Illuminate\Support\Str::uuid();
         $key = "opname_baseline_{$token}";
@@ -122,6 +131,7 @@ class AdjustmentProductResolver
             'user_id' => $userId ?? auth()->id(),
             'draft_session_id' => $draftSessionId,
             'adjustment_id' => $adjustmentId,
+            'location_set_fingerprint' => $locationSetFingerprint,
             'baseline' => $baseline,
             'captured_at' => $baseline['captured_at'] ?? now()->toIso8601String(),
         ];
@@ -132,7 +142,7 @@ class AdjustmentProductResolver
     }
 
     /**
-     * Retrieve a server-held baseline snapshot and validate product, location, user, and session/document association.
+     * Retrieve a server-held baseline snapshot and validate product, location, user, session/document, and location-set association.
      */
     public function getBaselineSnapshot(
         string $token,
@@ -140,7 +150,8 @@ class AdjustmentProductResolver
         int $locationId,
         ?int $userId = null,
         ?string $draftSessionId = null,
-        ?int $adjustmentId = null
+        ?int $adjustmentId = null,
+        ?string $locationSetFingerprint = null
     ): ?array {
         $token = trim($token);
         if ($token === '') {
@@ -159,6 +170,12 @@ class AdjustmentProductResolver
             return null;
         }
 
+        // Validate location set fingerprint if provided
+        $snapshotFp = $snapshot['location_set_fingerprint'] ?? null;
+        if ($locationSetFingerprint !== null && $snapshotFp !== null && $snapshotFp !== $locationSetFingerprint) {
+            return null;
+        }
+
         // Validate user/session ownership if user ID is specified and user is not Super Admin
         $currentUserId = $userId ?? auth()->id();
         $snapshotUserId = $snapshot['user_id'] ?? null;
@@ -172,21 +189,16 @@ class AdjustmentProductResolver
         // Validate document or counting session binding:
         $snapshotAdjustmentId = $snapshot['adjustment_id'] ?? null;
 
-        // 1. If snapshot has already been bound to an adjustment:
-        //    - If caller specifies an adjustmentId, it must match the snapshot's bound adjustment_id
-        //    - If caller is creating a new adjustment ($adjustmentId is null), rejecting reuse of an already-saved snapshot!
         if ($snapshotAdjustmentId !== null) {
             if ($adjustmentId === null || (int) $snapshotAdjustmentId !== (int) $adjustmentId) {
                 return null;
             }
         }
 
-        // 2. If caller specifies an adjustmentId, snapshot cannot be bound to a different adjustment
         if ($adjustmentId !== null && $snapshotAdjustmentId !== null && (int) $snapshotAdjustmentId !== (int) $adjustmentId) {
             return null;
         }
 
-        // 3. If snapshot is bound to a draft_session_id, incoming draftSessionId must match
         $snapshotDraftSessionId = $snapshot['draft_session_id'] ?? null;
         if ($snapshotDraftSessionId !== null && (string) $snapshotDraftSessionId !== (string) ($draftSessionId ?? '')) {
             return null;
@@ -290,7 +302,8 @@ class AdjustmentProductResolver
         int $locationId,
         ?int $userId = null,
         ?string $draftSessionId = null,
-        ?int $adjustmentId = null
+        ?int $adjustmentId = null,
+        ?string $locationSetFingerprint = null
     ): array {
         $stock = ProductStock::where('product_id', $productId)
             ->where('location_id', $locationId)
@@ -311,7 +324,7 @@ class AdjustmentProductResolver
             'captured_at' => now()->toIso8601String(),
         ];
 
-        $baseline['signature'] = $this->generateBaselineSignature($baseline, $productId, $locationId);
+        $baseline['signature'] = $this->generateBaselineSignature($baseline, $productId, $locationId, $locationSetFingerprint);
 
         // Store authoritative server-side snapshot and issue opaque token
         $token = $this->storeBaselineSnapshot(
@@ -320,7 +333,8 @@ class AdjustmentProductResolver
             $locationId,
             $userId,
             $draftSessionId,
-            $adjustmentId
+            $adjustmentId,
+            $locationSetFingerprint
         );
         $baseline['token'] = $token;
 

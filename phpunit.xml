@@ -26,6 +26,12 @@
         <testsuite name="Reports">
             <directory suffix="Test.php">./Modules/Reports/Tests</directory>
         </testsuite>
+        <testsuite name="Adjustment">
+            <directory suffix="Test.php">./Modules/Adjustment/Tests</directory>
+        </testsuite>
+        <testsuite name="Setting">
+            <directory suffix="Test.php">./Modules/Setting/Tests</directory>
+        </testsuite>
         <testsuite name="Product">
             <directory suffix="Test.php">./Modules/Product/Tests</directory>
         </testsuite>

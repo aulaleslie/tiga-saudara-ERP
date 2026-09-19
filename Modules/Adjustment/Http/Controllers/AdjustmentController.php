@@ -704,7 +704,24 @@ class AdjustmentController extends Controller
     {
         $result = is_array($adjustment->approval_result) ? $adjustment->approval_result : [];
 
+        $rawSelectedLocations = $result['selected_locations'] ?? [];
+        $normalizedSelectedLocations = collect($rawSelectedLocations)->map(function ($loc) {
+            if (!is_array($loc)) {
+                return null;
+            }
+            return [
+                'id' => $loc['id'] ?? $loc['location_id'] ?? null,
+                'name' => $loc['name'] ?? $loc['location_name'] ?? '',
+                'company_name' => $loc['company_name'] ?? ($loc['setting_name'] ?? ''),
+                'setting_id' => $loc['setting_id'] ?? null,
+                'is_pkp' => $loc['is_pkp'] ?? false,
+            ];
+        })->filter()->values()->all();
+
         if ($canViewSystemStock) {
+            if (!empty($normalizedSelectedLocations)) {
+                $result['selected_locations'] = $normalizedSelectedLocations;
+            }
             return $result;
         }
 
@@ -735,6 +752,7 @@ class AdjustmentController extends Controller
             'adjustment_id' => $result['adjustment_id'] ?? $adjustment->id,
             'location_id' => $result['location_id'] ?? $adjustment->location_id,
             'location_name' => $result['location_name'] ?? ($adjustment->location->name ?? ''),
+            'selected_locations' => $normalizedSelectedLocations,
             'products' => $products,
         ];
     }

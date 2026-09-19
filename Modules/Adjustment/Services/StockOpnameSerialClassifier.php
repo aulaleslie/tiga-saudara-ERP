@@ -23,13 +23,17 @@ class StockOpnameSerialClassifier
      * Classify every entered serial for one product plus every destination
      * serial omitted from the entered set.
      *
-     * @param Collection $movementEligibleLocationIds Any existing
-     *   non-consignment location ID, regardless of setting -- an active,
-     *   unencumbered serial may move in from any of these. This is
-     *   deliberately broader than the same-setting scope used for
-     *   "all locations" totals (see StockOpnameReconciliationService::
-     *   settingEligibleLocationIds()): the product catalogue and physical
-     *   serial custody are global, while ownership totals stay per-setting.
+     * Supports both multi-location pools (Collection of Locations) and
+     * single-location documents (single Location model).
+     *
+     * @param Collection<int, Location>|Location $destinationLocation
+     * @param Collection $movementEligibleLocationIds Any existing non-consignment location ID
+     * @param Collection $matchingSerialsByText Keyed by normalized serial_number
+     * @param Collection $destinationSerialsByProduct Keyed by product_id
+     * @param Collection $activeClaimSerialIds
+     * @param Collection $allocatedSerialIds
+     * @param Collection|null $activeTransferClaimSerialIds
+     * @param Collection|null $locationStocks Keyed by "{$locationId}_{$productId}"
      * @return array{
      *   entered: SerialClassification[],
      *   omitted: SerialClassification[],
@@ -41,7 +45,7 @@ class StockOpnameSerialClassifier
     public function classify(
         Product $product,
         array $row,
-        Location $destinationLocation,
+        Collection|Location $destinationLocation,
         bool $isPkp,
         Collection $movementEligibleLocationIds,
         Collection $matchingSerialsByText,
@@ -49,10 +53,19 @@ class StockOpnameSerialClassifier
         Collection $activeClaimSerialIds,
         Collection $allocatedSerialIds,
         ?Collection $activeTransferClaimSerialIds = null,
+        ?Collection $locationStocks = null,
     ): array {
         if (!$product->serial_number_required) {
             return ['entered' => [], 'omitted' => [], 'warnings' => [], 'conflicts' => [], 'newSerialCount' => 0];
         }
+
+        $selectedLocations = $destinationLocation instanceof Collection
+            ? $destinationLocation
+            : collect([$destinationLocation]);
+
+        $selectedLocationIds = $selectedLocations->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $selectedLocationsById = $selectedLocations->keyBy('id');
+        $locationStocks ??= collect();
 
         $entered = [];
         $warnings = [];
@@ -77,10 +90,9 @@ class StockOpnameSerialClassifier
             $enteredTexts[$text] = true;
 
             $enteredCondition = strtolower((string) ($serialRow['condition'] ?? 'good'));
-            $destinationIsTax = $isPkp;
 
             // Re-resolve authoritatively by product ID + normalized text, never
-            // trusting the client-supplied/saved source fields on the row.
+            // trusting client-supplied or saved source fields.
             $candidates = $matchingSerialsByText->get($text, collect());
             $ownProductMatch = $candidates->first(fn (ProductSerialNumber $s) => (int) $s->product_id === (int) $product->id);
             $otherProductMatch = $candidates->first(fn (ProductSerialNumber $s) => (int) $s->product_id !== (int) $product->id);
@@ -95,6 +107,10 @@ class StockOpnameSerialClassifier
             }
 
             if (!$ownProductMatch) {
+                // New serial: assign to deterministic surplus destination
+                $targetLoc = $this->determineSurplusDestination($selectedLocations, $locationStocks, (int) $product->id, $enteredCondition);
+                $targetIsTax = (bool) ($targetLoc->setting?->is_pkp ?? false);
+
                 $entered[] = new SerialClassification(
                     serialNumber: $text,
                     status: SerialClassification::STATUS_NEW,
@@ -104,9 +120,9 @@ class StockOpnameSerialClassifier
                     sourceCondition: null,
                     sourceIsTax: null,
                     enteredCondition: $enteredCondition,
-                    destinationIsTax: $destinationIsTax,
+                    destinationIsTax: $targetIsTax,
                     sameTextOtherProduct: (bool) $otherProductMatch,
-                    label: 'Baru: akan didaftarkan di lokasi tujuan.',
+                    label: sprintf('Baru: akan didaftarkan di %s.', $targetLoc->name),
                     statuses: [SerialClassification::STATUS_NEW],
                 );
                 $newSerialCount++;
@@ -122,6 +138,20 @@ class StockOpnameSerialClassifier
                 $allocatedSerialIds,
                 $activeTransferClaimSerialIds
             );
+
+            // Determine if serial is already in the selected pool
+            $isAlreadyInPool = $sourceLocationId !== null && in_array($sourceLocationId, $selectedLocationIds, true);
+
+            if ($isAlreadyInPool) {
+                // Serial is retained at its current selected location
+                $targetLoc = $selectedLocationsById->get($sourceLocationId) ?? $ownProductMatch->location;
+            } else {
+                // Serial moves from outside the pool into the deterministic surplus destination
+                $targetLoc = $this->determineSurplusDestination($selectedLocations, $locationStocks, (int) $product->id, $enteredCondition);
+            }
+
+            $targetIsTax = (bool) ($targetLoc?->setting?->is_pkp ?? false);
+
             if ($conflictReason !== null) {
                 $conflicts[] = sprintf(
                     "Nomor seri '%s' untuk produk %s tidak dapat diproses: %s",
@@ -138,7 +168,7 @@ class StockOpnameSerialClassifier
                     sourceCondition: $ownProductMatch->is_broken ? 'bad' : 'good',
                     sourceIsTax: $ownProductMatch->tax_id !== null,
                     enteredCondition: $enteredCondition,
-                    destinationIsTax: $destinationIsTax,
+                    destinationIsTax: $targetIsTax,
                     conflictReason: $conflictReason,
                     label: 'Konflik: tidak dapat diproses secara aman — ' . $conflictReason,
                     statuses: [SerialClassification::STATUS_CONFLICTING],
@@ -149,24 +179,14 @@ class StockOpnameSerialClassifier
             $sourceCondition = $ownProductMatch->is_broken ? 'bad' : 'good';
             $sourceIsTax = $ownProductMatch->tax_id !== null;
 
-            $isSameLocation = $sourceLocationId === (int) $destinationLocation->id;
+            $isSameLocation = $sourceLocationId === (int) $targetLoc->id;
             $conditionChanged = $sourceCondition !== $enteredCondition;
-            $taxChanged = $sourceIsTax !== $destinationIsTax;
+            $taxChanged = $sourceIsTax !== $targetIsTax;
 
-            // A safe stock-movement candidate's source setting may legitimately
-            // differ from the destination's: the product catalogue and
-            // physical serial custody are global. This is surfaced as a
-            // structured movement fact (crossSetting), never a blocking
-            // conflict -- unsafeSerialConflictReason() above already rejected
-            // every genuinely unsafe state (consignment source, active
-            // dispatch/claim/allocation, SOLD/RETURN_IN_PROCESS/MISSING).
             $crossSetting = !$isSameLocation
                 && $ownProductMatch->location !== null
-                && (int) $ownProductMatch->location->setting_id !== (int) $destinationLocation->setting_id;
+                && (int) $ownProductMatch->location->setting_id !== (int) $targetLoc->setting_id;
 
-            // Composable: a single serial can simultaneously move, change
-            // condition, and change tax classification. Every applicable
-            // status is reported together rather than picking just one.
             $statuses = [];
             $labelParts = [];
 
@@ -175,7 +195,7 @@ class StockOpnameSerialClassifier
                 $labelParts[] = sprintf(
                     'Pindah dari %s ke %s.',
                     $ownProductMatch->location?->name ?? "lokasi #{$sourceLocationId}",
-                    $destinationLocation->name
+                    $targetLoc->name
                 );
                 if ($crossSetting) {
                     $labelParts[] = 'Perpindahan lintas pengaturan (lokasi asal berbeda pengaturan dari lokasi tujuan).';
@@ -189,7 +209,7 @@ class StockOpnameSerialClassifier
 
             if ($taxChanged) {
                 $statuses[] = SerialClassification::STATUS_TAX_CHANGED;
-                $labelParts[] = $destinationIsTax
+                $labelParts[] = $targetIsTax
                     ? 'Tidak Kena Pajak → Kena Pajak'
                     : 'Kena Pajak → Tidak Kena Pajak';
             }
@@ -208,14 +228,14 @@ class StockOpnameSerialClassifier
                 sourceCondition: $sourceCondition,
                 sourceIsTax: $sourceIsTax,
                 enteredCondition: $enteredCondition,
-                destinationIsTax: $destinationIsTax,
+                destinationIsTax: $targetIsTax,
                 label: implode(' ', $labelParts),
                 statuses: $statuses,
                 crossSetting: $crossSetting,
             );
         }
 
-        // Destination serials omitted from the entered complete set.
+        // Selected pool serials omitted from the entered complete set.
         $omitted = [];
         $destinationSerials = $destinationSerialsByProduct->get($product->id, collect());
         foreach ($destinationSerials as $existingSerial) {
@@ -223,31 +243,29 @@ class StockOpnameSerialClassifier
                 continue;
             }
             if ($this->isUnavailableForCounting($existingSerial, $activeTransferClaimSerialIds)) {
-                // Not currently available at this location for counting
-                // purposes; omission is expected, not a discrepancy. This
-                // includes MISSING: a serial already flagged missing by a
-                // prior stock opname is not re-flagged as a fresh omission.
                 continue;
             }
+
+            $locName = $existingSerial->location?->name ?? ('lokasi #' . $existingSerial->location_id);
 
             $omitted[] = new SerialClassification(
                 serialNumber: $existingSerial->serial_number,
                 status: SerialClassification::STATUS_OMITTED,
                 sourceSerialId: (int) $existingSerial->id,
                 sourceLocationId: (int) $existingSerial->location_id,
-                sourceLocationName: $destinationLocation->name,
+                sourceLocationName: $locName,
                 sourceCondition: $existingSerial->is_broken ? 'bad' : 'good',
                 sourceIsTax: $existingSerial->tax_id !== null,
                 enteredCondition: null,
                 destinationIsTax: null,
-                label: 'Terdaftar di lokasi ini tetapi tidak disertakan dalam hitungan.',
+                label: sprintf('Terdaftar di %s tetapi tidak disertakan dalam hitungan.', $locName),
                 statuses: [SerialClassification::STATUS_OMITTED],
             );
         }
 
         if (!empty($omitted)) {
             $warnings[] = sprintf(
-                '%s: %d nomor seri terdaftar di lokasi ini tidak disertakan dalam hitungan.',
+                '%s: %d nomor seri terdaftar di lokasi terpilih tidak disertakan dalam hitungan.',
                 $product->product_name,
                 count($omitted)
             );
@@ -260,6 +278,44 @@ class StockOpnameSerialClassifier
             'conflicts' => $conflicts,
             'newSerialCount' => $newSerialCount,
         ];
+    }
+
+    /**
+     * Deterministically determine surplus destination for new or outside serials.
+     * Order: (is_pkp ASC, relevant condition stock ASC, location_id ASC).
+     */
+    public function determineSurplusDestination(
+        Collection $selectedLocations,
+        Collection $locationStocks,
+        int $productId,
+        string $condition = 'good'
+    ): Location {
+        $sorted = $selectedLocations->all();
+        usort($sorted, function (Location $a, Location $b) use ($locationStocks, $productId, $condition) {
+            $pkpA = (int) (bool) ($a->setting?->is_pkp ?? false);
+            $pkpB = (int) (bool) ($b->setting?->is_pkp ?? false);
+            if ($pkpA !== $pkpB) {
+                return $pkpA <=> $pkpB;
+            }
+
+            $stockA = $locationStocks->get("{$a->id}_{$productId}");
+            $stockB = $locationStocks->get("{$b->id}_{$productId}");
+
+            $valA = $condition === 'bad'
+                ? ($stockA ? (int) round((float) $stockA->broken_quantity) : 0)
+                : ($stockA ? (int) round((float) $stockA->quantity_tax) + (int) round((float) $stockA->quantity_non_tax) : 0);
+            $valB = $condition === 'bad'
+                ? ($stockB ? (int) round((float) $stockB->broken_quantity) : 0)
+                : ($stockB ? (int) round((float) $stockB->quantity_tax) + (int) round((float) $stockB->quantity_non_tax) : 0);
+
+            if ($valA !== $valB) {
+                return $valA <=> $valB;
+            }
+
+            return ((int) $a->id) <=> ((int) $b->id);
+        });
+
+        return $sorted[0];
     }
 
     /**
@@ -310,11 +366,6 @@ class StockOpnameSerialClassifier
             return 'Nomor seri berstatus ' . $serial->status . ' dan tidak dapat diproses.';
         }
         if ($serial->status === ProductSerialNumber::STATUS_MISSING) {
-            // A serial already flagged missing by a prior approved opname is
-            // never silently reusable by entering its text again: its
-            // retained location_id is provenance only, not a live movable
-            // position, and re-establishing it requires an explicit separate
-            // recovery workflow rather than an ordinary count/move/reclassify.
             return 'Nomor seri berstatus HILANG pada hitungan sebelumnya dan memerlukan alur pemulihan tersendiri sebelum dapat diproses lagi.';
         }
         if ($activeClaimSerialIds->contains($serial->id)) {
@@ -327,12 +378,6 @@ class StockOpnameSerialClassifier
             return 'Nomor seri sedang dalam proses transfer stok (in transit).';
         }
 
-        // Movement eligibility is deliberately broader than the same-owner
-        // "all locations" total scope: the product catalogue and physical
-        // serial custody are global, so an active, unencumbered serial may
-        // move in from ANY non-consignment location regardless of setting.
-        // Only a consignment source (never a safe stock-movement candidate)
-        // or a location that no longer exists is a conflict here.
         if ($serial->location_id !== null && !$movementEligibleLocationIds->contains((int) $serial->location_id)) {
             return 'Nomor seri berada di lokasi konsinyasi atau lokasi yang tidak valid untuk perpindahan stok.';
         }

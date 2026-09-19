@@ -23,6 +23,18 @@ class AdjustmentOwnershipGuard
      */
     public function assertOwned(Adjustment $adjustment, ?int $activeSettingId = null): void
     {
+        if ($adjustment->isSchemaVersion2()) {
+            $poolResolver = app(SelectedLocationPoolResolver::class);
+            try {
+                $poolResolver->resolve($adjustment);
+            } catch (\InvalidArgumentException $e) {
+                throw ValidationException::withMessages([
+                    'location_id' => [$e->getMessage()],
+                ]);
+            }
+            return;
+        }
+
         $activeSettingId ??= (int) session('setting_id');
 
         $location = $adjustment->location ?? ($adjustment->location_id ? Location::find($adjustment->location_id) : null);

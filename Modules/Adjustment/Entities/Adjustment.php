@@ -28,9 +28,38 @@ class Adjustment extends BaseModel
         return !empty($this->count_draft) && isset($this->count_draft['schema_version']);
     }
 
+    /**
+     * Check if this document uses schema version 2 (multi-location).
+     */
+    public function isSchemaVersion2(): bool
+    {
+        return !empty($this->count_draft)
+            && ((int) ($this->count_draft['schema_version'] ?? 0)) === 2;
+    }
+
     public function isNormalVersioned(): bool
     {
         return strtolower(trim((string) $this->type)) === 'normal' && $this->isVersionedCountDraft();
+    }
+
+    /**
+     * The authoritative ordered set of selected locations for a
+     * multi-location (schema version 2) Stock Opname document.
+     *
+     * Historical single-location documents will have zero rows here;
+     * callers should use SelectedLocationPoolResolver to transparently
+     * handle both schemas.
+     */
+    public function selectedLocations(): HasMany
+    {
+        return $this->hasMany(AdjustmentLocation::class, 'adjustment_id', 'id')
+            ->orderBy('position')
+            ->orderBy('location_id');
+    }
+
+    public function adjustmentLocations(): HasMany
+    {
+        return $this->selectedLocations();
     }
 
     public function submittedBy(): BelongsTo

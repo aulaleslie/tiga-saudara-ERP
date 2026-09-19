@@ -42,6 +42,7 @@ class ReconciliationResult
         public readonly array $conflicts = [],
         public readonly array $unattributedConflicts = [],
         public readonly ?string $computedAt = null,
+        public readonly array $selectedLocations = [],
     ) {
     }
 
@@ -59,6 +60,7 @@ class ReconciliationResult
             'location_name' => $this->locationName,
             'setting_id' => $this->settingId,
             'is_pkp' => $this->isPkp,
+            'selected_locations' => $this->selectedLocations,
             'computed_at' => $this->computedAt,
             'products' => array_map(fn (ProductReconciliation $p) => $p->toReviewerArray(), $this->products),
             'warnings' => $this->warnings,

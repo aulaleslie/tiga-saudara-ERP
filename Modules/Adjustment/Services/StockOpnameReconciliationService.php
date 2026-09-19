@@ -3,6 +3,7 @@
 namespace Modules\Adjustment\Services;
 
 use Illuminate\Support\Collection;
+use InvalidArgumentException;
 use Modules\Adjustment\DTOs\ProductReconciliation;
 use Modules\Adjustment\DTOs\ReconciliationResult;
 use Modules\Adjustment\Entities\Adjustment;
@@ -16,6 +17,9 @@ use Modules\Setting\Entities\Location;
  * (informative, can go stale) and locked approval (recomputed inside
  * approval's database transaction after locking affected rows).
  *
+ * Fully supports multi-location Stock Opname (schema version 2) and historical
+ * single-location documents (schema version 1) via SelectedLocationPoolResolver.
+ *
  * All data is bulk-loaded up front: no query runs inside a per-product or
  * per-serial loop.
  */
@@ -23,6 +27,8 @@ class StockOpnameReconciliationService
 {
     public function __construct(
         private StockOpnameSerialClassifier $serialClassifier,
+        private SelectedLocationPoolResolver $locationPoolResolver,
+        private StockOpnameAllocationPlanner $allocationPlanner,
     ) {
     }
 
@@ -39,29 +45,60 @@ class StockOpnameReconciliationService
         $draft = $adjustment->count_draft;
         $rows = is_array($draft) ? ($draft['rows'] ?? []) : [];
 
-        $location = Location::with('setting')->find($adjustment->location_id);
-        $setting = $location?->setting;
-        $isPkp = (bool) ($setting?->is_pkp ?? false);
-        $settingId = (int) ($setting?->id ?? 0);
-
-        if (!$location || !$setting) {
-            // No location/setting to attach a product row to at all: this is
-            // the canonical unattributed (document-level) conflict.
-            $unattributed = empty($rows) ? [] : ['Lokasi atau pengaturan tujuan tidak ditemukan.'];
+        try {
+            $selectedLocations = $this->locationPoolResolver->resolve($adjustment);
+        } catch (InvalidArgumentException $e) {
+            $unattributed = [$e->getMessage()];
             return new ReconciliationResult(
                 adjustmentId: (int) $adjustment->id,
                 locked: $locked,
-                locationId: (int) $adjustment->location_id,
-                locationName: $location?->name ?? '',
-                settingId: $settingId,
-                isPkp: $isPkp,
+                locationId: (int) ($adjustment->location_id ?? 0),
+                locationName: '',
+                settingId: 0,
+                isPkp: false,
                 products: [],
                 warnings: [],
                 conflicts: $unattributed,
                 unattributedConflicts: $unattributed,
                 computedAt: now()->toIso8601String(),
+                selectedLocations: [],
             );
         }
+
+        if ($selectedLocations->isEmpty()) {
+            $unattributed = empty($rows) ? [] : ['Dokumen stock opname tidak memiliki lokasi tujuan yang valid.'];
+            return new ReconciliationResult(
+                adjustmentId: (int) $adjustment->id,
+                locked: $locked,
+                locationId: (int) ($adjustment->location_id ?? 0),
+                locationName: '',
+                settingId: 0,
+                isPkp: false,
+                products: [],
+                warnings: [],
+                conflicts: $unattributed,
+                unattributedConflicts: $unattributed,
+                computedAt: now()->toIso8601String(),
+                selectedLocations: [],
+            );
+        }
+
+        $primaryLocation = $selectedLocations->first();
+        $primarySetting = $primaryLocation?->setting;
+        $primaryLocationId = (int) ($primaryLocation?->id ?? 0);
+        $primaryLocationName = (string) ($primaryLocation?->name ?? '');
+        $primarySettingId = (int) ($primarySetting?->id ?? 0);
+        $primaryIsPkp = (bool) ($primarySetting?->is_pkp ?? false);
+
+        $selectedLocationsData = $selectedLocations->map(fn (Location $loc) => [
+            'id' => (int) $loc->id,
+            'name' => (string) $loc->name,
+            'setting_id' => (int) $loc->setting_id,
+            'company_name' => (string) ($loc->setting?->company_name ?? ''),
+            'is_pkp' => (bool) ($loc->setting?->is_pkp ?? false),
+        ])->all();
+
+        $selectedLocationIds = $selectedLocations->pluck('id')->map(fn ($id) => (int) $id)->all();
 
         $productIds = collect($rows)
             ->map(fn ($row) => (int) ($row['product_id'] ?? 0))
@@ -73,39 +110,24 @@ class StockOpnameReconciliationService
             return new ReconciliationResult(
                 adjustmentId: (int) $adjustment->id,
                 locked: $locked,
-                locationId: (int) $location->id,
-                locationName: (string) $location->name,
-                settingId: $settingId,
-                isPkp: $isPkp,
+                locationId: $primaryLocationId,
+                locationName: $primaryLocationName,
+                settingId: $primarySettingId,
+                isPkp: $primaryIsPkp,
                 products: [],
                 computedAt: now()->toIso8601String(),
+                selectedLocations: $selectedLocationsData,
             );
         }
 
-        // Bulk-loaded context, keyed for O(1) per-product/per-serial lookup
-        // in the classification pass below. Nothing below this block queries
-        // inside the per-product or per-serial loop.
-        //
-        // Two distinct scopes, never conflated:
-        // - settingEligibleLocationIds: same-setting, non-consignment
-        //   locations only. Used exclusively for selected-business totals
-        //   ("all locations" sums) and the over-total warning -- ownership
-        //   accounting stays strictly per-setting.
-        // - movementEligibleLocationIds: ANY existing non-consignment
-        //   location, regardless of setting. The product catalogue and
-        //   physical serial custody are global: an active, unencumbered
-        //   serial may move in from any non-consignment location, including
-        //   across settings. Only a consignment source location remains a
-        //   blocking conflict for movement purposes.
-        $settingEligibleLocationIds = $this->settingEligibleLocationIds($settingId);
+        // Bulk-loaded context, keyed for O(1) per-product/per-serial lookup.
+        // - settingEligibleLocationIds: all standard locations belonging to any
+        //   setting represented in the selected location pool.
+        // - movementEligibleLocationIds: ANY existing non-consignment location.
+        $selectedSettingIds = $selectedLocations->pluck('setting_id')->filter()->unique()->values()->all();
+        $settingEligibleLocationIds = $this->settingEligibleLocationIds($selectedSettingIds);
         $movementEligibleLocationIds = $this->movementEligibleLocationIds();
 
-        // The product catalogue is global: a product's own (legacy)
-        // Product::setting_id never gates whether it can be counted here.
-        // Only its existence, active flag, and stock-managed flag matter --
-        // ownership is enforced entirely through location scoping below
-        // (selected-location stock, all-location totals, and serial
-        // location/setting checks), never through the product row itself.
         $productsById = Product::with('baseUnit')
             ->whereIn('id', $productIds)
             ->where('is_active', true)
@@ -113,17 +135,11 @@ class StockOpnameReconciliationService
             ->get()
             ->keyBy('id');
 
-        $selectedLocationStocksByProduct = ProductStock::where('location_id', $location->id)
+        $selectedLocationStocks = ProductStock::whereIn('location_id', $selectedLocationIds)
             ->whereIn('product_id', $productIds)
-            ->get()
-            ->keyBy('product_id');
+            ->get();
+        $stocksByLocationAndProduct = $selectedLocationStocks->keyBy(fn ($s) => "{$s->location_id}_{$s->product_id}");
 
-        // `quantity` is already the per-row TOTAL (good + broken); summing it
-        // directly across locations gives the all-location grand total.
-        // `total_good`/`total_bad` are derived separately (from the good
-        // buckets and from broken_quantity respectively) purely so callers
-        // that want the good/bad split can have it without re-deriving it
-        // from `quantity - broken_quantity` themselves.
         $allLocationTotalsByProduct = ProductStock::whereIn('product_id', $productIds)
             ->whereIn('location_id', $settingEligibleLocationIds)
             ->selectRaw('product_id, SUM(quantity_tax + quantity_non_tax) as total_good, SUM(broken_quantity) as total_bad, SUM(quantity) as grand_total')
@@ -147,10 +163,6 @@ class StockOpnameReconciliationService
             ->unique()
             ->values();
 
-        // Serials matching entered product+text pairs, wherever they currently
-        // are (needed to detect cross-location moves and same-text-other-product).
-        // Eager-load product (with its setting) so foreign-product warnings
-        // never trigger a per-serial lookup.
         $matchingSerialsByText = collect();
         if ($allSerialTexts->isNotEmpty()) {
             $matchingSerialsByText = ProductSerialNumber::with(['location', 'tax', 'product'])
@@ -159,24 +171,17 @@ class StockOpnameReconciliationService
                 ->groupBy('serial_number');
         }
 
-        // Bulk-load unsafe-conflict signals for every candidate serial (the
-        // entered product's own matches plus any destination serials that
-        // might be omitted) so per-serial classification never queries.
         $candidateSerialIds = $matchingSerialsByText
             ->flatten()
             ->pluck('id')
             ->unique()
             ->values();
 
-        // Registered available serials currently at the destination for entered
-        // serialized products, to detect destination omissions. Eager-load
-        // the same relations as $matchingSerialsByText above so the shared
-        // classifier's per-serial label/warning reads never lazy-load.
         $serializedProductIds = $productsById->filter(fn (Product $p) => (bool) $p->serial_number_required)->keys();
         $destinationSerialsByProduct = collect();
         if ($serializedProductIds->isNotEmpty()) {
             $destinationSerialsByProduct = ProductSerialNumber::with(['location', 'tax', 'product'])
-                ->where('location_id', $location->id)
+                ->whereIn('location_id', $selectedLocationIds)
                 ->whereIn('product_id', $serializedProductIds)
                 ->get()
                 ->groupBy('product_id');
@@ -215,9 +220,6 @@ class StockOpnameReconciliationService
             $productId = (int) ($row['product_id'] ?? 0);
             $product = $productsById->get($productId);
             if (!$product) {
-                // No ProductReconciliation row can be built for an
-                // unresolvable product, so this conflict is genuinely
-                // unattributable to any rendered row.
                 $message = "Produk dengan ID {$productId} tidak ditemukan, tidak aktif, atau bukan produk yang stoknya dikelola.";
                 $documentConflicts[] = $message;
                 $unattributedConflicts[] = $message;
@@ -227,20 +229,84 @@ class StockOpnameReconciliationService
             $isSerialized = (bool) $product->serial_number_required;
             $baseUnit = (string) ($product->baseUnit?->unit_name ?? $product->baseUnit?->name ?? '');
 
-            $baselineGood = (int) ($row['baseline']['existing_good_total'] ?? 0);
-            $baselineBad = (int) ($row['baseline']['existing_bad_total'] ?? 0);
+            // Per-location baselines
+            $locationBaselines = [];
+            $totalBaselineGood = 0;
+            $totalBaselineBad = 0;
+            $rawBaselines = $row['location_baselines'] ?? null;
 
-            // ProductStock::quantity is the TOTAL (good + broken) per the
-            // established convention (see ProductController::
-            // handleStockInitialization / TransferMovementService::
-            // applyInventoryChange / StockOpnameApprovalService); current
-            // good must be derived from the two good buckets directly, never
-            // from `quantity`, or broken units get double-counted as good.
-            $stock = $selectedLocationStocksByProduct->get($productId);
-            $currentGood = $stock
-                ? (int) round((float) $stock->quantity_tax) + (int) round((float) $stock->quantity_non_tax)
-                : 0;
-            $currentBad = $stock ? (int) round((float) $stock->broken_quantity) : 0;
+            // Normalize raw baselines map indexed by location_id
+            $baselinesByLocId = [];
+            if (is_array($rawBaselines)) {
+                foreach ($rawBaselines as $k => $lb) {
+                    if (is_array($lb)) {
+                        if (isset($lb['location_id'])) {
+                            $baselinesByLocId[(int) $lb['location_id']] = $lb;
+                        } elseif (is_numeric($k)) {
+                            $baselinesByLocId[(int) $k] = $lb;
+                        }
+                    }
+                }
+            }
+
+            foreach ($selectedLocations as $loc) {
+                $locId = (int) $loc->id;
+                $bGood = 0;
+                $bBad = 0;
+
+                if (isset($baselinesByLocId[$locId])) {
+                    $entry = $baselinesByLocId[$locId];
+                    $bGood = (int) ($entry['existing_good_total'] ?? $entry['good'] ?? 0);
+                    $bBad = (int) ($entry['existing_bad_total'] ?? $entry['bad'] ?? 0);
+                } elseif (isset($row['baseline'])) {
+                    // v1 backward compatibility: single location baseline
+                    if ($locId === (int) ($adjustment->location_id ?? $primaryLocationId)) {
+                        $bGood = (int) ($row['baseline']['existing_good_total'] ?? $row['baseline']['good'] ?? 0);
+                        $bBad = (int) ($row['baseline']['existing_bad_total'] ?? $row['baseline']['bad'] ?? 0);
+                    }
+                }
+
+                $locationBaselines[$locId] = [
+                    'location_id' => $locId,
+                    'location_name' => (string) $loc->name,
+                    'is_pkp' => (bool) ($loc->setting?->is_pkp ?? false),
+                    'good' => $bGood,
+                    'bad' => $bBad,
+                    'total' => $bGood + $bBad,
+                ];
+                $totalBaselineGood += $bGood;
+                $totalBaselineBad += $bBad;
+            }
+
+            // Per-location current stocks
+            $locationCurrentStocks = [];
+            $totalCurrentGood = 0;
+            $totalCurrentBad = 0;
+
+            foreach ($selectedLocations as $loc) {
+                $locId = (int) $loc->id;
+                $stock = $stocksByLocationAndProduct->get("{$locId}_{$productId}");
+                $locGood = $stock
+                    ? (int) round((float) $stock->quantity_tax) + (int) round((float) $stock->quantity_non_tax)
+                    : 0;
+                $locBad = $stock ? (int) round((float) $stock->broken_quantity) : 0;
+                $locTax = $stock ? (float) $stock->quantity_tax : 0.0;
+                $locNonTax = $stock ? (float) $stock->quantity_non_tax : 0.0;
+
+                $locationCurrentStocks[$locId] = [
+                    'location_id' => $locId,
+                    'location_name' => (string) $loc->name,
+                    'setting_id' => (int) $loc->setting_id,
+                    'is_pkp' => (bool) ($loc->setting?->is_pkp ?? false),
+                    'good' => $locGood,
+                    'bad' => $locBad,
+                    'total' => $locGood + $locBad,
+                    'quantity_tax' => $locTax,
+                    'quantity_non_tax' => $locNonTax,
+                ];
+                $totalCurrentGood += $locGood;
+                $totalCurrentBad += $locBad;
+            }
 
             $enteredGood = (int) ($row['good_count'] ?? 0);
             $enteredBad = (int) ($row['bad_count'] ?? 0);
@@ -249,24 +315,53 @@ class StockOpnameReconciliationService
             $allLocationCurrentTotal = $totals ? (float) $totals->grand_total : 0.0;
 
             $enteredTotal = $enteredGood + $enteredBad;
-            $currentTotal = $currentGood + $currentBad;
+            $currentTotal = $totalCurrentGood + $totalCurrentBad;
+
+            $goodDifference = $enteredGood - $totalCurrentGood;
+            $badDifference = $enteredBad - $totalCurrentBad;
 
             $exceedsAllLocationTotal = $enteredTotal > $allLocationCurrentTotal;
             $potentialGlobalIncrease = $exceedsAllLocationTotal
                 ? $enteredTotal - $allLocationCurrentTotal
                 : 0.0;
 
+            // Allocation planning per condition
+            $goodLocationRows = [];
+            $badLocationRows = [];
+            foreach ($selectedLocations as $loc) {
+                $locId = (int) $loc->id;
+                $curr = $locationCurrentStocks[$locId];
+                $goodLocationRows[] = [
+                    'location_id' => $locId,
+                    'setting_id' => $curr['setting_id'],
+                    'is_pkp' => $curr['is_pkp'],
+                    'location_name' => $curr['location_name'],
+                    'stock' => $curr['good'],
+                ];
+                $badLocationRows[] = [
+                    'location_id' => $locId,
+                    'setting_id' => $curr['setting_id'],
+                    'is_pkp' => $curr['is_pkp'],
+                    'location_name' => $curr['location_name'],
+                    'stock' => $curr['bad'],
+                ];
+            }
+
+            $goodAllocationPlan = $this->allocationPlanner->plan($goodLocationRows, $goodDifference, 'good');
+            $badAllocationPlan = $this->allocationPlanner->plan($badLocationRows, $badDifference, 'bad');
+
             $classification = $this->serialClassifier->classify(
                 product: $product,
                 row: $row,
-                destinationLocation: $location,
-                isPkp: $isPkp,
+                destinationLocation: $selectedLocations,
+                isPkp: $primaryIsPkp,
                 movementEligibleLocationIds: $movementEligibleLocationIds,
                 matchingSerialsByText: $matchingSerialsByText,
                 destinationSerialsByProduct: $destinationSerialsByProduct,
                 activeClaimSerialIds: $activeClaimSerialIds,
                 allocatedSerialIds: $allocatedSerialIds,
                 activeTransferClaimSerialIds: $activeTransferClaimSerialIds,
+                locationStocks: $stocksByLocationAndProduct,
             );
             $serialClassifications = $classification['entered'];
             $omittedSerials = $classification['omitted'];
@@ -275,34 +370,13 @@ class StockOpnameReconciliationService
             $newSerialCount = $classification['newSerialCount'];
 
             if ($isSerialized) {
-                // Serialized global effect is computed per serial identity,
-                // never by the ordinary-product destination-delta formula:
-                // a moved or reclassified serial is the same physical unit
-                // moving/reclassifying (net zero globally), while only a
-                // genuinely new (previously unregistered) serial adds one
-                // unit to the global total. Conflicting serials are excluded
-                // (blocked, not applied).
                 $projectedGlobalTotal = $allLocationCurrentTotal + $newSerialCount;
             } else {
-                // Projected global total: current global total, net of the
-                // entered selected-location change.
                 $projectedGlobalTotal = $allLocationCurrentTotal + ($enteredTotal - $currentTotal);
             }
 
-            $drift = ($currentGood + $currentBad) - ($baselineGood + $baselineBad);
+            $drift = ($totalCurrentGood + $totalCurrentBad) - ($totalBaselineGood + $totalBaselineBad);
 
-            // Product-level (exceeds-all-location-total, drift) and
-            // per-serial (moved/new/tax-changed/conflict/same-text-other-
-            // product) facts are ALSO available as structured fields directly
-            // on ProductReconciliation/SerialClassification
-            // (exceedsAllLocationTotal, potentialGlobalIncrease, drift,
-            // statuses, conflictReason, sameTextOtherProduct, crossSetting,
-            // ...) so a row can render its own warning/conflict without
-            // string-matching. The flat arrays below remain the authoritative
-            // set used by hasConflicts() (blocks approval) and preserved
-            // verbatim on the immutable approval_result audit trail -- Blade
-            // must render them as per-row detail, never re-dump this flat
-            // list as a second copy of the same information.
             $documentWarnings = array_merge($documentWarnings, $serialWarnings);
             $documentConflicts = array_merge($documentConflicts, $serialConflicts);
 
@@ -312,63 +386,61 @@ class StockOpnameReconciliationService
                 productCode: (string) $product->product_code,
                 baseUnit: $baseUnit,
                 isSerialized: $isSerialized,
-                baselineGood: $baselineGood,
-                baselineBad: $baselineBad,
-                currentGood: $currentGood,
-                currentBad: $currentBad,
+                baselineGood: $totalBaselineGood,
+                baselineBad: $totalBaselineBad,
+                currentGood: $totalCurrentGood,
+                currentBad: $totalCurrentBad,
                 enteredGood: $enteredGood,
                 enteredBad: $enteredBad,
-                goodDifference: $enteredGood - $currentGood,
-                badDifference: $enteredBad - $currentBad,
+                goodDifference: $goodDifference,
+                badDifference: $badDifference,
                 allLocationCurrentTotal: $allLocationCurrentTotal,
                 projectedGlobalTotal: $projectedGlobalTotal,
-                drift: $drift,
+                drift: (float) $drift,
                 exceedsAllLocationTotal: $exceedsAllLocationTotal,
                 potentialGlobalIncrease: $potentialGlobalIncrease,
                 serials: $serialClassifications,
                 omittedSerials: $omittedSerials,
+                locationBaselines: $locationBaselines,
+                locationCurrentStocks: $locationCurrentStocks,
+                goodAllocationPlan: $goodAllocationPlan,
+                badAllocationPlan: $badAllocationPlan,
             );
         }
 
         return new ReconciliationResult(
             adjustmentId: (int) $adjustment->id,
             locked: $locked,
-            locationId: (int) $location->id,
-            locationName: (string) $location->name,
-            settingId: $settingId,
-            isPkp: $isPkp,
+            locationId: $primaryLocationId,
+            locationName: $primaryLocationName,
+            settingId: $primarySettingId,
+            isPkp: $primaryIsPkp,
             products: $products,
             warnings: array_values(array_unique($documentWarnings)),
             conflicts: array_values(array_unique($documentConflicts)),
             unattributedConflicts: array_values(array_unique($unattributedConflicts)),
             computedAt: now()->toIso8601String(),
+            selectedLocations: $selectedLocationsData,
         );
     }
 
     /**
-     * Non-consignment location IDs in the given setting's owner scope.
-     * "All locations" totals and the over-total warning are scoped to this
-     * set, never across settings.
+     * Non-consignment location IDs in the given settings' owner scope.
+     *
+     * @param int[] $settingIds
      */
-    private function settingEligibleLocationIds(int $settingId): Collection
+    private function settingEligibleLocationIds(array $settingIds): Collection
     {
         return Location::standard()
-            ->where('setting_id', $settingId)
+            ->whereIn('setting_id', $settingIds)
             ->pluck('id');
     }
 
     /**
      * Every existing non-consignment location ID, regardless of setting.
-     * Movement eligibility (whether a serial may safely move into the
-     * destination location) is deliberately broader than the same-setting
-     * total scope above: the product catalogue and physical serial custody
-     * are global, so an active, unencumbered serial may move in from any
-     * non-consignment location. Only a consignment source remains a
-     * movement conflict.
      */
     private function movementEligibleLocationIds(): Collection
     {
         return Location::standard()->pluck('id');
     }
-
 }
