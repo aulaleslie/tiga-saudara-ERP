@@ -581,7 +581,7 @@ class SaleReportHardeningTest extends TestCase
             ->assertViewHas('sales', function ($sales) use ($partial, $paid) {
                 $rows = $sales->keyBy('sale_id');
 
-                return \App\Services\Reports\SaleReportQueryService::mapRow($rows[$partial->id])['Status Pembayaran'] === 'Terbayar Sebagian'
+                return \App\Services\Reports\SaleReportQueryService::mapRow($rows[$partial->id])['Status Pembayaran'] === 'Dibayar Sebagian'
                     && \App\Services\Reports\SaleReportQueryService::mapRow($rows[$paid->id])['Status Pembayaran'] === 'Lunas';
             });
     }

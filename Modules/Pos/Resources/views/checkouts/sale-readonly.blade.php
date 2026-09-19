@@ -10,7 +10,7 @@
         <div>Faktur: <strong>{{ $sale->reference }}</strong></div>
         <div>Tanggal: {{ \Carbon\Carbon::parse($sale->date)->format('d M, Y') }}</div>
         <div>Tanggal Jatuh Tempo: <strong>{{ $sale->payment_due_date ? \Carbon\Carbon::parse($sale->payment_due_date)->format('d M, Y') : '-' }}</strong></div>
-        <div>Status: <strong>{{ $sale->status }}</strong></div>
+        <div>Status: <strong>{{ \Modules\Sale\Entities\Sale::STATUS_LABELS[$sale->status] ?? $sale->status }}</strong></div>
         <div>Status Pembayaran: <strong>{{ \App\Constants\PaymentStatus::label($sale->payment_status) }}</strong></div>
     </div>
 </div>

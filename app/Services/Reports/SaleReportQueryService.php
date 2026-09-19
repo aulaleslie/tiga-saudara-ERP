@@ -327,7 +327,7 @@ SQL;
             return 'Lunas';
         }
 
-        return 'Terbayar Sebagian';
+        return 'Dibayar Sebagian';
     }
 
     private static function documentStatusLabel(?string $status): string
@@ -338,9 +338,9 @@ SQL;
             Sale::STATUS_APPROVED => 'Disetujui',
             Sale::STATUS_REJECTED => 'Ditolak',
             Sale::STATUS_DISPATCHED_PARTIALLY => 'Dikirim Sebagian',
-            Sale::STATUS_DISPATCHED => 'Terkirim',
-            Sale::STATUS_RETURNED_PARTIALLY => 'Diretur Sebagian',
-            Sale::STATUS_RETURNED => 'Diretur',
+            Sale::STATUS_DISPATCHED => 'Dikirim',
+            Sale::STATUS_RETURNED_PARTIALLY => 'Dikembalikan Sebagian',
+            Sale::STATUS_RETURNED => 'Dikembalikan',
         ];
 
         return $status ? ($documentStatusLabels[$status] ?? $status) : '-';

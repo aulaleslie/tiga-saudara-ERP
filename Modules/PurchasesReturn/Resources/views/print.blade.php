@@ -81,7 +81,7 @@
                             <div>Invoice: <strong>INV/{{ $purchase_return->reference }}</strong></div>
                             <div>Date: {{ \Carbon\Carbon::parse($purchase_return->date)->format('d M, Y') }}</div>
                             <div>
-                                Status: <strong>{{ $purchase_return->status }}</strong>
+                                Status: <strong>{{ $purchase_return->unified_status_label }}</strong>
                             </div>
                             <div>
                                 Status Penyelesaian: <strong>{{ $settlementLabel }}</strong>

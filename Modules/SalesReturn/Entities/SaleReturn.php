@@ -17,6 +17,56 @@ use Modules\Pos\Entities\PosReturn;
 class SaleReturn extends BaseModel
 {
     use Archivable;
+
+    public const STATUS_PENDING = 'Pending';
+    public const STATUS_COMPLETED = 'Completed';
+    public const STATUS_CANCELLED = 'Cancelled';
+    public const STATUS_AWAITING_RECEIVING = 'Awaiting Receiving';
+    public const STATUS_AWAITING_SETTLEMENT = 'Awaiting Settlement';
+    public const STATUS_REJECTED = 'Rejected';
+    public const STATUS_DRAFT = 'Draft';
+
+    public const STATUS_LABELS = [
+        'draft' => 'Draf',
+        'Draft' => 'Draf',
+        'pending' => 'Menunggu',
+        'Pending' => 'Menunggu',
+        'pending approval' => 'Menunggu Persetujuan',
+        'Pending Approval' => 'Menunggu Persetujuan',
+        'awaiting receiving' => 'Menunggu Penerimaan',
+        'Awaiting Receiving' => 'Menunggu Penerimaan',
+        'awaiting settlement' => 'Menunggu Penyelesaian',
+        'Awaiting Settlement' => 'Menunggu Penyelesaian',
+        'rejected' => 'Ditolak',
+        'Rejected' => 'Ditolak',
+        'completed' => 'Selesai',
+        'Completed' => 'Selesai',
+        'cancelled' => 'Dibatalkan',
+        'Cancelled' => 'Dibatalkan',
+    ];
+
+    public const APPROVAL_STATUS_LABELS = [
+        'draft' => 'Draf',
+        'pending' => 'Menunggu',
+        'approved' => 'Disetujui',
+        'rejected' => 'Ditolak',
+    ];
+
+    public static function statusLabel(?string $status): string
+    {
+        if ($status === null || $status === '') {
+            return '';
+        }
+        return self::STATUS_LABELS[$status] ?? (self::STATUS_LABELS[strtolower($status)] ?? $status);
+    }
+
+    public static function approvalStatusLabel(?string $status): string
+    {
+        if ($status === null || $status === '') {
+            return '';
+        }
+        return self::APPROVAL_STATUS_LABELS[strtolower($status)] ?? ucfirst($status);
+    }
     
     protected $fillable = [
         'date',

@@ -42,7 +42,7 @@
                             <div>Invoice: <strong>INV/{{ $sale_return->reference }}</strong></div>
                             <div>Date: {{ \Carbon\Carbon::parse($sale_return->date)->format('d M, Y') }}</div>
                             <div>
-                                Status: <strong>{{ $sale_return->status }}</strong>
+                                Status: <strong>{{ \Modules\SalesReturn\Entities\SaleReturn::statusLabel($sale_return->status) }}</strong>
                             </div>
                             <div>
                                 Status Pembayaran: <strong>{{ \App\Constants\PaymentStatus::label($sale_return->payment_status) }}</strong>

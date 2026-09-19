@@ -8,6 +8,25 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PurchaseReturnSettlement extends BaseModel
 {
+    public const STATUS_PENDING = 'pending';
+    public const STATUS_APPROVED = 'approved';
+    public const STATUS_REJECTED = 'rejected';
+    public const STATUS_EXECUTING = 'executing';
+    public const STATUS_COMPLETED = 'completed';
+
+    public const STATUS_LABELS = [
+        self::STATUS_PENDING => 'Menunggu Persetujuan',
+        self::STATUS_APPROVED => 'Disetujui',
+        self::STATUS_REJECTED => 'Ditolak',
+        self::STATUS_EXECUTING => 'Sedang Diproses',
+        self::STATUS_COMPLETED => 'Selesai',
+    ];
+
+    public function getStatusLabelAttribute(): string
+    {
+        return self::STATUS_LABELS[strtolower($this->status)] ?? ucfirst(str_replace('_', ' ', $this->status));
+    }
+
     protected $guarded = [];
 
     protected $casts = [

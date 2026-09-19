@@ -24,10 +24,10 @@
                         <label for="pos-transaction-status" class="small text-muted mb-1">Status</label>
                         <select id="pos-transaction-status" class="form-control">
                             <option value="">Semua</option>
-                            <option value="DRAFT">DRAFT</option>
-                            <option value="LOADED">LOADED</option>
-                            <option value="COMPLETED">COMPLETED</option>
-                            <option value="CANCELLED">CANCELLED</option>
+                            <option value="DRAFT">Draf</option>
+                            <option value="LOADED">Dimuat</option>
+                            <option value="COMPLETED">Selesai</option>
+                            <option value="CANCELLED">Dibatalkan</option>
                         </select>
                     </div>
                     <div class="col-md-2">
@@ -173,7 +173,7 @@
 
             const getStatusLabel = (status) => {
                 const labels = {
-                    'DRAFT': 'Draft',
+                    'DRAFT': 'Draf',
                     'COMPLETED': 'Selesai',
                     'CANCELLED': 'Dibatalkan',
                     'LOADED': 'Dimuat',

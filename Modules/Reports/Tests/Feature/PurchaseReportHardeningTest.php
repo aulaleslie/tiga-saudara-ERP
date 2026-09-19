@@ -565,7 +565,7 @@ class PurchaseReportHardeningTest extends TestCase
             ->assertViewHas('purchases', function ($purchases) use ($partial, $paid) {
                 $rows = $purchases->keyBy('purchase_id');
 
-                return \App\Services\Reports\PurchaseReportQueryService::mapRow($rows[$partial->id])['Status Pembayaran'] === 'Terbayar Sebagian'
+                return \App\Services\Reports\PurchaseReportQueryService::mapRow($rows[$partial->id])['Status Pembayaran'] === 'Dibayar Sebagian'
                     && \App\Services\Reports\PurchaseReportQueryService::mapRow($rows[$paid->id])['Status Pembayaran'] === 'Lunas';
             });
     }
@@ -977,7 +977,7 @@ class PurchaseReportHardeningTest extends TestCase
         $mapped = \App\Services\Reports\PurchaseReportQueryService::mapRow($purchases->items()[0], 'header');
 
         $this->assertSame($purchase->id, $purchases->items()[0]->id);
-        $this->assertSame('Terbayar Sebagian', $mapped['Status Pembayaran']);
+        $this->assertSame('Dibayar Sebagian', $mapped['Status Pembayaran']);
         $this->assertEquals(300, $mapped['Pembayaran']);
         $this->assertEquals(700, $mapped['Sisa Tagihan']);
     }

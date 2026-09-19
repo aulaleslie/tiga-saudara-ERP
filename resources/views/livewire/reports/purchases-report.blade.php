@@ -40,21 +40,21 @@
                                 <div class="form-group">
                                     <label>Status</label>
                                     <select wire:model="purchase_status" class="form-control" name="purchase_status">
-                                        <option value="">Select Status</option>
-                                        <option value="Pending">Pending</option>
-                                        <option value="Ordered">Ordered</option>
-                                        <option value="Completed">Completed</option>
+                                        <option value="">Pilih Status</option>
+                                        <option value="Pending">Menunggu</option>
+                                        <option value="Ordered">Dipesan</option>
+                                        <option value="Completed">Selesai</option>
                                     </select>
                                 </div>
                             </div>
                             <div class="col-lg-6">
                                 <div class="form-group">
-                                    <label>Payment Status</label>
+                                    <label>Status Pembayaran</label>
                                     <select wire:model="payment_status" class="form-control" name="payment_status">
-                                        <option value="">Select Payment Status</option>
-                                        <option value="Paid">Paid</option>
-                                        <option value="Unpaid">Unpaid</option>
-                                        <option value="Partial">Partial</option>
+                                        <option value="">Pilih Status Pembayaran</option>
+                                        <option value="Paid">Lunas</option>
+                                        <option value="Unpaid">Belum Dibayar</option>
+                                        <option value="Partial">Dibayar Sebagian</option>
                                     </select>
                                 </div>
                             </div>
@@ -84,14 +84,14 @@
                         </div>
                         <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>Reference</th>
-                            <th>Supplier</th>
+                            <th>Tanggal</th>
+                            <th>Referensi</th>
+                            <th>Pemasok</th>
                             <th>Status</th>
                             <th>Total</th>
-                            <th>Paid</th>
-                            <th>Due</th>
-                            <th>Payment Status</th>
+                            <th>Dibayar</th>
+                            <th>Sisa Tagihan</th>
+                            <th>Status Pembayaran</th>
                         </tr>
                         </thead>
                         <tbody>
@@ -101,38 +101,47 @@
                                 <td>{{ $purchase->reference }}</td>
                                 <td>{{ $purchase->supplier_name }}</td>
                                 <td>
+                                    @php
+                                        $pStatusLabel = \Modules\Purchase\Entities\Purchase::STATUS_LABELS[$purchase->status] ?? $purchase->status;
+                                        if ($purchase->status === 'Pending') {
+                                            $pStatusLabel = 'Menunggu';
+                                        } elseif ($purchase->status === 'Ordered') {
+                                            $pStatusLabel = 'Dipesan';
+                                        } elseif ($purchase->status === 'Completed') {
+                                            $pStatusLabel = 'Selesai';
+                                        }
+                                    @endphp
                                     @if ($purchase->status == 'Pending')
                                         <span class="badge badge-info">
-                                    {{ $purchase->status }}
-                                </span>
+                                            {{ $pStatusLabel }}
+                                        </span>
                                     @elseif ($purchase->status == 'Ordered')
                                         <span class="badge badge-primary">
-                                    {{ $purchase->status }}
-                                </span>
+                                            {{ $pStatusLabel }}
+                                        </span>
                                     @else
                                         <span class="badge badge-success">
-                                    {{ $purchase->status }}
-                                </span>
+                                            {{ $pStatusLabel }}
+                                        </span>
                                     @endif
                                 </td>
                                 <td>{{ format_currency($purchase->total_amount) }}</td>
                                 <td>{{ format_currency($purchase->paid_amount) }}</td>
                                 <td>{{ format_currency($purchase->due_amount) }}</td>
                                 <td>
-                                    @if ($purchase->payment_status == 'Partial')
+                                    @if (\App\Constants\PaymentStatus::matches($purchase->payment_status, \App\Constants\PaymentStatus::PARTIAL))
                                         <span class="badge badge-warning">
-                                    {{ $purchase->payment_status }}
-                                </span>
-                                    @elseif ($purchase->payment_status == 'Paid')
+                                            {{ \App\Constants\PaymentStatus::label($purchase->payment_status) }}
+                                        </span>
+                                    @elseif (\App\Constants\PaymentStatus::matches($purchase->payment_status, \App\Constants\PaymentStatus::PAID))
                                         <span class="badge badge-success">
-                                    {{ $purchase->payment_status }}
-                                </span>
+                                            {{ \App\Constants\PaymentStatus::label($purchase->payment_status) }}
+                                        </span>
                                     @else
                                         <span class="badge badge-danger">
-                                    {{ $purchase->payment_status }}
-                                </span>
+                                            {{ \App\Constants\PaymentStatus::label($purchase->payment_status) }}
+                                        </span>
                                     @endif
-
                                 </td>
                             </tr>
                         @empty

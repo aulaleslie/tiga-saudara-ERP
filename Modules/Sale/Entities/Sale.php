@@ -65,14 +65,14 @@ class Sale extends BaseModel implements HasMedia
     const STATUS_RETURNED_PARTIALLY = 'RETURNED PARTIALLY';
 
     const STATUS_LABELS = [
-        self::STATUS_DRAFTED => 'Draft',
+        self::STATUS_DRAFTED => 'Draf',
         self::STATUS_WAITING_APPROVAL => 'Menunggu Persetujuan',
         self::STATUS_APPROVED => 'Disetujui',
         self::STATUS_REJECTED => 'Ditolak',
-        self::STATUS_DISPATCHED_PARTIALLY => 'Pengiriman Sebagian',
+        self::STATUS_DISPATCHED_PARTIALLY => 'Dikirim Sebagian',
         self::STATUS_DISPATCHED => 'Dikirim',
         self::STATUS_RETURNED => 'Dikembalikan',
-        self::STATUS_RETURNED_PARTIALLY => 'Pengembalian Sebagian',
+        self::STATUS_RETURNED_PARTIALLY => 'Dikembalikan Sebagian',
     ];
 
     const PAYMENT_STATUS_PAID = 'Paid';
@@ -81,8 +81,8 @@ class Sale extends BaseModel implements HasMedia
 
     const PAYMENT_STATUS_LABELS = [
         self::PAYMENT_STATUS_PAID => 'Lunas',
-        self::PAYMENT_STATUS_PARTIAL => 'Sebagian',
-        self::PAYMENT_STATUS_UNPAID => 'Belum Lunas',
+        self::PAYMENT_STATUS_PARTIAL => 'Dibayar Sebagian',
+        self::PAYMENT_STATUS_UNPAID => 'Belum Dibayar',
     ];
 
     const EDIT_MODE_FULL = 'FULL';

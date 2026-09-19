@@ -10,8 +10,8 @@ class PaymentStatus
 
     const LABELS = [
         self::PAID => 'Lunas',
-        self::PARTIAL => 'Sebagian',
-        self::UNPAID => 'Belum Lunas',
+        self::PARTIAL => 'Dibayar Sebagian',
+        self::UNPAID => 'Belum Dibayar',
     ];
 
     public static function label(?string $status): string

@@ -118,7 +118,7 @@
                                 @endforelse
                             </div>
                         </div>
-                        <div>Status: <strong>{{ $sale->status }}</strong></div>
+                        <div>Status: <strong>{{ \Modules\Sale\Entities\Sale::STATUS_LABELS[$sale->status] ?? $sale->status }}</strong></div>
                         <div>Status Pembayaran: <strong>{{ \App\Constants\PaymentStatus::label($sale->payment_status) }}</strong></div>
                     </div>
                 </div>

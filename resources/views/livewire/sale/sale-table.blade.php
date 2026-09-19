@@ -139,7 +139,7 @@
                 <th wire:click="sortBy('tax_ref_no')" style="cursor:pointer">
                     No. Faktur Pajak {!! $this->sortIcon('tax_ref_no') !!}
                 </th>
-                <th>Tags</th>
+                <th>Tag</th>
                 <th>Total</th>
                 <th>Dibayar</th>
                 <th>Sisa Tagihan</th>
@@ -268,7 +268,7 @@
             <button class="btn btn-outline-secondary btn-sm"
                     wire:click="gotoPage({{ $sales->currentPage() - 1 }})"
                     @if($sales->onFirstPage()) disabled @endif>
-                <i class="bi bi-chevron-left"></i> Prev
+                <i class="bi bi-chevron-left"></i> Sebelumnya
             </button>
             <span class="px-2 small">
             <strong>Halaman {{ $sales->currentPage() }}</strong>
@@ -277,7 +277,7 @@
             <button class="btn btn-outline-secondary btn-sm"
                     wire:click="gotoPage({{ $sales->currentPage() + 1 }})"
                     @if(!$sales->hasMorePages()) disabled @endif>
-                Next <i class="bi bi-chevron-right"></i>
+                Berikutnya <i class="bi bi-chevron-right"></i>
             </button>
         </div>
     </div>

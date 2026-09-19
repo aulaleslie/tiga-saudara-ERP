@@ -19,6 +19,16 @@ class SalePayment extends BaseModel implements HasMedia
     public const STATUS_INVALIDATED = 'INVALIDATED';
     public const SPLIT_TRACE_NOTE_PREFIX = 'Auto-split from invalidated payment';
 
+    public const STATUS_LABELS = [
+        self::STATUS_ACTIVE => 'Aktif',
+        self::STATUS_INVALIDATED => 'Dibatalkan',
+    ];
+
+    public function getStatusLabelAttribute(): string
+    {
+        return self::STATUS_LABELS[$this->status] ?? $this->status;
+    }
+
     protected $guarded = [];
 
     protected $attributes = [

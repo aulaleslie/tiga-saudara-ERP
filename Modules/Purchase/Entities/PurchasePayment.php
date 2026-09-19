@@ -16,6 +16,16 @@ class PurchasePayment extends BaseModel implements HasMedia
     const STATUS_ACTIVE = 'ACTIVE';
     const STATUS_INVALIDATED = 'INVALIDATED';
 
+    public const STATUS_LABELS = [
+        self::STATUS_ACTIVE => 'Aktif',
+        self::STATUS_INVALIDATED => 'Dibatalkan',
+    ];
+
+    public function getStatusLabelAttribute(): string
+    {
+        return self::STATUS_LABELS[$this->status] ?? $this->status;
+    }
+
     protected $guarded = [];
 
     protected $attributes = [

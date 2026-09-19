@@ -59,7 +59,7 @@
                                 <label class="text-muted small">Status Pembayaran</label>
                                 <div>
                                     <span class="badge badge-{{ $salePayment->isActive() ? 'success' : 'danger' }}">
-                                        {{ $salePayment->status }}
+                                        {{ $salePayment->status_label }}
                                     </span>
                                 </div>
                             </div>

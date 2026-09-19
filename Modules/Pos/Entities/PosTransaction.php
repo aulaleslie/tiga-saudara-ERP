@@ -16,6 +16,18 @@ class PosTransaction extends BaseModel
     public const STATUS_COMPLETED = 'COMPLETED';
     public const STATUS_CANCELLED = 'CANCELLED';
 
+    public const STATUS_LABELS = [
+        self::STATUS_DRAFT => 'Draf',
+        self::STATUS_LOADED => 'Dimuat',
+        self::STATUS_COMPLETED => 'Selesai',
+        self::STATUS_CANCELLED => 'Dibatalkan',
+    ];
+
+    public function getStatusLabelAttribute(): string
+    {
+        return self::STATUS_LABELS[$this->status] ?? $this->status;
+    }
+
     protected bool $uppercaseAllText = false;
 
     protected $table = 'pos_transactions';

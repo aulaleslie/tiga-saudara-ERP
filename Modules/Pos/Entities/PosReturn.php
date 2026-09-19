@@ -38,7 +38,7 @@ class PosReturn extends Model
     ];
 
     public const STATUS_LABELS = [
-        self::STATUS_DRAFT => 'Draft',
+        self::STATUS_DRAFT => 'Draf',
         self::STATUS_PENDING_APPROVAL => 'Menunggu Persetujuan',
         self::STATUS_APPROVED => 'Disetujui',
         self::STATUS_REJECTED => 'Ditolak',

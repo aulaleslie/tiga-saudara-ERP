@@ -1,7 +1,7 @@
 @php $status = strtoupper($item->status ?? 'DRAFT'); @endphp
 @switch($status)
     @case('DRAFT')
-        <span class="badge bg-secondary">Draft</span>
+        <span class="badge bg-secondary">Draf</span>
         @break
     @case('SUBMITTED')
         <span class="badge bg-info">Menunggu Persetujuan</span>

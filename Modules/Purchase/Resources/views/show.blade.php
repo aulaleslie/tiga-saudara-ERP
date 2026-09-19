@@ -133,7 +133,7 @@
                                     </div>
                                 </div>
                                 <div>
-                                    Status: <strong>{{ $purchase->status }}</strong>
+                                    Status: <strong>{{ \Modules\Purchase\Entities\Purchase::STATUS_LABELS[$purchase->status] ?? $purchase->status }}</strong>
                                 </div>
                                 @if($purchase->status === Purchase::STATUS_REJECTED)
                                     <div class="alert alert-danger mt-2">

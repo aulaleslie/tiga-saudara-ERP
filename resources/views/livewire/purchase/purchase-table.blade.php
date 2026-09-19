@@ -152,10 +152,10 @@
                 <th wire:click="sortBy('due_amount')" style="cursor:pointer">
                     Sisa Pembayaran {!! $this->sortIcon('due_amount') !!}
                 </th>
-                <th>Tags</th>
-                <th>Status</th>
-                <th>Payment</th>
-                <th>Action</th>
+                <th>Tag</th>
+                <th>Status Dokumen</th>
+                <th>Status Pembayaran</th>
+                <th>Aksi</th>
             </tr>
             </thead>
             <tbody>
@@ -246,7 +246,7 @@
             <button class="btn btn-outline-secondary btn-sm"
                     wire:click="gotoPage({{ $purchases->currentPage() - 1 }})"
                     @if($purchases->onFirstPage()) disabled @endif>
-                <i class="bi bi-chevron-left"></i> Prev
+                <i class="bi bi-chevron-left"></i> Sebelumnya
             </button>
             <span class="px-2 small">
             <strong>Halaman {{ $purchases->currentPage() }}</strong>
@@ -255,7 +255,7 @@
             <button class="btn btn-outline-secondary btn-sm"
                     wire:click="gotoPage({{ $purchases->currentPage() + 1 }})"
                     @if(!$purchases->hasMorePages()) disabled @endif>
-                Next <i class="bi bi-chevron-right"></i>
+                Berikutnya <i class="bi bi-chevron-right"></i>
             </button>
         </div>
     </div>

@@ -41,17 +41,17 @@
                                             <td>{{ $settlement->created_at->format('d M Y H:i') }}</td>
                                             <td>
                                                 @if($settlement->status == 'pending')
-                                                    <span class="badge bg-warning text-dark">Pending</span>
+                                                    <span class="badge bg-warning text-dark">Menunggu Persetujuan</span>
                                                 @elseif($settlement->status == 'approved')
-                                                    <span class="badge bg-primary">Approved</span>
+                                                    <span class="badge bg-primary">Disetujui</span>
                                                 @elseif($settlement->status == 'rejected')
-                                                    <span class="badge bg-danger">Rejected</span>
+                                                    <span class="badge bg-danger">Ditolak</span>
                                                 @elseif($settlement->status == 'executing')
-                                                    <span class="badge bg-info text-dark">Executing</span>
+                                                    <span class="badge bg-info text-dark">Sedang Diproses</span>
                                                 @elseif($settlement->status == 'completed')
-                                                    <span class="badge bg-success">Completed</span>
+                                                    <span class="badge bg-success">Selesai</span>
                                                 @else
-                                                    <span class="badge bg-secondary">{{ $settlement->status }}</span>
+                                                    <span class="badge bg-secondary">{{ \Modules\PurchasesReturn\Entities\PurchaseReturnSettlement::STATUS_LABELS[strtolower($settlement->status)] ?? $settlement->status }}</span>
                                                 @endif
                                             </td>
                                             <td>
