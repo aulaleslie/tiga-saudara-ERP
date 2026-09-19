@@ -432,4 +432,214 @@ class MultiLocationShowViewTest extends TestCase
         // Counter sees entered numbers
         $response->assertSee('25');
     }
+
+    public function test_schema_v2_multi_location_document_is_viewable_when_active_setting_differs_from_selected_locations(): void
+    {
+        // Change session to setting with id 9999
+        $settingC = Setting::create([
+            'company_name' => 'Setting C',
+            'company_email' => 'c@setting.com',
+            'company_phone' => '333',
+            'notification_email' => 'c@setting.com',
+            'company_address' => 'Medan',
+            'footer_text' => 'Footer C',
+            'default_currency_id' => $this->pkpSetting->default_currency_id,
+            'default_currency_position' => 'prefix',
+            'is_pkp' => false,
+        ]);
+        session(['setting_id' => $settingC->id]);
+
+        $product = $this->makeProduct();
+        $adjustment = Adjustment::create([
+            'reference' => 'ADJ-CROSS-SETTING-VIEW',
+            'date' => now()->toDateString(),
+            'type' => 'normal',
+            'status' => AdjustmentStatus::Draft,
+            'location_id' => null,
+            'submitted_by' => $this->user->id,
+            'count_draft' => [
+                'schema_version' => 2,
+                'location_ids' => [$this->pkpLocation->id, $this->nonPkpLocation->id],
+                'rows' => [],
+            ],
+        ]);
+        AdjustmentLocation::create(['adjustment_id' => $adjustment->id, 'location_id' => $this->pkpLocation->id, 'position' => 0]);
+        AdjustmentLocation::create(['adjustment_id' => $adjustment->id, 'location_id' => $this->nonPkpLocation->id, 'position' => 1]);
+
+        $response = $this->get(route('adjustments.show', $adjustment));
+        $response->assertOk();
+    }
+
+    public function test_approved_schema_v2_document_remains_viewable_after_selected_location_becomes_inactive(): void
+    {
+        $product = $this->makeProduct();
+        $this->nonPkpLocation->update(['is_active' => false]);
+
+        $adjustment = Adjustment::create([
+            'reference' => 'ADJ-APPROVED-INACTIVE-LOC',
+            'date' => now()->toDateString(),
+            'type' => 'normal',
+            'status' => AdjustmentStatus::Approved,
+            'location_id' => null,
+            'submitted_by' => $this->user->id,
+            'submitted_at' => now()->subHour(),
+            'approved_by' => $this->user->id,
+            'approved_at' => now(),
+            'count_draft' => [
+                'schema_version' => 2,
+                'location_ids' => [$this->nonPkpLocation->id, $this->pkpLocation->id],
+                'rows' => [
+                    [
+                        'product_id' => $product->id,
+                        'good_count' => 10,
+                        'bad_count' => 0,
+                    ],
+                ],
+            ],
+            'approval_result' => [
+                'adjustment_id' => 1001,
+                'selected_locations' => [
+                    [
+                        'location_id' => $this->nonPkpLocation->id,
+                        'location_name' => $this->nonPkpLocation->name,
+                        'setting_id' => $this->nonPkpSetting->id,
+                        'is_pkp' => false,
+                    ],
+                    [
+                        'location_id' => $this->pkpLocation->id,
+                        'location_name' => $this->pkpLocation->name,
+                        'setting_id' => $this->pkpSetting->id,
+                        'is_pkp' => true,
+                    ],
+                ],
+                'location_id' => $this->nonPkpLocation->id,
+                'location_name' => $this->nonPkpLocation->name,
+                'setting_id' => $this->nonPkpSetting->id,
+                'is_pkp' => false,
+                'products' => [
+                    [
+                        'product_id' => $product->id,
+                        'product_name' => $product->product_name,
+                        'product_code' => $product->product_code,
+                        'base_unit' => 'pcs',
+                        'is_serialized' => false,
+                        'entered' => ['good' => 10, 'bad' => 0, 'serial_count' => null],
+                        'applied' => ['good' => 10, 'bad' => 0],
+                        'current' => ['good' => 10, 'bad' => 0],
+                        'difference' => ['good' => 0, 'bad' => 0],
+                        'serials' => [],
+                    ],
+                ],
+                'warnings' => [],
+                'conflicts' => [],
+            ],
+        ]);
+        AdjustmentLocation::create(['adjustment_id' => $adjustment->id, 'location_id' => $this->nonPkpLocation->id, 'position' => 0]);
+        AdjustmentLocation::create(['adjustment_id' => $adjustment->id, 'location_id' => $this->pkpLocation->id, 'position' => 1]);
+
+        $response = $this->get(route('adjustments.show', $adjustment));
+        $response->assertOk();
+        $response->assertSee('GUDANG CABANG RETAIL');
+        $response->assertSee('GUDANG PUSAT PKP');
+    }
+
+    public function test_user_without_adjustments_show_permission_receives_403(): void
+    {
+        $this->user->revokePermissionTo('adjustments.show');
+
+        $adjustment = Adjustment::create([
+            'reference' => 'ADJ-NO-SHOW-PERM',
+            'date' => now()->toDateString(),
+            'type' => 'normal',
+            'status' => AdjustmentStatus::Draft,
+            'location_id' => null,
+            'count_draft' => [
+                'schema_version' => 2,
+                'location_ids' => [$this->pkpLocation->id],
+                'rows' => [],
+            ],
+        ]);
+        AdjustmentLocation::create(['adjustment_id' => $adjustment->id, 'location_id' => $this->pkpLocation->id, 'position' => 0]);
+
+        $response = $this->get(route('adjustments.show', $adjustment));
+        $response->assertForbidden();
+    }
+
+    public function test_regular_user_with_adjustments_show_can_view_schema_v1_adjustment_from_another_setting(): void
+    {
+        // User has adjustments.show and is a regular user (not Super Admin)
+        session(['setting_id' => $this->pkpSetting->id]);
+
+        $legacyAdj = Adjustment::create([
+            'date' => now()->toDateString(),
+            'reference' => 'ADJ-LEGACY-V1-REG',
+            'location_id' => $this->nonPkpLocation->id,
+            'status' => 'pending',
+            'type' => 'normal',
+            'count_draft' => null,
+        ]);
+
+        $response = $this->get(route('adjustments.show', $legacyAdj));
+        $response->assertOk();
+    }
+
+    public function test_regular_user_with_adjustments_show_can_view_schema_v2_adjustment_from_other_settings(): void
+    {
+        session(['setting_id' => $this->pkpSetting->id]);
+
+        $adj = Adjustment::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SO-V2-CROSS',
+            'location_id' => $this->nonPkpLocation->id,
+            'status' => AdjustmentStatus::Draft,
+            'count_draft' => [
+                'schema_version' => 2,
+                'location_ids' => [$this->nonPkpLocation->id],
+                'rows' => [],
+            ],
+        ]);
+        AdjustmentLocation::create(['adjustment_id' => $adj->id, 'location_id' => $this->nonPkpLocation->id, 'position' => 0]);
+
+        $response = $this->get(route('adjustments.show', $adj));
+        $response->assertOk();
+    }
+
+    public function test_permitted_user_can_view_cross_setting_breakage_adjustment(): void
+    {
+        session(['setting_id' => $this->pkpSetting->id]);
+
+        $breakageAdj = Adjustment::create([
+            'date' => now()->toDateString(),
+            'reference' => 'ADJ-BRK-CROSS',
+            'location_id' => $this->nonPkpLocation->id,
+            'status' => 'pending',
+            'type' => 'breakage',
+        ]);
+
+        $response = $this->get(route('adjustments.show', $breakageAdj));
+        $response->assertOk();
+    }
+
+    public function test_cross_setting_mutations_remain_blocked_under_ownership_rules(): void
+    {
+        session(['setting_id' => $this->pkpSetting->id]);
+
+        $legacyAdj = Adjustment::create([
+            'date' => now()->toDateString(),
+            'reference' => 'ADJ-LEGACY-V1-MUT',
+            'location_id' => $this->nonPkpLocation->id,
+            'status' => 'pending',
+            'type' => 'normal',
+            'count_draft' => null,
+        ]);
+
+        // Edit route uses assertAdjustmentOwned which enforces activeSettingId
+        $responseEdit = $this->get(route('adjustments.edit', $legacyAdj));
+        $responseEdit->assertForbidden();
+
+        // Delete route uses assertAdjustmentOwned
+        $responseDelete = $this->delete(route('adjustments.destroy', $legacyAdj));
+        $responseDelete->assertForbidden();
+    }
 }
+

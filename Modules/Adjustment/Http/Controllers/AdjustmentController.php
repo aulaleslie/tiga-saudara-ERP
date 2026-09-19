@@ -50,6 +50,18 @@ class AdjustmentController extends Controller
     }
 
     /**
+     * Read guard for viewing an adjustment document.
+     * Viewing requires adjustments.show. Active-setting and selected-location
+     * ownership is not enforced on the read-only path so historical documents
+     * (legacy schema v1, multi-location schema v2, and breakage) remain viewable
+     * for audit across settings.
+     */
+    protected function assertAdjustmentViewable(Adjustment $adjustment): void
+    {
+        abort_if(Gate::denies('adjustments.show'), 403);
+    }
+
+    /**
      * A breakage document can only be edited while still pending approval;
      * an approved (or otherwise non-pending) document must never be
      * reopened for edit through a direct request. The document must also
@@ -415,8 +427,7 @@ class AdjustmentController extends Controller
 
     public function show(Adjustment $adjustment): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('adjustments.show'), 403);
-        $this->assertAdjustmentOwned($adjustment);
+        $this->assertAdjustmentViewable($adjustment);
 
         if ($adjustment->isNormalVersioned()) {
             $adjustment->load(['location', 'submittedBy', 'approvedBy', 'rejectedBy']);
@@ -1092,10 +1103,9 @@ class AdjustmentController extends Controller
     public function destroy(Adjustment $adjustment)
     {
         abort_if(Gate::denies('adjustments.delete'), 403);
+        $this->assertAdjustmentOwned($adjustment);
 
         if ($adjustment->isNormalVersioned()) {
-            $this->assertAdjustmentOwned($adjustment);
-
             try {
                 app(\Modules\Adjustment\Services\StockOpnameLifecycleService::class)->deleteDraft($adjustment, auth()->user());
             } catch (ValidationException $e) {

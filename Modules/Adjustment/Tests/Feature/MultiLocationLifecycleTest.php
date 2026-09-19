@@ -85,12 +85,14 @@ class MultiLocationLifecycleTest extends TestCase
         ]);
 
         $this->user = User::factory()->create(['is_active' => 1]);
+        Permission::findOrCreate('adjustments.show', 'web');
         Permission::findOrCreate('adjustments.create', 'web');
         Permission::findOrCreate('adjustments.edit', 'web');
+        Permission::findOrCreate('adjustments.breakage.edit', 'web');
         Permission::findOrCreate('adjustments.approval', 'web');
         Permission::findOrCreate('adjustments.delete', 'web');
 
-        $this->user->givePermissionTo(['adjustments.create', 'adjustments.edit', 'adjustments.approval', 'adjustments.delete']);
+        $this->user->givePermissionTo(['adjustments.show', 'adjustments.create', 'adjustments.edit', 'adjustments.breakage.edit', 'adjustments.approval', 'adjustments.delete']);
         $this->actingAs($this->user);
         session(['setting_id' => $this->settingA->id]);
     }
@@ -197,5 +199,74 @@ class MultiLocationLifecycleTest extends TestCase
 
         $this->expectException(ValidationException::class);
         $service->submit($adj, $this->user);
+    }
+
+    public function test_mutations_blocked_via_controller_when_any_selected_location_is_ineligible(): void
+    {
+        $adj = $this->createMultiLocationDraft([$this->locA, $this->locB]);
+        $this->locB->update(['is_active' => false]);
+
+        // Edit route
+        $responseEdit = $this->get(route('adjustments.edit', $adj));
+        $responseEdit->assertForbidden();
+
+        // Submit route
+        $responseSubmit = $this->patch(route('adjustments.submit', $adj));
+        $responseSubmit->assertForbidden();
+
+        // Delete route
+        $responseDelete = $this->delete(route('adjustments.destroy', $adj));
+        $responseDelete->assertForbidden();
+
+        // Move to waiting_approval bypassing service to test approve/reject
+        $adj->update(['status' => AdjustmentStatus::WaitingApproval]);
+
+        // Approve route
+        $responseApprove = $this->patch(route('adjustments.approve', $adj));
+        $responseApprove->assertSessionHasErrors(['message']);
+
+        // Reject route
+        $responseReject = $this->patch(route('adjustments.reject', $adj), ['rejection_reason' => 'Alasan']);
+        $responseReject->assertSessionHasErrors(['message']);
+    }
+
+    public function test_legacy_and_breakage_documents_enforce_active_setting_ownership_on_mutations(): void
+    {
+        // Legacy normal adjustment in settingB
+        $legacyAdj = Adjustment::create([
+            'date' => now()->toDateString(),
+            'reference' => 'ADJ-LEGACY-' . uniqid(),
+            'location_id' => $this->locB->id,
+            'status' => 'pending',
+            'type' => 'normal',
+            'count_draft' => null,
+        ]);
+
+        // Active session is settingA, so view is OK with adjustments.show
+        $this->user->givePermissionTo('adjustments.show');
+        $responseShow = $this->get(route('adjustments.show', $legacyAdj));
+        $responseShow->assertOk();
+
+        // But edit/delete across settings is forbidden
+        $responseEdit = $this->get(route('adjustments.edit', $legacyAdj));
+        $responseEdit->assertForbidden();
+
+        $responseDelete = $this->delete(route('adjustments.destroy', $legacyAdj));
+        $responseDelete->assertForbidden();
+
+        // Breakage adjustment in settingB
+        $breakageAdj = Adjustment::create([
+            'date' => now()->toDateString(),
+            'reference' => 'ADJ-BRK-' . uniqid(),
+            'location_id' => $this->locB->id,
+            'status' => 'pending',
+            'type' => 'breakage',
+        ]);
+
+        $responseBreakageShow = $this->get(route('adjustments.show', $breakageAdj));
+        $responseBreakageShow->assertOk();
+
+        $responseBreakageEdit = $this->get(route('adjustments.editBreakage', $breakageAdj));
+        $responseBreakageEdit->assertForbidden();
     }
 }
