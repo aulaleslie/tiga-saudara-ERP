@@ -432,6 +432,26 @@
                 // Inline results removed in Phase 1; this function is kept as a no-op for backward compatibility
             }
 
+            // Resets Cari Produk modal state at a successful transaction boundary:
+            // clears the query, restores the initial empty-search presentation, and
+            // invalidates in-flight search requests so a late response from the
+            // previous transaction cannot repopulate the new transaction's state.
+            function resetProductSearchModalState() {
+                latestRequestId += 1;
+
+                if (modalSearchInput) {
+                    modalSearchInput.value = '';
+                }
+
+                if (searchResultsModalContainer) {
+                    searchResultsModalContainer.innerHTML = '';
+                    const placeholderDiv = document.createElement('div');
+                    placeholderDiv.className = 'text-muted text-center py-5';
+                    placeholderDiv.textContent = 'Ketik nama produk atau SKU lalu tekan Cari.';
+                    searchResultsModalContainer.appendChild(placeholderDiv);
+                }
+            }
+
             function clearCustomerResults() {
                 if (customerResultListElement) {
                     customerResultListElement.innerHTML = '';
@@ -2869,18 +2889,9 @@
             // Phase 3: Cari Produk button click handler
             if (cariProdukButton) {
                 cariProdukButton.addEventListener('click', function () {
-                    // Clear modal search input and results
-                    if (modalSearchInput) {
-                        modalSearchInput.value = '';
-                    }
-                    if (searchResultsModalContainer) {
-                        searchResultsModalContainer.innerHTML = '';
-                        const placeholderDiv = document.createElement('div');
-                        placeholderDiv.className = 'text-muted text-center py-5';
-                        placeholderDiv.textContent = 'Ketik nama produk atau SKU lalu tekan Cari.';
-                        searchResultsModalContainer.appendChild(placeholderDiv);
-                    }
-                    
+                    // Preserve the previous query and rendered results within the same
+                    // transaction; state is only cleared by resetProductSearchModalState()
+                    // at a successful transaction boundary.
                     if (searchResultsModalElement) {
                         // Try jQuery first (most likely available)
                         try {
@@ -3112,6 +3123,7 @@
                         const response = await jsonRequest(cartClearEndpoint, 'DELETE', payload);
                         if (response) {
                             renderCart(response.cart_snapshot || null);
+                            resetProductSearchModalState();
                             setCartStatus('Keranjang dikosongkan.', 'text-success');
                         }
                     });
@@ -3143,7 +3155,8 @@
                         if (typeof $ !== 'undefined') {
                             $('#pos-save-success-modal').modal('show');
                         }
-                        
+
+                        resetProductSearchModalState();
                         setCartStatus('Transaksi ' + code + ' disimpan.', 'text-success');
                     } catch (error) {
                         setCartStatus(error.message || 'Gagal menyimpan transaksi.', 'text-danger', true);
@@ -4620,6 +4633,7 @@
                         $('#pos-success-modal').modal('show');
 
                         renderCart(null);
+                        resetProductSearchModalState();
                         setCartStatus('Transaksi berhasil diselesaikan.', 'text-success');
                     } catch (error) {
                         checkoutError.textContent = error.message || 'Gagal memproses pembayaran.';
@@ -4687,6 +4701,8 @@
                         window.lastCheckoutId = checkoutId;
                         if (shortcutReprintBtn) shortcutReprintBtn.disabled = false;
                     }
+
+                    resetProductSearchModalState();
 
                     console.log('[GRATITUDE SETUP] Button found:', !!gratitudeBtn, 'Button element:', gratitudeBtn);
 

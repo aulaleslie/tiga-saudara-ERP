@@ -20,7 +20,9 @@
                         </div>
                     </div>
                     <!-- Phase 3: Card-grid results container -->
-                    <div id="pos-search-modal-results" class="pos-search-card-grid flex-grow-1 overflow-auto"></div>
+                    <div id="pos-search-modal-results" class="pos-search-card-grid flex-grow-1 overflow-auto">
+                        <div class="text-muted text-center py-5">Ketik nama produk atau SKU lalu tekan Cari.</div>
+                    </div>
                 </div>
                 <div class="modal-footer bg-light">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
