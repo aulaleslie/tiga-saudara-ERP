@@ -468,7 +468,7 @@ window.PosStagedPayment = (function () {
             stagedPaymentImageContainer.style.display = 'block';
         } else {
             stagedPaymentImageContainer.style.display = 'none';
-            if (currentImageToken) {
+            if (selectedPaymentMethod && selectedPaymentMethod.is_cash && currentImageToken) {
                 handlePaymentImageRemove();
             }
         }
@@ -488,6 +488,8 @@ window.PosStagedPayment = (function () {
     }
 
     async function handlePaymentImageUpload(event) {
+        if (state === States.PROCESSING) return;
+
         const file = event.target.files[0];
         if (!file) return;
 
@@ -548,16 +550,8 @@ window.PosStagedPayment = (function () {
         }
     }
 
-    async function handlePaymentImageRemove() {
-        if (!currentImageToken) return;
-
-        if (stagedPaymentImageSuccessState) {
-            stagedPaymentImageSuccessState.classList.add('d-none');
-            stagedPaymentImageSuccessState.classList.remove('d-flex');
-        }
-        if (stagedPaymentImageUploadingState) stagedPaymentImageUploadingState.classList.remove('d-none');
-        
-        if (stagedSubmitButton) stagedSubmitButton.disabled = true;
+    async function deletePendingImage(tokenToDelete, cartToken) {
+        if (!tokenToDelete) return;
 
         try {
             await fetch('/pos/sell/payment-image', {
@@ -568,16 +562,28 @@ window.PosStagedPayment = (function () {
                     'Accept': 'application/json'
                 },
                 body: JSON.stringify({
-                    token: currentImageToken,
-                    cart_token: paymentChain?.cart_token || currentCartToken
+                    token: tokenToDelete,
+                    cart_token: cartToken
                 })
             });
         } catch (e) {
             console.error('Failed to delete image', e);
         }
+    }
 
+    function handlePaymentImageRemove() {
+        if (state === States.PROCESSING) return;
+        if (!currentImageToken) return;
+
+        const tokenToDelete = currentImageToken;
+        const cartToken = paymentChain?.cart_token || currentCartToken;
+
+        // Synchronously detach active form image state
         resetPaymentImageState();
         updateStageValidation();
+
+        // Asynchronously delete the pending image without mutating active form state on completion
+        deletePendingImage(tokenToDelete, cartToken);
     }
 
     // Task 3.6: Real-time EDC reference validation - only check "not empty"
@@ -879,6 +885,9 @@ window.PosStagedPayment = (function () {
 
             console.log('[PosStagedPayment] Updated chain:', { remainder: paymentChain.remainder, payments: paymentChain.payments.length });
 
+            // Clear local active image state since ownership is transferred to the committed chain
+            resetPaymentImageState();
+
             // Check remainder and proceed
             if (data.remainder > 0 && !payload.is_debt) {
                 // More payments needed
@@ -888,6 +897,9 @@ window.PosStagedPayment = (function () {
             } else {
                 // Payment complete or overpaid (data.remainder <= 0), or it's a debt down payment, proceed to authoritative finalization
                 console.log('[PosStagedPayment] Payment complete/overpaid or debt down payment, initiating checkout finalization', { remainder: data.remainder, is_debt: payload.is_debt });
+                resetStageForm();
+                renderPaymentChain();
+                updateRemainderDisplay();
                 showFinalConfirmation();
             }
         } catch (error) {
@@ -1058,6 +1070,13 @@ window.PosStagedPayment = (function () {
         if (stagedAmountInput) stagedAmountInput.disabled = isProcessing;
         if (stagedEdcReferenceInput) stagedEdcReferenceInput.disabled = isProcessing;
         if (stagedSubmitButton) stagedSubmitButton.disabled = isProcessing;
+        if (stagedPaymentImageFile) stagedPaymentImageFile.disabled = isProcessing;
+        if (stagedPaymentImageRemoveBtn) {
+            stagedPaymentImageRemoveBtn.disabled = isProcessing;
+            stagedPaymentImageRemoveBtn.style.opacity = isProcessing ? '0.5' : '1';
+            stagedPaymentImageRemoveBtn.style.cursor = isProcessing ? 'not-allowed' : 'pointer';
+            stagedPaymentImageRemoveBtn.style.pointerEvents = isProcessing ? 'none' : 'auto';
+        }
 
         // Disable all dismiss controls (header close ×, footer Batal)
         const dismissControls = stagedModalElement?.querySelectorAll('[data-dismiss="modal"]');

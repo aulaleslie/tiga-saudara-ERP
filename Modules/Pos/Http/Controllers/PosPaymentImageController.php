@@ -82,6 +82,23 @@ class PosPaymentImageController extends Controller
             return response()->json(['message' => 'Sesi POS tidak ditemukan.'], 403);
         }
 
+        $sessionKey = "payment_chain_{$cartToken}";
+        $chain = $request->session()->get($sessionKey);
+        if ($chain && !empty($chain['payments'])) {
+            foreach ($chain['payments'] as $payment) {
+                $committedToken = is_array($payment['payment_image'] ?? null)
+                    ? ($payment['payment_image']['token'] ?? null)
+                    : ($payment['payment_image_token'] ?? null);
+
+                if ($committedToken === $token) {
+                    return response()->json([
+                        'code' => 'PAYMENT_IMAGE_ALREADY_COMMITTED',
+                        'message' => 'Bukti pembayaran sudah terikat pada transaksi pembayaran dan tidak dapat dihapus.',
+                    ], 409);
+                }
+            }
+        }
+
         $deleted = $this->imageService->deleteImage(
             $token,
             $settingId,

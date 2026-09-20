@@ -77,7 +77,7 @@
 
 @push('page_scripts')
     <!-- Task 3.1: Include staged payment module -->
-    <script src="{{ asset('js/pos-staged-payment.js') }}"></script>
+    <script src="{{ asset('js/pos-staged-payment.js') }}?v={{ file_exists(public_path('js/pos-staged-payment.js')) ? filemtime(public_path('js/pos-staged-payment.js')) : '1.0' }}"></script>
     <!-- html5-qrcode barcode decoder library (fallback for browsers without native BarcodeDetector) -->
     <script src="{{ asset('vendor/html5-qrcode/html5-qrcode.min.js') }}"></script>
     <!-- Camera scanner module (must load after html5-qrcode library) -->

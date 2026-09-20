@@ -62,6 +62,7 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
             'pos.sell',
             'pos.sessions.open',
             'pos.checkout.payment',
+            'pos.checkout.debt',
             'pos.sessions.require-terminal',
             'pos.transactions.save',
             'pos.transactions.load',
@@ -541,6 +542,7 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
             'pos.sessions.open',
             'pos.sessions.require-terminal',
             'pos.checkout.payment',
+            'pos.checkout.debt',
             'pos.transactions.save',
             'pos.transactions.load',
         ]);
@@ -1833,5 +1835,284 @@ class POSCheckoutNoteAndPaymentImageTest extends TestCase
         
         // Ensure foreign transaction was unmodified
         $this->assertEquals($otherOriginalCode, PosTransaction::findOrFail($otherDraftId)->code);
+    }
+
+    public function test_committed_payment_image_cannot_be_deleted_individually(): void
+    {
+        $context = $this->createCheckoutContext('IMAGE-COMMITTED-DELETE');
+        Storage::fake();
+
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-COMMITTED-1', 100000, false);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $cartToken = $this->getCartSnapshot($context['cashier'], $context['setting'])['staged_payment_token'];
+        $fakeImage = \Illuminate\Http\UploadedFile::fake()->image('receipt.jpg', 100, 100);
+
+        $uploadResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.payment-image.upload'), [
+                'image' => $fakeImage,
+                'cart_token' => $cartToken,
+            ])
+            ->assertOk()
+            ->json();
+
+        $token = $uploadResponse['token'];
+        $temporaryImage = PosTemporaryPaymentImage::where('token', $token)->firstOrFail();
+
+        // Stage payment with image
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.checkout.stage-payment'), [
+                'payment_method_id' => $context['methods']->transfer->id,
+                'amount' => 50000,
+                'grand_total' => 100000,
+                'cart_token' => $cartToken,
+                'edc_reference' => 'test-ref-committed',
+                'payment_image_token' => $token,
+            ])
+            ->assertStatus(201);
+
+        // Attempt individual deletion of the committed image
+        $deleteResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->deleteJson(route('pos.sell.payment-image.delete'), [
+                'token' => $token,
+                'cart_token' => $cartToken,
+            ]);
+
+        $deleteResponse->assertStatus(409)
+            ->assertJsonPath('code', 'PAYMENT_IMAGE_ALREADY_COMMITTED');
+
+        // Verify image record and file still exist intact
+        $this->assertDatabaseHas('pos_temporary_payment_images', ['token' => $token]);
+        Storage::assertExists($temporaryImage->path);
+    }
+
+    public function test_staged_transfer_with_image_followed_by_kas_bon_finalizes_with_isolated_attachment(): void
+    {
+        $context = $this->createCheckoutContext('STAGED-TRF-KASBON');
+        Storage::fake();
+
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-TRF-KASBON', 100000, false);
+        $customer = Customer::factory()->create(['setting_id' => $context['setting']->id]);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $cartToken = $this->getCartSnapshot($context['cashier'], $context['setting'])['staged_payment_token'];
+        $fakeImage = \Illuminate\Http\UploadedFile::fake()->image('transfer_receipt.jpg', 100, 100);
+
+        $uploadResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.payment-image.upload'), [
+                'image' => $fakeImage,
+                'cart_token' => $cartToken,
+            ])
+            ->assertOk()
+            ->json();
+
+        $imageToken = $uploadResponse['token'];
+
+        // Stage 1: Partial transfer of 40,000 with image
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.checkout.stage-payment'), [
+                'payment_method_id' => $context['methods']->transfer->id,
+                'amount' => 40000,
+                'grand_total' => 100000,
+                'cart_token' => $cartToken,
+                'edc_reference' => 'TRF-STAGE-01',
+                'payment_image_token' => $imageToken,
+            ])
+            ->assertStatus(201)
+            ->assertJsonPath('remainder', 60000);
+
+        $term = \Modules\Purchase\Entities\PaymentTerm::query()->firstOrCreate(
+            ['name' => 'Net 14'],
+            ['longevity' => 14]
+        );
+
+        // Finalize remaining 60,000 as Kas Bon / Utang
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'IDEM-TRF-KASBON-' . uniqid(),
+            'cart_token' => $cartToken,
+            'is_debt' => true,
+            'payment_term_id' => $term->id,
+        ]);
+
+        $response->assertStatus(201);
+
+        $saleId = $response->json('sale_id');
+        $sale = Sale::findOrFail($saleId);
+
+        $this->assertEquals(40000, $sale->paid_amount);
+        $this->assertEquals(60000, $sale->due_amount);
+        $this->assertEquals('PARTIAL', strtoupper($sale->payment_status));
+        $this->assertEquals($term->id, $sale->payment_term_id);
+
+        // Verify only 1 sale payment (the transfer payment)
+        $salePayments = $sale->salePayments()->get();
+        $this->assertCount(1, $salePayments);
+
+        $transferPayment = $salePayments->first();
+        $this->assertEquals(40000, $transferPayment->amount);
+        $this->assertEquals($context['methods']->transfer->id, $transferPayment->payment_method_id);
+        $this->assertEquals(1, $transferPayment->media()->count());
+    }
+
+    public function test_staged_transfer_with_image_followed_by_cash_finalizes_with_isolated_attachment(): void
+    {
+        $context = $this->createCheckoutContext('STAGED-TRF-CASH');
+        Storage::fake();
+
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-TRF-CASH', 100000, false);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+
+        $cartToken = $this->getCartSnapshot($context['cashier'], $context['setting'])['staged_payment_token'];
+        $fakeImage = \Illuminate\Http\UploadedFile::fake()->image('transfer_receipt.jpg', 100, 100);
+
+        $uploadResponse = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.payment-image.upload'), [
+                'image' => $fakeImage,
+                'cart_token' => $cartToken,
+            ])
+            ->assertOk()
+            ->json();
+
+        $imageToken = $uploadResponse['token'];
+
+        // Stage 1: Partial transfer of 60,000 with image
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.checkout.stage-payment'), [
+                'payment_method_id' => $context['methods']->transfer->id,
+                'amount' => 60000,
+                'grand_total' => 100000,
+                'cart_token' => $cartToken,
+                'edc_reference' => 'TRF-STAGE-02',
+                'payment_image_token' => $imageToken,
+            ])
+            ->assertStatus(201)
+            ->assertJsonPath('remainder', 40000);
+
+        // Stage 2: Remaining 40,000 via Cash (no image token)
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.checkout.stage-payment'), [
+                'payment_method_id' => $context['methods']->cash->id,
+                'amount' => 40000,
+                'grand_total' => 100000,
+                'cart_token' => $cartToken,
+            ])
+            ->assertStatus(201)
+            ->assertJsonPath('remainder', 0);
+
+        // Finalize checkout
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'IDEM-TRF-CASH-' . uniqid(),
+            'cart_token' => $cartToken,
+        ]);
+
+        $response->assertStatus(201);
+
+        $saleId = $response->json('sale_id');
+        $sale = Sale::findOrFail($saleId);
+
+        $this->assertEquals(100000, $sale->paid_amount);
+        $this->assertEquals(0, $sale->due_amount);
+        $this->assertEquals('PAID', strtoupper($sale->payment_status));
+
+        // Verify sale payments: transfer payment has 1 attachment, cash payment has 0 attachments
+        $salePayments = $sale->salePayments()->get();
+        $this->assertCount(2, $salePayments);
+
+        $transferPayment = $salePayments->where('payment_method_id', $context['methods']->transfer->id)->first();
+        $this->assertNotNull($transferPayment);
+        $this->assertEquals(60000, $transferPayment->amount);
+        $this->assertEquals(1, $transferPayment->media()->count());
+
+        $cashPayment = $salePayments->where('payment_method_id', $context['methods']->cash->id)->first();
+        $this->assertNotNull($cashPayment);
+        $this->assertEquals(40000, $cashPayment->amount);
+        $this->assertEquals(0, $cashPayment->media()->count());
+    }
+
+    public function test_client_script_contract_guarantees_image_ownership_and_processing_lock(): void
+    {
+        $jsPath = public_path('js/pos-staged-payment.js');
+        $this->assertFileExists($jsPath);
+        $jsCode = file_get_contents($jsPath);
+
+        // 1. Guard against accidental DELETE calls when form is reset (selectedPaymentMethod is null)
+        $this->assertMatchesRegularExpression(
+            '/if\s*\(\s*selectedPaymentMethod\s*&&\s*selectedPaymentMethod\.is_cash\s*&&\s*currentImageToken\s*\)/',
+            $jsCode,
+            'updatePaymentImageVisibility must only invoke removal when cash is explicitly selected'
+        );
+
+        // 2. Active image state is non-destructively cleared when stage payment succeeds
+        $this->assertMatchesRegularExpression(
+            '/resetPaymentImageState\s*\(\s*\)\s*;/',
+            $jsCode,
+            'resetPaymentImageState must be called to clear active form image ownership upon successful stage commit'
+        );
+
+        // 3. Processing state locks image controls
+        $this->assertMatchesRegularExpression(
+            '/stagedPaymentImageFile(\.disabled|\s*\[\s*[\'"]disabled[\'"]\s*\])\s*=\s*isProcessing/',
+            $jsCode,
+            'setProcessing must disable image file input during stage processing'
+        );
+        $this->assertMatchesRegularExpression(
+            '/stagedPaymentImageRemoveBtn(\.disabled|\s*\[\s*[\'"]disabled[\'"]\s*\])\s*=\s*isProcessing/',
+            $jsCode,
+            'setProcessing must disable image remove button during stage processing'
+        );
+
+        // 4. Image handlers independently guard against concurrent execution during processing
+        $this->assertMatchesRegularExpression(
+            '/async\s+function\s+handlePaymentImageUpload\s*\([^)]*\)\s*\{[^}]*if\s*\(\s*state\s*===\s*States\.PROCESSING\s*\)\s*return\s*;/s',
+            $jsCode,
+            'handlePaymentImageUpload must abort if in processing state'
+        );
+        $this->assertMatchesRegularExpression(
+            '/function\s+handlePaymentImageRemove\s*\([^)]*\)\s*\{[^}]*if\s*\(\s*state\s*===\s*States\.PROCESSING\s*\)\s*return\s*;/s',
+            $jsCode,
+            'handlePaymentImageRemove must abort if in processing state'
+        );
+    }
+
+    public function test_client_script_browser_state_machine_execution(): void
+    {
+        $fixturePath = base_path('Modules/Pos/Tests/Fixtures/test_pos_staged_payment_state_machine.cjs');
+        $this->assertFileExists($fixturePath);
+
+        $output = [];
+        $exitCode = 0;
+        exec('node ' . escapeshellarg($fixturePath), $output, $exitCode);
+
+        $this->assertSame(0, $exitCode, 'Browser regression state machine test failed: ' . implode("\n", $output));
+        $this->assertContains('SUCCESS', $output);
+    }
+
+    public function test_pos_sell_view_includes_cache_busted_staged_payment_asset(): void
+    {
+        $viewPath = base_path('Modules/Pos/Resources/views/sell.blade.php');
+        $this->assertFileExists($viewPath);
+        $viewContent = file_get_contents($viewPath);
+
+        $this->assertStringContainsString(
+            "asset('js/pos-staged-payment.js') }}?v=",
+            $viewContent,
+            'sell.blade.php must include cache-busting version query string for pos-staged-payment.js'
+        );
     }
 }
