@@ -224,6 +224,11 @@ class SalePayment extends BaseModel implements HasMedia
         return $this->hasMany(SalePaymentCreditApplication::class, 'sale_payment_id', 'id');
     }
 
+    public function globalPosPaymentAllocation(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(\Modules\Pos\Entities\GlobalPosPaymentAllocation::class, 'sale_payment_id');
+    }
+
     /**
      * Check if payment is eligible for physical deletion.
      * Payments with credit applications or automated invalidation lineage cannot be deleted.

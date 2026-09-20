@@ -92,4 +92,9 @@ class PosTransaction extends BaseModel
     {
         return $this->hasMany(PosTransactionLine::class, 'pos_transaction_id');
     }
+
+    public function globalPosPaymentAllocations(): HasMany
+    {
+        return $this->hasMany(GlobalPosPaymentAllocation::class, 'pos_transaction_id');
+    }
 }

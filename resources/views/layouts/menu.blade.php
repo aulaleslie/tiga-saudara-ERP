@@ -45,7 +45,7 @@
     $canAccessPosTerminals = $posEnabledForCurrentSetting && auth()->user()->can('pos.terminals.access');
 @endphp
 
-@if($canAccessPosOperations || $canAccessPosTerminals)
+@if($canAccessPosOperations || $canAccessPosTerminals || auth()->user()->can('posPayments.global.access'))
     <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('pos.*') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
             <i class="c-sidebar-nav-icon bi bi-upc-scan" style="line-height: 1;"></i> POS
@@ -61,6 +61,17 @@
                 </li>
             </ul>
         @endif
+
+        @can('posPayments.global.access')
+            <ul class="c-sidebar-nav-dropdown-items">
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('pos.global-payments.*') ? 'c-active' : '' }}"
+                       href="{{ route('pos.global-payments.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-cash-coin" style="line-height: 1;"></i> Pembayaran POS Global
+                    </a>
+                </li>
+            </ul>
+        @endcan
 
         @if($posEnabledForCurrentSetting && auth()->user()->can('pos.access') && auth()->user()->can('pos.sessions.view'))
             <ul class="c-sidebar-nav-dropdown-items">

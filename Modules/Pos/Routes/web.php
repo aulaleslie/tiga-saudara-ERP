@@ -13,6 +13,28 @@ use Modules\Pos\Http\Controllers\PosSupervisorApprovalQueueController;
 use Modules\Pos\Http\Controllers\PosTransactionController;
 use Modules\Pos\Http\Controllers\PosReturnController;
 use Modules\Pos\Http\Controllers\PosPaymentImageController;
+use Modules\Pos\Http\Controllers\GlobalPosPaymentController;
+
+Route::group(['middleware' => ['auth', 'can:posPayments.global.access']], function () {
+    Route::get('/pos/global-payments', [GlobalPosPaymentController::class, 'index'])->name('pos.global-payments.index');
+    Route::get('/pos/{transaction_id}/global-payments/show', [GlobalPosPaymentController::class, 'show'])->name('pos.global-payments.show');
+    Route::get('/pos/{transaction_id}/global-payments/history', [GlobalPosPaymentController::class, 'history'])
+        ->middleware('can:posPayments.global.history')
+        ->name('pos.global-payments.history');
+
+    Route::group(['middleware' => ['can:posPayments.global.create']], function () {
+        Route::get('/pos/{transaction_id}/global-payments/create', [GlobalPosPaymentController::class, 'create'])->name('pos.global-payments.create');
+        Route::post('/pos/{transaction_id}/global-payments/preview', [GlobalPosPaymentController::class, 'preview'])->name('pos.global-payments.preview');
+        Route::post('/pos/{transaction_id}/global-payments/store', [GlobalPosPaymentController::class, 'store'])
+            ->middleware('idempotency')
+            ->name('pos.global-payments.store');
+    });
+
+    Route::group(['middleware' => ['can:pos.receipts.reprint']], function () {
+        Route::match(['get', 'post'], '/pos/{transaction_id}/global-payments/receipt/reprint', [GlobalPosPaymentController::class, 'receiptReprint'])
+            ->name('pos.global-payments.receipt.reprint');
+    });
+});
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.returns.view']], function () {
     Route::get('/pos/returns', [PosReturnController::class, 'index'])->name('pos.returns.index');

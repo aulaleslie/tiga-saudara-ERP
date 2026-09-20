@@ -373,6 +373,12 @@ return [
         'pos.returns.dispatch' => 'Pengiriman',
     ],
 
+    'Pembayaran POS Global' => [
+        'posPayments.global.access' => 'Akses Pembayaran POS Global',
+        'posPayments.global.create' => 'Buat Pembayaran POS Global',
+        'posPayments.global.history' => 'Lihat Riwayat Pembayaran POS Global',
+    ],
+
     'Transfer Stok' => [
         'stockTransfers.access' => 'Hak Akses',
         'stockTransfers.create' => 'Buat',
