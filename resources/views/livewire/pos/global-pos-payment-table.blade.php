@@ -84,10 +84,10 @@
             <!-- Action Buttons -->
             <div class="row g-2 mt-2">
                 <div class="col-12">
-                    <button type="button" class="btn btn-primary" wire:click="applyFilter">
+                    <button type="button" class="btn btn-primary" wire:click="applyFilter" wire:loading.attr="disabled">
                         <i class="bi bi-check2-circle"></i> Terapkan Filter
                     </button>
-                    <button type="button" class="btn btn-outline-secondary" wire:click="resetFilters">
+                    <button type="button" class="btn btn-outline-secondary" wire:click="resetFilters" wire:loading.attr="disabled">
                         <i class="bi bi-arrow-counterclockwise"></i> Reset semua filter
                     </button>
                 </div>
@@ -145,11 +145,11 @@
                    style="width: 380px;"
                    autocomplete="off"
             >
-            <button type="submit" class="btn btn-primary">
+            <button type="submit" class="btn btn-primary" wire:loading.attr="disabled">
                 <i class="bi bi-search"></i>
             </button>
             @if ($search)
-                <button type="button" wire:click="clearSearch" class="btn btn-secondary">
+                <button type="button" wire:click="clearSearch" class="btn btn-secondary" wire:loading.attr="disabled">
                     <i class="bi bi-x-lg"></i>
                 </button>
             @endif
@@ -157,7 +157,12 @@
     </div>
 
     <!-- Table -->
-    <div class="table-responsive global-payment-table-scroll">
+    <div class="table-responsive global-payment-table-scroll position-relative">
+        <div wire:loading.delay.flex wire:cloak class="col-12 position-absolute justify-content-center align-items-center" style="top:0;right:0;left:0;bottom:0;background-color: rgba(255,255,255,0.5);z-index: 99;display: none;">
+            <div class="spinner-border text-primary" role="status">
+                <span class="sr-only">Memuat data...</span>
+            </div>
+        </div>
         <table class="table table-bordered table-hover align-middle">
             <thead class="table-light">
             <tr>

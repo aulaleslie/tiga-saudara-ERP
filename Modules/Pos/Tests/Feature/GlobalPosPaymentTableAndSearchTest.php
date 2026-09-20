@@ -284,6 +284,83 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
             ->assertDontSee('POS-BRT-02');
     }
 
+    public function test_table_renders_loading_overlay_and_disables_action_buttons_while_loading()
+    {
+        $html = Livewire::test(GlobalPosPaymentTable::class)->html();
+
+        // Overlay: wire:loading.delay.flex with no wire:target, so it fires for every
+        // request against this component (filters, search, card filters, sort, per-page,
+        // pagination) rather than being scoped to a single action.
+        $this->assertMatchesRegularExpression(
+            '/<div[^>]*wire:loading\.delay\.flex(?![^>]*wire:target)[^>]*>/',
+            $html,
+            'Expected an untargeted wire:loading.delay.flex overlay element.'
+        );
+
+        // Capture the full overlay opening tag to verify its idle (pre-Livewire-init) state
+        // is safe: wire:loading.delay.flex only controls visibility once Livewire has
+        // processed request state, so without an explicit "display: none" default and
+        // wire:cloak (to prevent an initialization flash), the absolutely positioned,
+        // z-index: 99 overlay would render visible-by-default and permanently block the
+        // table underneath.
+        $this->assertMatchesRegularExpression(
+            '/<div\b[^>]*wire:loading\.delay\.flex[^>]*>/',
+            $html,
+            'Expected the loading overlay <div> to be present.'
+        );
+        preg_match('/<div\b[^>]*wire:loading\.delay\.flex[^>]*>/', $html, $overlayMatch);
+        $overlayTag = $overlayMatch[0] ?? '';
+
+        $this->assertStringContainsString(
+            'wire:cloak',
+            $overlayTag,
+            'Expected the loading overlay to have wire:cloak to prevent an initialization flash.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/display\s*:\s*none/',
+            $overlayTag,
+            'Expected the loading overlay to default to display: none so it is hidden before Livewire controls its visibility.'
+        );
+
+        // Overlay must sit over the table without hiding existing results (position-relative
+        // wrapper + position-absolute overlay), and expose an accessible status role plus
+        // visually hidden loading text.
+        $this->assertStringContainsString('position-relative', $html);
+        $this->assertStringContainsString('position-absolute', $html);
+        $this->assertStringContainsString('spinner-border', $html);
+        $this->assertStringContainsString('role="status"', $html);
+        $this->assertStringContainsString('Memuat data...', $html);
+
+        // Apply Filter, Reset, Search, and Clear Search must disable themselves while a
+        // request is in flight to prevent duplicate submissions. Clear Search only renders
+        // when a search term is active.
+        $this->assertMatchesRegularExpression(
+            '/wire:click="applyFilter"[^>]*wire:loading\.attr="disabled"/',
+            $html,
+            'Expected Apply Filter button to have wire:loading.attr="disabled".'
+        );
+        $this->assertMatchesRegularExpression(
+            '/wire:click="resetFilters"[^>]*wire:loading\.attr="disabled"/',
+            $html,
+            'Expected Reset button to have wire:loading.attr="disabled".'
+        );
+        $this->assertMatchesRegularExpression(
+            '/type="submit" class="btn btn-primary" wire:loading\.attr="disabled"/',
+            $html,
+            'Expected Search submit button to have wire:loading.attr="disabled".'
+        );
+
+        $htmlWithSearch = Livewire::test(GlobalPosPaymentTable::class)
+            ->set('search', 'anything')
+            ->html();
+
+        $this->assertMatchesRegularExpression(
+            '/wire:click="clearSearch"[^>]*wire:loading\.attr="disabled"/',
+            $htmlWithSearch,
+            'Expected Clear Search button to have wire:loading.attr="disabled".'
+        );
+    }
+
     public function test_projection_derived_filter_is_applied_before_pagination()
     {
         // Create more rows than one page (perPage = 10) so the paid-status filter
