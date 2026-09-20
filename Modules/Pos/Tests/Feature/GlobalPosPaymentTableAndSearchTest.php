@@ -243,6 +243,67 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
             ->assertSee('20,000'); // Paid in last 30d: 20,000
     }
 
+    public function test_pos_summary_cards_render_loading_overlay_targeting_toggle_card_filter()
+    {
+        $html = Livewire::test(PosSummaryCards::class)->html();
+
+        // Capture the overlay's full opening tag: it must target toggleCardFilter
+        // specifically (the request PosSummaryCards itself issues before dispatching
+        // pos-filter to the sibling GlobalPosPaymentTable component), use the untargeted
+        // .flex variant without .delay (immediate feedback is desired for the first
+        // request in this two-request sequence), and default to hidden so it does not
+        // render visible-by-default before Livewire controls its visibility.
+        $this->assertMatchesRegularExpression(
+            '/<div\b[^>]*wire:loading\.flex[^>]*>/',
+            $html,
+            'Expected a wire:loading.flex overlay element.'
+        );
+        preg_match('/<div\b[^>]*wire:loading\.flex[^>]*>/', $html, $overlayMatch);
+        $overlayTag = $overlayMatch[0] ?? '';
+
+        $this->assertStringContainsString(
+            'wire:target="toggleCardFilter"',
+            $overlayTag,
+            'Expected the overlay to target toggleCardFilter so it blocks repeated card clicks during that request.'
+        );
+        $this->assertStringNotContainsString(
+            'wire:loading.delay',
+            $overlayTag,
+            'Expected no .delay modifier: this is the first request in a two-request sequence and immediate feedback is desired.'
+        );
+        $this->assertStringContainsString(
+            'wire:cloak',
+            $overlayTag,
+            'Expected wire:cloak to prevent an initialization flash.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/display\s*:\s*none/',
+            $overlayTag,
+            'Expected the overlay to default to display: none so it is hidden before Livewire controls its visibility.'
+        );
+
+        // Overlay must sit over all three cards without hiding them (position-relative
+        // wrapper + position-absolute overlay), and expose accessible spinner markup.
+        $this->assertStringContainsString('position-relative', $html);
+        $this->assertStringContainsString('position-absolute', $html);
+        $this->assertStringContainsString('spinner-border', $html);
+        $this->assertStringContainsString('role="status"', $html);
+        $this->assertStringContainsString('Memuat data...', $html);
+    }
+
+    public function test_apply_card_filter_dispatches_completion_event_for_workspace_overlay()
+    {
+        $this->createCompletedPosTransaction($this->setting1, $this->customer1, 10000, 'POS-CARD-01');
+
+        // The workspace-level Alpine overlay (workspace.blade.php) listens for this event
+        // to release the loading state it set the instant a summary card was clicked,
+        // covering the full two-component (PosSummaryCards -> GlobalPosPaymentTable)
+        // request sequence rather than only the table's own wire:loading.
+        Livewire::test(GlobalPosPaymentTable::class)
+            ->call('applyCardFilter', 'unpaid')
+            ->assertDispatched('pos-card-filter-applied');
+    }
+
     public function test_global_pos_payment_table_cross_setting_listing_and_filters()
     {
         $t1 = $this->createCompletedPosTransaction($this->setting1, $this->customer1, 10000, 'POS-PST-01');
@@ -405,6 +466,108 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
         foreach ($unpaidCodes as $code) {
             $component->assertDontSee($code);
         }
+    }
+
+    public function test_pagination_uses_bootstrap_theme_navigates_pages_and_resets_on_page_size_change()
+    {
+        // 12 rows with perPage = 10 forces a real second page. PosTransaction does not
+        // allow mass-assigning created_at/updated_at, so all rows share the same
+        // insertion timestamp and the default created_at-desc sort ties on insertion
+        // order; we read the actual page-1/page-2 split from the paginator itself rather
+        // than assuming a specific ordering.
+        $codes = [];
+        for ($i = 1; $i <= 12; $i++) {
+            $code = sprintf('POS-PAGE-%02d', $i);
+            $codes[] = $code;
+            $this->createCompletedPosTransaction($this->setting1, $this->customer1, 1000, $code);
+        }
+
+        $component = Livewire::test(GlobalPosPaymentTable::class);
+
+        // Bootstrap pagination markup, not Livewire's default Tailwind view: Bootstrap
+        // links use the `page-link`/`page-item` classes and a `pagination` wrapper;
+        // Livewire's bundled Tailwind view does not emit these classes at all.
+        $html = $component->html();
+        $this->assertStringContainsString('pagination', $html);
+        $this->assertStringContainsString('page-link', $html);
+        $this->assertStringContainsString('page-item', $html);
+
+        $paginator = $component->viewData('transactions');
+        $this->assertSame(12, $paginator->total());
+        $this->assertSame(1, $paginator->currentPage());
+        $this->assertCount(10, $paginator->items());
+
+        $pageOneCodes = $paginator->pluck('code')->all();
+
+        $component->call('nextPage');
+        $pageTwoPaginator = $component->viewData('transactions');
+        $this->assertSame(2, $pageTwoPaginator->currentPage());
+        $this->assertCount(2, $pageTwoPaginator->items());
+        $pageTwoCodes = $pageTwoPaginator->pluck('code')->all();
+
+        // Every row appears on exactly one page, and together they cover the full set.
+        $this->assertEmpty(array_intersect($pageOneCodes, $pageTwoCodes), 'Page 1 and page 2 must not share any rows.');
+        $this->assertEqualsCanonicalizing($codes, array_merge($pageOneCodes, $pageTwoCodes));
+
+        foreach ($pageTwoCodes as $code) {
+            $component->assertSee($code);
+        }
+
+        // Changing perPage while on a later page must reset to page 1, not leave the user
+        // stranded past the new last page with an empty table.
+        $component->set('perPage', 25);
+        $afterPerPageChange = $component->viewData('transactions');
+        $this->assertSame(1, $afterPerPageChange->currentPage(), 'Changing perPage must reset the paginator to page 1.');
+        $this->assertCount(12, $afterPerPageChange->items());
+
+        // Totals and the "Menampilkan ... dari ..." range must stay correct after a
+        // structured filter narrows the result set.
+        $component->set('globalBusinessFilters', [$this->setting1->id]);
+        $filtered = $component->viewData('transactions');
+        $this->assertSame(12, $filtered->total());
+        $this->assertSame(1, $filtered->firstItem());
+        $this->assertSame(12, $filtered->lastItem());
+        $component->assertSee('Menampilkan 1 sampai 12 dari 12 transaksi');
+    }
+
+    public function test_pagination_is_deterministic_when_sort_field_has_tied_values()
+    {
+        // Force every row to share the exact same created_at so the primary sort column
+        // (created_at) ties across all 12 rows. Without a stable secondary sort, SQL is
+        // free to return tied rows in a different order on each request/page, which can
+        // put a row on both pages or skip it entirely -- most visibly on MySQL, which
+        // (unlike SQLite in simple cases) does not guarantee any particular tie order.
+        $ids = [];
+        $tiedTimestamp = now()->toDateTimeString();
+        for ($i = 1; $i <= 12; $i++) {
+            $trx = $this->createCompletedPosTransaction($this->setting1, $this->customer1, 1000, sprintf('POS-TIE-%02d', $i));
+            $ids[] = $trx['transaction']->id;
+        }
+
+        \Illuminate\Support\Facades\DB::table('pos_transactions')
+            ->whereIn('id', $ids)
+            ->update(['created_at' => $tiedTimestamp]);
+
+        // Default sort is created_at desc; with every created_at tied, the id-desc
+        // secondary sort must fully determine order: highest id first.
+        $expectedOrder = array_reverse($ids);
+        $expectedPageOne = array_slice($expectedOrder, 0, 10);
+        $expectedPageTwo = array_slice($expectedOrder, 10, 2);
+
+        $component = Livewire::test(GlobalPosPaymentTable::class);
+        $paginator = $component->viewData('transactions');
+        $this->assertSame($expectedPageOne, $paginator->pluck('id')->all());
+
+        $component->call('nextPage');
+        $pageTwoPaginator = $component->viewData('transactions');
+        $this->assertSame($expectedPageTwo, $pageTwoPaginator->pluck('id')->all());
+
+        // Sanity-check the same guarantee holds in ascending order too.
+        $component2 = Livewire::test(GlobalPosPaymentTable::class)
+            ->set('sortField', 'created_at')
+            ->set('sortDirection', 'asc');
+        $ascPaginator = $component2->viewData('transactions');
+        $this->assertSame(array_slice($ids, 0, 10), $ascPaginator->pluck('id')->all());
     }
 
     public function test_search_by_transaction_code_receipt_and_customer_tokenized()

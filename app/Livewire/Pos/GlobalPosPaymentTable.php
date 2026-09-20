@@ -20,6 +20,8 @@ class GlobalPosPaymentTable extends Component
 {
     use WithPagination;
 
+    protected string $paginationTheme = 'bootstrap';
+
     public $searchText = '';
     #[Url]
     public $search = '';
@@ -114,6 +116,11 @@ class GlobalPosPaymentTable extends Component
         $this->resetPage();
     }
 
+    public function updatedPerPage(): void
+    {
+        $this->resetPage();
+    }
+
     public function searchSubmit()
     {
         $this->search = $this->searchText;
@@ -189,6 +196,14 @@ class GlobalPosPaymentTable extends Component
     {
         $this->selectedCardFilter = $type;
         $this->resetPage();
+
+        // Signals the workspace-level Alpine overlay (see
+        // global-payments/partials/workspace.blade.php) that the card-filter operation
+        // has fully completed: this component's own state update, re-render, and DOM
+        // morph. Dispatched as a browser event so the sibling PosSummaryCards component
+        // (which started the overlay on click, before either component's Livewire
+        // request began) does not need any direct reference to this component.
+        $this->dispatch('pos-card-filter-applied');
     }
 
     public function sortBy($field)
@@ -261,6 +276,15 @@ class GlobalPosPaymentTable extends Component
         $direction = strtolower($this->sortDirection) === 'asc' ? 'asc' : 'desc';
 
         $query->orderBy($field, $direction);
+
+        // Stable secondary sort: rows sharing the same value on the primary sort column
+        // (e.g. identical created_at timestamps, which the projection-derived-filter and
+        // pagination tests both exercise) would otherwise be returned in an order SQL is
+        // free to vary between requests, which can shift a tied row across the page
+        // boundary and cause it to appear on both pages or be skipped entirely.
+        if ($field !== 'pos_transactions.id') {
+            $query->orderBy('pos_transactions.id', $direction);
+        }
 
         // Projection-derived filters (payment status, card selection, due date) cannot be
         // expressed in SQL, so when any are active we must evaluate the projection over the

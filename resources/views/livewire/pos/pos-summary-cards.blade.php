@@ -1,8 +1,17 @@
-<div class="row mb-4">
+<div class="position-relative mb-4">
+    <div wire:loading.flex wire:target="toggleCardFilter" wire:cloak
+         class="position-absolute justify-content-center align-items-center"
+         style="top:0;right:0;left:0;bottom:0;background-color: rgba(255,255,255,0.5);z-index: 99;display: none;">
+        <div class="spinner-border text-primary" role="status">
+            <span class="sr-only">Memuat data...</span>
+        </div>
+    </div>
+    <div class="row">
     <!-- Piutang Belum Tertagih -->
     <div class="col-md-4">
         <div @class(['card', 'border-0', 'border-start', 'border-primary', 'border-4', 'shadow-sm', 'h-100', 'bg-light' => $selectedCardFilter === 'unpaid'])
              style="cursor: pointer;"
+             x-on:click="window.dispatchEvent(new CustomEvent('pos-card-filter-loading'))"
              wire:click="toggleCardFilter('unpaid')">
             <div class="card-body">
                 <div class="text-muted text-uppercase fw-bold mb-1" style="font-size: 0.8rem;">Piutang Belum Tertagih</div>
@@ -16,6 +25,7 @@
     <div class="col-md-4">
         <div @class(['card', 'border-0', 'border-start', 'border-danger', 'border-4', 'shadow-sm', 'h-100', 'bg-light' => $selectedCardFilter === 'overdue'])
              style="cursor: pointer;"
+             x-on:click="window.dispatchEvent(new CustomEvent('pos-card-filter-loading'))"
              wire:click="toggleCardFilter('overdue')">
             <div class="card-body">
                 <div class="text-muted text-uppercase fw-bold mb-1" style="font-size: 0.8rem;">Piutang Jatuh Tempo</div>
@@ -29,6 +39,7 @@
     <div class="col-md-4">
         <div @class(['card', 'border-0', 'border-start', 'border-success', 'border-4', 'shadow-sm', 'h-100', 'bg-light' => $selectedCardFilter === 'paid'])
              style="cursor: pointer;"
+             x-on:click="window.dispatchEvent(new CustomEvent('pos-card-filter-loading'))"
              wire:click="toggleCardFilter('paid')">
             <div class="card-body">
                 <div class="text-muted text-uppercase fw-bold mb-1" style="font-size: 0.8rem;">Penerimaan (30 Hari)</div>
@@ -36,5 +47,6 @@
                 <div class="text-success mt-2 fw-bold">{{ format_currency($summary['paid_within_30_days']['total']) }}</div>
             </div>
         </div>
+    </div>
     </div>
 </div>

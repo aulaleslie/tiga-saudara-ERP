@@ -215,6 +215,90 @@ class GlobalPosPaymentAuthorizationTest extends TestCase
             ->assertStatus(403);
     }
 
+    public function test_index_workspace_wires_cross_component_card_filter_loading_overlay()
+    {
+        $viewOnlyUser = User::factory()->create();
+        $viewOnlyUser->givePermissionTo('posPayments.global.access');
+
+        $html = $this->actingAs($viewOnlyUser)
+            ->get(route('pos.global-payments.index'))
+            ->assertStatus(200)
+            ->getContent();
+
+        // Alpine workspace state must exist and expose the two coordination events: the
+        // summary cards dispatch pos-card-filter-loading the instant a card is clicked
+        // (before either Livewire request starts), and the table dispatches
+        // pos-card-filter-applied once its own request/render/DOM morph is fully done.
+        $this->assertStringContainsString('cardFilterLoading', $html);
+        $this->assertStringContainsString('x-on:pos-card-filter-loading.window', $html);
+        $this->assertStringContainsString('x-on:pos-card-filter-applied.window', $html);
+
+        // The completion listener must defer to the next animation frame rather than
+        // resetting cardFilterLoading synchronously: Livewire 3 dispatches its effects
+        // (including this event) before the DOM morph, which is queued as a microtask, so
+        // resetting synchronously would hide the overlay one frame before the updated table
+        // rows are actually painted.
+        $this->assertMatchesRegularExpression(
+            '/x-on:pos-card-filter-applied\.window="requestAnimationFrame\(\(\) => stopCardFilterLoading\(\)\)"/',
+            $html,
+            'Expected the completion listener to defer via requestAnimationFrame so it runs after Livewire\'s DOM morph.'
+        );
+
+        // Explicit failure-recovery hook (Livewire request failure) resets the overlay
+        // immediately, rather than relying solely on the timeout safeguard.
+        $this->assertStringContainsString("Livewire.hook('request'", $html);
+        $this->assertStringContainsString('fail(() => this.stopCardFilterLoading())', $html);
+
+        // Livewire.hook() registers a GLOBAL listener and never releases it automatically;
+        // the returned cleanup function must be stored and invoked from Alpine's destroy()
+        // lifecycle hook, otherwise repeated mounting (wire:navigate, re-rendering the
+        // workspace) accumulates one leaked closure per mount, each still referencing its
+        // removed Alpine component and firing on every future request failure.
+        $this->assertStringContainsString('livewireRequestHookCleanup', $html);
+        $this->assertMatchesRegularExpression(
+            '/this\.livewireRequestHookCleanup\s*=\s*window\.Livewire\.hook\(/',
+            $html,
+            'Expected the value returned by Livewire.hook() to be stored on livewireRequestHookCleanup.'
+        );
+        $this->assertMatchesRegularExpression(
+            '/destroy\(\)\s*\{[^}]*clearTimeout\(this\.cardFilterLoadingTimeout\)[^}]*typeof this\.livewireRequestHookCleanup === [\'"]function[\'"][^}]*this\.livewireRequestHookCleanup\(\)/s',
+            $html,
+            'Expected destroy() to clear the timeout and invoke the stored Livewire.hook() cleanup function.'
+        );
+
+        // The timeout is last-resort error recovery only (not the normal completion path)
+        // and must be long enough that a legitimate slow request (summary calculation and
+        // projection filtering scan full result sets) cannot be mistaken for a failure and
+        // have the overlay released while the table is still stale/loading.
+        $this->assertMatchesRegularExpression(
+            '/cardFilterLoadingTimeout\s*=\s*setTimeout\(\(\)\s*=>\s*\{\s*this\.cardFilterLoading\s*=\s*false;\s*\},\s*60000\)/',
+            $html,
+            'Expected the fallback timeout to be 60000ms (60s), long enough to not fire during a legitimate slow request.'
+        );
+
+        // The workspace-level overlay wraps the table (not the cards) and is hidden by
+        // default via x-cloak until Alpine sets cardFilterLoading = true. It must use the
+        // .important modifier: the overlay also carries Bootstrap's d-flex utility class,
+        // which sets "display: flex !important". Plain x-show toggles a bare
+        // "display: none" with no !important, so Bootstrap's rule would win once x-cloak
+        // is removed and the spinner would remain visible over the table even after
+        // cardFilterLoading becomes false.
+        $this->assertMatchesRegularExpression(
+            '/<div\b[^>]*x-show\.important="cardFilterLoading"[^>]*>/',
+            $html,
+            'Expected x-show.important so Alpine\'s display:none !important can override Bootstrap\'s d-flex !important.'
+        );
+        preg_match('/<div\b[^>]*x-show\.important="cardFilterLoading"[^>]*>/', $html, $overlayMatch);
+        $this->assertStringContainsString('x-cloak', $overlayMatch[0] ?? '');
+
+        // Each summary card must trigger the immediate client-side loading signal on click,
+        // independent of and before its own Livewire request completes.
+        $this->assertStringContainsString(
+            "window.dispatchEvent(new CustomEvent('pos-card-filter-loading'))",
+            $html
+        );
+    }
+
     public function test_show_renders_combined_print_history_with_actor_names_and_timestamps()
     {
         $viewOnlyUser = User::factory()->create();
