@@ -349,28 +349,39 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
     {
         $html = Livewire::test(GlobalPosPaymentTable::class)->html();
 
-        // Overlay: wire:loading.delay.flex with no wire:target, so it fires for every
-        // request against this component (filters, search, card filters, sort, per-page,
-        // pagination) rather than being scoped to a single action.
+        // Overlay: wire:loading.flex (NOT .delay) with no wire:target, so it fires
+        // immediately for every request against this component (filters, search, card
+        // filters, sort, per-page, pagination) rather than being scoped to a single
+        // action. Livewire's .delay modifier intentionally waits (default ~200ms) before
+        // showing the indicator; pagination requests routinely complete faster than that
+        // window, so with .delay the rows update before the spinner is ever shown,
+        // giving no loading feedback at all for the most common interaction. Using the
+        // untargeted .flex-only variant trades a possible brief spinner flash on very
+        // fast requests for guaranteed immediate feedback on slower ones.
         $this->assertMatchesRegularExpression(
-            '/<div[^>]*wire:loading\.delay\.flex(?![^>]*wire:target)[^>]*>/',
+            '/<div[^>]*wire:loading\.flex(?![^>]*wire:target)[^>]*>/',
             $html,
-            'Expected an untargeted wire:loading.delay.flex overlay element.'
+            'Expected an untargeted wire:loading.flex overlay element.'
         );
 
         // Capture the full overlay opening tag to verify its idle (pre-Livewire-init) state
-        // is safe: wire:loading.delay.flex only controls visibility once Livewire has
-        // processed request state, so without an explicit "display: none" default and
-        // wire:cloak (to prevent an initialization flash), the absolutely positioned,
-        // z-index: 99 overlay would render visible-by-default and permanently block the
-        // table underneath.
+        // is safe: wire:loading.flex only controls visibility once Livewire has processed
+        // request state, so without an explicit "display: none" default and wire:cloak (to
+        // prevent an initialization flash), the absolutely positioned, z-index: 99 overlay
+        // would render visible-by-default and permanently block the table underneath.
         $this->assertMatchesRegularExpression(
-            '/<div\b[^>]*wire:loading\.delay\.flex[^>]*>/',
+            '/<div\b[^>]*wire:loading\.flex[^>]*>/',
             $html,
             'Expected the loading overlay <div> to be present.'
         );
-        preg_match('/<div\b[^>]*wire:loading\.delay\.flex[^>]*>/', $html, $overlayMatch);
+        preg_match('/<div\b[^>]*wire:loading\.flex[^>]*>/', $html, $overlayMatch);
         $overlayTag = $overlayMatch[0] ?? '';
+
+        $this->assertStringNotContainsString(
+            'wire:loading.delay',
+            $overlayTag,
+            'Expected no .delay modifier: pagination/sort/search requests frequently complete within Livewire\'s default delay window, so a delayed indicator would never become visible for them.'
+        );
 
         $this->assertStringContainsString(
             'wire:cloak',

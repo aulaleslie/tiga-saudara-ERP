@@ -158,7 +158,7 @@
 
     <!-- Table -->
     <div class="table-responsive global-payment-table-scroll position-relative">
-        <div wire:loading.delay.flex wire:cloak class="col-12 position-absolute justify-content-center align-items-center" style="top:0;right:0;left:0;bottom:0;background-color: rgba(255,255,255,0.5);z-index: 99;display: none;">
+        <div wire:loading.flex wire:cloak class="col-12 position-absolute justify-content-center align-items-center" style="top:0;right:0;left:0;bottom:0;background-color: rgba(255,255,255,0.5);z-index: 99;display: none;">
             <div class="spinner-border text-primary" role="status">
                 <span class="sr-only">Memuat data...</span>
             </div>
