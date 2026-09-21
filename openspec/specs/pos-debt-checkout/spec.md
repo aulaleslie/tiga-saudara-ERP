@@ -70,15 +70,22 @@ The debt path SHALL allow an optional down payment where `0 ≤ down_payment < g
 - **THEN** the system MUST reject the debt checkout (the transaction is a normal full payment, not debt)
 
 ### Requirement: Debt sale SHALL be collectible from the Sales document
-A debt checkout SHALL post a `Sale` whose outstanding balance is collected later through the existing Sales document payment flow, with no debt-collection UI in POS.
+A debt checkout SHALL post one or more Sales whose outstanding balances can be collected later through the existing Sale-level payment workflows or the authorized global POS payment workspace. Every later collection SHALL remain represented by ordinary Sale settlement records rather than a separate POS financial ledger.
 
 #### Scenario: Later collection recomputes status
 - **WHEN** a later payment is recorded against a debt sale from the Sales document
 - **THEN** the sale's `paid_amount`, `due_amount`, and `payment_status` MUST be recomputed by the existing Sales payment flow toward `Paid`
 
+#### Scenario: Later POS-level collection expands to generated Sales
+- **WHEN** an authorized user records a later payment against a completed debt POS transaction
+- **THEN** the payment MUST be allocated to the transaction's generated Sales using POS ownership and payment priority
+- **AND** each affected Sale's settlement fields MUST be recomputed from canonical active settlement data
+- **AND** no separate POS financial ledger is created
+
 #### Scenario: Debt sale appears in receivables
-- **WHEN** a debt sale is posted with an outstanding balance
-- **THEN** it MUST appear in the existing outstanding-receivables ("Piutang Belum Tertagih") view without additional POS reporting
+- **WHEN** a debt Sale is posted with an outstanding balance
+- **THEN** it MUST appear in existing outstanding-receivables views
+- **AND** its completed POS transaction MUST appear as payable in the authorized global POS payment workspace
 
 ### Requirement: Debt checkout SHALL reconcile session cash and split allocation by actual paid amount
 The debt path SHALL feed session cash reconciliation and split-sale allocation using the actual down-payment amount, not the grand total.
