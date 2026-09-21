@@ -136,14 +136,13 @@
                                                 <td class="text-end text-success">{{ format_currency($candidate->projection['effective_paid']) }}</td>
                                                 <td class="text-end text-danger fw-bold">{{ format_currency($candidate->projection['live_due']) }}</td>
                                                 <td class="text-end">
-                                                    <input type="number"
+                                                    <input type="text"
                                                            name="allocations[{{ $candidate->id }}]"
                                                            class="form-control pos-allocation-input text-end"
-                                                           step="0.01"
-                                                           min="0"
+                                                           data-payment-amount
                                                            value="{{ old('allocations.' . $candidate->id, $defaultAmount) }}"
                                                            data-max="{{ $candidate->projection['live_due'] }}"
-                                                           placeholder="0.00">
+                                                           placeholder="0,00">
                                                 </td>
                                             </tr>
                                         @endforeach
@@ -184,16 +183,14 @@
 @endsection
 
 @push('page_scripts')
+    <script src="{{ asset('js/payment-amount-input.js') }}"></script>
     <script src="{{ asset('js/dropzone.js') }}"></script>
     <script>
         Dropzone.autoDiscover = false;
 
         $(document).ready(function () {
             function formatNumber(num) {
-                return 'Rp ' + parseFloat(num || 0).toLocaleString('id-ID', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                });
+                return 'Rp ' + PaymentAmountInput.formatDisplay(String(num || 0));
             }
 
             function escapeHtml(value) {
@@ -203,13 +200,13 @@
             function updateTotalPosAllocation() {
                 var total = 0;
                 $('.pos-allocation-input').each(function () {
-                    var val = parseFloat($(this).val()) || 0;
-                    total += val;
+                    var canonical = PaymentAmountInput.getCanonicalValue(this);
+                    total += canonical === null ? 0 : (parseFloat(canonical) || 0);
                 });
                 $('#total-pos-allocation').text(formatNumber(total));
             }
 
-            $(document).on('change keyup', '.pos-allocation-input', function () {
+            $(document).on('change keyup blur', '.pos-allocation-input', function () {
                 updateTotalPosAllocation();
             });
 
@@ -223,11 +220,16 @@
                     return;
                 }
 
+                if (!PaymentAmountInput.validateScope('.pos-allocation-input')) {
+                    alert('Terdapat nominal alokasi yang tidak valid. Perbaiki sebelum melihat pratinjau.');
+                    return;
+                }
+
                 var allocations = {};
                 var hasPositive = false;
                 $('.pos-allocation-input').each(function () {
                     var trxId = $(this).closest('tr').data('transaction-id');
-                    var val = parseFloat($(this).val()) || 0;
+                    var val = parseFloat(PaymentAmountInput.getCanonicalValue(this)) || 0;
                     if (val > 0) {
                         allocations[trxId] = val;
                         hasPositive = true;
@@ -337,11 +339,19 @@
 
             // Form validation
             $('#pos-payment-form').on('submit', function (e) {
+                if (!PaymentAmountInput.validateScope('.pos-allocation-input')) {
+                    e.preventDefault();
+                    alert('Terdapat nominal alokasi yang tidak valid. Perbaiki sebelum menyimpan.');
+                    return false;
+                }
+
                 var hasAllocation = false;
                 $('.pos-allocation-input').each(function () {
-                    if (parseFloat($(this).val()) > 0) {
+                    var canonical = parseFloat(PaymentAmountInput.getCanonicalValue(this)) || 0;
+                    if (canonical > 0) {
                         hasAllocation = true;
                     }
+                    $(this).val(PaymentAmountInput.getCanonicalValue(this));
                 });
 
                 if (!hasAllocation) {

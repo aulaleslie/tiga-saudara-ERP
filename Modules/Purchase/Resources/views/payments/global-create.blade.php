@@ -102,7 +102,8 @@
                                             <td>{{ format_currency($candidate->total_amount) }}</td>
                                             <td>{{ format_currency($candidate->live_due_amount) }}</td>
                                             <td>
-                                                <input type="text" class="form-control allocation-input" 
+                                                <input type="text" class="form-control allocation-input"
+                                                    data-payment-amount
                                                     data-id="{{ $candidate->id }}"
                                                     data-max="{{ $candidate->live_due_amount }}"
                                                     value="{{ $oldAmount }}">
@@ -139,27 +140,11 @@
 @endsection
 
 @push('page_scripts')
-    <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
+    <script src="{{ asset('js/payment-amount-input.js') }}"></script>
     <script>
         $(document).ready(function () {
-            var currencySymbol = '{{ settings()->currency->symbol }}';
-            var thousandsSeparator = '{{ settings()->currency->thousand_separator }}';
-            var decimalSeparator = '{{ settings()->currency->decimal_separator }}';
-
             function formatCurrency(num) {
-                var parts = parseFloat(num || 0).toFixed(2).split('.');
-                parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, thousandsSeparator);
-                return currencySymbol + parts.join(decimalSeparator);
-            }
-
-            function parseCurrency(val) {
-                if (!val) return 0;
-                var raw = val.toString().replace(new RegExp('\\' + currencySymbol, 'g'), '')
-                    .replace(new RegExp('\\' + thousandsSeparator, 'g'), '')
-                    .replace(new RegExp('\\' + decimalSeparator, 'g'), '.')
-                    .trim();
-                var num = parseFloat(raw);
-                return isNaN(num) ? 0 : num;
+                return PaymentAmountInput.formatDisplay(String(num || 0));
             }
 
             var table = $('#allocations-table').DataTable({
@@ -171,52 +156,72 @@
             function recalculateTotal() {
                 var total = 0;
                 table.$('.allocation-input').each(function() {
-                    total += parseCurrency($(this).val());
+                    var canonical = PaymentAmountInput.getCanonicalValue(this);
+                    total += canonical === null ? 0 : (parseFloat(canonical) || 0);
                 });
                 $('#total_allocation_display').val(formatCurrency(total));
             }
 
-            table.$('.allocation-input').each(function() {
-                var val = $(this).val();
-                $(this).val(formatCurrency(val));
+            table.$('.allocation-input').each(function () {
+                PaymentAmountInput.enhance(this);
             });
             recalculateTotal();
 
-            $('#allocations-table').on('focus', '.allocation-input', function () {
-                var val = $(this).val();
-                var raw = parseCurrency(val);
-                if (raw === 0) {
-                    $(this).val('');
-                } else {
-                    $(this).val(raw);
+            $('#allocations-table').on('blur', '.allocation-input', function () {
+                var id = $(this).data('id');
+                var canonical = PaymentAmountInput.getCanonicalValue(this);
+
+                if (canonical === null) {
+                    // Invalid: leave the hidden field untouched so submit-time validation catches it.
+                    recalculateTotal();
+                    return;
                 }
-                $(this).select();
+
+                var num = parseFloat(canonical) || 0;
+                var max = parseFloat($(this).data('max'));
+
+                if (!isNaN(max) && num > max) {
+                    num = max;
+                    PaymentAmountInput.setCanonicalValue(this, num);
+                }
+
+                $('#allocation_hidden_' + id).val(PaymentAmountInput.getCanonicalValue(this));
+
+                recalculateTotal();
             });
 
-            $('#allocations-table').on('blur', '.allocation-input', function () {
-                var val = $(this).val();
-                var num = parseCurrency(val);
-                var max = parseFloat($(this).data('max'));
-                
-                if (num > max) {
-                    num = max;
-                }
-                
-                $(this).val(formatCurrency(num));
-                
-                var id = $(this).data('id');
-                $('#allocation_hidden_' + id).val(num);
-                
+            $('#allocations-table').on('input', '.allocation-input', function () {
                 recalculateTotal();
             });
 
             $('#payment-form').on('submit', function (e) {
+                // Block submission if any currently visible allocation input holds an invalid edit.
+                var hasInvalid = false;
+                table.$('.allocation-input').each(function () {
+                    if (PaymentAmountInput.getCanonicalValue(this) === null) {
+                        $(this).addClass(PaymentAmountInput.INVALID_CLASS);
+                        hasInvalid = true;
+                    }
+                });
+
+                if (hasInvalid) {
+                    e.preventDefault();
+                    alert('Terdapat nominal alokasi yang tidak valid. Perbaiki sebelum menyimpan.');
+                    return false;
+                }
+
                 // Ensure all inputs are synced to hidden fields before submit
                 // And append hidden inputs to the form since DataTables removes off-page rows
                 table.$('.allocation-input').each(function() {
                     var id = $(this).data('id');
-                    var val = parseCurrency($(this).val());
-                    
+                    var canonical = PaymentAmountInput.getCanonicalValue(this);
+                    var val = canonical === null ? 0 : (parseFloat(canonical) || 0);
+                    var max = parseFloat($(this).data('max'));
+
+                    if (!isNaN(max) && val > max) {
+                        val = max;
+                    }
+
                     // If the hidden input is not in the DOM, it might have been removed by DataTables pagination
                     // DataTables removes tr elements from DOM when they are not on the current page.
                     // We need to add the hidden inputs back to the form if they are not present.
@@ -231,7 +236,7 @@
                         $('#allocation_hidden_' + id).val(val);
                     }
                 });
-                
+
                 $('#btn-submit').attr('disabled', true);
             });
         });

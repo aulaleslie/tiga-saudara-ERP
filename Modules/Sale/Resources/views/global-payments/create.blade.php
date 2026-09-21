@@ -148,14 +148,13 @@
                                                     @endif
                                                 </td>
                                                 <td class="text-end">
-                                                    <input type="number"
+                                                    <input type="text"
                                                            name="allocations[{{ $candidate->id }}]"
                                                            class="form-control allocation-input text-end"
-                                                           step="0.01"
-                                                           min="0"
+                                                           data-payment-amount
                                                            value="{{ old('allocations.' . $candidate->id, $defaultAmount) }}"
                                                            data-max="{{ $candidate->live_due_amount }}"
-                                                           placeholder="0.00">
+                                                           placeholder="0,00">
                                                 </td>
                                             </tr>
                                         @endforeach
@@ -184,7 +183,7 @@
 @endsection
 
 @push('page_scripts')
-    <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
+    <script src="{{ asset('js/payment-amount-input.js') }}"></script>
     <script src="{{ asset('js/dropzone.js') }}"></script>
     <script>
         Dropzone.autoDiscover = false;
@@ -193,23 +192,20 @@
             var currencySymbol = @json(optional($startingSale->tenantSetting?->currency)->symbol ?? '');
 
             function formatCurrency(num) {
-                return currencySymbol + parseFloat(num || 0).toLocaleString('en-US', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                });
+                return currencySymbol + PaymentAmountInput.formatDisplay(String(num || 0));
             }
 
             function updateTotalAllocation() {
                 var total = 0;
                 $('.allocation-input').each(function () {
-                    var val = parseFloat($(this).val()) || 0;
-                    total += val;
+                    var canonical = PaymentAmountInput.getCanonicalValue(this);
+                    total += canonical === null ? 0 : (parseFloat(canonical) || 0);
                 });
                 $('#total-allocation').text(formatCurrency(total));
             }
 
             // Update total on any allocation input change
-            $(document).on('change keyup', '.allocation-input', function () {
+            $(document).on('change keyup blur', '.allocation-input', function () {
                 updateTotalAllocation();
             });
 
@@ -261,11 +257,19 @@
 
             // Form submission
             $('#payment-form').on('submit', function (e) {
+                if (!PaymentAmountInput.validateScope('.allocation-input')) {
+                    e.preventDefault();
+                    alert('Terdapat nominal alokasi yang tidak valid. Perbaiki sebelum menyimpan.');
+                    return false;
+                }
+
                 var hasAllocation = false;
                 $('.allocation-input').each(function () {
-                    if (parseFloat($(this).val()) > 0) {
+                    var canonical = parseFloat(PaymentAmountInput.getCanonicalValue(this)) || 0;
+                    if (canonical > 0) {
                         hasAllocation = true;
                     }
+                    $(this).val(PaymentAmountInput.getCanonicalValue(this));
                 });
 
                 if (!hasAllocation) {

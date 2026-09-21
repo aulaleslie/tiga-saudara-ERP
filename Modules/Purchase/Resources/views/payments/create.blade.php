@@ -59,6 +59,7 @@
                                     <div class="form-group">
                                         <label for="amount">Jumlah yang Dibayar <span class="text-danger">*</span></label>
                                         <input id="amount" type="text" class="form-control" name="amount" required
+                                               data-payment-amount
                                                value="{{ old('amount') }}">
                                     </div>
                                 </div>
@@ -108,55 +109,18 @@
 @endsection
 
 @push('page_scripts')
-    <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
+    <script src="{{ asset('js/payment-amount-input.js') }}"></script>
     <script>
         $(document).ready(function () {
-            // Get currency settings from your Blade variables
-            var currencySymbol = '{{ settings()->currency->symbol }}';
-            var thousandsSeparator = '{{ settings()->currency->thousand_separator }}';
-            var decimalSeparator = '{{ settings()->currency->decimal_separator }}';
-
-            // A helper to format a number as currency
-            function formatCurrency(num) {
-                // Use toLocaleString to get proper formatting.
-                // Adjust the locale or options as needed.
-                var formatted = parseFloat(num).toLocaleString('en-US', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                });
-                return currencySymbol + formatted;
-            }
-
-            // On focus: remove any currency formatting so the user sees a raw number.
-            $('#amount').on('focus', function () {
-                var val = $(this).val();
-                // Remove currency symbol and thousands separators.
-                // This regex assumes the currency symbol is a fixed string.
-                var raw = val.replace(new RegExp('\\' + currencySymbol, 'g'), '')
-                    .replace(new RegExp('\\' + thousandsSeparator, 'g'), '')
-                    .trim();
-                $(this).val(raw);
-                $(this).select();
-            });
-
-            // On blur: validate and format the number as currency.
-            $('#amount').on('blur', function () {
-                var val = $(this).val();
-                var num = parseFloat(val);
-                if (!isNaN(num)) {
-                    $(this).val(formatCurrency(num));
-                } else {
-                    $(this).val(''); // clear if invalid
+            // On form submission, block on an invalid amount; otherwise submit the canonical value.
+            $('#payment-form').on('submit', function (e) {
+                var canonical = PaymentAmountInput.getCanonicalValue('#amount');
+                if (canonical === null) {
+                    e.preventDefault();
+                    $('#amount').addClass(PaymentAmountInput.INVALID_CLASS).trigger('focus');
+                    return false;
                 }
-            });
-
-            // On form submission, if you need to submit the raw number, you can strip formatting.
-            $('#payment-form').on('submit', function () {
-                var val = $('#amount').val();
-                var raw = val.replace(new RegExp('\\' + currencySymbol, 'g'), '')
-                    .replace(new RegExp('\\' + thousandsSeparator, 'g'), '')
-                    .trim();
-                $('#amount').val(raw);
+                $('#amount').val(canonical);
             });
         });
     </script>
