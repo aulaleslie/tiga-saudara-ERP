@@ -204,8 +204,11 @@
                 $('#total-allocation').text(formatCurrency(total));
             }
 
-            // Update total on any allocation input change
-            $(document).on('change keyup blur', '.allocation-input', function () {
+            // Update total on any allocation input change. 'financial-amount:change' is the
+            // formatter's own event, dispatched after every accepted real-time edit (typing,
+            // paste, Backspace/Delete); native 'input' never fires on that path since the
+            // formatter cancels beforeinput and renders directly.
+            $(document).on('change keyup blur financial-amount:change', '.allocation-input', function () {
                 updateTotalAllocation();
             });
 

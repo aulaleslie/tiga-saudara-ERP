@@ -1,12 +1,13 @@
 @props(['name', 'label', 'value' => '', 'disabled' => false, 'error' => null, 'currency' => null])
 
 {{--
-  Reusable Nominal Field Component - Deterministic RP Currency Field
-  =================================================================
+  Reusable Nominal Field Component - Real-Time Indonesian Currency Field
+  =======================================================================
 
-  This component provides deterministic product currency formatting across all forms.
-  It manages focus/blur/submit lifecycle automatically using an internal parser/formatter
-  so behavior is stable regardless of browser locale and DB currency settings.
+  This component provides continuous, real-time nominal formatting across all forms,
+  delegating to the shared real-time financial formatter (public/js/financial-input.js) that
+  also backs the Sales/Purchase/POS payment amount fields. Centralizing on one formatter
+  avoids the drift between two separate parsers.
 
   ARCHITECTURE PATTERN: Visible/Hidden Input Dual Pattern
   -------------------------------------------------------
@@ -14,14 +15,15 @@
   The component uses TWO input elements to separate concerns:
 
   1. Hidden Input (type="hidden", name="{{ $name }}")
-     - Stores the actual raw numeric value
-     - Used for form submission (receives raw numbers)
+     - Stores the canonical decimal value (e.g. "120000.23")
+     - Used for form submission
      - Has wire:model binding if used inside Livewire (for dynamic updates)
      - This is the "source of truth" for the data layer
 
-  2. Visible Input (type="text", class="nominal-field-visible")
-     - Displays formatted currency (e.g., "RP 1.000.000,00")
-     - Focus: raw, Blur: formatted
+  2. Visible Input (type="text", class="nominal-field-visible", marked [data-financial-amount])
+     - Displays the Indonesian-grouped value continuously (e.g. "120.000,23") -- no currency
+       symbol is embedded in the editable text
+     - Never reveals raw/unformatted text, including while focused
      - NO wire:model, NO wire:focus, NO wire:blur (avoid conflicts!)
      - This is the "UX layer" - what the user sees and interacts with
 
@@ -29,55 +31,43 @@
   ------------------------------------------------------
 
   1. PAGE LOAD:
-     - Hidden input has raw value
-     - Visible input is rendered as deterministic "RP " formatted value
+     - Hidden input has the canonical value
+     - Visible input is rendered as the Indonesian-grouped display
 
-  2. FOCUS:
-     - Visible input switches to canonical raw number (easy to edit)
-     - Auto-selects text for quick replacement
+  2. TYPING:
+     - The shared formatter updates the visible display after every accepted keystroke
+     - The hidden input is synced to the same canonical value via an `input` event so
+       Livewire's wire:model binding stays current
 
-  3. KEYUP/CHANGE:
-     - Hidden input is updated with extracted raw value
-     - Maintains data sync for Livewire if used
-
-  4. BLUR:
-     - Visible input formatted to deterministic "RP " output
-     - Hidden input synced with final canonical raw value
-
-  5. FORM SUBMIT:
-     - Hidden input already contains raw numeric value
+  3. FORM SUBMIT:
+     - Hidden input already contains the canonical numeric value
      - No unmasking needed - submit as-is
 
   PROPS:
   ------
   - name (required): Field name for form submission (goes in hidden input)
   - label (required): Display label
-  - value (required): Initial raw numeric value
-  - disabled (optional, default false): Disables both inputs
+  - value (required): Initial canonical numeric value
+  - disabled (optional, default false): Disables both inputs (hidden canonical value stays
+    available to the form)
   - error (optional): Validation error message
-  - currency (optional): Kept for backward compatibility (ignored by deterministic product formatter)
-
-  FIXED PRODUCT FORMAT:
-  ---------------------
-  - Symbol: "RP "
-  - Thousands separator: "."
-  - Decimal separator: ","
-  - Precision: 2
+  - currency (optional): Kept for backward compatibility (ignored -- the required symbol-free
+    Indonesian `.`/`,` separator profile is always used regardless of currency settings)
 
   WHY THIS PATTERN?
   -----------------
 
   Problem: Livewire and plugin-driven masking both want to control input DOM state.
   - Re-renders can reset plugin state
-  - focus/blur plugin lifecycles can reinterpret raw digits
   - wire:model in visible input causes re-renders that break formatting
 
-  Solution: Separate concerns and use deterministic parser/formatter
+  Solution: Separate concerns and use the shared real-time formatter
   - Hidden input: Livewire data binding (safe from jQuery)
-  - Visible input: deterministic JS formatting (no locale/plugin dependency)
+  - Visible input: shared real-time JS formatting (no locale/plugin dependency)
   - They communicate via the hidden input's value
 
-  Result: Clean, predictable behavior independent of Livewire re-renders
+  Result: Clean, predictable behavior independent of Livewire re-renders, and identical
+  editing behavior to the payment amount fields.
 
   EXAMPLE USAGE:
   --------------
@@ -105,7 +95,7 @@
     :disabled="!$product->stock_managed"
   />
 
-  For more details, see: fix-nominal-field-formatting-consistency change
+  For more details, see: add-realtime-financial-input-formatting change
 --}}
 
 @php
@@ -116,13 +106,9 @@
     $hiddenId = $fieldId . '-hidden';
     $visibleId = $fieldId . '-visible';
 
-    // Format value for display (raw numeric, no currency formatting at render time)
-    $displayValue = $value ? (string)$value : '';
-
-    // Fixed product nominal format (deterministic, not system-configurable).
-    $symbol = 'RP ';
-    $thousandsSeparator = '.';
-    $decimalSeparator = ',';
+    // Canonical numeric value for both hidden storage and initial visible rendering. The
+    // shared formatter parses/(re)formats this on init -- no currency symbol is added here.
+    $displayValue = $value !== null && $value !== '' ? (string)$value : '';
 @endphp
 
 <div class="form-group">
@@ -132,7 +118,7 @@
         @endif
     </label>
 
-    <!-- Hidden input: stores raw numeric value for form submission -->
+    <!-- Hidden input: stores the canonical decimal value for form submission / Livewire binding -->
     <input type="hidden"
            id="{{ $hiddenId }}"
            name="{{ $name }}"
@@ -141,13 +127,14 @@
            value="{{ $displayValue }}"
     />
 
-    <!-- Visible input: deterministic RP formatting -->
+    <!-- Visible input: shared real-time Indonesian formatting, no currency symbol -->
     <input type="text"
            id="{{ $visibleId }}"
            class="form-control nominal-field-visible @error($name) is-invalid @enderror"
-           placeholder="0{{ $decimalSeparator }}00"
+           placeholder="0,00"
            data-field-id="{{ $fieldId }}"
            data-hidden="#{{ $hiddenId }}"
+           data-financial-amount
            value="{{ $displayValue }}"
            {{ $disabled ? 'disabled' : '' }}
     />
@@ -164,100 +151,6 @@
     (function() {
         'use strict';
 
-        if (window.__deterministicNominalFieldBooted) {
-            return;
-        }
-        window.__deterministicNominalFieldBooted = true;
-
-        const RP_PREFIX = 'RP ';
-        const THOUSANDS = '.';
-        const DECIMAL = ',';
-        const PRECISION = 2;
-
-        function triggerInputEvent(el) {
-            if (typeof $ !== 'undefined') {
-                $(el).trigger('input');
-                return;
-            }
-
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-
-        function toRawString(value) {
-            const numeric = Number.isFinite(value) && value >= 0 ? value : 0;
-            const rounded = Math.round(numeric * 100) / 100;
-
-            if (Number.isInteger(rounded)) {
-                return String(rounded);
-            }
-
-            return rounded.toFixed(PRECISION).replace(/\.?0+$/, '');
-        }
-
-        function parseNominal(value) {
-            if (value === null || value === undefined) {
-                return 0;
-            }
-
-            let text = String(value).trim();
-            if (!text) {
-                return 0;
-            }
-
-            text = text.replace(/^RP\s*/i, '');
-            text = text.replace(/\s+/g, '');
-            text = text.replace(/[^0-9,.-]/g, '');
-
-            if (!text || text === '-' || text === ',' || text === '.') {
-                return 0;
-            }
-
-            const lastComma = text.lastIndexOf(',');
-            const lastDot = text.lastIndexOf('.');
-            let decimalSeparator = null;
-
-            if (lastComma !== -1 && lastDot !== -1) {
-                decimalSeparator = lastComma > lastDot ? ',' : '.';
-            } else if (lastComma !== -1) {
-                decimalSeparator = ',';
-            } else if (lastDot !== -1) {
-                const dotMatches = text.match(/\./g);
-                const dotCount = dotMatches ? dotMatches.length : 0;
-                const fractional = text.slice(lastDot + 1).replace(/\D/g, '').length;
-
-                if (dotCount === 1 && fractional > 0 && fractional <= PRECISION) {
-                    decimalSeparator = '.';
-                }
-            }
-
-            let normalized = text;
-            if (decimalSeparator === ',') {
-                normalized = normalized.replace(/\./g, '');
-                normalized = normalized.replace(',', '.');
-            } else if (decimalSeparator === '.') {
-                normalized = normalized.replace(/,/g, '');
-            } else {
-                normalized = normalized.replace(/[.,]/g, '');
-            }
-
-            const parsed = Number.parseFloat(normalized);
-            if (!Number.isFinite(parsed) || parsed < 0) {
-                return 0;
-            }
-
-            return parsed;
-        }
-
-        function formatNominal(value) {
-            const numeric = Number.isFinite(value) && value >= 0 ? value : 0;
-            const rounded = Math.round(numeric * 100) / 100;
-            const fixed = rounded.toFixed(PRECISION);
-            const parts = fixed.split('.');
-            const grouped = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, THOUSANDS);
-
-            return RP_PREFIX + grouped + DECIMAL + parts[1];
-        }
-
         function getHiddenInput(visible) {
             const selector = visible.getAttribute('data-hidden');
             if (!selector) {
@@ -266,8 +159,20 @@
             return document.querySelector(selector);
         }
 
+        function triggerInputEvent(el) {
+            if (typeof $ !== 'undefined') {
+                $(el).trigger('input');
+                return;
+            }
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
         function initSingleField(visible) {
             if (!visible || visible.dataset.nominalFieldInitialized === '1') {
+                return;
+            }
+            if (typeof window.FinancialInput === 'undefined') {
+                // Shared formatter script not yet loaded; retry on the next dynamic-render pass.
                 return;
             }
 
@@ -276,33 +181,24 @@
                 return;
             }
 
+            window.FinancialInput.enhance(visible);
+
             const syncHiddenFromVisible = function() {
-                const parsed = parseNominal(visible.value);
-                hidden.value = toRawString(parsed);
+                const canonical = window.FinancialInput.getCanonicalValue(visible);
+                hidden.value = canonical === null ? '' : canonical;
                 triggerInputEvent(hidden);
-                return parsed;
             };
 
-            const initial = parseNominal(hidden.value || visible.value || '0');
-            hidden.value = toRawString(initial);
-            visible.value = formatNominal(initial);
-            triggerInputEvent(hidden);
+            // The shared formatter's initial enhance() already parsed the visible field's
+            // server-rendered value; sync the hidden field to that same canonical value now
+            // (covers cases where the visible value differed slightly, e.g. formatting nuance).
+            syncHiddenFromVisible();
 
-            visible.addEventListener('focus', function() {
-                const raw = parseNominal(hidden.value || visible.value);
-                visible.value = toRawString(raw);
-                setTimeout(function() {
-                    visible.select();
-                }, 0);
-            });
-
-            visible.addEventListener('blur', function() {
-                const parsed = parseNominal(visible.value);
-                hidden.value = toRawString(parsed);
-                visible.value = formatNominal(parsed);
-                triggerInputEvent(hidden);
-            });
-
+            if (typeof $ !== 'undefined') {
+                $(visible).on('financial-amount:change', syncHiddenFromVisible);
+            } else {
+                visible.addEventListener('financial-amount:change', syncHiddenFromVisible);
+            }
             visible.addEventListener('input', syncHiddenFromVisible);
             visible.addEventListener('change', syncHiddenFromVisible);
 
@@ -334,23 +230,27 @@
             initAllNominalFields();
         }
 
-        const observer = new MutationObserver(function() {
-            queueInitAll();
-        });
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true,
-        });
+        if (!window.__nominalFieldObserverBooted) {
+            window.__nominalFieldObserverBooted = true;
 
-        if (window.Livewire) {
-            document.addEventListener('livewire:load', queueInitAll);
-            document.addEventListener('livewire:initialized', queueInitAll);
-            document.addEventListener('livewire:navigated', queueInitAll);
-            if (typeof window.Livewire.hook === 'function') {
-                try {
-                    window.Livewire.hook('message.processed', queueInitAll);
-                } catch (e) {
-                    // Livewire v3 may not expose this hook name; events/observer still cover rebinds.
+            const observer = new MutationObserver(function() {
+                queueInitAll();
+            });
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+            });
+
+            if (window.Livewire) {
+                document.addEventListener('livewire:load', queueInitAll);
+                document.addEventListener('livewire:initialized', queueInitAll);
+                document.addEventListener('livewire:navigated', queueInitAll);
+                if (typeof window.Livewire.hook === 'function') {
+                    try {
+                        window.Livewire.hook('message.processed', queueInitAll);
+                    } catch (e) {
+                        // Livewire v3 may not expose this hook name; events/observer still cover rebinds.
+                    }
                 }
             }
         }

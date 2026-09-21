@@ -167,12 +167,31 @@
             });
             recalculateTotal();
 
-            $('#allocations-table').on('blur', '.allocation-input', function () {
+            // The formatter renders in real time by cancelling the native beforeinput/input
+            // events and dispatching its own 'financial-amount:change' event after every
+            // accepted edit, so the hidden allocation field and running total must be kept in
+            // sync from that event (not 'input', which the formatter's real-time editing path
+            // never fires) to avoid staying stale until blur.
+            $('#allocations-table').on('financial-amount:change', '.allocation-input', function () {
                 var id = $(this).data('id');
                 var canonical = PaymentAmountInput.getCanonicalValue(this);
 
                 if (canonical === null) {
                     // Invalid: leave the hidden field untouched so submit-time validation catches it.
+                    recalculateTotal();
+                    return;
+                }
+
+                $('#allocation_hidden_' + id).val(canonical);
+
+                recalculateTotal();
+            });
+
+            $('#allocations-table').on('blur', '.allocation-input', function () {
+                var id = $(this).data('id');
+                var canonical = PaymentAmountInput.getCanonicalValue(this);
+
+                if (canonical === null) {
                     recalculateTotal();
                     return;
                 }
@@ -187,10 +206,6 @@
 
                 $('#allocation_hidden_' + id).val(PaymentAmountInput.getCanonicalValue(this));
 
-                recalculateTotal();
-            });
-
-            $('#allocations-table').on('input', '.allocation-input', function () {
                 recalculateTotal();
             });
 

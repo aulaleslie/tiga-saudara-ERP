@@ -1,10 +1,6 @@
-# payment-amount-input-formatting Specification
+# Spec Delta
 
-## Purpose
-
-Provide a consistent and lossless editing contract for monetary amount fields on Sales, Purchase, and POS payment-creation pages.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Payment amounts separate editing and display representations
 Editable payment amount fields SHALL display Indonesian-grouped text continuously while being edited and SHALL preserve a separate canonical decimal representation. Operators SHALL enter `.` as the decimal key, while the visible field SHALL render that separator as `,` and SHALL render `.` as the thousands separator.
@@ -49,19 +45,6 @@ Payment creation SHALL preserve every fractional digit and trailing zero entered
 - **THEN** the field displays `1.500,`
 - **AND** the operator can continue entering fractional digits
 - **AND** submission without further fractional digits normalizes the value to `1500`
-
-### Requirement: Payment calculations use canonical amounts
-All client-side payment totals, previews, balance comparisons, maximum checks, and submission payloads SHALL use canonical numeric values rather than parsing the currently displayed localized text as an ordinary decimal number.
-
-#### Scenario: Formatted allocation participates in a total
-- **WHEN** allocation fields display `1.250.000,50` and `500.000`
-- **THEN** the displayed allocation total SHALL be based on canonical values `1250000.50` and `500000`
-- **AND** the submitted values SHALL represent the same amounts.
-
-#### Scenario: Display formatting cannot bypass the balance limit
-- **WHEN** a displayed localized payment amount represents a canonical value greater than the current payable balance
-- **THEN** the existing maximum-balance behavior SHALL evaluate the canonical value
-- **AND** formatting SHALL NOT cause the value to be interpreted as a smaller amount.
 
 ### Requirement: Invalid payment amount edits remain actionable
 Payment amount fields SHALL accept only digits and at most one operator-entered `.` decimal separator. Any insertion that would violate this grammar SHALL be ignored as one operation without altering the last accepted display, canonical value, or caret position and without presenting an error response.

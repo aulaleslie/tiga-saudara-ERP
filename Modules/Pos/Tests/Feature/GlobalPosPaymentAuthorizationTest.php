@@ -368,6 +368,34 @@ class GlobalPosPaymentAuthorizationTest extends TestCase
             ->assertRedirect(route('pos.global-payments.index'));
     }
 
+    /**
+     * Focused coverage for add-realtime-financial-input-formatting task 3.2: the POS global
+     * payment allocation inputs keep the [data-payment-amount] marker and load the shared
+     * real-time formatter script, so totals/max checks/preview/submission keep reading canonical
+     * values through PaymentAmountInput rather than parsing localized display text.
+     */
+    public function test_create_marks_allocation_inputs_and_loads_shared_formatter()
+    {
+        $creatorUser = User::factory()->create();
+        $creatorUser->givePermissionTo(['posPayments.global.access', 'posPayments.global.create']);
+
+        $response = $this->actingAs($creatorUser)
+            ->get(route('pos.global-payments.create', $this->transaction->id));
+
+        $response->assertStatus(200);
+        $html = $response->getContent();
+
+        $this->assertStringContainsString('data-payment-amount', $html);
+        $this->assertStringContainsString('pos-allocation-input', $html);
+        $this->assertStringContainsString('name="allocations[' . $this->transaction->id . ']"', $html);
+
+        $financialInputPos = strpos($html, 'js/financial-input.js');
+        $paymentAliasPos = strpos($html, 'js/payment-amount-input.js');
+        $this->assertNotFalse($financialInputPos);
+        $this->assertNotFalse($paymentAliasPos);
+        $this->assertLessThan($paymentAliasPos, $financialInputPos);
+    }
+
     public function test_preview_endpoint_returns_the_nested_json_contract_the_frontend_relies_on()
     {
         $creatorUser = User::factory()->create();

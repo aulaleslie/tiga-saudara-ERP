@@ -551,6 +551,32 @@ class GlobalSalesPaymentAllocationTest extends TestCase
     }
 
     /**
+     * Focused coverage for add-realtime-financial-input-formatting task 3.2: the global Sales
+     * allocation inputs keep the [data-payment-amount] marker (each allocation-input row) and
+     * load the shared real-time formatter script, so totals/max checks/preview/submission keep
+     * reading canonical values through PaymentAmountInput rather than parsing localized text.
+     */
+    public function test_global_sale_payment_form_marks_allocation_inputs_and_loads_shared_formatter(): void
+    {
+        $sale = $this->createSale($this->customer, $this->setting1);
+
+        $response = $this->actingAs($this->user)->get(route('sales.global-payments.create', $sale->id));
+
+        $response->assertOk();
+        $html = $response->getContent();
+
+        $this->assertStringContainsString('data-payment-amount', $html);
+        $this->assertStringContainsString('allocation-input', $html);
+        $this->assertStringContainsString('name="allocations[' . $sale->id . ']"', $html);
+
+        $financialInputPos = strpos($html, 'js/financial-input.js');
+        $paymentAliasPos = strpos($html, 'js/payment-amount-input.js');
+        $this->assertNotFalse($financialInputPos);
+        $this->assertNotFalse($paymentAliasPos);
+        $this->assertLessThan($paymentAliasPos, $financialInputPos);
+    }
+
+    /**
      * Helper methods
      */
     protected function createSale($customer, $setting, $overrides = [])

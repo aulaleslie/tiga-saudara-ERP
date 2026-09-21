@@ -206,7 +206,10 @@
                 $('#total-pos-allocation').text(formatNumber(total));
             }
 
-            $(document).on('change keyup blur', '.pos-allocation-input', function () {
+            // 'financial-amount:change' is the formatter's own event, dispatched after every
+            // accepted real-time edit (typing, paste, Backspace/Delete); native 'input'/'keyup'
+            // do not reliably cover every acceptance path (e.g. mouse-driven paste).
+            $(document).on('change keyup blur financial-amount:change', '.pos-allocation-input', function () {
                 updateTotalPosAllocation();
             });
 

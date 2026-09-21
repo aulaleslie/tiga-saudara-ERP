@@ -158,7 +158,8 @@
                                             <input type="text"
                                                    class="form-control conversion-price-input {{ isset($errors['conversions.' . $index . '.price']) ? 'is-invalid' : '' }}"
                                                    placeholder="0,00"
-                                                   value="{{ $displayPrices[$index] ?? '' }}"
+                                                   data-financial-amount
+                                                   value="{{ $conversion['price'] }}"
                                             />
                                             </div>
                                             @if(isset($errors['conversions.' . $index . '.price']))
@@ -227,91 +228,13 @@
             return;
         }
 
-        const RP_PREFIX = 'RP ';
-        const THOUSANDS = '.';
-        const DECIMAL = ',';
-        const PRECISION = 2;
-
-        function toCanonicalString(value) {
-            if (value === null || value === undefined || value === '') {
-                return '';
-            }
-
-            const numeric = Number(value);
-            if (!Number.isFinite(numeric)) {
-                return '';
-            }
-
-            const rounded = Math.round(numeric * 100) / 100;
-
-            if (Number.isInteger(rounded)) {
-                return String(rounded);
-            }
-
-            return rounded.toFixed(PRECISION).replace(/\.?0+$/, '');
-        }
-
-        function formatDisplay(rawValue) {
-            const canonical = toCanonicalString(rawValue);
-
-            if (canonical === '') {
-                return '';
-            }
-
-            const numeric = Number(canonical);
-            if (!Number.isFinite(numeric)) {
-                return '';
-            }
-
-            const fixed = numeric.toFixed(PRECISION);
-            const parts = fixed.split('.');
-            const grouped = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, THOUSANDS);
-
-            return RP_PREFIX + grouped + DECIMAL + parts[1];
-        }
-
-        function extractRawValue(visible) {
-            const textValue = String(visible.value || '').trim();
-            if (!textValue) {
-                return '';
-            }
-
-            let cleaned = textValue.replace(/^RP\s*/i, '').trim();
-            cleaned = cleaned.replace(/\s+/g, '');
-
-            // Check if formatted Indonesian currency or raw decimal
-            const lastComma = cleaned.lastIndexOf(',');
-            const lastDot = cleaned.lastIndexOf('.');
-
-            if (lastComma !== -1 && lastDot !== -1) {
-                // Both exist: e.g. 1.234,56 or 1,234.56
-                if (lastComma > lastDot) {
-                    // ID format: 1.234,56 -> 1234.56
-                    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
-                } else {
-                    // US format: 1,234.56 -> 1234.56
-                    cleaned = cleaned.replace(/,/g, '');
-                }
-            } else if (lastComma !== -1) {
-                // Comma only: e.g. 1234,56 -> 1234.56
-                cleaned = cleaned.replace(',', '.');
-            } else if (lastDot !== -1) {
-                // Dot only: while editing, '.' is always the decimal separator,
-                // never thousands grouping — regardless of fractional digit count
-                // (e.g. 1234.567 and 1.000 both keep '.' as the decimal point).
-                // More than one dot (e.g. "1.2.3", "1.000.000") is not a valid
-                // raw decimal or a recognized formatted value, so it is rejected
-                // rather than guessed at.
-                const dotCount = (cleaned.match(/\./g) || []).length;
-                if (dotCount > 1) {
-                    return '';
-                }
-            }
-
-            const parsed = Number.parseFloat(cleaned);
-
-            return Number.isFinite(parsed) ? toCanonicalString(parsed) : '';
-        }
+        // Each conversion row's price field delegates to the shared real-time financial
+        // formatter (public/js/financial-input.js), the same one backing the nominal-field
+        // component and the payment amount inputs, so all three surfaces behave identically.
+        // Every row is
+        // enhanced independently -- its canonical state and editing behavior never leak into
+        // another row -- and the hidden `conversions[n][price]` input (Livewire's wire:model
+        // source of truth) is kept in sync via the shared formatter's change event.
 
         function findHiddenInput(visible) {
             return visible.closest('.conversion-price-field')?.querySelector('.conversion-price-hidden') ?? null;
@@ -321,100 +244,42 @@
             hidden.dispatchEvent(new Event('input', { bubbles: true }));
         }
 
-        function syncInput(visible) {
-            const hidden = findHiddenInput(visible);
-            const rawValue = extractRawValue(visible);
-
-            if (hidden) {
-                if (hidden.value !== rawValue) {
-                    hidden.value = rawValue;
-                }
-
-                dispatchNativeInput(hidden);
-            }
-
-            return rawValue;
-        }
-
-        function applyFormattedState(visible, rawValue) {
-            visible.value = formatDisplay(rawValue);
-        }
-
         function bindInput(visible) {
             if (visible.dataset.unitConfigBound === 'true') {
+                return;
+            }
+            if (typeof window.FinancialInput === 'undefined') {
+                // Shared formatter not yet loaded; retry on the next dynamic-render pass.
                 return;
             }
 
             visible.dataset.unitConfigBound = 'true';
 
             const hidden = findHiddenInput(visible);
-            const initialRawValue = (hidden && hidden.value) || extractRawValue(visible);
-            const initialCanonical = toCanonicalString(initialRawValue);
 
-            if (hidden) {
-                hidden.value = initialCanonical;
-                dispatchNativeInput(hidden);
-            }
+            window.FinancialInput.enhance(visible);
 
-            applyFormattedState(visible, initialCanonical);
+            const syncHiddenFromVisible = function () {
+                const canonical = window.FinancialInput.getCanonicalValue(visible);
+                const value = canonical === null ? '' : canonical;
 
-            visible.addEventListener('focus', function () {
-                visible.value = hidden ? hidden.value : '';
-
-                window.setTimeout(() => {
-                    if (typeof visible.select === 'function') {
-                        visible.select();
-                    }
-                }, 0);
-            });
-
-            visible.addEventListener('blur', function () {
-                const rawValue = syncInput(visible);
-                applyFormattedState(visible, rawValue);
-            });
-
-            visible.addEventListener('input', function () {
-                syncInput(visible);
-            });
-
-            visible.addEventListener('change', function () {
-                syncInput(visible);
-            });
-        }
-
-        function syncForm(form) {
-            form.querySelectorAll('.conversion-price-input').forEach((visible) => {
-                const rawValue = syncInput(visible);
-
-                if (document.activeElement !== visible) {
-                    applyFormattedState(visible, rawValue);
+                if (hidden && hidden.value !== value) {
+                    hidden.value = value;
+                    dispatchNativeInput(hidden);
                 }
-            });
-        }
+            };
 
-        function bindFormSubmit() {
-            document.querySelectorAll('form').forEach((form) => {
-                if (form.dataset.unitConfigPriceSubmitBound === 'true') {
-                    return;
-                }
+            syncHiddenFromVisible();
 
-                if (!form.querySelector('.conversion-price-input')) {
-                    return;
-                }
-
-                form.dataset.unitConfigPriceSubmitBound = 'true';
-                form.addEventListener('submit', function () {
-                    syncForm(form);
-                });
-            });
+            visible.addEventListener('financial-amount:change', syncHiddenFromVisible);
+            visible.addEventListener('input', syncHiddenFromVisible);
+            visible.addEventListener('change', syncHiddenFromVisible);
         }
 
         function refresh() {
             document.querySelectorAll('.conversion-price-input').forEach((visible) => {
                 bindInput(visible);
             });
-
-            bindFormSubmit();
         }
 
         function queueRefresh() {

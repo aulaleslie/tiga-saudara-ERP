@@ -2,6 +2,7 @@
 <script src="{{ asset('js/select2.min.js') }}"></script>
 <script src="{{ asset('js/bundle-lifecycle-warning.js') }}"></script>
 <script src="{{ asset('js/session-expiry.js') }}"></script>
+<script src="{{ asset('js/financial-input.js') }}"></script>
 @vite('resources/js/app.js')
 
 @livewireScripts

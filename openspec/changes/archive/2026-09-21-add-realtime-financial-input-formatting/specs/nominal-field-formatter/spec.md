@@ -1,8 +1,7 @@
-# nominal-field-formatter Specification
+# Spec Delta
 
-## Purpose
-TBD - created by archiving change fix-nominal-field-formatting-consistency. Update Purpose after archive.
-## Requirements
+## MODIFIED Requirements
+
 ### Requirement: Reusable nominal field component for currency/numeric inputs
 The system SHALL provide a reusable Blade component `<x-nominal-field>` that formats editable nominal values continuously using Indonesian separators while preserving a separate canonical decimal value for calculations and submission. The editable text SHALL contain no currency symbol, SHALL accept only digits and at most one operator-entered `.` decimal separator, and SHALL silently leave the last accepted value unchanged when an insertion is not allowed.
 
@@ -103,22 +102,3 @@ The product pricing fields (Harga Beli, Harga Jual, Harga Jual Partai Besar, Har
 - **WHEN** an operator edits a conversion-table price
 - **THEN** that row is formatted continuously using the same rules
 - **AND** its canonical value and editing state do not affect another conversion row
-
-### Requirement: Conversion table pricing reliability
-The conversion table price inputs in unit-configuration SHALL have reliable focus/blur behavior without competing JavaScript frameworks causing state loss or unexpected reformatting.
-
-#### Scenario: Conversion price field survives Livewire re-renders
-- **WHEN** Livewire updates other conversion table rows (unit selection, quantity change, etc.)
-- **THEN** the price field formatting state is preserved
-- **AND** focus/blur behavior remains consistent across all updates
-
-#### Scenario: Multiple conversion rows maintain independent state
-- **WHEN** user edits price in one conversion row
-- **THEN** that row's formatting behavior is independent
-- **AND** other rows are not affected by that row's focus/blur events
-
-#### Scenario: Hidden price input syncs with display input
-- **WHEN** user updates a visible price field
-- **THEN** the hidden storage input (for form submission) is automatically updated
-- **AND** both inputs remain in sync throughout the user's interaction
-
