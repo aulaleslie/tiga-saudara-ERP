@@ -50,7 +50,8 @@
                      type="number"
                      step="1"
                      :value="$productStockAlert"
-                     :disabled="!$stockManaged || $locked"/>
+                     :disabled="!$stockManaged"/>
+            <small class="form-text text-muted">Ambang batas peringatan stok minimum ini berlaku secara global untuk semua bisnis dan lokasi.</small>
         </div>
     </div>
 
