@@ -279,7 +279,10 @@ class CrossBusinessStockInventoryQueryService
         $productIds = $products->pluck('id')->all();
         $stockMatrix = $this->getStockMatrix($productIds, $filters->businessIds);
 
-        $rows = $this->buildRows($products, $businesses, $stockMatrix);
+        // Resolve serial marker context for on-screen display only
+        $markerContext = $this->resolveSerialMarkerContext($filters->search, $filters->businessIds);
+
+        $rows = $this->buildRows($products, $businesses, $stockMatrix, $markerContext);
 
         return [
             'paginator' => $paginator,
@@ -310,11 +313,14 @@ class CrossBusinessStockInventoryQueryService
     /**
      * Build row view models from products, businesses, and stockMatrix.
      */
-    private function buildRows(Collection $products, Collection $businesses, array $stockMatrix): Collection
+    private function buildRows(Collection $products, Collection $businesses, array $stockMatrix, ?array $markerContext = null): Collection
     {
-        return $products->map(function ($product) use ($businesses, $stockMatrix) {
+        return $products->map(function ($product) use ($businesses, $stockMatrix, $markerContext) {
             $productId = $product->id;
             $productStock = $stockMatrix[$productId] ?? null;
+
+            // Determine if this product row matches the marker context
+            $productMatchesMarker = $markerContext && (int) $markerContext['product_id'] === $productId;
 
             $businessStockData = [];
 
@@ -333,6 +339,12 @@ class CrossBusinessStockInventoryQueryService
                 $goodTooltip = self::computeTooltip($isPkp, $taxGood, $nonTaxGood);
                 $badTooltip = self::computeTooltip($isPkp, $taxBad, $nonTaxBad);
 
+                // Business-level marker: matches when product + setting + condition align
+                $businessMatchesMarker = $productMatchesMarker
+                    && (int) $markerContext['setting_id'] === $settingId;
+                $markerGood = $businessMatchesMarker && $markerContext['condition'] === 'good';
+                $markerBad = $businessMatchesMarker && $markerContext['condition'] === 'bad';
+
                 $locationStockData = [];
                 foreach ($b['locations'] as $loc) {
                     $locId = $loc['id'];
@@ -348,11 +360,17 @@ class CrossBusinessStockInventoryQueryService
                     $lGoodTooltip = self::computeTooltip($isPkp, $lTaxGood, $lNonTaxGood);
                     $lBadTooltip = self::computeTooltip($isPkp, $lTaxBad, $lNonTaxBad);
 
+                    // Location-level marker: matches when product + setting + location + condition align
+                    $locMatchesMarker = $businessMatchesMarker
+                        && (int) $markerContext['location_id'] === $locId;
+
                     $locationStockData[$locId] = [
                         'good' => $lGood,
                         'bad' => $lBad,
                         'good_tooltip' => $lGoodTooltip,
                         'bad_tooltip' => $lBadTooltip,
+                        'marker_good' => $locMatchesMarker && $markerContext['condition'] === 'good',
+                        'marker_bad' => $locMatchesMarker && $markerContext['condition'] === 'bad',
                     ];
                 }
 
@@ -361,6 +379,8 @@ class CrossBusinessStockInventoryQueryService
                     'bad' => $bad,
                     'good_tooltip' => $goodTooltip,
                     'bad_tooltip' => $badTooltip,
+                    'marker_good' => $markerGood,
+                    'marker_bad' => $markerBad,
                     'locations' => $locationStockData,
                 ];
             }
@@ -422,5 +442,82 @@ class CrossBusinessStockInventoryQueryService
         }
 
         return $query->orderBy('serial_number', 'asc')->paginate($perPage, ['*'], 'page', $page);
+    }
+
+    /**
+     * Resolve serial marker context for an exact serial-number search.
+     *
+     * Returns a compact array with product_id, setting_id, location_id, and condition
+     * ('good' or 'bad') when the search value exactly matches a serial that is currently
+     * in an operational Good or Bad state. Returns null otherwise.
+     *
+     * Uses the same sellable() and availableBroken() scopes as the serial dialog.
+     */
+    public function resolveSerialMarkerContext(string $search, array $visibleBusinessIds): ?array
+    {
+        $search = trim($search);
+        if ($search === '' || empty($visibleBusinessIds)) {
+            return null;
+        }
+
+        // Normalize the search value the same way serial numbers are normalized on write
+        $normalized = ProductSerialNumber::normalize($search);
+
+        // Find exact serial match
+        $serial = ProductSerialNumber::query()
+            ->where('serial_number', $normalized)
+            ->with('location')
+            ->first();
+
+        if (!$serial || !$serial->location) {
+            return null;
+        }
+
+        $locationSettingId = (int) $serial->location->setting_id;
+        $locationId = (int) $serial->location->id;
+        $productId = (int) $serial->product_id;
+
+        // Serial's business must be among the visible businesses
+        if (!in_array($locationSettingId, $visibleBusinessIds)) {
+            return null;
+        }
+
+        // Location must be active
+        if (!$serial->location->is_active) {
+            return null;
+        }
+
+        // Check if the serial is operational Good (sellable)
+        $isGood = ProductSerialNumber::query()
+            ->where('id', $serial->id)
+            ->sellable()
+            ->exists();
+
+        if ($isGood) {
+            return [
+                'product_id' => $productId,
+                'setting_id' => $locationSettingId,
+                'location_id' => $locationId,
+                'condition' => 'good',
+            ];
+        }
+
+        // Check if the serial is operational Bad (availableBroken)
+        $isBad = ProductSerialNumber::query()
+            ->where('id', $serial->id)
+            ->availableBroken()
+            ->exists();
+
+        if ($isBad) {
+            return [
+                'product_id' => $productId,
+                'setting_id' => $locationSettingId,
+                'location_id' => $locationId,
+                'condition' => 'bad',
+            ];
+        }
+
+        // Serial exists but is not in an operational Good or Bad state
+        return null;
     }
 }

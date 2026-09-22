@@ -210,7 +210,7 @@
 
                                     @if(!$isExpanded || empty($locs))
                                         {{-- Collapsed Good Cell --}}
-                                        <td class="text-center border-start">
+                                        <td class="text-center border-start{{ ($bStock['marker_good'] ?? false) ? ' serial-marker' : '' }}" data-stock-cell="business-{{ $settingId }}-good">
                                             <div class="d-flex align-items-center justify-content-center gap-1">
                                                 <span class="{{ ($bStock['good'] ?? 0) > 0 ? 'fw-bold text-dark' : 'text-muted' }}">
                                                     {{ (float) ($bStock['good'] ?? 0) }}
@@ -234,7 +234,7 @@
                                         </td>
 
                                         {{-- Collapsed Bad Cell --}}
-                                        <td class="text-center border-end">
+                                        <td class="text-center border-end{{ ($bStock['marker_bad'] ?? false) ? ' serial-marker' : '' }}" data-stock-cell="business-{{ $settingId }}-bad">
                                             <div class="d-flex align-items-center justify-content-center gap-1">
                                                 <span class="{{ ($bStock['bad'] ?? 0) > 0 ? 'fw-bold text-danger' : 'text-muted' }}">
                                                     {{ (float) ($bStock['bad'] ?? 0) }}
@@ -264,7 +264,7 @@
                                                 $lData = $bStock['locations'][$locId] ?? null;
                                             @endphp
                                             {{-- Good Cell --}}
-                                            <td class="text-center border-start">
+                                            <td class="text-center border-start{{ ($lData['marker_good'] ?? false) ? ' serial-marker' : '' }}" data-stock-cell="location-{{ $locId }}-good">
                                                 <div class="d-flex align-items-center justify-content-center gap-1">
                                                     <span class="{{ ($lData['good'] ?? 0) > 0 ? 'fw-bold text-dark' : 'text-muted' }}">
                                                         {{ (float) ($lData['good'] ?? 0) }}
@@ -288,7 +288,7 @@
                                             </td>
 
                                             {{-- Bad Cell --}}
-                                            <td class="text-center border-end">
+                                            <td class="text-center border-end{{ ($lData['marker_bad'] ?? false) ? ' serial-marker' : '' }}" data-stock-cell="location-{{ $locId }}-bad">
                                                 <div class="d-flex align-items-center justify-content-center gap-1">
                                                     <span class="{{ ($lData['bad'] ?? 0) > 0 ? 'fw-bold text-danger' : 'text-muted' }}">
                                                         {{ (float) ($lData['bad'] ?? 0) }}
@@ -569,6 +569,15 @@
     }
     .business-header-th {
         background-color: #f1f4f6;
+    }
+    /* Serial-location stabilo-style marker: soft yellow with readable contrast */
+    .table td.serial-marker {
+        background-color: #fff9c4 !important;
+        color: #424242 !important;
+    }
+    .table-hover tbody tr:hover td.serial-marker {
+        background-color: #fff176 !important;
+        color: #212121 !important;
     }
 </style>
 @endpush

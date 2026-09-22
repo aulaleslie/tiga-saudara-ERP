@@ -857,4 +857,493 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
             ->assertSee('Product Beta Stocked Only')
             ->assertDontSee('Product Alpha Stocked');
     }
+
+    /**
+     * Test serial marker: exact operational Good serial search shows marker on collapsed business Good cell
+     */
+    public function test_serial_marker_good_collapsed_business_cell(): void
+    {
+        $this->actingAs($this->superAdmin);
+
+        $product = Product::create([
+            'setting_id' => $this->setting1->id,
+            'category_id' => $this->category->id,
+            'product_name' => 'Marker Good Product',
+            'product_code' => 'MRK-GOOD-01',
+            'product_unit' => 'pc',
+            'product_quantity' => 5,
+            'product_price' => 1000,
+            'product_cost' => 500,
+            'serial_number_required' => true,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location1A->id,
+            'quantity' => 1,
+            'quantity_tax' => 1,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location1A->id,
+            'serial_number' => 'SN-MARKER-GOOD-001',
+            'status' => 'ACTIVE',
+            'is_broken' => false,
+            'is_in_return_process' => false,
+            'dispatch_detail_id' => null,
+        ]);
+
+        // Service-level: marker context resolves to good
+        $service = new CrossBusinessStockInventoryQueryService();
+        $marker = $service->resolveSerialMarkerContext('SN-MARKER-GOOD-001', [$this->setting1->id, $this->setting2->id]);
+        $this->assertNotNull($marker);
+        $this->assertEquals($product->id, $marker['product_id']);
+        $this->assertEquals($this->setting1->id, $marker['setting_id']);
+        $this->assertEquals($this->location1A->id, $marker['location_id']);
+        $this->assertEquals('good', $marker['condition']);
+
+        // Livewire: verify rendered HTML has serial-marker on the exact correct cell
+        $component = Livewire::test(CrossBusinessStockInventory::class)
+            ->set('search', 'SN-MARKER-GOOD-001')
+            ->assertSee('Marker Good Product');
+
+        // Rendered HTML: setting1 Good cell MUST have serial-marker
+        $s1Id = $this->setting1->id;
+        $s2Id = $this->setting2->id;
+        $component->assertSeeHtml('serial-marker" data-stock-cell="business-' . $s1Id . '-good"');
+        // Rendered HTML: setting1 Bad cell must NOT have serial-marker
+        $component->assertDontSeeHtml('serial-marker" data-stock-cell="business-' . $s1Id . '-bad"');
+        // Rendered HTML: setting2 cells must NOT have serial-marker
+        $component->assertDontSeeHtml('serial-marker" data-stock-cell="business-' . $s2Id . '-good"');
+        $component->assertDontSeeHtml('serial-marker" data-stock-cell="business-' . $s2Id . '-bad"');
+
+        // View data cross-check (redundant but confirms both layers agree)
+        $rows = $component->viewData('rows');
+        $row = $rows->firstWhere('id', $product->id);
+        $this->assertNotNull($row);
+        $this->assertTrue($row['businesses'][$s1Id]['marker_good']);
+        $this->assertFalse($row['businesses'][$s1Id]['marker_bad']);
+        $this->assertFalse($row['businesses'][$s2Id]['marker_good']);
+        $this->assertFalse($row['businesses'][$s2Id]['marker_bad']);
+    }
+
+    /**
+     * Test serial marker: exact operational Bad serial search shows marker on collapsed business Bad cell
+     */
+    public function test_serial_marker_bad_collapsed_business_cell(): void
+    {
+        $this->actingAs($this->superAdmin);
+
+        $product = Product::create([
+            'setting_id' => $this->setting1->id,
+            'category_id' => $this->category->id,
+            'product_name' => 'Marker Bad Product',
+            'product_code' => 'MRK-BAD-01',
+            'product_unit' => 'pc',
+            'product_quantity' => 5,
+            'product_price' => 1000,
+            'product_cost' => 500,
+            'serial_number_required' => true,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location1A->id,
+            'quantity' => 0,
+            'quantity_tax' => 0,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 1,
+            'broken_quantity_tax' => 1,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location1A->id,
+            'serial_number' => 'SN-MARKER-BAD-001',
+            'status' => 'ACTIVE',
+            'is_broken' => true,
+            'is_in_return_process' => false,
+            'dispatch_detail_id' => null,
+        ]);
+
+        // Service-level: marker context resolves to bad
+        $service = new CrossBusinessStockInventoryQueryService();
+        $marker = $service->resolveSerialMarkerContext('SN-MARKER-BAD-001', [$this->setting1->id]);
+        $this->assertNotNull($marker);
+        $this->assertEquals('bad', $marker['condition']);
+
+        // Livewire: verify rendered HTML has serial-marker on the exact correct cell
+        $component = Livewire::test(CrossBusinessStockInventory::class)
+            ->set('search', 'SN-MARKER-BAD-001')
+            ->assertSee('Marker Bad Product');
+
+        // Rendered HTML: setting1 Bad cell MUST have serial-marker
+        $s1Id = $this->setting1->id;
+        $component->assertSeeHtml('serial-marker" data-stock-cell="business-' . $s1Id . '-bad"');
+        // Rendered HTML: setting1 Good cell must NOT have serial-marker
+        $component->assertDontSeeHtml('serial-marker" data-stock-cell="business-' . $s1Id . '-good"');
+
+        // View data cross-check
+        $rows = $component->viewData('rows');
+        $row = $rows->firstWhere('id', $product->id);
+        $this->assertNotNull($row);
+        $this->assertTrue($row['businesses'][$s1Id]['marker_bad']);
+        $this->assertFalse($row['businesses'][$s1Id]['marker_good']);
+    }
+
+    /**
+     * Test serial marker: expanded view shows marker on exact location cell
+     */
+    public function test_serial_marker_expanded_location_cell(): void
+    {
+        $this->actingAs($this->superAdmin);
+
+        $product = Product::create([
+            'setting_id' => $this->setting1->id,
+            'category_id' => $this->category->id,
+            'product_name' => 'Marker Expanded Product',
+            'product_code' => 'MRK-EXP-01',
+            'product_unit' => 'pc',
+            'product_quantity' => 5,
+            'product_price' => 1000,
+            'product_cost' => 500,
+            'serial_number_required' => true,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location1A->id,
+            'quantity' => 1,
+            'quantity_tax' => 1,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location1A->id,
+            'serial_number' => 'SN-MARKER-EXP-001',
+            'status' => 'ACTIVE',
+            'is_broken' => false,
+            'is_in_return_process' => false,
+            'dispatch_detail_id' => null,
+        ]);
+
+        // Service-level: verify location-level marker flags
+        $service = new CrossBusinessStockInventoryQueryService();
+        $reportData = $service->getReportData(
+            new CrossBusinessStockInventoryFilterData(
+                search: 'SN-MARKER-EXP-001',
+                businessIds: [$this->setting1->id]
+            )
+        );
+
+        $row = $reportData['rows']->firstWhere('id', $product->id);
+        $this->assertNotNull($row);
+
+        // Location 1A should have marker_good=true
+        $locData = $row['businesses'][$this->setting1->id]['locations'][$this->location1A->id];
+        $this->assertTrue($locData['marker_good']);
+        $this->assertFalse($locData['marker_bad']);
+
+        // Location 1B should NOT have marker
+        $locData1B = $row['businesses'][$this->setting1->id]['locations'][$this->location1B->id] ?? null;
+        if ($locData1B) {
+            $this->assertFalse($locData1B['marker_good']);
+            $this->assertFalse($locData1B['marker_bad']);
+        }
+
+        // Livewire: expanded view — verify rendered HTML targets the exact location cell
+        $component = Livewire::test(CrossBusinessStockInventory::class)
+            ->set('search', 'SN-MARKER-EXP-001')
+            ->call('toggleBusinessExpand', $this->setting1->id);
+
+        $loc1AId = $this->location1A->id;
+        $loc1BId = $this->location1B->id;
+
+        // Rendered HTML: location 1A Good cell MUST have serial-marker
+        $component->assertSeeHtml('serial-marker" data-stock-cell="location-' . $loc1AId . '-good"');
+        // Rendered HTML: location 1A Bad cell must NOT have serial-marker
+        $component->assertDontSeeHtml('serial-marker" data-stock-cell="location-' . $loc1AId . '-bad"');
+        // Rendered HTML: location 1B cells must NOT have serial-marker
+        $component->assertDontSeeHtml('serial-marker" data-stock-cell="location-' . $loc1BId . '-good"');
+        $component->assertDontSeeHtml('serial-marker" data-stock-cell="location-' . $loc1BId . '-bad"');
+
+        // View data cross-check
+        $expRows = $component->viewData('rows');
+        $expRow = $expRows->firstWhere('id', $product->id);
+        $this->assertNotNull($expRow);
+        $this->assertTrue($expRow['businesses'][$this->setting1->id]['locations'][$loc1AId]['marker_good']);
+        $this->assertFalse($expRow['businesses'][$this->setting1->id]['locations'][$loc1AId]['marker_bad']);
+        $loc1B = $expRow['businesses'][$this->setting1->id]['locations'][$loc1BId] ?? null;
+        if ($loc1B) {
+            $this->assertFalse($loc1B['marker_good']);
+            $this->assertFalse($loc1B['marker_bad']);
+        }
+        $this->assertTrue($expRow['businesses'][$this->setting1->id]['marker_good']);
+        $this->assertFalse($expRow['businesses'][$this->setting1->id]['marker_bad']);
+    }
+
+    /**
+     * Test serial marker: unavailable serial (RETURNED) does not show marker
+     */
+    public function test_serial_marker_unavailable_serial_no_marker(): void
+    {
+        $this->actingAs($this->superAdmin);
+
+        $product = Product::create([
+            'setting_id' => $this->setting1->id,
+            'category_id' => $this->category->id,
+            'product_name' => 'Marker Unavailable Product',
+            'product_code' => 'MRK-UNAVAIL-01',
+            'product_unit' => 'pc',
+            'product_quantity' => 5,
+            'product_price' => 1000,
+            'product_cost' => 500,
+            'serial_number_required' => true,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location1A->id,
+            'serial_number' => 'SN-MARKER-RETURNED-001',
+            'status' => 'RETURNED',
+            'is_broken' => false,
+            'is_in_return_process' => false,
+        ]);
+
+        // Service-level: marker context returns null for unavailable serial
+        $service = new CrossBusinessStockInventoryQueryService();
+        $marker = $service->resolveSerialMarkerContext('SN-MARKER-RETURNED-001', [$this->setting1->id]);
+        $this->assertNull($marker);
+
+        // Livewire: no serial-marker class rendered
+        Livewire::test(CrossBusinessStockInventory::class)
+            ->set('search', 'SN-MARKER-RETURNED-001')
+            ->assertDontSeeHtml('serial-marker');
+    }
+
+    /**
+     * Test serial marker: non-serial product name search shows no marker
+     */
+    public function test_serial_marker_non_serial_search_no_marker(): void
+    {
+        $this->actingAs($this->superAdmin);
+
+        Product::create([
+            'setting_id' => $this->setting1->id,
+            'category_id' => $this->category->id,
+            'product_name' => 'Regular Product No Serial',
+            'product_code' => 'REG-001',
+            'product_unit' => 'pc',
+            'product_quantity' => 5,
+            'product_price' => 1000,
+            'product_cost' => 500,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        // Service-level: non-serial search returns null
+        $service = new CrossBusinessStockInventoryQueryService();
+        $marker = $service->resolveSerialMarkerContext('Regular Product', [$this->setting1->id]);
+        $this->assertNull($marker);
+
+        // Livewire: no serial-marker class
+        Livewire::test(CrossBusinessStockInventory::class)
+            ->set('search', 'Regular Product')
+            ->assertDontSeeHtml('serial-marker');
+    }
+
+    /**
+     * Test serial marker: clearing search removes marker
+     */
+    public function test_serial_marker_clearing_search_removes_marker(): void
+    {
+        $this->actingAs($this->superAdmin);
+
+        $product = Product::create([
+            'setting_id' => $this->setting1->id,
+            'category_id' => $this->category->id,
+            'product_name' => 'Marker Clear Product',
+            'product_code' => 'MRK-CLR-01',
+            'product_unit' => 'pc',
+            'product_quantity' => 5,
+            'product_price' => 1000,
+            'product_cost' => 500,
+            'serial_number_required' => true,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location1A->id,
+            'quantity' => 1,
+            'quantity_tax' => 1,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location1A->id,
+            'serial_number' => 'SN-MARKER-CLEAR-001',
+            'status' => 'ACTIVE',
+            'is_broken' => false,
+            'is_in_return_process' => false,
+            'dispatch_detail_id' => null,
+        ]);
+
+        // First show marker, then clear search and verify it's gone
+        $component = Livewire::test(CrossBusinessStockInventory::class)
+            ->set('search', 'SN-MARKER-CLEAR-001')
+            ->assertSeeHtml('serial-marker');
+
+        // Verify marker flags are set before clearing
+        $rows = $component->viewData('rows');
+        $row = $rows->firstWhere('id', $product->id);
+        $this->assertNotNull($row);
+        $this->assertTrue($row['businesses'][$this->setting1->id]['marker_good']);
+
+        // After clearing, marker must be gone from both HTML and view data
+        $component->call('clearSearch')
+            ->assertDontSeeHtml('serial-marker');
+
+        $clearedRows = $component->viewData('rows');
+        // After clear, either no matching row or marker flags are false
+        if ($clearedRows->isNotEmpty()) {
+            foreach ($clearedRows as $clearedRow) {
+                foreach ($clearedRow['businesses'] as $bData) {
+                    $this->assertFalse($bData['marker_good']);
+                    $this->assertFalse($bData['marker_bad']);
+                }
+            }
+        }
+    }
+
+    /**
+     * Test serial marker: serial in unselected business shows no marker
+     */
+    public function test_serial_marker_unselected_business_no_marker(): void
+    {
+        $this->actingAs($this->superAdmin);
+
+        $product = Product::create([
+            'setting_id' => $this->setting2->id,
+            'category_id' => $this->category->id,
+            'product_name' => 'Marker Unselected Biz Product',
+            'product_code' => 'MRK-UNBIZ-01',
+            'product_unit' => 'pc',
+            'product_quantity' => 5,
+            'product_price' => 1000,
+            'product_cost' => 500,
+            'serial_number_required' => true,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location2A->id,
+            'serial_number' => 'SN-MARKER-UNBIZ-001',
+            'status' => 'ACTIVE',
+            'is_broken' => false,
+            'is_in_return_process' => false,
+            'dispatch_detail_id' => null,
+        ]);
+
+        // Service-level: serial's business is not in visible list → no marker
+        $service = new CrossBusinessStockInventoryQueryService();
+        $marker = $service->resolveSerialMarkerContext('SN-MARKER-UNBIZ-001', [$this->setting1->id]);
+        $this->assertNull($marker);
+
+        // When setting2 IS in visible list → marker resolves
+        $marker2 = $service->resolveSerialMarkerContext('SN-MARKER-UNBIZ-001', [$this->setting1->id, $this->setting2->id]);
+        $this->assertNotNull($marker2);
+        $this->assertEquals($this->setting2->id, $marker2['setting_id']);
+    }
+
+    /**
+     * Test serial marker: Excel export during marked search does NOT contain serial-marker class
+     */
+    public function test_serial_marker_excel_export_unchanged(): void
+    {
+        Excel::fake();
+
+        $this->actingAs($this->superAdmin);
+
+        $product = Product::create([
+            'setting_id' => $this->setting1->id,
+            'category_id' => $this->category->id,
+            'product_name' => 'Marker Export Product',
+            'product_code' => 'MRK-EXP-XLS',
+            'product_unit' => 'pc',
+            'product_quantity' => 5,
+            'product_price' => 1000,
+            'product_cost' => 500,
+            'serial_number_required' => true,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location1A->id,
+            'quantity' => 1,
+            'quantity_tax' => 1,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location1A->id,
+            'serial_number' => 'SN-MARKER-EXPORT-001',
+            'status' => 'ACTIVE',
+            'is_broken' => false,
+            'is_in_return_process' => false,
+            'dispatch_detail_id' => null,
+        ]);
+
+        \Carbon\Carbon::setTestNow(now());
+
+        // Export while serial search is active
+        Livewire::test(CrossBusinessStockInventory::class)
+            ->set('search', 'SN-MARKER-EXPORT-001')
+            ->assertSeeHtml('serial-marker') // marker visible on screen
+            ->call('exportExcel');
+
+        // Verify export data does not contain marker flags
+        Excel::assertDownloaded('stok-persediaan-lintas-bisnis_' . now()->format('Y-m-d_His') . '.xlsx', function (CrossBusinessStockInventoryExport $export) {
+            \Carbon\Carbon::setTestNow();
+            $array = $export->array();
+            $combined = implode(' ', array_map(function ($row) {
+                return implode(' ', $row);
+            }, $array));
+            $this->assertStringNotContainsString('serial-marker', $combined);
+            $this->assertStringNotContainsString('marker_good', $combined);
+            $this->assertStringNotContainsString('marker_bad', $combined);
+            return true;
+        });
+    }
 }
