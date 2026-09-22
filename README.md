@@ -185,6 +185,18 @@ php artisan purchase:fix-manual-unit-price-desync
 
 # Optional: limit the run to specific purchase_details IDs.
 php artisan purchase:fix-manual-unit-price-desync --dry-run --detail-id=37661 --detail-id=37312
+
+# Repair stock-bucket drift conclusively linked to historical POS Return
+# replacement dispatches. The default mode is read-only: review every candidate,
+# its source transaction/serial evidence, and proposed balance before applying.
+php artisan pos:repair-return-replacement-stock-buckets
+
+# Apply only after a fresh dry-run has been reviewed. The repair is evidence-gated
+# and idempotent; unrelated and non-serialized ambiguous discrepancies are not changed.
+php artisan pos:repair-return-replacement-stock-buckets --apply --actor=123
+
+# Optional: narrow either dry-run or apply to one product/location.
+php artisan pos:repair-return-replacement-stock-buckets --product=182 --location=6
 ```
 
 ### Barcode Import and Export

@@ -1178,49 +1178,14 @@ class PosReturnLifecycleService
         ?int $actorId,
         string $saleReturnReference
     ): void {
-        $product = \Modules\Product\Entities\Product::query()->findOrFail((int) $detail->product_id);
-
-        $productStock = ProductStock::query()
-            ->where('product_id', $product->id)
-            ->where('location_id', $locationId)
-            ->lockForUpdate()
-            ->first();
-
-        if (! $productStock) {
-            throw new \RuntimeException("Stok tidak ditemukan untuk produk {$product->product_name} di lokasi replacement owner.");
-        }
-
-        if ((int) $productStock->quantity < $quantity) {
-            throw new \RuntimeException('Stok produk pengganti tidak mencukupi di lokasi replacement owner.');
-        }
-
-        $previousQuantity = (int) $product->product_quantity;
-        $previousQuantityAtLocation = (int) $productStock->quantity;
-
-        $productStock->decrement('quantity', $quantity);
-        $product->decrement('product_quantity', $quantity);
-
-        $taxId = $productStock->tax_id ?? null;
-
-        \Modules\Product\Entities\Transaction::create([
-            'product_id' => $product->id,
-            'setting_id' => $settingId,
-            'quantity' => -$quantity,
-            'current_quantity' => (int) $product->product_quantity,
-            'broken_quantity' => (int) ($productStock->broken_quantity ?? 0),
-            'location_id' => $locationId,
-            'user_id' => $actorId,
-            'reason' => 'Cross-owner replacement dispatch for POS Return #' . $saleReturnReference,
-            'type' => 'DISPATCH_RETURN',
-            'previous_quantity' => $previousQuantity,
-            'after_quantity' => (int) $product->product_quantity,
-            'previous_quantity_at_location' => $previousQuantityAtLocation,
-            'after_quantity_at_location' => (int) ($productStock->quantity ?? 0),
-            'quantity_non_tax' => $taxId ? 0 : $quantity,
-            'quantity_tax' => $taxId ? $quantity : 0,
-            'broken_quantity_non_tax' => (int) ($productStock->broken_quantity_non_tax ?? 0),
-            'broken_quantity_tax' => (int) ($productStock->broken_quantity_tax ?? 0),
-        ]);
+        app(\Modules\Pos\Services\PosReturnReplacementStockMutator::class)->dispatchReplacement(
+            (int) $detail->product_id,
+            $locationId,
+            $quantity,
+            $actorId,
+            'Cross-owner replacement dispatch for POS Return #' . $saleReturnReference,
+            $settingId
+        );
     }
 
     protected function generateCrossOwnerReplacementSaleReference(int $settingId): string
@@ -1598,13 +1563,13 @@ class PosReturnLifecycleService
 
             $previousProductQuantity = (int) ($product->product_quantity ?? 0);
             $previousQuantityAtLocation = (int) ($productStock->quantity ?? 0);
-            $taxId = $dispatchDetail->tax_id;
+            // Bucket selection follows the owner of the location receiving the
+            // physical movement, not the historical detail tax metadata.
+            $receiptBucket = app(\Modules\Pos\Services\PosReturnReplacementStockMutator::class)
+                ->resolveBucketForLocation((int) $locationId);
+            $taxId = $receiptBucket === \Modules\Pos\Services\PosReturnReplacementStockMutator::BUCKET_TAX;
 
-            if ($taxId) {
-                $productStock->quantity_tax = (int) ($productStock->quantity_tax ?? 0) + $quantity;
-            } else {
-                $productStock->quantity_non_tax = (int) ($productStock->quantity_non_tax ?? 0) + $quantity;
-            }
+            $productStock->{$receiptBucket} = (int) ($productStock->{$receiptBucket} ?? 0) + $quantity;
 
             $productStock->quantity = (int) ($productStock->quantity_non_tax ?? 0)
                 + (int) ($productStock->quantity_tax ?? 0)
@@ -1830,51 +1795,13 @@ class PosReturnLifecycleService
      */
     protected function adjustStockForReplacement(\Modules\SalesReturn\Entities\SaleReturnDetail $detail, int $actorId): void
     {
-        $product = \Modules\Product\Entities\Product::findOrFail($detail->product_id);
-        $qty = $detail->quantity;
-        $locationId = $detail->location_id;
-
-        $productStock = \Modules\Product\Entities\ProductStock::where('product_id', $product->id)
-            ->where('location_id', $locationId)
-            ->lockForUpdate()
-            ->first();
-
-        if (!$productStock) {
-            throw new \Exception("Stok tidak ditemukan untuk produk {$product->product_name} di lokasi selected.");
-        }
-
-        if ((int) $productStock->quantity < (int) $qty) {
-            throw new \RuntimeException('Stok produk pengganti tidak mencukupi di lokasi sumber asli retur.');
-        }
-
-        $previousQuantity = (int) $product->product_quantity;
-        $previousQuantityAtLocation = (int) $productStock->quantity;
-
-        // Decrement stock
-        $productStock->decrement('quantity', $qty);
-        $product->decrement('product_quantity', $qty);
-
-        $taxId = $productStock->tax_id ?? null;
-
-        \Modules\Product\Entities\Transaction::create([
-            'product_id' => $product->id,
-            'setting_id' => $product->setting_id,
-            'quantity' => -$qty,
-            'current_quantity' => (int) $product->product_quantity,
-            'broken_quantity' => (int) ($productStock->broken_quantity ?? 0),
-            'location_id' => $locationId,
-            'user_id' => $actorId,
-            'reason' => 'Dispatch replacement for Sale Return #' . $detail->sale_return_id,
-            'type' => 'DISPATCH_RETURN',
-            'previous_quantity' => $previousQuantity,
-            'after_quantity' => (int) $product->product_quantity,
-            'previous_quantity_at_location' => $previousQuantityAtLocation,
-            'after_quantity_at_location' => (int) ($productStock->quantity ?? 0),
-            'quantity_non_tax' => $taxId ? 0 : $qty,
-            'quantity_tax' => $taxId ? $qty : 0,
-            'broken_quantity_non_tax' => (int) ($productStock->broken_quantity_non_tax ?? 0),
-            'broken_quantity_tax' => (int) ($productStock->broken_quantity_tax ?? 0),
-        ]);
+        app(\Modules\Pos\Services\PosReturnReplacementStockMutator::class)->dispatchReplacement(
+            (int) $detail->product_id,
+            (int) $detail->location_id,
+            (int) $detail->quantity,
+            $actorId,
+            'Dispatch replacement for Sale Return #' . $detail->sale_return_id
+        );
     }
 
     private function remainingRefundableAmount(\Modules\SalesReturn\Entities\SaleReturn $saleReturn): float
