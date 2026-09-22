@@ -13,6 +13,7 @@ use Modules\Setting\Entities\Setting;
 use Modules\Pos\Entities\PosCheckoutSale;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Sale\Entities\DispatchDetail;
+use Modules\Sale\Entities\SaleBundleItem;
 
 class PosReturnSubmissionService
 {
@@ -274,7 +275,8 @@ class PosReturnSubmissionService
                 // product also shares that sale_id elsewhere).
                 $resolvedDispatchDetailId = $isSynthesizedCrossOwnerComponent
                     ? ($lineData['__component_dispatch_detail_id'] ?? null)
-                    : ($saleDetail->dispatch_detail_id
+                    : ($lineData['__resolved_dispatch_detail_id']
+                        ?? $saleDetail->dispatch_detail_id
                         ?? \Modules\Sale\Entities\DispatchDetail::where('sale_id', $saleDetail->sale_id)
                             // Sequence 10 correction: use $effectiveProductId
                             // (the component's own product_id when this is an
@@ -557,7 +559,8 @@ class PosReturnSubmissionService
                 // dispatch detail dynamically (see store() for rationale).
                 $resolvedDispatchDetailId = $isSynthesizedCrossOwnerComponent
                     ? ($lineData['__component_dispatch_detail_id'] ?? null)
-                    : ($saleDetail->dispatch_detail_id
+                    : ($lineData['__resolved_dispatch_detail_id']
+                        ?? $saleDetail->dispatch_detail_id
                         ?? \Modules\Sale\Entities\DispatchDetail::where('sale_id', $saleDetail->sale_id)
                             // Sequence 10 correction: use $effectiveProductId
                             // (the component's own product_id when this is an
@@ -800,11 +803,119 @@ class PosReturnSubmissionService
                 $quantity = 1;
             }
 
-            if ($enforceReturnedSerialExclusivity && $isSerial) {
-                $this->assertReturnedSerialNotClaimedElsewhere((int) $returnedSerialId, $ignorePosReturnId);
+            $saleDetail = SaleDetails::with(['bundleItems.product', 'product'])->findOrFail($lineData['sale_detail_id']);
+
+            $effectiveProductId = $isSerial && $returnedSerialId
+                ? (int) (ProductSerialNumber::find($returnedSerialId)->product_id ?? $saleDetail->product_id)
+                : (int) $saleDetail->product_id;
+
+            $isSynthesizedComponentLine = !empty($lineData['__synthesized_component'])
+                || (array_key_exists('__component_quantity_per_bundle', $lineData)
+                    && $lineData['__component_quantity_per_bundle'] !== null
+                    && array_key_exists('__bundle_parent_sale_detail_id', $lineData)
+                    && (int) ($lineData['__bundle_parent_sale_detail_id'] ?? 0) !== (int) $lineData['sale_detail_id']);
+
+            $resolvedDispatchDetailId = null;
+            if (!empty($lineData['__component_dispatch_detail_id']) && $isSynthesizedComponentLine) {
+                $candidateDispatchId = (int) $lineData['__component_dispatch_detail_id'];
+                $dispatchCandidate = \Modules\Sale\Entities\DispatchDetail::where('id', $candidateDispatchId)
+                    ->where('sale_id', $saleDetail->sale_id)
+                    ->where('product_id', $effectiveProductId)
+                    ->first();
+
+                if ($dispatchCandidate) {
+                    if ($isSerial && $returnedSerialId) {
+                        $serialObj = ProductSerialNumber::find($returnedSerialId);
+                        if ($serialObj) {
+                            $snList = is_array($dispatchCandidate->serial_numbers)
+                                ? $dispatchCandidate->serial_numbers
+                                : (is_string($dispatchCandidate->serial_numbers) ? (json_decode($dispatchCandidate->serial_numbers, true) ?: explode(',', $dispatchCandidate->serial_numbers)) : []);
+
+                            $serialMatchesDispatch = in_array($serialObj->serial_number, $snList, true)
+                                || (int) $dispatchCandidate->id === (int) $serialObj->dispatch_detail_id
+                                || PosReturnLine::where('dispatch_detail_id', $dispatchCandidate->id)
+                                    ->where(function ($q) use ($serialObj) {
+                                        $q->where('returned_serial_id', $serialObj->id)
+                                          ->orWhere('replacement_serial_id', $serialObj->id);
+                                    })
+                                    ->whereHas('posReturn', fn ($q) => $q->where('status', PosReturn::STATUS_COMPLETED))
+                                    ->exists();
+
+                            if ($serialMatchesDispatch) {
+                                $resolvedDispatchDetailId = (int) $dispatchCandidate->id;
+                            }
+                        }
+                    } else {
+                        $resolvedDispatchDetailId = (int) $dispatchCandidate->id;
+                    }
+                }
             }
 
-            $saleDetail = SaleDetails::with(['bundleItems.product', 'product'])->findOrFail($lineData['sale_detail_id']);
+            if (empty($resolvedDispatchDetailId) && !empty($currentSnapshot['lines'])) {
+                // Find matching line in trusted snapshot
+                foreach ($currentSnapshot['lines'] as $snapLine) {
+                    if ((int) ($snapLine['sale_detail_id'] ?? 0) === (int) $saleDetail->id) {
+                        if ($isSerial && $returnedSerialId) {
+                            $snIds = $snapLine['serial_number_ids'] ?? [];
+                            if (in_array($returnedSerialId, $snIds, true) || in_array((int) $returnedSerialId, array_map('intval', (array) $snIds), true)) {
+                                $resolvedDispatchDetailId = (int) ($snapLine['dispatch_detail_id'] ?? 0);
+                                break;
+                            }
+                        } else {
+                            $resolvedDispatchDetailId = (int) ($snapLine['dispatch_detail_id'] ?? 0);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (empty($resolvedDispatchDetailId)) {
+                // Fallback: Check if serial itself was dispatched in this specific sale
+                if ($isSerial && $returnedSerialId) {
+                    $serialObj = ProductSerialNumber::find($returnedSerialId);
+                    if ($serialObj) {
+                        $dispatchDetails = \Modules\Sale\Entities\DispatchDetail::where('sale_id', $saleDetail->sale_id)
+                            ->where('product_id', $effectiveProductId)
+                            ->get();
+
+                        foreach ($dispatchDetails as $dd) {
+                            $snList = is_array($dd->serial_numbers)
+                                ? $dd->serial_numbers
+                                : (is_string($dd->serial_numbers) ? (json_decode($dd->serial_numbers, true) ?: explode(',', $dd->serial_numbers)) : []);
+
+                            if (in_array($serialObj->serial_number, $snList, true) ||
+                                (int) $dd->id === (int) $serialObj->dispatch_detail_id ||
+                                PosReturnLine::where('dispatch_detail_id', $dd->id)
+                                    ->where(function ($q) use ($serialObj) {
+                                        $q->where('returned_serial_id', $serialObj->id)
+                                          ->orWhere('replacement_serial_id', $serialObj->id);
+                                    })
+                                    ->whereHas('posReturn', fn ($q) => $q->where('status', PosReturn::STATUS_COMPLETED))
+                                    ->exists()) {
+                                $resolvedDispatchDetailId = (int) $dd->id;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // Non-serialized lines may fall back to the sale detail or first product dispatch
+                if (!$isSerial && empty($resolvedDispatchDetailId)) {
+                    $resolvedDispatchDetailId = (int) ($saleDetail->dispatch_detail_id
+                        ?? \Modules\Sale\Entities\DispatchDetail::where('sale_id', $saleDetail->sale_id)
+                            ->where('product_id', $effectiveProductId)
+                            ->value('id') ?? 0);
+                }
+            }
+
+            if ($isSerial) {
+                if ($resolvedDispatchDetailId <= 0) {
+                    throw new \Exception('Lineage pengiriman sumber untuk serial tidak valid.');
+                }
+                if ($enforceReturnedSerialExclusivity) {
+                    $this->assertReturnedSerialNotClaimedElsewhere((int) $returnedSerialId, $resolvedDispatchDetailId, $ignorePosReturnId);
+                }
+            }
 
             // Sequence 10 correction: a line carrying __component_* identity
             // tags (either freshly synthesized this call, or a previously-
@@ -885,6 +996,7 @@ class PosReturnSubmissionService
             $lineData['quantity'] = $isSerial ? 1 : $quantity;
             $lineData['resolution'] = $resolution;
             $lineData['replacement_serial_id'] = $replacementSerialId;
+            $lineData['__resolved_dispatch_detail_id'] = $resolvedDispatchDetailId;
             $validatedLines[] = $lineData;
         }
 
@@ -990,24 +1102,80 @@ class PosReturnSubmissionService
 
         // Build parent -> component list (authoritative "what components
         // does this bundle instance have" source), keyed by parent
-        // sale_detail_id. Prefers the catalog ProductBundle/ProductBundleItem
-        // definition (not $parentCandidate->bundleItems, which is empty for
-        // cross-owner components) exactly mirroring
-        // PosReturnSnapshotService::resolveCatalogBundleComponents() — but
-        // falls back to the parent's own persisted SaleBundleItem rows when
-        // no catalog ProductBundle is resolvable (legacy/hand-built test
-        // data with no real ProductBundle header), matching the exact same
-        // fallback PosReturnSnapshotService::buildLineSnapshots() applies.
-        // A SaleBundleItem exposes the same accessor shape a
-        // ProductBundleItem does (product_id/quantity/bundle_id/id/product),
-        // so it can stand in as a "catalog item" for the loop below.
+        // sale_detail_id. Only populated when persisted bundle evidence exists
+        // (PTL bundle metadata, direct SaleBundleItem, or checkout SaleBundleItem referencing parent).
+        // Prefers the catalog ProductBundle/ProductBundleItem definition
+        // (scoped to exact bundle_id when known) — but falls back to the parent's
+        // own persisted SaleBundleItem rows when no catalog ProductBundle is
+        // resolvable (legacy/hand-built test data with no real ProductBundle header),
+        // matching the exact same fallback PosReturnSnapshotService applies.
+        $allSaleBundleItems = SaleBundleItem::whereIn('sale_id', $saleIds)->get();
+        $posTransactionId = 0;
+        if (!empty($checkoutIds)) {
+            $posTransactionId = (int) (\Modules\Pos\Entities\PosCheckout::whereIn('id', $checkoutIds)->value('pos_transaction_id') ?? 0);
+        }
+        $transactionPtls = $posTransactionId > 0
+            ? \Modules\Pos\Entities\PosTransactionLine::where('pos_transaction_id', $posTransactionId)->get()
+            : collect();
+
         $parentToCatalogComponents = [];
         foreach ($saleDetailsBySale as $saleId => $saleDetails) {
             foreach ($saleDetails as $parentCandidate) {
-                $catalogItems = $this->resolveCatalogBundleComponents((int) $parentCandidate->product_id);
+                // Determine if this parentCandidate has persisted bundle evidence
+                $matchingLines = $cashReturnLines->where('sale_detail_id', $parentCandidate->id);
+                $hasPtlBundle = false;
+                $ptlBundleId = null;
+
+                // Check PTL directly associated via pos_transaction_line_id, or by serial number / product in the transaction
+                foreach ($matchingLines as $mLine) {
+                    $ptlId = $mLine['pos_transaction_line_id'] ?? null;
+                    $returnedSerialId = $mLine['returned_serial_id'] ?? null;
+
+                    $ptl = null;
+                    if ($ptlId) {
+                        $ptl = $transactionPtls->firstWhere('id', $ptlId) ?? \Modules\Pos\Entities\PosTransactionLine::find($ptlId);
+                    } elseif ($returnedSerialId && $posTransactionId > 0) {
+                        $snObj = ProductSerialNumber::find($returnedSerialId);
+                        if ($snObj) {
+                            $snPtlId = \Modules\Pos\Entities\PosTransactionLineSerial::where('serial_number', $snObj->serial_number)
+                                ->whereHas('line', fn($q) => $q->where('pos_transaction_id', $posTransactionId))
+                                ->value('pos_transaction_line_id');
+                            if ($snPtlId) {
+                                $ptl = $transactionPtls->firstWhere('id', $snPtlId) ?? \Modules\Pos\Entities\PosTransactionLine::find($snPtlId);
+                            }
+                        }
+                    }
+
+                    if ($ptl && (!empty($ptl->line_meta['bundle_id']) || !empty($ptl->line_meta['is_bundle']) || !empty($ptl->line_meta['bundle_items']))) {
+                        $hasPtlBundle = true;
+                        $ptlBundleId = isset($ptl->line_meta['bundle_id']) ? (int) $ptl->line_meta['bundle_id'] : null;
+                        break;
+                    }
+                }
+
+                $hasDirectBundleItems = $parentCandidate->bundleItems->isNotEmpty();
+                $directBundleId = $hasDirectBundleItems ? ($parentCandidate->bundleItems->first()->bundle_id ? (int) $parentCandidate->bundleItems->first()->bundle_id : null) : null;
+
+                // Split-owner carrier rows: any SaleBundleItem in checkout with sale_detail_id = $parentCandidate->id
+                $carrierBundleItems = $allSaleBundleItems->where('sale_detail_id', $parentCandidate->id);
+                $hasCarrierBundleItems = $carrierBundleItems->isNotEmpty();
+                $carrierBundleId = $hasCarrierBundleItems ? ($carrierBundleItems->first()->bundle_id ? (int) $carrierBundleItems->first()->bundle_id : null) : null;
+
+                if (!$hasPtlBundle && !$hasDirectBundleItems && !$hasCarrierBundleItems) {
+                    // Normal non-bundle sale: do not classify as a bundle parent even if product is a catalog bundle parent.
+                    continue;
+                }
+
+                $persistedBundleId = $ptlBundleId ?? $directBundleId ?? $carrierBundleId;
+
+                $catalogItems = $this->resolveCatalogBundleComponents((int) $parentCandidate->product_id, $persistedBundleId);
 
                 if ($catalogItems->isEmpty()) {
                     $catalogItems = $parentCandidate->bundleItems;
+                }
+
+                if ($catalogItems->isEmpty() && $hasCarrierBundleItems) {
+                    $catalogItems = $carrierBundleItems;
                 }
 
                 $resolvableItems = $this->filterResolvableFallbackComponents($catalogItems, (int) $parentCandidate->id);
@@ -1447,15 +1615,20 @@ class PosReturnSubmissionService
             }
             $seenLeafIds[] = $leafSerialId;
 
-            // Claim-exclusivity: the leaf serial must not already be claimed
-            // by another in-flight return, mirroring the same check applied
-            // to explicitly-submitted serial lines.
-            $this->assertReturnedSerialNotClaimedElsewhere($leafSerialId, $ignorePosReturnId);
-
             $leafSerial = ProductSerialNumber::find($leafSerialId);
             if (!$leafSerial) {
                 throw new \Exception("Serial komponen bundel tidak ditemukan untuk produk {$componentDetail->product_name}.");
             }
+
+            $sourceDispatchDetailId = (int) ($componentDispatchDetailId ?? 0);
+            if ($sourceDispatchDetailId <= 0) {
+                throw new \Exception("Lineage pengiriman sumber untuk komponen serial tidak valid.");
+            }
+
+            // Claim-exclusivity: the leaf serial must not already be claimed
+            // by another in-flight return, mirroring the same check applied
+            // to explicitly-submitted serial lines.
+            $this->assertReturnedSerialNotClaimedElsewhere($leafSerialId, $sourceDispatchDetailId, $ignorePosReturnId);
 
             // Resolve the leaf serial's CURRENT owner/location lineage —
             // a cross-owner replacement may have moved the component to a
@@ -1493,7 +1666,7 @@ class PosReturnSubmissionService
                 '__component_product_id' => $componentInfo['component_product_id'] ?? $leafSerial->product_id,
                 '__component_product_name' => $componentInfo['component_product_name'] ?? $leafSerial->product?->product_name,
                 '__component_product_code' => $componentInfo['component_product_code'] ?? $leafSerial->product?->product_code,
-                '__component_dispatch_detail_id' => $leafSerial->dispatch_detail_id,
+                '__component_dispatch_detail_id' => $sourceDispatchDetailId,
                 '__sale_bundle_item_id' => $componentInfo['sale_bundle_item_id'] ?? null,
             ];
         }
@@ -1596,6 +1769,26 @@ class PosReturnSubmissionService
         //    fixtures (see POSReturnApprovalPreviewPlannerTest::
         //    it_reports_a_blocker_when_a_bundle_component_target_is_missing).
         $parentToCatalogComponents = [];
+        $saleIdsInScope = $saleDetails->pluck('sale_id')->filter()->unique()->values();
+        $allSaleBundleItems = SaleBundleItem::whereIn('sale_id', $saleIdsInScope)->get();
+        $posTransactionId = 0;
+        $firstPtlId = $cashReturnLines->pluck('pos_transaction_line_id')->filter()->first();
+        if ($firstPtlId) {
+            $posTransactionId = (int) (\Modules\Pos\Entities\PosTransactionLine::where('id', $firstPtlId)->value('pos_transaction_id') ?? 0);
+        }
+        if ($posTransactionId === 0) {
+            $firstSaleId = $saleIdsInScope->first();
+            if ($firstSaleId) {
+                $checkoutSale = PosCheckoutSale::where('sale_id', $firstSaleId)->first();
+                if ($checkoutSale && $checkoutSale->pos_checkout_id) {
+                    $posTransactionId = (int) (\Modules\Pos\Entities\PosCheckout::where('id', $checkoutSale->pos_checkout_id)->value('pos_transaction_id') ?? 0);
+                }
+            }
+        }
+        $transactionPtls = $posTransactionId > 0
+            ? \Modules\Pos\Entities\PosTransactionLine::where('pos_transaction_id', $posTransactionId)->get()
+            : collect();
+
         foreach ($saleDetails as $saleDetail) {
             // A zero-quantity row is never itself a bundle PARENT line — it
             // is either a carrier row (hosting a cross-owner component,
@@ -1610,10 +1803,54 @@ class PosReturnSubmissionService
                 continue;
             }
 
-            $catalogItems = $this->resolveCatalogBundleComponents((int) $saleDetail->product_id);
+            // Determine if this saleDetail has persisted bundle evidence
+            $matchingLines = $cashReturnLines->where('sale_detail_id', $saleDetail->id);
+            $hasPtlBundle = false;
+            $ptlBundleId = null;
+            foreach ($matchingLines as $mLine) {
+                $ptlId = $mLine['pos_transaction_line_id'] ?? null;
+                $returnedSerialId = $mLine['returned_serial_id'] ?? null;
+
+                $ptl = null;
+                if ($ptlId) {
+                    $ptl = $transactionPtls->firstWhere('id', $ptlId) ?? \Modules\Pos\Entities\PosTransactionLine::find($ptlId);
+                } elseif ($returnedSerialId && $posTransactionId > 0) {
+                    $snObj = ProductSerialNumber::find($returnedSerialId);
+                    if ($snObj) {
+                        $snPtlId = \Modules\Pos\Entities\PosTransactionLineSerial::where('serial_number', $snObj->serial_number)
+                            ->whereHas('line', fn($q) => $q->where('pos_transaction_id', $posTransactionId))
+                            ->value('pos_transaction_line_id');
+                        if ($snPtlId) {
+                            $ptl = $transactionPtls->firstWhere('id', $snPtlId) ?? \Modules\Pos\Entities\PosTransactionLine::find($snPtlId);
+                        }
+                    }
+                }
+
+                if ($ptl && (!empty($ptl->line_meta['bundle_id']) || !empty($ptl->line_meta['is_bundle']) || !empty($ptl->line_meta['bundle_items']))) {
+                    $hasPtlBundle = true;
+                    $ptlBundleId = isset($ptl->line_meta['bundle_id']) ? (int) $ptl->line_meta['bundle_id'] : null;
+                    break;
+                }
+            }
+
+            $hasDirectBundleItems = $saleDetail->bundleItems->isNotEmpty();
+            $directBundleId = $hasDirectBundleItems ? ($saleDetail->bundleItems->first()->bundle_id ? (int) $saleDetail->bundleItems->first()->bundle_id : null) : null;
+
+            $carrierBundleItems = $allSaleBundleItems->where('sale_detail_id', $saleDetail->id);
+            $hasCarrierBundleItems = $carrierBundleItems->isNotEmpty();
+            $carrierBundleId = $hasCarrierBundleItems ? ($carrierBundleItems->first()->bundle_id ? (int) $carrierBundleItems->first()->bundle_id : null) : null;
+
+            if (!$hasPtlBundle && !$hasDirectBundleItems && !$hasCarrierBundleItems) {
+                // Normal sale of a product that happens to be a catalog bundle parent
+                continue;
+            }
+
+            $persistedBundleId = $ptlBundleId ?? $directBundleId ?? $carrierBundleId;
+
+            $catalogItems = $this->resolveCatalogBundleComponents((int) $saleDetail->product_id, $persistedBundleId);
             $hasCatalogBundle = $catalogItems->isNotEmpty();
             if (!$hasCatalogBundle) {
-                $catalogItems = $saleDetail->bundleItems;
+                $catalogItems = $hasDirectBundleItems ? $saleDetail->bundleItems : $carrierBundleItems;
             }
 
             $expectedItems = $hasCatalogBundle
@@ -1791,9 +2028,9 @@ class PosReturnSubmissionService
      *
      * @return \Illuminate\Support\Collection<int, \Modules\Product\Entities\ProductBundleItem>
      */
-    protected function resolveCatalogBundleComponents(int $parentProductId): \Illuminate\Support\Collection
+    protected function resolveCatalogBundleComponents(int $parentProductId, ?int $bundleId = null): \Illuminate\Support\Collection
     {
-        return $this->bundleComponentResolver->resolveCatalogBundleComponents($parentProductId);
+        return $this->bundleComponentResolver->resolveCatalogBundleComponents($parentProductId, $bundleId);
     }
 
     /**
@@ -1881,13 +2118,14 @@ class PosReturnSubmissionService
         })->values();
     }
 
-    protected function assertReturnedSerialNotClaimedElsewhere(int $returnedSerialId, ?int $ignorePosReturnId = null): void
+    protected function assertReturnedSerialNotClaimedElsewhere(int $returnedSerialId, int $dispatchDetailId, ?int $ignorePosReturnId = null): void
     {
-        if ($returnedSerialId <= 0) {
+        if ($returnedSerialId <= 0 || $dispatchDetailId <= 0) {
             return;
         }
 
         $query = PosReturnLine::where('returned_serial_id', $returnedSerialId)
+            ->where('dispatch_detail_id', $dispatchDetailId)
             ->whereHas('posReturn', function ($q) {
                 $q->active()->whereIn('status', [
                     PosReturn::STATUS_PENDING_APPROVAL,

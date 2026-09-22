@@ -122,11 +122,22 @@ class PosBundleComponentResolver
      *
      * @return \Illuminate\Support\Collection<int, \Modules\Product\Entities\ProductBundleItem>
      */
-    public function resolveCatalogBundleComponents(int $parentProductId): \Illuminate\Support\Collection
+    public function resolveCatalogBundleComponents(int $parentProductId, ?int $bundleId = null): \Illuminate\Support\Collection
     {
-        $bundle = \Modules\Product\Entities\ProductBundle::query()
-            ->where('parent_product_id', $parentProductId)
-            ->first();
+        $query = \Modules\Product\Entities\ProductBundle::query()
+            ->where('parent_product_id', $parentProductId);
+
+        if ($bundleId) {
+            $query->whereKey($bundleId);
+        } else {
+            // When no exact bundleId is specified, only resolve if there is exactly ONE catalog bundle definition for this parent.
+            // If multiple bundle definitions share the parent, do not guess with first().
+            if ($query->count() !== 1) {
+                return collect();
+            }
+        }
+
+        $bundle = $query->first();
 
         if (! $bundle) {
             return collect();

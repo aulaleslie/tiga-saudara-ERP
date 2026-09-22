@@ -131,60 +131,6 @@ class PosReturnSnapshotService
         $isTracked = (bool) ($detail->product->serial_number_required ?? false);
         $results = [];
 
-        // Corrections/2 (and split-owner carrier-row correction): bundle_items
-        // entries now carry full component identity (own sale_detail_id/
-        // dispatch_detail_id/is_tracked/serials) so the UI and backend can
-        // act on each component independently, not just trace it.
-        //
-        // $detail->bundleItems (SaleBundleItem rows attached directly to THIS
-        // parent's own SaleDetails row) only reflects same-owner bundle
-        // composition. In a split-owner checkout, a component whose owner
-        // differs from the parent's has its SaleBundleItem attached to a
-        // CARRIER row in the COMPONENT's own owner Sale instead — $detail
-        // (the parent's row) never gets that SaleBundleItem at all, so
-        // $detail->bundleItems is empty or incomplete for cross-owner
-        // components. Resolve the catalog ProductBundle definition (by the
-        // parent product's own bundle header) whenever available, and use ITS
-        // full component list to drive resolution across all checkout sales
-        // — this is authoritative for "what components does this bundle
-        // instance actually have," independent of which owner posted them.
-        $catalogBundleItems = $this->resolveCatalogBundleComponents((int) $detail->product_id);
-
-        if ($catalogBundleItems->isNotEmpty()) {
-            $bundleId = $catalogBundleItems->first()->bundle_id;
-            $bundleItems = $catalogBundleItems->map(function ($cbi) use ($checkoutSale, $allCheckoutSales, $detail, $bundleId) {
-                return $this->buildComponentBundleItemEntry(
-                    $checkoutSale,
-                    $cbi->product_id,
-                    (float) $cbi->quantity,
-                    $cbi->product->product_name ?? null,
-                    $cbi->product->product_code ?? null,
-                    $detail->id,
-                    $allCheckoutSales,
-                    $bundleId,
-                    (int) $cbi->id
-                );
-            })->toArray();
-        } else {
-            // No catalog bundle definition resolvable (e.g. legacy/manual
-            // test data) — fall back to the parent's own persisted
-            // SaleBundleItem rows, matching the previous (same-owner-safe)
-            // behavior exactly.
-            $bundleItems = $detail->bundleItems->map(function ($bi) use ($checkoutSale, $allCheckoutSales, $detail) {
-                return $this->buildComponentBundleItemEntry(
-                    $checkoutSale,
-                    $bi->product_id,
-                    (float) $bi->quantity,
-                    $bi->product->product_name,
-                    $bi->product->product_code,
-                    $detail->id,
-                    $allCheckoutSales,
-                    $bi->bundle_id,
-                    (int) $bi->id
-                );
-            })->toArray();
-        }
-
         // Check if zero-quantity split component (Task 2.8)
         $isZeroQtyComponent = false;
         if ($originalQuantity == 0.0 && $unitPrice == 0.0) {
@@ -201,11 +147,9 @@ class PosReturnSnapshotService
 
                 $ptl = $ptlId ? \Modules\Pos\Entities\PosTransactionLine::find($ptlId) : null;
                 
-                $serialIsBundle = $isBundle;
-                $serialBundleItems = $bundleItems;
                 $serialUnitPrice = $unitPrice;
 
-                // Task 2.7: POS transaction line metadata is the source of truth for bundle context.
+                // Task 2.7 & Bundle presence rule: POS transaction line metadata is the source of truth for bundle context.
                 // Accept bundle_id (real POS checkout), is_bundle (test/manual), or non-empty bundle_items.
                 $ptlIsBundle = $ptl && (
                     !empty($ptl->line_meta['bundle_id']) ||
@@ -213,39 +157,114 @@ class PosReturnSnapshotService
                     !empty($ptl->line_meta['bundle_items'])
                 );
 
+                $serialIsBundle = false;
+                $serialBundleItems = [];
+                $ptlBundleId = null;
+
                 if ($ptlIsBundle) {
                     $serialIsBundle = true;
-                    $serialBundleItems = [];
                     $bundleMetaItems = $ptl->line_meta['bundle_items'] ?? [];
                     $ptlBundleId = isset($ptl->line_meta['bundle_id']) ? (int) $ptl->line_meta['bundle_id'] : null;
 
-                    foreach ($bundleMetaItems as $itemIndex => $item) {
-                        $componentProductId = $item['product_id'] ?? null;
+                    if (!empty($bundleMetaItems)) {
+                        foreach ($bundleMetaItems as $itemIndex => $item) {
+                            $componentProductId = $item['product_id'] ?? null;
 
-                        // Task 2.10 / Corrections/2 / split-owner carrier-row
-                        // correction: Align to source allocation context and
-                        // expose full component identity (own sale_detail_id/
-                        // dispatch_detail_id/is_tracked/serials), passing the
-                        // PTL's own bundle_id (the strongest identity signal
-                        // available here) so the same component product
-                        // appearing in two different bundle purchases in one
-                        // transaction cannot be cross-matched.
-                        $serialBundleItems[] = $this->buildComponentBundleItemEntry(
-                            $checkoutSale,
-                            $componentProductId,
-                            (float)($item['quantity'] ?? $item['qty'] ?? 0),
-                            $item['name'] ?? $item['product_name'] ?? 'Unknown Component',
-                            null,
-                            $detail->id,
-                            $allCheckoutSales,
-                            $ptlBundleId,
-                            isset($item['bundle_item_id']) ? (int) $item['bundle_item_id'] : null
-                        );
+                            // Task 2.10 / Corrections/2 / split-owner carrier-row
+                            // correction: Align to source allocation context and
+                            // expose full component identity (own sale_detail_id/
+                            // dispatch_detail_id/is_tracked/serials), passing the
+                            // PTL's own bundle_id (the strongest identity signal
+                            // available here) so the same component product
+                            // appearing in two different bundle purchases in one
+                            // transaction cannot be cross-matched.
+                            $serialBundleItems[] = $this->buildComponentBundleItemEntry(
+                                $checkoutSale,
+                                $componentProductId,
+                                (float)($item['quantity'] ?? $item['qty'] ?? 0),
+                                $item['name'] ?? $item['product_name'] ?? 'Unknown Component',
+                                null,
+                                $detail->id,
+                                $allCheckoutSales,
+                                $ptlBundleId,
+                                isset($item['bundle_item_id']) ? (int) $item['bundle_item_id'] : null
+                            );
+                        }
+                    } else {
+                        // PTL has bundle_id or is_bundle = true, but bundle_items list is not in line_meta.
+                        // Resolve from catalog ProductBundle using exact bundle_id if present.
+                        $catalogItems = $this->resolveCatalogBundleComponents((int) $detail->product_id, $ptlBundleId);
+                        if ($catalogItems->isNotEmpty()) {
+                            $effectiveBundleId = $ptlBundleId ?? (int) $catalogItems->first()->bundle_id;
+                            $serialBundleItems = $catalogItems->map(function ($cbi) use ($checkoutSale, $allCheckoutSales, $detail, $effectiveBundleId) {
+                                return $this->buildComponentBundleItemEntry(
+                                    $checkoutSale,
+                                    $cbi->product_id,
+                                    (float) $cbi->quantity,
+                                    $cbi->product->product_name ?? null,
+                                    $cbi->product->product_code ?? null,
+                                    $detail->id,
+                                    $allCheckoutSales,
+                                    $effectiveBundleId,
+                                    (int) $cbi->id
+                                );
+                            })->toArray();
+                        } elseif ($detail->bundleItems->isNotEmpty()) {
+                            $serialBundleItems = $detail->bundleItems->map(function ($bi) use ($checkoutSale, $allCheckoutSales, $detail, $ptlBundleId) {
+                                return $this->buildComponentBundleItemEntry(
+                                    $checkoutSale,
+                                    $bi->product_id,
+                                    (float) $bi->quantity,
+                                    $bi->product->product_name,
+                                    $bi->product->product_code,
+                                    $detail->id,
+                                    $allCheckoutSales,
+                                    $ptlBundleId ?? $bi->bundle_id,
+                                    (int) $bi->id
+                                );
+                            })->toArray();
+                        }
                     }
                     
                     // Task 3.9: Use full original POS unit price for bundled serials
                     if ($ptl->unit_price > 0) {
                         $serialUnitPrice = (float) $ptl->unit_price;
+                    }
+                } elseif ($detail->bundleItems->isNotEmpty()) {
+                    // Direct persisted SaleBundleItem records establish the bundle occurrence.
+                    $serialIsBundle = true;
+                    $persistedBundleId = $detail->bundleItems->first()->bundle_id ? (int) $detail->bundleItems->first()->bundle_id : null;
+                    $catalogItems = $this->resolveCatalogBundleComponents((int) $detail->product_id, $persistedBundleId);
+
+                    if ($catalogItems->isNotEmpty()) {
+                        $effectiveBundleId = $persistedBundleId ?? (int) $catalogItems->first()->bundle_id;
+                        $serialBundleItems = $catalogItems->map(function ($cbi) use ($checkoutSale, $allCheckoutSales, $detail, $effectiveBundleId) {
+                            return $this->buildComponentBundleItemEntry(
+                                $checkoutSale,
+                                $cbi->product_id,
+                                (float) $cbi->quantity,
+                                $cbi->product->product_name ?? null,
+                                $cbi->product->product_code ?? null,
+                                $detail->id,
+                                $allCheckoutSales,
+                                $effectiveBundleId,
+                                (int) $cbi->id
+                            );
+                        })->toArray();
+                    } else {
+                        $serialBundleItems = $detail->bundleItems->map(function ($bi) use ($checkoutSale, $allCheckoutSales, $detail) {
+                            return $this->buildComponentBundleItemEntry(
+                                $checkoutSale,
+                                $bi->product_id,
+                                (float) $bi->quantity,
+                                $bi->product->product_name,
+                                $bi->product->product_code,
+                                $detail->id,
+                                $allCheckoutSales,
+                                $bi->bundle_id,
+                                (int) $bi->id
+                            );
+                        })->toArray();
                     }
                 }
 
@@ -274,13 +293,51 @@ class PosReturnSnapshotService
                     'serial_numbers' => [$sn],
                     // Task 2.7: bundle context from PTL metadata as source of truth
                     'is_bundle' => $serialIsBundle,
-                    'bundle_id' => $ptlIsBundle ? ($ptl->line_meta['bundle_id'] ?? null) : null,
+                    'bundle_id' => $ptlIsBundle ? ($ptl->line_meta['bundle_id'] ?? null) : ($serialIsBundle ? ($detail->bundleItems->first()->bundle_id ?? null) : null),
                     'bundle_name' => $ptlIsBundle ? ($ptl->line_meta['bundle_name'] ?? null) : null,
                     'bundle_items' => $serialBundleItems,
                     'is_zero_qty_component' => false,
                 ];
             }
         } else {
+            // Non-serial tracked line: resolve bundle items ONLY if persisted bundle evidence exists
+            $nonSerialBundleItems = [];
+            if ($isBundle) {
+                $persistedBundleId = $detail->bundleItems->first()->bundle_id ? (int) $detail->bundleItems->first()->bundle_id : null;
+                $catalogItems = $this->resolveCatalogBundleComponents((int) $detail->product_id, $persistedBundleId);
+
+                if ($catalogItems->isNotEmpty()) {
+                    $effectiveBundleId = $persistedBundleId ?? (int) $catalogItems->first()->bundle_id;
+                    $nonSerialBundleItems = $catalogItems->map(function ($cbi) use ($checkoutSale, $allCheckoutSales, $detail, $effectiveBundleId) {
+                        return $this->buildComponentBundleItemEntry(
+                            $checkoutSale,
+                            $cbi->product_id,
+                            (float) $cbi->quantity,
+                            $cbi->product->product_name ?? null,
+                            $cbi->product->product_code ?? null,
+                            $detail->id,
+                            $allCheckoutSales,
+                            $effectiveBundleId,
+                            (int) $cbi->id
+                        );
+                    })->toArray();
+                } else {
+                    $nonSerialBundleItems = $detail->bundleItems->map(function ($bi) use ($checkoutSale, $allCheckoutSales, $detail) {
+                        return $this->buildComponentBundleItemEntry(
+                            $checkoutSale,
+                            $bi->product_id,
+                            (float) $bi->quantity,
+                            $bi->product->product_name,
+                            $bi->product->product_code,
+                            $detail->id,
+                            $allCheckoutSales,
+                            $bi->bundle_id,
+                            (int) $bi->id
+                        );
+                    })->toArray();
+                }
+            }
+
             // Non-serial tracked, one row for the whole sale detail
             $returnedQty = (float) PosReturnLine::whereHas('posReturn', function ($q) {
                 $q->consumesReturnQuantity();
@@ -305,7 +362,7 @@ class PosReturnSnapshotService
                 'serial_number_ids' => [],
                 'serial_numbers' => [],
                 'is_bundle' => $isBundle,
-                'bundle_items' => $bundleItems,
+                'bundle_items' => $nonSerialBundleItems,
                 'is_zero_qty_component' => $isZeroQtyComponent,
             ];
         }
@@ -326,12 +383,12 @@ class PosReturnSnapshotService
      *
      * @return \Illuminate\Support\Collection<int, \Modules\Product\Entities\ProductBundleItem>
      */
-    protected function resolveCatalogBundleComponents(int $parentProductId): \Illuminate\Support\Collection
+    protected function resolveCatalogBundleComponents(int $parentProductId, ?int $bundleId = null): \Illuminate\Support\Collection
     {
         // Corrections/10: delegated to PosBundleComponentResolver — shared
         // with PosReturnSubmissionService so both call sites can never
         // disagree about the catalog bundle definition source.
-        return $this->bundleComponentResolver->resolveCatalogBundleComponents($parentProductId);
+        return $this->bundleComponentResolver->resolveCatalogBundleComponents($parentProductId, $bundleId);
     }
 
     /**

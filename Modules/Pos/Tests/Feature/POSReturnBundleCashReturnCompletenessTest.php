@@ -1215,6 +1215,7 @@ class POSReturnBundleCashReturnCompletenessTest extends PosTransactionFeatureTes
             'line_total' => 0,
             'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
             'returned_serial_id' => $originalSerial->id,
+            'dispatch_detail_id' => $originalSerial->dispatch_detail_id,
             'expected_cash_amount' => 0,
         ]);
 

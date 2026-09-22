@@ -39,10 +39,12 @@ class POSReturnBundleRegressionTest extends PosTransactionFeatureTestCase
         [$this->terminal, $this->location] = $this->createTerminalWithLocation($this->setting);
 
         Permission::findOrCreate('pos.returns.create', 'web');
+        Permission::findOrCreate('pos.returns.view', 'web');
 
         $this->user = $this->createUserForSetting($this->setting, 'POS Clerk', [
             'pos.access',
             'pos.returns.create',
+            'pos.returns.view',
         ]);
 
         $this->session = $this->openSession($this->setting, $this->terminal, $this->user);
@@ -577,6 +579,20 @@ class POSReturnBundleRegressionTest extends PosTransactionFeatureTestCase
             'product_tax_amount' => 0,
             'serial_number_ids' => [$sn->id],
         ]);
+
+        $sdComp = SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $comp->id,
+            'quantity' => 0,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 0,
+            'product_name' => $comp->product_name,
+            'product_code' => $comp->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
         \Modules\Sale\Entities\SaleBundleItem::create([
             'sale_id' => $sale->id,
             'sale_detail_id' => $sd->id,
@@ -594,6 +610,13 @@ class POSReturnBundleRegressionTest extends PosTransactionFeatureTestCase
             'dispatch_id' => $dispatch->id,
             'sale_id' => $sale->id,
             'product_id' => $parent->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $this->location->id,
+        ]);
+        DispatchDetail::create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $comp->id,
             'dispatched_quantity' => 1,
             'location_id' => $this->location->id,
         ]);
@@ -653,5 +676,329 @@ class POSReturnBundleRegressionTest extends PosTransactionFeatureTestCase
             ->where('location_id', $this->location->id)
             ->value('quantity');
         $this->assertEquals(20, $compStock, "Component stock must not be mutated during draft save.");
+    }
+
+    /** @test */
+    public function normal_serialized_sale_of_product_that_is_catalog_bundle_parent_produces_no_bundle_trace_or_components()
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        $comp = $this->createStockedProduct($this->setting, $this->location, ['product_name' => 'Add-on Product', 'product_code' => 'ADDON', 'stock_qty' => 10]);
+
+        $parent = $this->createStockedProduct($this->setting, $this->location, [
+            'product_name' => 'Dual Purpose Parent',
+            'product_code' => 'DP-PARENT',
+            'serial_number_required' => true,
+            'sale_price' => 4500000,
+        ]);
+
+        // Catalog bundle configuration exists
+        $bundle = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $this->setting->id,
+            'name' => 'Dual Purpose Parent Bundle',
+        ]);
+        \Modules\Product\Entities\ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $comp->id,
+            'quantity' => 1,
+        ]);
+
+        $sn = $this->createSerialNumber($parent, $this->location, 'SN-NORMAL-001');
+
+        $transaction = PosTransaction::create([
+            'setting_id' => $this->setting->id,
+            'code' => 'TXN-NORMAL-PARENT-TEST',
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => $this->session->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $this->setting->id,
+            'pos_transaction_id' => $transaction->id,
+            'pos_session_id' => $this->session->id,
+            'terminal_id' => $this->terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'receipt_number' => 'RCP-NORMAL-PARENT',
+            'grand_total' => 4500000,
+            'idempotency_key' => 'IDEM-NORMAL-PARENT',
+            'payload_hash' => 'HASH-NORMAL-PARENT',
+        ]);
+        $transaction->update(['completed_checkout_id' => $checkout->id]);
+
+        $sale = Sale::create([
+            'setting_id' => $this->setting->id,
+            'customer_name' => 'Normal Customer',
+            'total_amount' => 4500000,
+            'paid_amount' => 4500000,
+            'due_amount' => 0,
+            'date' => now()->toDateString(),
+            'status' => 'DISPATCHED',
+            'payment_status' => 'PAID',
+            'payment_method' => 'CASH',
+            'reference' => 'SO-NORMAL-PARENT',
+        ]);
+        $cs = PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'sale_id' => $sale->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'grand_total' => 4500000,
+            'subtotal' => 4500000,
+            'split_key' => 'SPL-NORMAL-PARENT',
+            'tax_bucket' => 'NON_TAX',
+        ]);
+
+        // Sale Detail has NO SaleBundleItem records
+        $sd = SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $parent->id,
+            'quantity' => 1,
+            'price' => 4500000,
+            'unit_price' => 4500000,
+            'sub_total' => 4500000,
+            'product_name' => $parent->product_name,
+            'product_code' => $parent->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'serial_number_ids' => [$sn->id],
+        ]);
+
+        $dispatch = Dispatch::create(['sale_id' => $sale->id, 'status' => Dispatch::STATUS_APPROVED]);
+        $dd = DispatchDetail::create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $parent->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $this->location->id,
+        ]);
+        $sn->update(['dispatch_detail_id' => $dd->id, 'status' => 'SOLD']);
+
+        // PTL has NO bundle metadata
+        $ptl = \Modules\Pos\Entities\PosTransactionLine::create([
+            'pos_transaction_id' => $transaction->id,
+            'product_id' => $parent->id,
+            'product_name_snapshot' => $parent->product_name,
+            'product_code_snapshot' => $parent->product_code,
+            'qty' => 1,
+            'unit_price' => 4500000,
+            'line_no' => 1,
+            'line_meta' => [
+                'bundle_id' => null,
+                'bundle_name' => null,
+                'bundle_items' => [],
+            ],
+        ]);
+        \Modules\Pos\Entities\PosTransactionLineSerial::create([
+            'pos_transaction_line_id' => $ptl->id,
+            'serial_number' => 'SN-NORMAL-001',
+        ]);
+
+        // 1. Snapshot verification
+        $snapshot = $this->snapshotService->build($transaction->id);
+        $this->assertCount(1, $snapshot['lines']);
+        $snapshotLine = $snapshot['lines'][0];
+
+        $this->assertFalse($snapshotLine['is_bundle'], 'Normal sale must have is_bundle = false.');
+        $this->assertNull($snapshotLine['bundle_id'], 'Normal sale must have bundle_id = null.');
+        $this->assertNull($snapshotLine['bundle_name'], 'Normal sale must have bundle_name = null.');
+        $this->assertEmpty($snapshotLine['bundle_items'], 'Normal sale must have empty bundle_items.');
+
+        // 2. Draft submission verification: submit cash_return
+        $posReturn = $this->submissionService->store([
+            'pos_transaction_id' => $transaction->id,
+            'source_snapshot_hash' => $snapshot['hash'],
+            'lines' => [
+                [
+                    'sale_detail_id' => $sd->id,
+                    'sale_id' => $sale->id,
+                    'returned_serial_id' => $sn->id,
+                    'pos_transaction_line_id' => $ptl->id,
+                    'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+                    'quantity' => 1,
+                ],
+            ],
+        ]);
+
+        $this->assertNotNull($posReturn);
+        $lines = $posReturn->lines()->get();
+        $this->assertCount(1, $lines, 'Must not synthesize any component lines for normal sale.');
+        $returnLine = $lines->first();
+        $this->assertNull($returnLine->bundle_parent_sale_detail_id);
+        $this->assertNull($returnLine->bundle_group_key);
+        $this->assertEmpty(data_get($returnLine->line_meta, 'bundle_trace'));
+
+        // 3. Approval Preview Planner verification: no component return lines planned
+        $plan = app(\Modules\Pos\Services\PosReturnApprovalPreviewPlannerService::class)->plan($posReturn);
+        $this->assertFalse($plan['is_blocked'] ?? true);
+        $this->assertCount(1, $plan['groups'] ?? []);
+        $this->assertCount(1, $plan['groups'][0]['planned_details'] ?? []);
+        $this->assertEquals('parent', $plan['groups'][0]['planned_details'][0]['row_type']);
+
+        // 4. Readonly Detail View verification: no "Komponen Trace"
+        $response = $this->get(route('pos.returns.show', $posReturn->id));
+        $response->assertOk();
+        $response->assertDontSee('Komponen Trace');
+    }
+
+    /** @test */
+    public function multiple_catalog_bundles_sharing_same_parent_selects_persisted_bundle_id()
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        $compA = $this->createStockedProduct($this->setting, $this->location, ['product_name' => 'Option A Comp', 'product_code' => 'OPT-A', 'stock_qty' => 10]);
+        $compB = $this->createStockedProduct($this->setting, $this->location, ['product_name' => 'Option B Comp', 'product_code' => 'OPT-B', 'stock_qty' => 10]);
+
+        $parent = $this->createStockedProduct($this->setting, $this->location, [
+            'product_name' => 'Multi Bundle Parent',
+            'product_code' => 'MB-PARENT',
+            'serial_number_required' => true,
+            'sale_price' => 5000000,
+        ]);
+
+        // Bundle 1: Parent + CompA
+        $bundle1 = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $this->setting->id,
+            'name' => 'Bundle 1 (Option A)',
+        ]);
+        \Modules\Product\Entities\ProductBundleItem::create([
+            'bundle_id' => $bundle1->id,
+            'product_id' => $compA->id,
+            'quantity' => 1,
+        ]);
+
+        // Bundle 2: Parent + CompB
+        $bundle2 = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $this->setting->id,
+            'name' => 'Bundle 2 (Option B)',
+        ]);
+        $bi2 = \Modules\Product\Entities\ProductBundleItem::create([
+            'bundle_id' => $bundle2->id,
+            'product_id' => $compB->id,
+            'quantity' => 1,
+        ]);
+
+        $sn = $this->createSerialNumber($parent, $this->location, 'SN-MB-002');
+
+        $transaction = PosTransaction::create([
+            'setting_id' => $this->setting->id,
+            'code' => 'TXN-MB-TEST',
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => $this->session->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $this->setting->id,
+            'pos_transaction_id' => $transaction->id,
+            'pos_session_id' => $this->session->id,
+            'terminal_id' => $this->terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'receipt_number' => 'RCP-MB',
+            'grand_total' => 5000000,
+            'idempotency_key' => 'IDEM-MB',
+            'payload_hash' => 'HASH-MB',
+        ]);
+        $transaction->update(['completed_checkout_id' => $checkout->id]);
+
+        $sale = Sale::create([
+            'setting_id' => $this->setting->id,
+            'customer_name' => 'MB Customer',
+            'total_amount' => 5000000,
+            'paid_amount' => 5000000,
+            'due_amount' => 0,
+            'date' => now()->toDateString(),
+            'status' => 'DISPATCHED',
+            'payment_status' => 'PAID',
+            'payment_method' => 'CASH',
+            'reference' => 'SO-MB',
+        ]);
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'sale_id' => $sale->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'grand_total' => 5000000,
+            'subtotal' => 5000000,
+            'split_key' => 'SPL-MB',
+            'tax_bucket' => 'NON_TAX',
+        ]);
+
+        $sd = SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $parent->id,
+            'quantity' => 1,
+            'price' => 5000000,
+            'unit_price' => 5000000,
+            'sub_total' => 5000000,
+            'product_name' => $parent->product_name,
+            'product_code' => $parent->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'serial_number_ids' => [$sn->id],
+        ]);
+
+        \Modules\Sale\Entities\SaleBundleItem::create([
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $sd->id,
+            'bundle_id' => $bundle2->id, // Persisted bundle is Bundle 2 (Option B)
+            'bundle_item_id' => $bi2->id,
+            'product_id' => $compB->id,
+            'name' => $compB->product_name,
+            'quantity' => 1,
+            'price' => 0,
+            'sub_total' => 0,
+        ]);
+
+        $dispatch = Dispatch::create(['sale_id' => $sale->id, 'status' => Dispatch::STATUS_APPROVED]);
+        $dd = DispatchDetail::create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $parent->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $this->location->id,
+        ]);
+        $sn->update(['dispatch_detail_id' => $dd->id, 'status' => 'SOLD']);
+
+        $ptl = \Modules\Pos\Entities\PosTransactionLine::create([
+            'pos_transaction_id' => $transaction->id,
+            'product_id' => $parent->id,
+            'product_name_snapshot' => $parent->product_name,
+            'product_code_snapshot' => $parent->product_code,
+            'qty' => 1,
+            'unit_price' => 5000000,
+            'line_no' => 1,
+            'line_meta' => [
+                'is_bundle' => true,
+                'bundle_id' => $bundle2->id, // Specifically Bundle 2
+                'bundle_items' => [
+                    ['product_id' => $compB->id, 'product_name' => $compB->product_name, 'quantity' => 1],
+                ],
+            ],
+        ]);
+        \Modules\Pos\Entities\PosTransactionLineSerial::create([
+            'pos_transaction_line_id' => $ptl->id,
+            'serial_number' => 'SN-MB-002',
+        ]);
+
+        // Snapshot verification
+        $snapshot = $this->snapshotService->build($transaction->id);
+        $this->assertCount(1, $snapshot['lines']);
+        $snapshotLine = $snapshot['lines'][0];
+
+        $this->assertTrue($snapshotLine['is_bundle']);
+        $this->assertEquals($bundle2->id, $snapshotLine['bundle_id']);
+        $this->assertCount(1, $snapshotLine['bundle_items']);
+        $this->assertEquals($compB->id, $snapshotLine['bundle_items'][0]['product_id']);
+        $this->assertNotEquals($compA->id, $snapshotLine['bundle_items'][0]['product_id']);
     }
 }
