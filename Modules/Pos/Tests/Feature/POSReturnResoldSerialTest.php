@@ -421,6 +421,14 @@ class POSReturnResoldSerialTest extends PosTransactionFeatureTestCase
         $this->assertEquals(PosReturn::STATUS_PENDING_APPROVAL, $secondReturn->status);
         $this->assertCount(1, $secondReturn->lines);
         $this->assertEquals($dispatchDetail2->id, $secondReturn->lines->first()->dispatch_detail_id);
+
+        // Execute full approval & receiving lifecycle for second return — must SUCCEED because it's a new dispatch
+        $plan2 = $this->plannerService->plan($secondReturn->fresh());
+        $this->assertEmpty($plan2['blockers'] ?? []);
+        $this->lifecycleService->executeApprovalFromPreview($secondReturn->id, PosReturn::OPTION_CASH_RETURN, $plan2);
+
+        $secondReturn->refresh();
+        $this->assertEquals(PosReturn::STATUS_COMPLETED, $secondReturn->status);
     }
 
     /** @test */
@@ -557,6 +565,14 @@ class POSReturnResoldSerialTest extends PosTransactionFeatureTestCase
         $synthesizedCompLine = $secondReturn->lines->firstWhere('returned_serial_id', $compSerial->id);
         $this->assertNotNull($synthesizedCompLine);
         $this->assertEquals($compDispatchDetail2->id, $synthesizedCompLine->dispatch_detail_id);
+
+        // Execute full approval & receiving lifecycle for second bundle return — must SUCCEED because it's a new dispatch
+        $plan2 = $this->plannerService->plan($secondReturn->fresh());
+        $this->assertEmpty($plan2['blockers'] ?? []);
+        $this->lifecycleService->executeApprovalFromPreview($secondReturn->id, PosReturn::OPTION_CASH_RETURN, $plan2);
+
+        $secondReturn->refresh();
+        $this->assertEquals(PosReturn::STATUS_COMPLETED, $secondReturn->status);
     }
 
     /** @test */
@@ -772,5 +788,237 @@ class POSReturnResoldSerialTest extends PosTransactionFeatureTestCase
                 ],
             ],
         ]);
+    }
+
+    /** @test */
+    public function it_rejects_approval_synchronize_when_competing_active_return_has_same_serial_and_same_dispatch()
+    {
+        $product = $this->createStockedProduct($this->setting, $this->location, [
+            'product_name' => 'Serialized Phone',
+            'product_code' => 'PHN-001',
+            'serial_number_required' => true,
+            'stock_qty' => 2,
+        ]);
+        $serial = $this->createSerialNumber($product, $this->location, 'SN-PHN-5001');
+
+        [$transaction, $sale, $saleDetail, $dispatchDetail] = $this->createSerializedSaleFixture($product, $serial);
+
+        $snapshot = $this->snapshotService->build($transaction->id);
+
+        // First return draft + submit
+        $return1 = $this->submissionService->store([
+            'pos_transaction_id' => $transaction->id,
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'source_snapshot' => $snapshot,
+            'source_snapshot_hash' => $snapshot['hash'],
+            'lines' => [
+                [
+                    'sale_detail_id' => $saleDetail->id,
+                    'quantity' => 1,
+                    'returned_serial_id' => $serial->id,
+                    'resolution' => PosReturn::OPTION_CASH_RETURN,
+                ],
+            ],
+        ]);
+        $return1 = $this->submissionService->submitDraftForApproval($return1->fresh());
+
+        // Synchronize approval plan for return1 (creates linked SaleReturn)
+        $persistenceService = app(\Modules\Pos\Services\PosReturnApprovalPlanPersistenceService::class);
+        $plan1 = $this->plannerService->plan($return1->fresh());
+        $persistenceService->synchronize($return1->fresh(), $plan1);
+
+        // Second return draft created directly for the same transaction/dispatch
+        $return2 = PosReturn::create([
+            'reference' => 'POSRT-COMPETE-' . uniqid(),
+            'setting_id' => $this->setting->id,
+            'pos_transaction_id' => $transaction->id,
+            'pos_checkout_id' => $transaction->completed_checkout_id,
+            'transaction_code' => $sale->reference,
+            'receipt_number' => $sale->reference,
+            'customer_id' => null,
+            'customer_name' => 'Walk-in Customer',
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'status' => PosReturn::STATUS_PENDING_APPROVAL,
+            'approval_status' => PosReturn::APPROVAL_STATUS_PENDING,
+            'source_snapshot' => $snapshot,
+            'source_snapshot_hash' => $snapshot['hash'],
+            'total_amount' => 500000,
+            'created_by' => $this->user->id,
+        ]);
+        PosReturnLine::create([
+            'pos_return_id' => $return2->id,
+            'pos_checkout_sale_id' => PosCheckoutSale::where('sale_id', $sale->id)->value('id'),
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetail->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'unit_price' => 500000,
+            'line_total' => 500000,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            'returned_serial_id' => $serial->id,
+            'dispatch_detail_id' => $dispatchDetail->id,
+            'expected_cash_amount' => 500000,
+        ]);
+
+        $plan2 = $this->plannerService->plan($return2->fresh());
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Satu atau lebih serial pada rencana ini sudah diklaim oleh retur lain');
+
+        $persistenceService->synchronize($return2->fresh(), $plan2);
+    }
+
+    /** @test */
+    public function it_reproduces_and_allows_return_86_pattern_across_different_dispatches()
+    {
+        // Pattern: Serial 1010 sold in Dispatch 1 (Return 84 completed), then resold in Dispatch 2 (Return 86)
+        $product = $this->createStockedProduct($this->setting, $this->location, [
+            'product_name' => 'High-end Camera',
+            'product_code' => 'CAM-86',
+            'serial_number_required' => true,
+            'stock_qty' => 1,
+        ]);
+        $serial = $this->createSerialNumber($product, $this->location, 'SN-1010');
+
+        // First occurrence (Return 84 / dispatch 421148 equivalent)
+        [$txn1, $sale1, $saleDetail1, $dispatch1] = $this->createSerializedSaleFixture($product, $serial, 1200000);
+        $snapshot1 = $this->snapshotService->build($txn1->id);
+
+        $return84 = $this->submissionService->store([
+            'pos_transaction_id' => $txn1->id,
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'source_snapshot' => $snapshot1,
+            'source_snapshot_hash' => $snapshot1['hash'],
+            'lines' => [
+                [
+                    'sale_detail_id' => $saleDetail1->id,
+                    'quantity' => 1,
+                    'returned_serial_id' => $serial->id,
+                    'resolution' => PosReturn::OPTION_CASH_RETURN,
+                ],
+            ],
+        ]);
+        $return84 = $this->submissionService->submitDraftForApproval($return84->fresh());
+        $plan84 = $this->plannerService->plan($return84->fresh());
+        $this->lifecycleService->executeApprovalFromPreview($return84->id, PosReturn::OPTION_CASH_RETURN, $plan84);
+
+        $return84->refresh();
+        $this->assertEquals(PosReturn::STATUS_COMPLETED, $return84->status);
+
+        // Second occurrence (Resale / dispatch 421282 equivalent)
+        [$txn2, $sale2, $saleDetail2, $dispatch2] = $this->createSerializedSaleFixture($product, $serial, 1200000);
+        $this->assertNotEquals($dispatch1->id, $dispatch2->id);
+
+        $snapshot2 = $this->snapshotService->build($txn2->id);
+        $return86 = $this->submissionService->store([
+            'pos_transaction_id' => $txn2->id,
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'source_snapshot' => $snapshot2,
+            'source_snapshot_hash' => $snapshot2['hash'],
+            'lines' => [
+                [
+                    'sale_detail_id' => $saleDetail2->id,
+                    'quantity' => 1,
+                    'returned_serial_id' => $serial->id,
+                    'resolution' => PosReturn::OPTION_CASH_RETURN,
+                ],
+            ],
+        ]);
+        $return86 = $this->submissionService->submitDraftForApproval($return86->fresh());
+        $this->assertEquals(PosReturn::STATUS_PENDING_APPROVAL, $return86->status);
+
+        // Approval plan execution for Return 86 MUST SUCCEED without throwing claim exception
+        $plan86 = $this->plannerService->plan($return86->fresh());
+        $this->assertEmpty($plan86['blockers'] ?? []);
+
+        $saleReturnsBefore = \Modules\SalesReturn\Entities\SaleReturn::count();
+        $this->lifecycleService->executeApprovalFromPreview($return86->id, PosReturn::OPTION_CASH_RETURN, $plan86);
+
+        $return86->refresh();
+        $this->assertEquals(PosReturn::STATUS_COMPLETED, $return86->status);
+        $this->assertEquals($saleReturnsBefore + 1, \Modules\SalesReturn\Entities\SaleReturn::count());
+    }
+
+    /** @test */
+    public function it_rejects_approval_and_rolls_back_without_creating_sales_returns_when_lineage_is_missing()
+    {
+        $product = $this->createStockedProduct($this->setting, $this->location, [
+            'product_name' => 'Serialized Headset',
+            'product_code' => 'HDST-001',
+            'serial_number_required' => true,
+            'stock_qty' => 1,
+        ]);
+        $serial = $this->createSerialNumber($product, $this->location, 'SN-HDST-7001');
+
+        [$transaction, $sale, $saleDetail, $dispatchDetail] = $this->createSerializedSaleFixture($product, $serial);
+
+        $posReturn = PosReturn::create([
+            'reference' => 'POSRT-NOLINEAGE-' . uniqid(),
+            'setting_id' => $this->setting->id,
+            'pos_transaction_id' => $transaction->id,
+            'pos_checkout_id' => $transaction->completed_checkout_id,
+            'transaction_code' => $sale->reference,
+            'receipt_number' => $sale->reference,
+            'customer_id' => null,
+            'customer_name' => 'Walk-in Customer',
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'status' => PosReturn::STATUS_PENDING_APPROVAL,
+            'approval_status' => PosReturn::APPROVAL_STATUS_PENDING,
+            'source_snapshot' => [],
+            'source_snapshot_hash' => 'hash-' . uniqid(),
+            'total_amount' => 500000,
+            'created_by' => $this->user->id,
+        ]);
+
+        // PosReturnLine with missing dispatch_detail_id
+        PosReturnLine::create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => PosCheckoutSale::where('sale_id', $sale->id)->value('id'),
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetail->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'unit_price' => 500000,
+            'line_total' => 500000,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            'returned_serial_id' => $serial->id,
+            'dispatch_detail_id' => null,
+            'expected_cash_amount' => 500000,
+        ]);
+
+        $persistenceService = app(\Modules\Pos\Services\PosReturnApprovalPlanPersistenceService::class);
+        $plan = $this->plannerService->plan($posReturn->fresh());
+        // Simulate plan where dispatch_detail_id is unassigned / empty in planned details
+        $plan['blockers'] = [];
+        foreach ($plan['groups'] as &$group) {
+            foreach ($group['planned_details'] as &$detail) {
+                $detail['dispatch_detail_id'] = null;
+            }
+        }
+
+        $saleReturnsBefore = \Modules\SalesReturn\Entities\SaleReturn::count();
+
+        $thrown = false;
+        try {
+            $persistenceService->synchronize($posReturn->fresh(), $plan);
+        } catch (\RuntimeException $e) {
+            $thrown = true;
+            $this->assertStringContainsString('Lineage pengiriman sumber untuk serial tidak valid.', $e->getMessage());
+        }
+
+        $this->assertTrue($thrown, 'Missing dispatch lineage must throw RuntimeException.');
+        $this->assertSame($saleReturnsBefore, \Modules\SalesReturn\Entities\SaleReturn::count(), 'No SaleReturn rows must be created on lineage failure.');
+        $posReturn->refresh();
+        $this->assertEquals(PosReturn::STATUS_PENDING_APPROVAL, $posReturn->status);
     }
 }

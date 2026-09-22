@@ -60,25 +60,49 @@ class PosReturnApprovalPlanPersistenceService
      */
     private function assertPlanSerialsNotClaimedElsewhere(PosReturn $posReturn, Collection $groups): void
     {
-        $serialIds = collect();
+        $parentClaims = collect();
+        $componentClaims = collect();
 
         foreach ($groups as $group) {
             foreach (($group['planned_details'] ?? []) as $plannedDetail) {
                 if (($plannedDetail['row_type'] ?? 'parent') === 'component') {
-                    foreach ((array) ($plannedDetail['component_serial_ids'] ?? []) as $id) {
-                        $serialIds->push((int) $id);
+                    $dispatchDetailId = (int) ($plannedDetail['dispatch_detail_id'] ?? 0);
+                    $componentSerialIds = collect((array) ($plannedDetail['component_serial_ids'] ?? []))
+                        ->map(fn ($id) => (int) $id)
+                        ->filter(fn (int $id) => $id > 0);
+
+                    if ($componentSerialIds->isNotEmpty() && $dispatchDetailId <= 0) {
+                        throw new \RuntimeException('Lineage pengiriman sumber untuk serial komponen tidak valid.');
+                    }
+
+                    foreach ($componentSerialIds as $id) {
+                        $componentClaims->push([
+                            'serial_id' => $id,
+                            'dispatch_detail_id' => $dispatchDetailId,
+                        ]);
                     }
                     continue;
                 }
 
                 $line = $posReturn->lines->firstWhere('id', (int) ($plannedDetail['pos_return_line_id'] ?? 0));
                 if ($line && (int) ($line->returned_serial_id ?? 0) > 0) {
-                    $serialIds->push((int) $line->returned_serial_id);
+                    $serialId = (int) $line->returned_serial_id;
+                    $dispatchDetailId = (int) ($line->dispatch_detail_id ?? 0);
+
+                    if ($dispatchDetailId <= 0) {
+                        throw new \RuntimeException('Lineage pengiriman sumber untuk serial tidak valid.');
+                    }
+
+                    $parentClaims->push([
+                        'serial_id' => $serialId,
+                        'dispatch_detail_id' => $dispatchDetailId,
+                    ]);
                 }
             }
         }
 
-        $serialIds = $serialIds->filter(fn (int $id) => $id > 0)->unique()->sort()->values();
+        $allClaims = $parentClaims->concat($componentClaims)->unique(fn ($c) => $c['serial_id'] . ':' . $c['dispatch_detail_id'])->values();
+        $serialIds = $allClaims->pluck('serial_id')->unique()->sort()->values();
 
         if ($serialIds->isEmpty()) {
             return;
@@ -95,50 +119,58 @@ class PosReturnApprovalPlanPersistenceService
             ->lockForUpdate()
             ->get();
 
-        // A competing return's plan is committed to a serial from the moment
-        // synchronize() creates its SaleReturn/SaleReturnDetail rows onward —
-        // that persistence happens while the return is still PENDING_APPROVAL,
-        // before it ever reaches a `returnQuantityConsumingStatuses()` status,
-        // so gating this check on those statuses alone would miss exactly the
-        // race this guard exists to close (two pending-approval returns both
-        // synchronizing a plan for the same serial). Any other *active*
-        // return that has already synchronized a plan is therefore itself
-        // sufficient evidence of a claim, regardless of its current status;
-        // only a reversed/cancelled/rejected return releases its claim (see
-        // `active()` scope and the reject/cancel lifecycle, which detach or
-        // leave stale SaleReturn rows behind an inactive PosReturn).
-        $claimed = PosReturnLine::query()
-            ->where('pos_return_id', '!=', $posReturn->id)
-            ->whereIn('returned_serial_id', $serialIds->all())
-            ->whereHas('posReturn', function ($q) {
-                $q->active()->whereNotIn('status', [PosReturn::STATUS_DRAFT, PosReturn::STATUS_REJECTED]);
-            })
-            ->exists();
+        // Check parent return lines for competing active claims on the SAME serial + SAME source dispatch occurrence
+        if ($parentClaims->isNotEmpty()) {
+            $claimed = PosReturnLine::query()
+                ->where('pos_return_id', '!=', $posReturn->id)
+                ->where(function ($query) use ($parentClaims) {
+                    foreach ($parentClaims as $claim) {
+                        $query->orWhere(function ($q) use ($claim) {
+                            $q->where('returned_serial_id', $claim['serial_id'])
+                                ->where('dispatch_detail_id', $claim['dispatch_detail_id']);
+                        });
+                    }
+                })
+                ->whereHas('posReturn', function ($q) {
+                    $q->active()->whereNotIn('status', [PosReturn::STATUS_DRAFT, PosReturn::STATUS_REJECTED]);
+                })
+                ->exists();
 
-        if ($claimed) {
-            throw new \RuntimeException('Satu atau lebih serial pada rencana ini sudah diklaim oleh retur lain yang sedang diproses atau selesai.');
+            if ($claimed) {
+                throw new \RuntimeException('Satu atau lebih serial pada rencana ini sudah diklaim oleh retur lain yang sedang diproses atau selesai.');
+            }
         }
 
         // Component serial ids are not stored on PosReturnLine (only the
         // parent's returned_serial_id is), so their exclusivity is checked
         // against persisted SaleReturnDetail.serial_number_ids from other
-        // POS Returns' already-synchronized plans instead.
-        $componentClaimed = SaleReturnDetail::query()
-            ->whereHas('saleReturn', function ($q) use ($posReturn) {
-                $q->where('pos_return_id', '!=', $posReturn->id)
-                    ->whereHas('posReturn', function ($qq) {
-                        $qq->active()->whereNotIn('status', [PosReturn::STATUS_DRAFT, PosReturn::STATUS_REJECTED]);
+        // POS Returns' already-synchronized plans with matching dispatch_detail_id.
+        if ($componentClaims->isNotEmpty()) {
+            $componentClaimed = SaleReturnDetail::query()
+                ->whereHas('saleReturn', function ($q) use ($posReturn) {
+                    $q->where('pos_return_id', '!=', $posReturn->id)
+                        ->whereHas('posReturn', function ($qq) {
+                            $qq->active()->whereNotIn('status', [PosReturn::STATUS_DRAFT, PosReturn::STATUS_REJECTED]);
+                        });
+                })
+                ->where(function ($query) use ($componentClaims) {
+                    $dispatchIds = $componentClaims->pluck('dispatch_detail_id')->unique()->all();
+                    $query->whereIn('dispatch_detail_id', $dispatchIds);
+                })
+                ->get(['id', 'sale_return_id', 'dispatch_detail_id', 'serial_number_ids'])
+                ->contains(function (SaleReturnDetail $detail) use ($componentClaims) {
+                    $detailDispatchId = (int) ($detail->dispatch_detail_id ?? 0);
+                    $detailSerialIds = collect($detail->serial_number_ids ?? [])->map(fn ($id) => (int) $id);
+
+                    return $componentClaims->contains(function ($claim) use ($detailDispatchId, $detailSerialIds) {
+                        return (int) $claim['dispatch_detail_id'] === $detailDispatchId
+                            && $detailSerialIds->contains((int) $claim['serial_id']);
                     });
-            })
-            ->get(['id', 'sale_return_id', 'serial_number_ids'])
-            ->contains(function (SaleReturnDetail $detail) use ($serialIds) {
-                $detailSerialIds = collect($detail->serial_number_ids ?? []);
+                });
 
-                return $detailSerialIds->intersect($serialIds)->isNotEmpty();
-            });
-
-        if ($componentClaimed) {
-            throw new \RuntimeException('Satu atau lebih serial komponen pada rencana ini sudah diklaim oleh retur lain yang sedang diproses atau selesai.');
+            if ($componentClaimed) {
+                throw new \RuntimeException('Satu atau lebih serial komponen pada rencana ini sudah diklaim oleh retur lain yang sedang diproses atau selesai.');
+            }
         }
     }
 
