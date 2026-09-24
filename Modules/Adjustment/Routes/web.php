@@ -80,5 +80,16 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::post('/transfers/{transfer}/movements/{movement}/return-receipt/approve', 'ReturnReceiptMovementController@approve')->name('transfers.movements.return-receipt.approve');
     Route::post('/transfers/{transfer}/movements/{movement}/return-receipt/reject', 'ReturnReceiptMovementController@reject')->name('transfers.movements.return-receipt.reject');
 
+    // Workflow version 3 (location-free entry, approver allocations,
+    // approval-time dispatch, confirmation receipt, dispatch cancellation)
+    Route::get('/transfers/{transfer}/v3/approval', 'TransferV3Controller@approvalWorkspace')->name('transfers.v3.approval');
+    Route::post('/transfers/{transfer}/v3/approval/progress', 'TransferV3Controller@saveProgress')->name('transfers.v3.approval.progress');
+    Route::post('/transfers/{transfer}/v3/approve', 'TransferV3Controller@approve')->name('transfers.v3.approve');
+    Route::post('/transfers/{transfer}/v3/reject', 'TransferV3Controller@reject')->name('transfers.v3.reject');
+    Route::post('/transfers/{transfer}/v3/acknowledge-rejection', 'TransferV3Controller@acknowledgeRejection')->name('transfers.v3.acknowledge-rejection');
+    Route::post('/transfers/{transfer}/v3/submit', 'TransferV3Controller@submit')->name('transfers.v3.submit');
+    Route::post('/transfers/{transfer}/v3/receive', 'TransferV3Controller@receive')->name('transfers.v3.receive');
+    Route::post('/transfers/{transfer}/v3/cancel-dispatch', 'TransferV3Controller@cancelDispatch')->name('transfers.v3.cancel-dispatch');
+
     Route::resource('transfers', 'TransferStockController');
 });

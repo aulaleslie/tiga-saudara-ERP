@@ -394,6 +394,8 @@ return [
         'stockTransfers.approval' => 'Persetujuan',
         'stockTransfers.archive' => 'Arsip',
         'stockTransfers.view-system-stock' => 'Lihat Stok Sistem pada Transfer Stok',
+        'stockTransfers.cancel-dispatch' => 'Batalkan Pengiriman',
+        'stockTransfers.view-history' => 'Lihat Riwayat Transfer',
     ],
 
     'Pemasok' => [

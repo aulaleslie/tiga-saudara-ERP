@@ -47,7 +47,99 @@ class TransferScanResolverService
             throw new InvalidArgumentException("Invalid origin location for current tenant.");
         }
 
-        $allowedLocationIds = [$originLocationId];
+        return $this->resolveWithin([$originLocationId], $settingId, $query, $isBrokenMode, $allowZeroStock, true);
+    }
+
+    /**
+     * Workflow version 3 entry: resolves across every active location of
+     * every business, with no origin prerequisite. The same canonical
+     * barcode, conversion, serial and ambiguity rules apply, but serial
+     * candidates carry no location or business provenance, and no scan is
+     * resolved to a first match when identifiers collide.
+     */
+    public function resolveAcrossBusinesses(string $query, bool $isBrokenMode): array
+    {
+        if (trim($query) === '') {
+            return ['status' => 'not_found', 'type' => 'none'];
+        }
+
+        $allowedLocationIds = Location::query()->active()->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+        // Exact identifiers only: a scan never falls through to name search.
+        return $this->resolveWithin($allowedLocationIds, 0, $query, $isBrokenMode, false, false, false);
+    }
+
+    /**
+     * Workflow version 3 deliberate product search across every active
+     * location. Every whitespace token must match the product name, code,
+     * barcode, category or brand (same rules as the legacy search modal).
+     * Returns identity/display fields only -- no stock, location or business
+     * provenance -- for explicit selection; callers must never auto-apply a
+     * result, even a single one.
+     *
+     * @return array<int, array>
+     */
+    public function searchAcrossBusinesses(string $query, bool $isBrokenMode, int $limit = 20): array
+    {
+        $tokens = array_values(array_filter(explode(' ', strtolower(trim($query))), fn ($token) => $token !== ''));
+        if ($tokens === []) {
+            return [];
+        }
+
+        $allowedLocationIds = Location::query()->active()->pluck('id')->map(fn ($id) => (int) $id)->all();
+        if ($allowedLocationIds === []) {
+            return [];
+        }
+
+        $products = Product::query()
+            ->active()
+            ->where('stock_managed', true)
+            ->with(['category', 'brand', 'baseUnit'])
+            ->where(function ($outer) use ($tokens) {
+                foreach ($tokens as $token) {
+                    $like = '%' . $token . '%';
+                    $outer->where(function ($sub) use ($like) {
+                        $sub->whereRaw('LOWER(product_name) LIKE ?', [$like])
+                            ->orWhereRaw('LOWER(product_code) LIKE ?', [$like])
+                            ->orWhereRaw('LOWER(barcode) LIKE ?', [$like])
+                            ->orWhereHas('category', fn ($c) => $c->whereRaw('LOWER(category_name) LIKE ?', [$like]))
+                            ->orWhereHas('brand', fn ($b) => $b->whereRaw('LOWER(name) LIKE ?', [$like]));
+                    });
+                }
+            })
+            ->whereHas('productStocks', function ($stock) use ($allowedLocationIds, $isBrokenMode) {
+                $stock->whereIn('location_id', $allowedLocationIds);
+                if ($isBrokenMode) {
+                    $stock->whereRaw('(COALESCE(broken_quantity_tax, 0) + COALESCE(broken_quantity_non_tax, 0)) > 0');
+                } else {
+                    $stock->where(function ($sub) {
+                        $sub->whereRaw('(COALESCE(quantity_tax, 0) + COALESCE(quantity_non_tax, 0)) > 0')
+                            ->orWhereRaw('(COALESCE(quantity, 0) - COALESCE(broken_quantity_tax, 0) - COALESCE(broken_quantity_non_tax, 0)) > 0');
+                    });
+                }
+            })
+            ->orderBy('product_name')
+            ->limit($limit)
+            ->get();
+
+        return $products->map(fn (Product $product) => [
+            'type'        => 'product',
+            'description' => "{$product->product_name} | {$product->product_code}",
+            'product'     => [
+                'id'                     => (int) $product->id,
+                'product_name'           => (string) $product->product_name,
+                'product_code'           => (string) $product->product_code,
+                'barcode'                => $product->barcode,
+                'base_unit'              => $product->baseUnit?->unit_name ?? $product->baseUnit?->name ?? 'Unit',
+                'serial_number_required' => (bool) $product->serial_number_required,
+                'category_name'          => $product->category?->category_name,
+                'brand_name'             => $product->brand?->name,
+            ],
+        ])->values()->all();
+    }
+
+    private function resolveWithin(array $allowedLocationIds, int $settingId, string $query, ?bool $isBrokenMode, bool $allowZeroStock, bool $projectLocations, bool $textFallback = true): array
+    {
         $query = trim($query);
         $queryLower = strtolower($query);
         $canViewSystemStock = TransferStockVisibility::canView();
@@ -141,18 +233,25 @@ class TransferScanResolverService
 
             $canonicalBroken = $serialRecord->isAvailableBroken();
 
+            $serialProjection = [
+                'id' => (int) $serialRecord->id,
+                'serial_number' => (string) $serialRecord->serial_number,
+                'product_id' => (int) $serialRecord->product_id,
+                'tax_id' => $serialRecord->tax_id !== null ? (int) $serialRecord->tax_id : null,
+                'location_id' => (int) $serialRecord->location_id,
+                'location_name' => $serialRecord->location?->name ?? 'Lokasi Asal',
+                'is_broken' => $canonicalBroken,
+            ];
+
+            if (! $projectLocations) {
+                // Location-free projection: identity only, no provenance.
+                $serialProjection = array_intersect_key($serialProjection, array_flip(['id', 'serial_number', 'product_id']));
+            }
+
             $candidates[] = [
                 'type' => 'serial',
                 'description' => "Nomor Seri: {$serialRecord->serial_number} - {$serialRecord->product->product_name}",
-                'serial' => [
-                    'id' => (int) $serialRecord->id,
-                    'serial_number' => (string) $serialRecord->serial_number,
-                    'product_id' => (int) $serialRecord->product_id,
-                    'tax_id' => $serialRecord->tax_id !== null ? (int) $serialRecord->tax_id : null,
-                    'location_id' => (int) $serialRecord->location_id,
-                    'location_name' => $serialRecord->location?->name ?? 'Lokasi Asal',
-                    'is_broken' => $canonicalBroken,
-                ],
+                'serial' => $serialProjection,
                 'product' => [
                     'id' => (int) $serialRecord->product->id,
                     'product_name' => (string) $serialRecord->product->product_name,
@@ -165,7 +264,7 @@ class TransferScanResolverService
         }
 
         // 4. Fallback search on product code or name (tokenized) if no exact matches found
-        if (count($candidates) === 0 && empty($rejections)) {
+        if ($textFallback && count($candidates) === 0 && empty($rejections)) {
             $tokens = array_filter(explode(' ', $queryLower));
             if (!empty($tokens)) {
                 $textMatchesQuery = Product::query()

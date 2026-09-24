@@ -15,12 +15,15 @@ class TransferMovement extends BaseModel
     public const TYPE_FORWARD_RECEIPT  = 'FORWARD_RECEIPT';
     public const TYPE_RETURN_DISPATCH   = 'RETURN_DISPATCH';
     public const TYPE_RETURN_RECEIPT    = 'RETURN_RECEIPT';
+    // Version 3 only: compensating reversal of an approved forward dispatch.
+    public const TYPE_DISPATCH_CANCELLATION = 'DISPATCH_CANCELLATION';
 
     public const TYPES = [
         self::TYPE_FORWARD_DISPATCH,
         self::TYPE_FORWARD_RECEIPT,
         self::TYPE_RETURN_DISPATCH,
         self::TYPE_RETURN_RECEIPT,
+        self::TYPE_DISPATCH_CANCELLATION,
     ];
 
     /**
@@ -173,6 +176,11 @@ class TransferMovement extends BaseModel
     public function histories(): HasMany
     {
         return $this->hasMany(TransferMovementHistory::class);
+    }
+
+    public function allocations(): HasMany
+    {
+        return $this->hasMany(TransferMovementAllocation::class);
     }
 
     public function returnObligationReservations(): HasMany

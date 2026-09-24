@@ -22,6 +22,9 @@ class TransferActionHistory extends BaseModel
     public const ACTION_RETURN_DISPATCHED = 'RETURN_DISPATCHED';
     public const ACTION_RETURN_RECEIVED = 'RETURN_RECEIVED';
     public const ACTION_COMPLETED = 'COMPLETED';
+    // Version 3 lifecycle events.
+    public const ACTION_ALLOCATION_SAVED = 'ALLOCATION_SAVED';
+    public const ACTION_CANCELLED = 'CANCELLED';
 
     protected $fillable = [
         'transfer_id',

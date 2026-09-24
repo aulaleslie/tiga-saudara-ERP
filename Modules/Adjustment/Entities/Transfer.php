@@ -24,6 +24,13 @@ class Transfer extends BaseModel
     public const STATUS_COMPLETED         = 'COMPLETED';
     public const STATUS_AWAITING_RETURN   = 'AWAITING_RETURN';
     public const STATUS_ARCHIVED          = 'ARCHIVED';
+    public const STATUS_CANCELLED         = 'CANCELLED';
+
+    /**
+     * Workflow version 3: location-free goods entry, approver allocations,
+     * approval-time dispatch, confirmation receipt and dispatch cancellation.
+     */
+    public const WORKFLOW_V3 = 3;
 
     public const CONDITION_GOOD     = 'GOOD';
     public const CONDITION_BREAKAGE = 'BREAKAGE';
@@ -58,6 +65,13 @@ class Transfer extends BaseModel
         'return_received_at',
         'archived_at',
         'archive_reason',
+        'v3_reference_key',
+        'created_in_setting_id',
+        'current_request_revision_id',
+        'approval_configuration_revision',
+        'cancelled_by',
+        'cancelled_at',
+        'cancellation_reason',
     ];
 
     protected $casts = [
@@ -70,7 +84,9 @@ class Transfer extends BaseModel
         'return_dispatched_at' => 'datetime',
         'return_received_at'   => 'datetime',
         'archived_at'          => 'datetime',
+        'cancelled_at'         => 'datetime',
         'revision'             => 'integer',
+        'approval_configuration_revision' => 'integer',
         'workflow_version'     => 'integer',
     ];
 
@@ -78,6 +94,16 @@ class Transfer extends BaseModel
     {
         static::creating(function (Transfer $transfer): void {
             if ($transfer->document_number) {
+                return;
+            }
+
+            if ((int) $transfer->workflow_version === self::WORKFLOW_V3) {
+                // Version 3 documents have no origin: numbering is global and
+                // location-independent, allocated from a locked sequence.
+                $reference = \Modules\Adjustment\Services\TransferV3ReferenceService::allocate(static::resolveSequenceDate($transfer));
+                $transfer->document_number  = $reference;
+                $transfer->v3_reference_key = $reference;
+
                 return;
             }
 
@@ -252,6 +278,41 @@ class Transfer extends BaseModel
         return $this->hasMany(TransferMovement::class);
     }
 
+    public function cancelledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
+    }
+
+    public function createdInSetting(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Setting\Entities\Setting::class, 'created_in_setting_id');
+    }
+
+    public function requestRevisions(): HasMany
+    {
+        return $this->hasMany(TransferRequestRevision::class);
+    }
+
+    public function currentRequestRevision(): BelongsTo
+    {
+        return $this->belongsTo(TransferRequestRevision::class, 'current_request_revision_id');
+    }
+
+    public function approvalAllocations(): HasMany
+    {
+        return $this->hasMany(TransferApprovalAllocation::class);
+    }
+
+    public function movementAllocations(): HasMany
+    {
+        return $this->hasMany(TransferMovementAllocation::class);
+    }
+
+    public function isV3(): bool
+    {
+        return (int) $this->workflow_version === self::WORKFLOW_V3;
+    }
+
     public function archivedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'archived_by');
@@ -259,6 +320,11 @@ class Transfer extends BaseModel
 
     public function requiresReturn(): bool
     {
+        // Version 3 creates no automatic return obligations.
+        if ($this->isV3()) {
+            return false;
+        }
+
         if ($this->returnObligations()->exists()) {
             return true;
         }

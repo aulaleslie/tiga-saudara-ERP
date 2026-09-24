@@ -13,11 +13,14 @@ class TransferMovementSerial extends BaseModel
     public const CUSTODY_INACTIVE   = 'INACTIVE';
     public const CUSTODY_IN_TRANSIT = 'IN_TRANSIT';
     public const CUSTODY_CLOSED     = 'CLOSED';
+    // Version 3 dispatch cancellation closes custody without delivery.
+    public const CUSTODY_CANCELLED  = 'CANCELLED';
 
     public const CUSTODY_STATUSES = [
         self::CUSTODY_INACTIVE,
         self::CUSTODY_IN_TRANSIT,
         self::CUSTODY_CLOSED,
+        self::CUSTODY_CANCELLED,
     ];
 
     public const CONDITION_GOOD     = 'GOOD';
@@ -46,6 +49,7 @@ class TransferMovementSerial extends BaseModel
         'custody_closed_at',
         'origin_location_id',
         'destination_location_id',
+        'transfer_movement_allocation_id',
     ];
 
     protected $casts = [

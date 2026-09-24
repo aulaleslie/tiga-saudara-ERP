@@ -532,16 +532,9 @@
                                 @endcan
                             @endif
 
-                            @if(in_array($transfer->status, [Transfer::STATUS_REJECTED, Transfer::STATUS_COMPLETED, Transfer::STATUS_RETURN_RECEIVED]) && $isOrigin)
-                                @can('stockTransfers.archive')
-                                    <form action="{{ route('transfers.archive', $transfer) }}" method="POST"
-                                          class="d-inline" onsubmit="return promptArchive(this);">
-                                        @csrf
-                                        <input type="hidden" name="reason" class="archive-reason" value="">
-                                        <button class="btn btn-dark">Arsipkan</button>
-                                    </form>
-                                @endcan
-                            @endif
+                            {{-- Archive is hidden on every Stock Transfer browser
+                                 surface; historical archive records and the
+                                 legacy backend route remain intact. --}}
 
                             <a href="{{ route('transfers.index') }}" class="btn btn-secondary ml-2">
                                 Kembali

@@ -78,16 +78,21 @@ class StockTransfersDataTable extends DataTable
 
         return $model->newQuery()
             ->with(['originLocation.setting', 'destinationLocation.setting'])
-            ->where(function($q) use ($settingId) {
-                // 1) All transfers where current setting is the ORIGIN
-                $q->whereHas('originLocation.setting', function ($q1) use ($settingId) {
-                    $q1->where('id', $settingId);
-                })
-                    // 2) OR: transfers where current setting is the DESTINATION regardless of status
-                    ->orWhere(function($q2) use ($settingId) {
-                        $q2->whereHas('destinationLocation.setting', function ($q3) use ($settingId) {
-                            $q3->where('id', $settingId);
-                        });
+            ->where(function ($scope) use ($settingId) {
+                // Workflow version 3 documents are discoverable by anyone
+                // holding stockTransfers.access in the active business; they
+                // carry no single route, and actions stay separately gated.
+                $scope->where('workflow_version', Transfer::WORKFLOW_V3)
+                    ->orWhere(function ($q) use ($settingId) {
+                        // Legacy scope (unchanged): origin OR destination business.
+                        $q->whereHas('originLocation.setting', function ($q1) use ($settingId) {
+                            $q1->where('id', $settingId);
+                        })
+                            ->orWhere(function($q2) use ($settingId) {
+                                $q2->whereHas('destinationLocation.setting', function ($q3) use ($settingId) {
+                                    $q3->where('id', $settingId);
+                                });
+                            });
                     });
             });
     }

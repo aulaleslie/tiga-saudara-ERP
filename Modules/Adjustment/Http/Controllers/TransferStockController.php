@@ -27,6 +27,7 @@ use Modules\Adjustment\Services\TransferDraftService;
 use Modules\Adjustment\Services\TransferFormStateMapper;
 use Modules\Adjustment\Services\TransferLifecycleService;
 use Modules\Adjustment\Services\TransferStockVisibility;
+use Modules\Adjustment\Services\TransferV3Access;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
@@ -42,6 +43,14 @@ class TransferStockController extends Controller
     public function __construct()
     {
         $this->middleware('idempotency')->only('store');
+
+        // Legacy single-route actions never operate on workflow version 3
+        // documents; v3 uses its own endpoints (TransferV3Controller).
+        $this->middleware(\Modules\Adjustment\Http\Middleware\RejectWorkflowV3Transfer::class)->only([
+            'approve', 'reject', 'acknowledgeRejection', 'resubmit', 'archive',
+            'dispatchShipment', 'receive', 'dispatchReturn', 'receiveReturn',
+            'update', 'destroy',
+        ]);
     }
 
     /**
@@ -79,6 +88,11 @@ class TransferStockController extends Controller
     {
         abort_if(Gate::denies('stockTransfers.create'), 403);
 
+        // After activation every new transfer is workflow version 3.
+        if (TransferV3Access::creationEnabled()) {
+            return view('adjustment::transfers.v3.form', ['transfer' => null]);
+        }
+
         $currentSettingId = (int) session('setting_id');
         $currentSetting   = Setting::find($currentSettingId);
         $settings         = Setting::all();
@@ -101,6 +115,14 @@ class TransferStockController extends Controller
     public function store(StockTransferRequest $request): RedirectResponse
     {
         abort_if(Gate::denies('stockTransfers.create'), 403);
+
+        // The legacy single-route HTTP contract cannot create version 3
+        // documents; after activation new transfers use the v3 form.
+        if (TransferV3Access::creationEnabled()) {
+            toast('Gunakan formulir Transfer Stok untuk membuat transfer baru.', 'error');
+
+            return redirect()->route('transfers.create');
+        }
 
         $validated = $request->validated();
         $currentSettingId = (int) session('setting_id');
@@ -176,6 +198,10 @@ class TransferStockController extends Controller
     {
         abort_if(Gate::denies('stockTransfers.show'), 403);
 
+        if ($transfer->isV3()) {
+            return $this->showV3($transfer);
+        }
+
         $canViewSystemStock = TransferStockVisibility::canView();
 
         $relations = [
@@ -227,6 +253,37 @@ class TransferStockController extends Controller
             'routePolicy',
             'returnObligations'
         ));
+    }
+
+    /**
+     * Version 3 detail. Goods, quantities, condition and selected serial
+     * identities are shown to any document viewer; executed routes only
+     * with approval authority; the event timeline only with view-history.
+     * Protected collections are never loaded for viewers who lack them.
+     */
+    private function showV3(Transfer $transfer): View
+    {
+        $transfer->load(['products.product', 'createdBy', 'approvedBy', 'rejectedBy', 'dispatchedBy', 'receivedBy', 'cancelledBy']);
+
+        $routes = collect();
+        if (TransferV3Access::canConfigureAllocations()) {
+            $routes = $transfer->movementAllocations()
+                ->where('kind', \Modules\Adjustment\Entities\TransferMovementAllocation::KIND_DISPATCH)
+                ->with(['product', 'sourceLocation.setting', 'destinationLocation.setting'])
+                ->orderBy('id')
+                ->get();
+        }
+
+        $history = TransferV3Access::canViewHistory()
+            ? \Modules\Adjustment\Services\TransferV3HistoryProjection::forTransfer($transfer)
+            : null;
+
+        return view('adjustment::transfers.v3.show', [
+            'transfer'     => $transfer,
+            'routes'       => $routes,
+            'history'      => $history,
+            'operationKey' => (string) \Illuminate\Support\Str::uuid(),
+        ]);
     }
 
     /**
@@ -484,6 +541,14 @@ class TransferStockController extends Controller
     public function edit(Transfer $transfer): View|Application|Factory|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('stockTransfers.edit'), 403);
+
+        if ($transfer->isV3()) {
+            if (! in_array($transfer->status, [Transfer::STATUS_PENDING, Transfer::STATUS_DRAFT], true)) {
+                abort(403, 'This transfer cannot be edited in its current status.');
+            }
+
+            return view('adjustment::transfers.v3.form', ['transfer' => $transfer]);
+        }
 
         $transfer->loadMissing('originLocation.setting');
 

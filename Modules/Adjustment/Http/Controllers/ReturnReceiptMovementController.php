@@ -25,6 +25,7 @@ class ReturnReceiptMovementController extends Controller
         private ReturnReceiptApprovalExecutor $approvalExecutor,
         private TransferMovementDocumentService $documentService,
     ) {
+        $this->middleware(\Modules\Adjustment\Http\Middleware\RejectWorkflowV3Transfer::class);
     }
 
     /**

@@ -25,6 +25,7 @@ class ForwardReceiptMovementController extends Controller
         private ForwardReceiptApprovalExecutor $approvalExecutor,
         private TransferMovementDocumentService $documentService,
     ) {
+        $this->middleware(\Modules\Adjustment\Http\Middleware\RejectWorkflowV3Transfer::class);
     }
 
     /**

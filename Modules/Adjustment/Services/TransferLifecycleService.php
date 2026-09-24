@@ -713,6 +713,11 @@ class TransferLifecycleService
             throw new RuntimeException("Transfer #{$transferId} not found.");
         }
 
+        // Legacy lifecycle mutations never apply to workflow version 3.
+        if ((int) $transfer->workflow_version === Transfer::WORKFLOW_V3) {
+            throw new RuntimeException('This operation is not available for workflow version 3 transfers.');
+        }
+
         if ($transfer->revision !== $expectedRevision) {
             throw new RuntimeException("Transfer has been modified by another process. Please refresh and try again.");
         }

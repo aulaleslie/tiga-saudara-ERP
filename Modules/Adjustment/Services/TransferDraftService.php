@@ -45,6 +45,10 @@ class TransferDraftService
         ?Transfer $transfer = null,
         ?string $idempotencyKey = null
     ): Transfer {
+        if ($transfer && $transfer->isV3()) {
+            throw new InvalidArgumentException('Workflow version 3 transfers use the version 3 goods service.');
+        }
+
         $origin = $this->validateOrigin($state, $tenantSettingId, $transfer);
         $destination = $this->validateOptionalDestination($state, $origin, $transfer);
 
@@ -155,6 +159,10 @@ class TransferDraftService
         int $tenantSettingId,
         Transfer $transfer
     ): Transfer {
+        if ($transfer->isV3()) {
+            throw new InvalidArgumentException('Workflow version 3 transfers use the version 3 goods service.');
+        }
+
         if ($transfer->status !== Transfer::STATUS_DRAFT) {
             throw new InvalidArgumentException("Only DRAFT transfers can be submitted for approval.");
         }
