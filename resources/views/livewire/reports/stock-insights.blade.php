@@ -1,3 +1,9 @@
+@php
+    $ariaSortFor = fn (string $column) => $sortColumn === $column
+        ? ($sortDirection === 'asc' ? 'ascending' : 'descending')
+        : 'none';
+    $labelClassFor = fn (string $column) => $sortColumn === $column ? 'text-primary' : 'text-dark';
+@endphp
 <div>
     {{-- Header Section --}}
     <div class="card mb-4 border-0 shadow-sm">
@@ -28,7 +34,7 @@
     {{-- Attention / Summary Cards --}}
     <div class="row g-3 mb-4">
         {{-- Stok Habis --}}
-        <div class="col-12 col-sm-6 col-xl-3">
+        <div class="col-12 col-md-4">
             <div class="card border-0 shadow-sm h-100 {{ in_array('Stok Habis', $statuses) ? 'border-danger border-2' : '' }}"
                  style="cursor: pointer;"
                  wire:click="toggleStatus('Stok Habis')">
@@ -46,7 +52,7 @@
         </div>
 
         {{-- Perlu Dibeli Lagi --}}
-        <div class="col-12 col-sm-6 col-xl-3">
+        <div class="col-12 col-md-4">
             <div class="card border-0 shadow-sm h-100 {{ in_array('Perlu Dibeli Lagi', $statuses) ? 'border-warning border-2' : '' }}"
                  style="cursor: pointer;"
                  wire:click="toggleStatus('Perlu Dibeli Lagi')">
@@ -64,7 +70,7 @@
         </div>
 
         {{-- Batas Minimum Belum Diatur --}}
-        <div class="col-12 col-sm-6 col-xl-3">
+        <div class="col-12 col-md-4">
             <div class="card border-0 shadow-sm h-100 {{ in_array('Batas Minimum Belum Diatur', $statuses) ? 'border-secondary border-2' : '' }}"
                  style="cursor: pointer;"
                  wire:click="toggleStatus('Batas Minimum Belum Diatur')">
@@ -81,23 +87,7 @@
             </div>
         </div>
 
-        {{-- Lama Tidak Terjual --}}
-        <div class="col-12 col-sm-6 col-xl-3">
-            <div class="card border-0 shadow-sm h-100 {{ in_array('Lama Tidak Terjual', $statuses) ? 'border-info border-2' : '' }}"
-                 style="cursor: pointer;"
-                 wire:click="toggleStatus('Lama Tidak Terjual')">
-                <div class="card-body d-flex align-items-center justify-content-between">
-                    <div>
-                        <div class="text-uppercase text-muted fw-bold" style="font-size: 0.75rem;">Lama Tidak Terjual</div>
-                        <div class="fs-4 fw-bold text-info">{{ number_format($attentionCounts['slow_moving'] ?? 0) }}</div>
-                        <div class="small text-muted">&ge; 90 hari tanpa penjualan</div>
-                    </div>
-                    <div class="rounded-circle bg-info-subtle p-3 text-info">
-                        <i class="bi bi-clock-history fs-4"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
+        {{-- Lama Tidak Terjual: temporarily hidden from the UI (calculation/status remains active internally) --}}
     </div>
 
     {{-- Filters and Search Bar --}}
@@ -188,25 +178,25 @@
                     <thead class="table-light sticky-top" style="z-index: 15;">
                         {{-- Top-Tier Header --}}
                         <tr>
-                            <th rowspan="2" class="sticky-col bg-light text-start align-middle" style="left: 0; min-width: 260px; z-index: 16;">
+                            <th rowspan="2" class="sticky-col bg-light text-start align-middle" style="left: 0; min-width: 260px; z-index: 16;" aria-sort="{{ $ariaSortFor('product_name') }}">
                                 <div class="d-flex align-items-center justify-content-between">
-                                    <span>Produk</span>
-                                    <button type="button" class="btn btn-sm btn-link p-0 text-muted" wire:click="sortBy('product_name')">
-                                        <i class="bi bi-arrow-down-up"></i>
+                                    <span class="{{ $labelClassFor('product_name') }}">Produk</span>
+                                    <button type="button" class="btn btn-sm btn-link p-0" wire:click="sortBy('product_name')">
+                                        <x-sort-icon column="product_name" :active-column="$sortColumn" :direction="$sortDirection" />
                                     </button>
                                 </div>
                             </th>
                             <th rowspan="2" class="text-center align-middle" style="min-width: 140px;">Batas Minimum & Status</th>
 
                             {{-- Authoritative Global Good Stock --}}
-                            <th rowspan="2" class="text-center align-middle bg-primary-subtle text-primary border-start border-end" style="min-width: 130px;">
+                            <th rowspan="2" class="text-center align-middle bg-primary-subtle text-primary border-start border-end" style="min-width: 130px;" aria-sort="{{ $ariaSortFor('global_stock') }}">
                                 <div class="d-flex align-items-center justify-content-center gap-1">
                                     <button type="button"
                                             class="btn btn-sm btn-link p-0 text-primary fw-bold text-decoration-none"
                                             wire:click="sortBy('global_stock')"
                                             title="Urutkan berdasarkan Stok Global">
                                         Stok Global
-                                        <i class="bi bi-arrow-down-up"></i>
+                                        <x-sort-icon column="global_stock" :active-column="$sortColumn" :direction="$sortDirection" />
                                     </button>
                                     <button type="button"
                                             class="btn btn-xs btn-outline-primary ms-1 py-0 px-1"
@@ -246,38 +236,38 @@
                             @endif
 
                             {{-- Sales & Financial Columns (Sortable) --}}
-                            <th rowspan="2" class="text-center align-middle border-start" style="min-width: 110px;">
+                            <th rowspan="2" class="text-center align-middle border-start" style="min-width: 110px;" aria-sort="{{ $ariaSortFor('sold_quantity') }}">
                                 <div class="d-flex align-items-center justify-content-center gap-1">
-                                    <button type="button" class="btn btn-sm btn-link p-0 text-dark fw-semibold text-decoration-none" wire:click="sortBy('sold_quantity')">
-                                        Kuantitas Terjual <i class="bi bi-arrow-down-up"></i>
+                                    <button type="button" class="btn btn-sm btn-link p-0 fw-semibold text-decoration-none {{ $labelClassFor('sold_quantity') }}" wire:click="sortBy('sold_quantity')">
+                                        Kuantitas Terjual <x-sort-icon column="sold_quantity" :active-column="$sortColumn" :direction="$sortDirection" />
                                     </button>
                                 </div>
                             </th>
-                            <th rowspan="2" class="text-center align-middle" style="min-width: 130px;">
+                            <th rowspan="2" class="text-center align-middle" style="min-width: 130px;" aria-sort="{{ $ariaSortFor('sales_value') }}">
                                 <div class="d-flex align-items-center justify-content-center gap-1">
-                                    <button type="button" class="btn btn-sm btn-link p-0 text-dark fw-semibold text-decoration-none" wire:click="sortBy('sales_value')">
-                                        Nilai Penjualan <i class="bi bi-arrow-down-up"></i>
+                                    <button type="button" class="btn btn-sm btn-link p-0 fw-semibold text-decoration-none {{ $labelClassFor('sales_value') }}" wire:click="sortBy('sales_value')">
+                                        Nilai Penjualan <x-sort-icon column="sales_value" :active-column="$sortColumn" :direction="$sortDirection" />
                                     </button>
                                 </div>
                             </th>
-                            <th rowspan="2" class="text-center align-middle" style="min-width: 130px;">
+                            <th rowspan="2" class="text-center align-middle" style="min-width: 130px;" aria-sort="{{ $ariaSortFor('sold_cost') }}">
                                 <div class="d-flex align-items-center justify-content-center gap-1">
-                                    <button type="button" class="btn btn-sm btn-link p-0 text-dark fw-semibold text-decoration-none" wire:click="sortBy('sold_cost')">
-                                        Modal Terjual <i class="bi bi-arrow-down-up"></i>
+                                    <button type="button" class="btn btn-sm btn-link p-0 fw-semibold text-decoration-none {{ $labelClassFor('sold_cost') }}" wire:click="sortBy('sold_cost')">
+                                        Modal Terjual <x-sort-icon column="sold_cost" :active-column="$sortColumn" :direction="$sortDirection" />
                                     </button>
                                 </div>
                             </th>
-                            <th rowspan="2" class="text-center align-middle" style="min-width: 130px;">
+                            <th rowspan="2" class="text-center align-middle" style="min-width: 130px;" aria-sort="{{ $ariaSortFor('gross_profit') }}">
                                 <div class="d-flex align-items-center justify-content-center gap-1">
-                                    <button type="button" class="btn btn-sm btn-link p-0 text-dark fw-semibold text-decoration-none" wire:click="sortBy('gross_profit')">
-                                        Laba Kotor <i class="bi bi-arrow-down-up"></i>
+                                    <button type="button" class="btn btn-sm btn-link p-0 fw-semibold text-decoration-none {{ $labelClassFor('gross_profit') }}" wire:click="sortBy('gross_profit')">
+                                        Laba Kotor <x-sort-icon column="gross_profit" :active-column="$sortColumn" :direction="$sortDirection" />
                                     </button>
                                 </div>
                             </th>
-                            <th rowspan="2" class="text-center align-middle border-end" style="min-width: 110px;">
+                            <th rowspan="2" class="text-center align-middle border-end" style="min-width: 110px;" aria-sort="{{ $ariaSortFor('last_sale_date') }}">
                                 <div class="d-flex align-items-center justify-content-center gap-1">
-                                    <button type="button" class="btn btn-sm btn-link p-0 text-dark fw-semibold text-decoration-none" wire:click="sortBy('last_sale_date')">
-                                        Penjualan Terakhir <i class="bi bi-arrow-down-up"></i>
+                                    <button type="button" class="btn btn-sm btn-link p-0 fw-semibold text-decoration-none {{ $labelClassFor('last_sale_date') }}" wire:click="sortBy('last_sale_date')">
+                                        Penjualan Terakhir <x-sort-icon column="last_sale_date" :active-column="$sortColumn" :direction="$sortDirection" />
                                     </button>
                                 </div>
                             </th>
@@ -373,10 +363,8 @@
                                         @if($row->isMinimumUnset)
                                             <span class="badge bg-secondary">Batas Minimum Belum Diatur</span>
                                         @endif
-                                        @if($row->isSlowMoving)
-                                            <span class="badge bg-info text-dark">Lama Tidak Terjual</span>
-                                        @endif
-                                        @if(empty($row->getActiveStatuses()))
+                                        {{-- Lama Tidak Terjual badge temporarily hidden from the UI --}}
+                                        @if(!$row->isOutOfStock && !$row->isReorderRequired && !$row->isMinimumUnset)
                                             <span class="badge bg-success-subtle text-success border border-success">Cukup</span>
                                         @endif
                                     </div>

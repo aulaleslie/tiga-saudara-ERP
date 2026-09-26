@@ -104,7 +104,7 @@ class StockInsightsLivewireTest extends TestCase
             ->assertSee('Stok Habis')
             ->assertSee('Perlu Dibeli Lagi')
             ->assertSee('Batas Minimum Belum Diatur')
-            ->assertSee('Lama Tidak Terjual')
+            ->assertDontSee('Lama Tidak Terjual')
             ->assertSee('Stok Global')
             ->assertSee('Kuantitas Terjual')
             ->assertSee('Nilai Penjualan')
@@ -289,6 +289,115 @@ class StockInsightsLivewireTest extends TestCase
             ->assertSet('sortDirection', 'desc')
             ->call('sortBy', 'invalid_column') // Should be ignored
             ->assertSet('sortColumn', 'product_name');
+    }
+
+    public function test_sort_indicators_are_neutral_under_default_ordering(): void
+    {
+        $this->actingAs($this->user);
+
+        $product = $this->createProduct();
+        $this->attachStock($product, 10);
+
+        $html = Livewire::test(StockInsights::class)->html();
+
+        // Neutral icon appears for every sortable column when sortColumn === 'default'.
+        $this->assertGreaterThanOrEqual(
+            7,
+            substr_count($html, 'bi-arrow-down-up'),
+            'Expected all sortable headers to render the neutral bi-arrow-down-up icon.'
+        );
+        $this->assertStringNotContainsString('bi-arrow-up text-primary', $html);
+        $this->assertStringNotContainsString('bi-arrow-down text-primary', $html);
+        $this->assertStringContainsString('aria-sort="none"', $html);
+        $this->assertStringNotContainsString('aria-sort="ascending"', $html);
+        $this->assertStringNotContainsString('aria-sort="descending"', $html);
+    }
+
+    public function test_sort_indicator_reflects_ascending_and_descending_active_column(): void
+    {
+        $this->actingAs($this->user);
+
+        $product = $this->createProduct();
+        $this->attachStock($product, 10);
+
+        // Financial columns like sold_cost default to descending on first click.
+        $component = Livewire::test(StockInsights::class)
+            ->call('sortBy', 'sold_cost')
+            ->assertSet('sortDirection', 'desc');
+
+        $descHtml = $component->html();
+        $this->assertStringContainsString('aria-sort="descending"', $descHtml);
+        $this->assertStringContainsString('bi-arrow-down text-primary', $descHtml);
+        // The now-inactive columns must remain neutral even while one column is active.
+        $this->assertStringContainsString('bi-arrow-down-up text-muted', $descHtml);
+
+        $component->call('sortBy', 'sold_cost')
+            ->assertSet('sortDirection', 'asc'); // toggles to asc
+        $ascHtml = $component->html();
+
+        $this->assertStringContainsString('aria-sort="ascending"', $ascHtml);
+        $this->assertStringContainsString('bi-arrow-up text-primary', $ascHtml);
+    }
+
+    public function test_reset_filters_restores_neutral_sort_indicators(): void
+    {
+        $this->actingAs($this->user);
+
+        $product = $this->createProduct();
+        $this->attachStock($product, 10);
+
+        $component = Livewire::test(StockInsights::class)
+            ->call('sortBy', 'gross_profit')
+            ->assertSet('sortColumn', 'gross_profit');
+
+        $component->call('resetFilters')
+            ->assertSet('sortColumn', 'default');
+
+        $html = $component->html();
+        $this->assertStringNotContainsString('bi-arrow-up text-primary', $html);
+        $this->assertStringNotContainsString('bi-arrow-down text-primary', $html);
+        $this->assertStringNotContainsString('aria-sort="ascending"', $html);
+        $this->assertStringNotContainsString('aria-sort="descending"', $html);
+    }
+
+    public function test_lama_tidak_terjual_card_and_badge_are_hidden_while_other_statuses_remain_visible(): void
+    {
+        $this->actingAs($this->user);
+
+        // Mature product, positive stock, no sales -> internally slow-moving,
+        // but the UI must not surface "Lama Tidak Terjual" anywhere.
+        $slowProduct = $this->createProduct([
+            'product_name' => 'Produk Lama Tidak Laku',
+            'product_stock_alert' => 1,
+            'created_at' => $this->now->copy()->subDays(200),
+        ]);
+        $this->attachStock($slowProduct, 5);
+
+        $html = Livewire::test(StockInsights::class)->html();
+
+        $this->assertStringNotContainsString('Lama Tidak Terjual', $html);
+
+        // Other status cards/badges remain visible.
+        $this->assertStringContainsString('Stok Habis', $html);
+        $this->assertStringContainsString('Perlu Dibeli Lagi', $html);
+        $this->assertStringContainsString('Batas Minimum Belum Diatur', $html);
+    }
+
+    public function test_visible_summary_cards_use_three_column_layout_with_no_hidden_placeholder(): void
+    {
+        $this->actingAs($this->user);
+
+        $product = $this->createProduct();
+        $this->attachStock($product, 10);
+
+        $html = Livewire::test(StockInsights::class)->html();
+
+        // Exactly the three visible cards use the even three-column layout.
+        $this->assertEquals(3, substr_count($html, 'col-12 col-md-4'));
+
+        // No leftover four-column layout, and no empty placeholder column for the hidden card.
+        $this->assertStringNotContainsString('col-xl-3', $html);
+        $this->assertStringNotContainsString('col-sm-6', $html);
     }
 
     public function test_disappearing_row_feedback_when_row_leaves_active_filter(): void
