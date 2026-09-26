@@ -162,18 +162,43 @@
         </div>
     </div>
 
-    {{-- Main Stock Table --}}
-    <div class="card border-0 shadow-sm position-relative">
-        {{-- Loading Overlay --}}
-        <div wire:loading.flex class="position-absolute top-0 start-0 w-100 h-100 bg-white bg-opacity-75 align-items-center justify-content-center" style="z-index: 20;">
-            <div class="text-center">
-                <div class="spinner-border text-primary" role="status"></div>
-                <div class="small text-muted mt-2">Memuat data pantauan stok...</div>
-            </div>
-        </div>
+    @php
+        // Actions that refresh the report rows (search, filters, status cards,
+        // sorting, pagination, reset, and the successful minimum-stock refresh
+        // dispatched from the isolated modal component). Expansion toggles and
+        // the modal's own open/close/save are intentionally excluded so they
+        // never trigger the row-only loading state below.
+        $rowLoadingTargets = implode(',', [
+            'search',
+            'startDate',
+            'toggleStatus',
+            'sortBy',
+            'resetFilters',
+            'onMinimumSaved',
+            'gotoPage',
+            'previousPage',
+            'nextPage',
+            'categoryIds',
+            'brandIds',
+            'preset',
+        ]);
+    @endphp
 
+    {{-- Main Stock Table --}}
+    <div class="card border-0 shadow-sm">
         <div class="card-body p-0">
-            <div class="table-responsive" style="max-height: 700px; overflow-x: auto;">
+            <div class="table-responsive position-relative" style="max-height: 700px; overflow-x: auto;">
+                {{-- Row-only Loading Overlay: covers the scrollable body, never the sticky header --}}
+                <div wire:loading.flex
+                     wire:target="{{ $rowLoadingTargets }}"
+                     class="position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center"
+                     style="z-index: 12; background-color: rgba(255,255,255,0.6); pointer-events: none;">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <div class="small text-muted mt-2">Memuat data pantauan stok...</div>
+                    </div>
+                </div>
+
                 <table class="table table-hover table-bordered align-middle mb-0" style="font-size: 0.85rem;">
                     <thead class="table-light sticky-top" style="z-index: 15;">
                         {{-- Top-Tier Header --}}
@@ -295,7 +320,13 @@
                             </tr>
                         @endif
                     </thead>
-                    <tbody>
+                    <tbody
+                        aria-busy="false"
+                        wire:loading.attr="aria-busy"
+                        wire:loading.class="opacity-50 pe-none"
+                        wire:target="{{ $rowLoadingTargets }}"
+                        style="transition: opacity 0.15s ease-in-out;"
+                    >
                         @forelse($rows as $row)
                             <tr>
                                 {{-- Product Identity Column (Sticky) --}}

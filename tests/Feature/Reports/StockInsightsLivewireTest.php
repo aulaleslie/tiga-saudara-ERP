@@ -400,6 +400,110 @@ class StockInsightsLivewireTest extends TestCase
         $this->assertStringNotContainsString('col-sm-6', $html);
     }
 
+    public function test_full_card_loading_overlay_no_longer_exists(): void
+    {
+        $this->actingAs($this->user);
+
+        $product = $this->createProduct();
+        $this->attachStock($product, 10);
+
+        $html = Livewire::test(StockInsights::class)->html();
+
+        // The old overlay covered the whole card at 75% white opacity with a high z-index
+        // and was not scoped to the row viewport. That markup must be gone.
+        $this->assertStringNotContainsString('bg-white bg-opacity-75', $html);
+        $this->assertStringNotContainsString('z-index: 20', $html);
+    }
+
+    public function test_table_header_sits_outside_the_row_loading_container(): void
+    {
+        $this->actingAs($this->user);
+
+        $product = $this->createProduct();
+        $this->attachStock($product, 10);
+
+        $html = Livewire::test(StockInsights::class)->html();
+
+        // The sticky header markup must appear before the row-loading overlay's
+        // wire:target block, proving the header is not nested inside it.
+        $theadPos = strpos($html, '<thead');
+        $overlayPos = strpos($html, 'wire:loading.flex');
+
+        $this->assertNotFalse($theadPos);
+        $this->assertNotFalse($overlayPos);
+        $this->assertLessThan($theadPos, $overlayPos, 'Expected the row-loading overlay to be declared before (and outside) the <thead> in DOM order.');
+
+        // Header stays fully opaque: no loading-related classes/attributes on the <thead> itself.
+        $theadTag = substr($html, $theadPos, strpos($html, '>', $theadPos) - $theadPos);
+        $this->assertStringNotContainsString('wire:loading', $theadTag);
+        $this->assertStringNotContainsString('aria-busy', $theadTag);
+        $this->assertStringContainsString('sticky-top', $theadTag);
+    }
+
+    public function test_row_area_has_loading_overlay_and_dimming_state(): void
+    {
+        $this->actingAs($this->user);
+
+        $product = $this->createProduct();
+        $this->attachStock($product, 10);
+
+        $html = Livewire::test(StockInsights::class)->html();
+
+        // A row-scoped loading overlay with the spinner exists.
+        $this->assertStringContainsString('Memuat data pantauan stok...', $html);
+        $this->assertStringContainsString('spinner-border', $html);
+
+        // The tbody carries the dimming class toggle for the loading state.
+        $tbodyPos = strpos($html, '<tbody');
+        $tbodyTag = substr($html, $tbodyPos, strpos($html, '>', $tbodyPos) - $tbodyPos);
+        $this->assertStringContainsString('wire:loading.class="opacity-50 pe-none"', $tbodyTag);
+    }
+
+    public function test_row_area_exposes_busy_state_scoped_to_report_refresh_targets(): void
+    {
+        $this->actingAs($this->user);
+
+        $product = $this->createProduct();
+        $this->attachStock($product, 10);
+
+        $html = Livewire::test(StockInsights::class)->html();
+
+        $tbodyPos = strpos($html, '<tbody');
+        $tbodyTag = substr($html, $tbodyPos, strpos($html, '>', $tbodyPos) - $tbodyPos);
+
+        $this->assertStringContainsString('aria-busy="false"', $tbodyTag);
+        $this->assertStringContainsString('wire:loading.attr="aria-busy"', $tbodyTag);
+
+        // Busy state is scoped to actions that actually refresh report rows.
+        $this->assertStringContainsString('wire:target=', $tbodyTag);
+        $this->assertStringContainsString('sortBy', $tbodyTag);
+        $this->assertStringContainsString('resetFilters', $tbodyTag);
+        $this->assertStringContainsString('onMinimumSaved', $tbodyTag);
+    }
+
+    public function test_modal_open_and_cancel_are_excluded_from_parent_table_loading_targets(): void
+    {
+        $this->actingAs($this->user);
+
+        $product = $this->createProduct();
+        $this->attachStock($product, 10);
+
+        $html = Livewire::test(StockInsights::class)->html();
+
+        $tbodyPos = strpos($html, '<tbody');
+        $tbodyTag = substr($html, $tbodyPos, strpos($html, '>', $tbodyPos) - $tbodyPos);
+
+        // The isolated modal component's own actions must never appear in the
+        // parent row-loading wire:target list, since they never touch this component.
+        $this->assertStringNotContainsString('openMinimumModal', $tbodyTag);
+        $this->assertStringNotContainsString('closeMinimumModal', $tbodyTag);
+        $this->assertStringNotContainsString('saveMinimumStock', $tbodyTag);
+
+        // Expansion toggles are also excluded, since they refresh header sub-columns, not rows.
+        $this->assertStringNotContainsString('toggleGlobalExpansion', $tbodyTag);
+        $this->assertStringNotContainsString('toggleBusinessExpansion', $tbodyTag);
+    }
+
     public function test_disappearing_row_feedback_when_row_leaves_active_filter(): void
     {
         $this->actingAs($this->user);
