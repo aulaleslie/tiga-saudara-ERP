@@ -21,6 +21,7 @@ class ReportsController extends Controller
             'stockMutationReports.global.access',
             'inventoryValuationReports.access',
             'inventory.view_remaining_stock',
+            'stockInsights.access',
         ];
 
         abort_unless(Gate::any($permissions), 403);
@@ -289,6 +290,13 @@ class ReportsController extends Controller
                         'description' => 'Menampilkan pergerakan stok per gudang dalam periode tertentu.',
                         'is_placeholder' => true,
                         'permission' => 'stockMutationReports.access'
+                    ],
+                    [
+                        'label' => 'Pantauan Stok',
+                        'icon' => 'bi bi-clipboard2-data',
+                        'description' => 'Menampilkan pantauan stok global, batas minimum, dan pergerakan penjualan produk lintas bisnis.',
+                        'route' => 'reports.stock-insights.index',
+                        'permission' => 'stockInsights.access'
                     ],
                 ]
             ],

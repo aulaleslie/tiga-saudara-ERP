@@ -222,6 +222,10 @@ return [
         'inventoryValuationReports.access' => 'Hak Akses',
     ],
 
+    'Laporan Pantauan Stok' => [
+        'stockInsights.access' => 'Hak Akses',
+    ],
+
     'Pembayaran Pembelian' => [
         'purchasePayments.access' => 'Hak Akses',
         'purchasePayments.create' => 'Buat',

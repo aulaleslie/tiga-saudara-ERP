@@ -9,14 +9,16 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
+use OwenIt\Auditing\Contracts\Auditable;
 use Spatie\Image\Exceptions\InvalidManipulation;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
-class Product extends BaseModel implements HasMedia
+class Product extends BaseModel implements HasMedia, Auditable
 {
     use InteractsWithMedia;
+    use \OwenIt\Auditing\Auditable;
 
     protected $guarded = [];
 

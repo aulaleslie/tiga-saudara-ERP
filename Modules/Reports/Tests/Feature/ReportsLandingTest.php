@@ -23,7 +23,9 @@ class ReportsLandingTest extends TestCase
             'purchaseReports.global.access',
             'stockMutationReports.access',
             'stockMutationReports.global.access',
-            'inventoryValuationReports.access'
+            'inventoryValuationReports.access',
+            'inventory.view_remaining_stock',
+            'stockInsights.access'
         ];
 
         foreach ($permissions as $permission) {
@@ -100,6 +102,7 @@ class ReportsLandingTest extends TestCase
         $response->assertSeeText('Nilai stok gudang');
         $response->assertSeeText('Detail persediaan barang');
         $response->assertSeeText('Pergerakan barang gudang');
+        $response->assertSeeText('Pantauan Stok');
 
         $response = $this->actingAs($user)->get(route('reports.index', ['tab' => 'pajak']));
         $response->assertSeeText('Pajak pemotongan');
@@ -324,6 +327,20 @@ class ReportsLandingTest extends TestCase
         $response->assertStatus(200);
         $response->assertSeeText('Pajak penjualan');
         $response->assertSee(route('reports.sales-tax-report.index'));
+        $response->assertSeeText('Lihat laporan');
+    }
+
+    /** @test */
+    public function pantauan_stok_card_is_actionable_for_authorized_user()
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo('stockInsights.access');
+
+        $response = $this->actingAs($user)->get(route('reports.index', ['tab' => 'produk']));
+
+        $response->assertStatus(200);
+        $response->assertSeeText('Pantauan Stok');
+        $response->assertSee(route('reports.stock-insights.index'));
         $response->assertSeeText('Lihat laporan');
     }
 }

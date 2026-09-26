@@ -37,6 +37,7 @@ use Modules\Reports\Http\Controllers\InventoryDetailReportController;
 use Modules\Reports\Http\Controllers\ExpenseDetailsReportController;
 use Modules\Reports\Http\Controllers\SalesTaxReportController;
 use Modules\Reports\Http\Controllers\CrossBusinessStockInventoryReportController;
+use Modules\Reports\Http\Controllers\StockInsightsReportController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
     //Profit Loss Report
@@ -189,6 +190,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         Route::get('/sales-tax-report', [SalesTaxReportController::class, 'index'])
             ->name('reports.sales-tax-report.index')
             ->middleware('can:reports.access');
+
+        Route::get('/stock-insights', [StockInsightsReportController::class, 'index'])
+            ->name('reports.stock-insights.index')
+            ->middleware('can:stockInsights.access');
     });
 
     Route::get('/test-pdf', function () {
