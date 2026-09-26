@@ -3,6 +3,7 @@
 namespace Tests\Feature\Reports;
 
 use App\Livewire\Reports\StockInsights;
+use App\Livewire\Reports\StockInsightsMinimumModal;
 use App\Models\User;
 use App\Services\Reports\StockInsightsQueryService;
 use Carbon\Carbon;
@@ -156,17 +157,52 @@ class StockInsightsLivewireTest extends TestCase
         ]);
         $this->attachStock($product, 8);
 
-        Livewire::test(StockInsights::class)
-            ->call('openMinimumModal', $product->id)
+        Livewire::test(StockInsightsMinimumModal::class)
+            ->call('openMinimumModal', $product->id, '2026-09-20', '7 Hari Terakhir')
             ->assertSet('showMinimumModal', true)
             ->assertSet('modalProductName', 'Minyak Goreng Sawit')
             ->assertSet('modalMinimumInput', '0')
             ->set('modalMinimumInput', '25')
             ->call('saveMinimumStock')
             ->assertSet('showMinimumModal', false)
-            ->assertSee('berhasil diperbarui menjadi 25');
+            ->assertDispatched('stock-insights-minimum-saved');
 
         $this->assertEquals(25, $product->fresh()->product_stock_alert);
+    }
+
+    public function test_modal_prefill_avoids_recomputing_sales_aggregates(): void
+    {
+        $this->actingAs($this->user);
+
+        $product = $this->createProduct([
+            'product_name' => 'Gula Pasir',
+            'product_stock_alert' => 3,
+        ]);
+
+        Livewire::test(StockInsightsMinimumModal::class)
+            ->call(
+                'openMinimumModal',
+                $product->id,
+                '2026-09-20',
+                '7 Hari Terakhir',
+                'Gula Pasir',
+                $product->product_code,
+                null,
+                3,
+                12.5,
+                10.0,
+                2.5,
+                0.0,
+                0.0,
+                4.0,
+                '2026-09-24'
+            )
+            ->assertSet('showMinimumModal', true)
+            ->assertSet('modalProductName', 'Gula Pasir')
+            ->assertSet('modalGlobalGoodStock', 12.5)
+            ->assertSet('modalSoldQuantity', 4.0)
+            ->assertSet('modalLastSaleDate', '2026-09-24')
+            ->assertSet('modalMinimumInput', '3');
     }
 
     public function test_minimum_stock_validation_rejects_negative_or_non_integer(): void
@@ -175,8 +211,8 @@ class StockInsightsLivewireTest extends TestCase
 
         $product = $this->createProduct(['product_stock_alert' => 5]);
 
-        Livewire::test(StockInsights::class)
-            ->call('openMinimumModal', $product->id)
+        Livewire::test(StockInsightsMinimumModal::class)
+            ->call('openMinimumModal', $product->id, '2026-09-20', '7 Hari Terakhir')
             ->set('modalMinimumInput', '-5')
             ->call('saveMinimumStock')
             ->assertSet('showMinimumModal', true)
@@ -266,12 +302,16 @@ class StockInsightsLivewireTest extends TestCase
         $this->attachStock($p, 10);
 
         // User filters by 'Batas Minimum Belum Diatur'
-        Livewire::test(StockInsights::class)
+        $report = Livewire::test(StockInsights::class)
             ->set('statuses', ['Batas Minimum Belum Diatur'])
-            ->assertSee($p->product_code)
-            ->call('openMinimumModal', $p->id)
+            ->assertSee($p->product_code);
+
+        Livewire::test(StockInsightsMinimumModal::class)
+            ->call('openMinimumModal', $p->id, '2026-09-20', '7 Hari Terakhir')
             ->set('modalMinimumInput', '15')
-            ->call('saveMinimumStock')
+            ->call('saveMinimumStock');
+
+        $report->dispatch('stock-insights-minimum-saved', productId: $p->id, productName: $p->product_name, newMinimum: 15)
             ->assertSee('berhasil diperbarui')
             ->assertSee('tidak lagi memenuhi filter status yang aktif')
             ->assertDontSee($p->product_code); // Row leaves active filter!
@@ -299,8 +339,8 @@ class StockInsightsLivewireTest extends TestCase
 
         $product = $this->createProduct(['product_stock_alert' => 5]);
 
-        Livewire::test(StockInsights::class)
-            ->call('openMinimumModal', $product->id)
+        Livewire::test(StockInsightsMinimumModal::class)
+            ->call('openMinimumModal', $product->id, '2026-09-20', '7 Hari Terakhir')
             ->set('modalMinimumInput', '25')
             ->call('saveMinimumStock');
 
@@ -324,7 +364,7 @@ class StockInsightsLivewireTest extends TestCase
             });
 
         // Test with non-existent product ID
-        Livewire::test(StockInsights::class)
+        Livewire::test(StockInsightsMinimumModal::class)
             ->set('modalProductId', 999999)
             ->set('modalMinimumInput', '10')
             ->call('saveMinimumStock')

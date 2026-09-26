@@ -119,34 +119,42 @@
                 {{-- Category Filter --}}
                 <div class="col-md-2">
                     <label class="form-label small text-muted">Kategori</label>
-                    <select wire:model.live="categoryIds" multiple class="form-select form-select-sm" size="1">
-                        @foreach($categories as $category)
-                            <option value="{{ $category->id }}">{{ $category->category_name }}</option>
-                        @endforeach
-                    </select>
+                    <div wire:ignore class="stock-insights-select2-container">
+                        <select id="stock-insights-category-select" multiple class="form-control" style="width: 100%;">
+                            @foreach($categories as $category)
+                                <option value="{{ $category->id }}" @if(in_array((string)$category->id, array_map('strval', $categoryIds))) selected @endif>
+                                    {{ $category->category_name }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
                 </div>
 
                 {{-- Brand Filter --}}
                 <div class="col-md-2">
                     <label class="form-label small text-muted">Merek</label>
-                    <select wire:model.live="brandIds" multiple class="form-select form-select-sm" size="1">
-                        @foreach($brands as $brand)
-                            <option value="{{ $brand->id }}">{{ $brand->name }}</option>
-                        @endforeach
-                    </select>
+                    <div wire:ignore class="stock-insights-select2-container">
+                        <select id="stock-insights-brand-select" multiple class="form-control" style="width: 100%;">
+                            @foreach($brands as $brand)
+                                <option value="{{ $brand->id }}" @if(in_array((string)$brand->id, array_map('strval', $brandIds))) selected @endif>
+                                    {{ $brand->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
                 </div>
 
                 {{-- Period Presets --}}
                 <div class="col-md-2">
                     <label class="form-label small text-muted">Periode Penjualan</label>
-                    <select wire:model.live="preset" class="form-select">
-                        <option value="7">7 Hari Terakhir</option>
-                        <option value="30">30 Hari Terakhir</option>
-                        <option value="90">90 Hari Terakhir</option>
-                        @if($preset === 'custom')
-                            <option value="custom" disabled>{{ $periodLabel }}</option>
-                        @endif
-                    </select>
+                    <div wire:ignore class="stock-insights-select2-container">
+                        <select id="stock-insights-preset-select" class="form-control" style="width: 100%;">
+                            <option value="7" @if($preset === '7') selected @endif>7 Hari Terakhir</option>
+                            <option value="30" @if($preset === '30') selected @endif>30 Hari Terakhir</option>
+                            <option value="90" @if($preset === '90') selected @endif>90 Hari Terakhir</option>
+                            <option value="custom" disabled @if($preset === 'custom') selected @endif>{{ $preset === 'custom' ? $periodLabel : 'Kustom' }}</option>
+                        </select>
+                    </div>
                 </div>
 
                 {{-- Start Date Picker --}}
@@ -320,9 +328,27 @@
                                         </div>
 
                                         {{-- Inline Minimum Stock Modal Trigger --}}
+                                        @php
+                                            $modalPrefillPayload = [
+                                                'productId' => $row->productId,
+                                                'startDate' => $startDate,
+                                                'periodLabel' => $periodLabel,
+                                                'productName' => $row->productName,
+                                                'productCode' => $row->productCode,
+                                                'barcode' => $row->barcode,
+                                                'stockAlert' => $row->stockAlert,
+                                                'globalGoodStock' => $row->globalStock->totalGood,
+                                                'taxGood' => $row->globalStock->taxGood,
+                                                'nonTaxGood' => $row->globalStock->nonTaxGood,
+                                                'taxBroken' => $row->globalStock->taxBroken,
+                                                'nonTaxBroken' => $row->globalStock->nonTaxBroken,
+                                                'soldQuantity' => $row->soldQuantity,
+                                                'lastSaleDate' => $row->lastSaleDate,
+                                            ];
+                                        @endphp
                                         <button type="button"
                                                 class="btn btn-sm {{ $row->isMinimumUnset ? 'btn-outline-danger' : 'btn-outline-primary' }} p-1"
-                                                wire:click="openMinimumModal({{ $row->productId }})"
+                                                x-on:click="$dispatch('open-stock-insights-minimum-modal', @js($modalPrefillPayload))"
                                                 title="Atur batas minimum stok">
                                             <i class="bi bi-pencil-square"></i>
                                         </button>
@@ -476,87 +502,163 @@
         </div>
     </div>
 
-    {{-- Inline Minimum Stock Modal --}}
-    @if($showMinimumModal)
-        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5); z-index: 1050;">
-            <div class="modal-dialog modal-dialog-centered">
-                <div class="modal-content border-0 shadow">
-                    <div class="modal-header bg-primary text-white">
-                        <h5 class="modal-title fs-6 fw-bold">
-                            <i class="bi bi-sliders me-1"></i> Atur Batas Minimum Stok
-                        </h5>
-                        <button type="button" class="btn-close btn-close-white" wire:click="closeMinimumModal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body">
-                        {{-- Product Identity Context --}}
-                        <div class="mb-3 p-3 bg-light rounded border">
-                            <div class="fw-bold text-dark fs-6">{{ $modalProductName }}</div>
-                            <div class="small text-muted">
-                                <span>Kode: <code>{{ $modalProductCode }}</code></span>
-                                @if($modalBarcode)
-                                    <span class="ms-2">| Barcode: <code>{{ $modalBarcode }}</code></span>
-                                @endif
-                            </div>
-                        </div>
+    {{-- Inline Minimum Stock Modal (isolated child component to avoid full report re-render) --}}
+    <livewire:reports.stock-insights-minimum-modal />
 
-                        {{-- Stock & Scope Explanation --}}
-                        <div class="alert alert-info py-2 small mb-3">
-                            <i class="bi bi-info-circle me-1"></i>
-                            Batas minimum ini berlaku untuk <strong>total Stok Bagus (Good)</strong> gabungan di seluruh bisnis dan lokasi aktif.
-                        </div>
+    @once
+    <style>
+        .stock-insights-select2-container .select2-selection--multiple {
+            min-height: 38px;
+            height: auto !important;
+            padding: 2px 6px;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+        }
 
-                        <div class="row g-2 mb-3">
-                            <div class="col-6">
-                                <div class="border rounded p-2 text-center bg-light">
-                                    <div class="text-muted small">Stok Good Global</div>
-                                    <div class="fw-bold fs-5 text-primary">{{ number_format($modalGlobalGoodStock, 2) }}</div>
-                                    <div class="small text-muted" style="font-size: 0.75rem;">
-                                        Pajak: {{ $modalTaxGood }} | Non-Pajak: {{ $modalNonTaxGood }}
-                                    </div>
-                                    @if(($modalTaxBroken + $modalNonTaxBroken) > 0)
-                                        <div class="small text-danger mt-1" style="font-size: 0.75rem;">
-                                            Rusak: {{ number_format($modalTaxBroken + $modalNonTaxBroken, 2) }} (P: {{ $modalTaxBroken }} | NP: {{ $modalNonTaxBroken }})
-                                        </div>
-                                    @endif
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="border rounded p-2 text-center bg-light">
-                                    <div class="text-muted small">Penjualan ({{ $periodLabel }})</div>
-                                    <div class="fw-bold fs-5 text-dark">{{ number_format($modalSoldQuantity, 2) }}</div>
-                                    <div class="small text-muted" style="font-size: 0.75rem;">
-                                        Terakhir: {{ $modalLastSaleDate ? \Carbon\Carbon::parse($modalLastSaleDate)->format('d/m/Y') : '-' }}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+        .stock-insights-select2-container .select2-selection__rendered {
+            display: flex !important;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 4px;
+            padding: 0 !important;
+            margin: 0 !important;
+            width: auto !important;
+        }
 
-                        {{-- Input Field --}}
-                        <div class="mb-3">
-                            <label class="form-label fw-semibold">Batas Minimum Stok Global</label>
-                            <input type="number"
-                                   min="0"
-                                   step="1"
-                                   wire:model="modalMinimumInput"
-                                   class="form-control @if($modalErrorMessage) is-invalid @endif"
-                                   placeholder="Masukkan batas minimum (misal: 10)">
-                            @if($modalErrorMessage)
-                                <div class="invalid-feedback d-block">{{ $modalErrorMessage }}</div>
-                            @endif
-                            <div class="form-text small text-muted">
-                                Masukkan 0 jika tidak ingin menetapkan batas minimum untuk produk ini.
-                            </div>
-                        </div>
-                    </div>
-                    <div class="modal-footer bg-light">
-                        <button type="button" class="btn btn-secondary btn-sm" wire:click="closeMinimumModal">Batal</button>
-                        <button type="button" class="btn btn-primary btn-sm" wire:click="saveMinimumStock">
-                            <span wire:loading wire:target="saveMinimumStock" class="spinner-border spinner-border-sm me-1" role="status"></span>
-                            Simpan Perubahan
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    @endif
+        .stock-insights-select2-container .select2-search--inline {
+            flex: 1 1 120px;
+            min-width: 120px;
+            line-height: 28px;
+        }
+
+        .stock-insights-select2-container .select2-search__field {
+            width: 100% !important;
+            height: 28px !important;
+            min-height: 28px !important;
+            max-height: 28px !important;
+            line-height: 28px !important;
+            resize: none !important;
+            overflow: hidden !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            text-align: left;
+        }
+
+        .stock-insights-select2-container .select2-selection--single {
+            height: 38px !important;
+            padding: 4px 8px;
+            display: flex;
+            align-items: center;
+        }
+    </style>
+    @endonce
+
+    <script>
+        document.addEventListener('livewire:initialized', () => {
+            function initSelect2() {
+                // Category Select2
+                const $categorySelect = $('#stock-insights-category-select');
+                if ($categorySelect.length) {
+                    if ($categorySelect.hasClass('select2-hidden-accessible')) {
+                        $categorySelect.select2('destroy').off('change');
+                    }
+                    let syncCat = false;
+                    $categorySelect.select2({
+                        placeholder: 'Semua Kategori',
+                        allowClear: true,
+                        theme: 'coreui',
+                        width: '100%'
+                    }).on('change', function () {
+                        if (!syncCat) {
+                            @this.set('categoryIds', $(this).val() || []);
+                        }
+                    });
+
+                    Livewire.on('sync-select2-categoryIds', (data) => {
+                        let payload = Array.isArray(data) ? data[0] : data;
+                        let values = payload.values || payload || [];
+                        syncCat = true;
+                        try {
+                            $categorySelect.val(values).trigger('change.select2');
+                        } finally {
+                            syncCat = false;
+                        }
+                    });
+                }
+
+                // Brand Select2
+                const $brandSelect = $('#stock-insights-brand-select');
+                if ($brandSelect.length) {
+                    if ($brandSelect.hasClass('select2-hidden-accessible')) {
+                        $brandSelect.select2('destroy').off('change');
+                    }
+                    let syncBrand = false;
+                    $brandSelect.select2({
+                        placeholder: 'Semua Merek',
+                        allowClear: true,
+                        theme: 'coreui',
+                        width: '100%'
+                    }).on('change', function () {
+                        if (!syncBrand) {
+                            @this.set('brandIds', $(this).val() || []);
+                        }
+                    });
+
+                    Livewire.on('sync-select2-brandIds', (data) => {
+                        let payload = Array.isArray(data) ? data[0] : data;
+                        let values = payload.values || payload || [];
+                        syncBrand = true;
+                        try {
+                            $brandSelect.val(values).trigger('change.select2');
+                        } finally {
+                            syncBrand = false;
+                        }
+                    });
+                }
+
+                // Period Preset Select2 (search disabled)
+                const $presetSelect = $('#stock-insights-preset-select');
+                if ($presetSelect.length) {
+                    if ($presetSelect.hasClass('select2-hidden-accessible')) {
+                        $presetSelect.select2('destroy').off('change');
+                    }
+                    let syncPreset = false;
+                    $presetSelect.select2({
+                        theme: 'coreui',
+                        minimumResultsForSearch: Infinity,
+                        width: '100%'
+                    }).on('change', function () {
+                        if (!syncPreset) {
+                            @this.set('preset', $(this).val());
+                        }
+                    });
+
+                    Livewire.on('sync-select2-preset', (data) => {
+                        let payload = Array.isArray(data) ? data[0] : data;
+                        let value = payload.values || payload || '7';
+                        let label = payload.label || null;
+                        let $customOption = $presetSelect.find('option[value="custom"]');
+                        syncPreset = true;
+                        try {
+                            if (value === 'custom') {
+                                if (label) {
+                                    $customOption.text(label);
+                                }
+                                $customOption.prop('disabled', false);
+                            }
+                            $presetSelect.val(value).trigger('change.select2');
+                        } finally {
+                            syncPreset = false;
+                            if (value === 'custom') {
+                                $customOption.prop('disabled', true);
+                            }
+                        }
+                    });
+                }
+            }
+
+            initSelect2();
+        });
+    </script>
 </div>

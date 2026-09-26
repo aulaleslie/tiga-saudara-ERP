@@ -623,6 +623,105 @@ class StockInsightsFilteringSortingTest extends TestCase
         $this->assertEquals(15000, $items[1]->soldCost);
     }
 
+    public function test_bundle_parent_cost_adds_component_to_non_zero_parent_snapshot_for_sorting_and_pagination(): void
+    {
+        // Regression: bundle parent with its OWN non-zero cost snapshot must
+        // sum its cost with the bundle components', never replace it.
+        $bundleParent = $this->createProduct(['product_name' => 'Laptop Bundle Parent']);
+        $accessory = $this->createProduct(['product_name' => 'Laptop Bundle Accessory']);
+        $singleProd = $this->createProduct(['product_name' => 'Plain Product']);
+
+        $sale = Sale::create([
+            'setting_id' => $this->setting->id,
+            'reference' => 'SL-BND2-' . Str::random(6),
+            'date' => $this->now->toDateString(),
+            'reporting_date' => $this->now->toDateString(),
+            'status' => 'DISPATCHED',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'total_amount' => 29500000,
+            'paid_amount' => 29500000,
+            'due_amount' => 0,
+            'tax_amount' => 0,
+            'discount_amount' => 0,
+            'is_tax_included' => false,
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+        ]);
+
+        $detailBundle = SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $bundleParent->id,
+            'product_name' => $bundleParent->product_name,
+            'product_code' => $bundleParent->product_code,
+            'quantity' => 4,
+            'price' => 7375000,
+            'unit_price' => 7375000,
+            'sub_total' => 29500000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'cost_unit_snapshot' => 7091128.23,
+            'cost_total_snapshot' => 28364512.92,
+        ]);
+
+        \Illuminate\Support\Facades\DB::table('sale_bundle_items')->insert([
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $detailBundle->id,
+            'bundle_id' => 1,
+            'bundle_item_id' => 1,
+            'product_id' => $accessory->id,
+            'name' => 'Bundle Accessory',
+            'quantity' => 4,
+            'price' => 0,
+            'sub_total' => 0,
+            'cost_unit_snapshot' => 36295.98,
+            'cost_total_snapshot' => 145183.92,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        // Plain product with a much smaller known HPP so the bundle parent sorts first.
+        SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $singleProd->id,
+            'product_name' => $singleProd->product_name,
+            'product_code' => $singleProd->product_code,
+            'quantity' => 1,
+            'price' => 50000,
+            'unit_price' => 50000,
+            'sub_total' => 50000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'cost_unit_snapshot' => 15000,
+            'cost_total_snapshot' => 15000,
+        ]);
+
+        // sold_cost sort DESC: bundle parent (28,509,696.84) must rank above the plain product (15,000)
+        $costFilter = new StockInsightsFilterData(sortColumn: 'sold_cost', sortDirection: 'desc', today: $this->now, perPage: 10);
+        $costResult = $this->service->paginate($costFilter);
+        $costItems = $costResult->items();
+
+        $costByProduct = collect($costItems)->keyBy('productId');
+        $this->assertEquals($bundleParent->id, $costItems[0]->productId);
+        $this->assertEquals(28509696.84, $costByProduct[$bundleParent->id]->soldCost);
+        $this->assertEquals(15000, $costByProduct[$singleProd->id]->soldCost);
+        $bundleCostRank = array_search($bundleParent->id, array_map(fn ($i) => $i->productId, $costItems), true);
+        $singleCostRank = array_search($singleProd->id, array_map(fn ($i) => $i->productId, $costItems), true);
+        $this->assertLessThan($singleCostRank, $bundleCostRank);
+
+        // gross_profit sort ASC: plain product's smaller margin (35,000) must rank below the bundle parent's larger margin (990,303.16)
+        $profitFilter = new StockInsightsFilterData(sortColumn: 'gross_profit', sortDirection: 'asc', today: $this->now, perPage: 10);
+        $profitResult = $this->service->paginate($profitFilter);
+        $profitItems = $profitResult->items();
+
+        $profitByProduct = collect($profitItems)->keyBy('productId');
+        $this->assertEquals(990303.16, $profitByProduct[$bundleParent->id]->grossProfit);
+        $this->assertEquals(35000, $profitByProduct[$singleProd->id]->grossProfit);
+        $bundleProfitRank = array_search($bundleParent->id, array_map(fn ($i) => $i->productId, $profitItems), true);
+        $singleProfitRank = array_search($singleProd->id, array_map(fn ($i) => $i->productId, $profitItems), true);
+        $this->assertLessThan($bundleProfitRank, $singleProfitRank);
+    }
+
     public function test_business_hierarchy_bounded_queries(): void
     {
         \Illuminate\Support\Facades\DB::enableQueryLog();

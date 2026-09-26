@@ -5,13 +5,11 @@ namespace App\Livewire\Reports;
 use App\Services\Reports\StockInsightsFilterData;
 use App\Services\Reports\StockInsightsQueryService;
 use Carbon\Carbon;
-use Exception;
-use Illuminate\Support\Facades\DB;
+use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Modules\Product\Entities\Brand;
 use Modules\Product\Entities\Category;
-use Modules\Product\Entities\Product;
 
 class StockInsights extends Component
 {
@@ -34,22 +32,6 @@ class StockInsights extends Component
     public bool $isGlobalExpanded = false;
     public array $expandedBusinesses = []; // settingId => bool
 
-    // Modal state for inline minimum stock update
-    public bool $showMinimumModal = false;
-    public ?int $modalProductId = null;
-    public string $modalProductName = '';
-    public string $modalProductCode = '';
-    public ?string $modalBarcode = null;
-    public float $modalGlobalGoodStock = 0.0;
-    public float $modalTaxGood = 0.0;
-    public float $modalNonTaxGood = 0.0;
-    public float $modalTaxBroken = 0.0;
-    public float $modalNonTaxBroken = 0.0;
-    public float $modalSoldQuantity = 0.0;
-    public float $modalSalesValue = 0.0;
-    public ?string $modalLastSaleDate = null;
-    public string $modalMinimumInput = '';
-    public string $modalErrorMessage = '';
     public string $feedbackMessage = '';
 
     protected $queryString = [
@@ -131,6 +113,11 @@ class StockInsights extends Component
             $this->preset = 'custom';
         }
         $this->resetPage();
+
+        $this->dispatch('sync-select2-preset', [
+            'values' => $this->preset,
+            'label' => "{$diff} Hari Terakhir",
+        ]);
     }
 
     public function sortBy(string $column): void
@@ -161,143 +148,41 @@ class StockInsights extends Component
         $this->expandedBusinesses[(string) $settingId] = !$current;
     }
 
-    public function openMinimumModal(int $productId): void
+    #[On('stock-insights-minimum-saved')]
+    public function onMinimumSaved(int $productId, string $productName, int $newMinimum): void
     {
-        abort_unless(auth()->user()->can('stockInsights.access'), 403);
-
-        $product = Product::query()
-            ->where('id', $productId)
-            ->where('is_active', true)
-            ->whereNull('merged_into_id')
-            ->where('stock_managed', true)
-            ->firstOrFail();
-
-        $queryService = app(StockInsightsQueryService::class);
-        $stockMatrix = $queryService->getStockMatrix([$productId]);
-        $stockBucket = $stockMatrix[$productId]['global'] ?? null;
-
-        $today = Carbon::today()->format('Y-m-d');
-        $financialAggregates = $queryService->getSalesAndFinancialAggregates([$productId], $this->startDate, $today);
-        $financial = $financialAggregates[$productId] ?? [];
-
-        $this->modalProductId = $productId;
-        $this->modalProductName = (string) $product->product_name;
-        $this->modalProductCode = (string) $product->product_code;
-        $this->modalBarcode = $product->barcode ? (string) $product->barcode : null;
-
-        $this->modalGlobalGoodStock = $stockBucket ? $stockBucket->totalGood : 0.0;
-        $this->modalTaxGood = $stockBucket ? $stockBucket->taxGood : 0.0;
-        $this->modalNonTaxGood = $stockBucket ? $stockBucket->nonTaxGood : 0.0;
-        $this->modalTaxBroken = $stockBucket ? $stockBucket->taxBroken : 0.0;
-        $this->modalNonTaxBroken = $stockBucket ? $stockBucket->nonTaxBroken : 0.0;
-
-        $this->modalSoldQuantity = (float) ($financial['sold_quantity'] ?? 0.0);
-        $this->modalSalesValue = (float) ($financial['sales_value'] ?? 0.0);
-        $this->modalLastSaleDate = $financial['last_sale_date'] ?? null;
-
-        $this->modalMinimumInput = (string) ($product->product_stock_alert ?? 0);
-        $this->modalErrorMessage = '';
-        $this->showMinimumModal = true;
-    }
-
-    public function closeMinimumModal(): void
-    {
-        $this->showMinimumModal = false;
-        $this->modalProductId = null;
-        $this->modalErrorMessage = '';
-    }
-
-    public function updateMinimumStock(int $productId, int $newMinimum): void
-    {
-        abort_unless(auth()->user()->can('stockInsights.access'), 403);
-
-        $this->openMinimumModal($productId);
-        $this->modalMinimumInput = (string) $newMinimum;
-        $this->saveMinimumStock();
-    }
-
-    public function saveMinimumStock(): void
-    {
-        abort_unless(auth()->user()->can('stockInsights.access'), 403);
-
-        if (!$this->modalProductId) {
-            return;
-        }
-
-        $minInput = trim($this->modalMinimumInput);
-        if (!ctype_digit($minInput) || (int) $minInput < 0) {
-            $this->modalErrorMessage = 'Batas minimum stok harus berupa angka bulat positif (0 atau lebih).';
-            return;
-        }
-
-        $newMinimum = (int) $minInput;
-
-        try {
-            DB::transaction(function () use ($newMinimum) {
-                $product = Product::query()
-                    ->where('id', $this->modalProductId)
-                    ->where('is_active', true)
-                    ->whereNull('merged_into_id')
-                    ->where('stock_managed', true)
-                    ->lockForUpdate()
-                    ->firstOrFail();
-
-                $oldAlert = (int) ($product->product_stock_alert ?? 0);
-                $product->product_stock_alert = $newMinimum;
-                $product->save();
-
-                // Audit trail via OwenIt\Auditing or ActivityLog if available, or direct audit logging
-                if (method_exists($product, 'audits')) {
-                    // Standard auditable handles it via saving
-                }
-            });
-
-            $savedName = $this->modalProductName;
-            $productId = $this->modalProductId;
-            $this->closeMinimumModal();
-
-            $leavingNotice = '';
-            if (!empty($this->statuses)) {
-                // Check if product still matches any of active statuses
-                $queryService = app(StockInsightsQueryService::class);
-                $singleFilter = new StockInsightsFilterData(
-                    statuses: $this->statuses,
-                    today: Carbon::today()
-                );
-                // Check if product is still returned in base query with status filter
-                $stillMatches = $queryService->getEligibleProductsBaseQuery()
-                    ->where('products.id', $productId)
-                    ->where(function ($q) use ($singleFilter) {
-                        $goodStockSql = StockInsightsQueryService::globalGoodStockSqlExpression();
-                        $slowMovingSql = StockInsightsQueryService::slowMovingSqlExpression($singleFilter->endDate);
-                        foreach ($singleFilter->statuses as $status) {
-                            if ($status === StockInsightsFilterData::STATUS_OUT_OF_STOCK) {
-                                $q->orWhereRaw("({$goodStockSql} <= 0)");
-                            } elseif ($status === StockInsightsFilterData::STATUS_REORDER_REQUIRED) {
-                                $q->orWhereRaw("(COALESCE(products.product_stock_alert, 0) > 0 AND {$goodStockSql} > 0 AND {$goodStockSql} <= products.product_stock_alert)");
-                            } elseif ($status === StockInsightsFilterData::STATUS_MINIMUM_UNSET) {
-                                $q->orWhereRaw("(COALESCE(products.product_stock_alert, 0) = 0)");
-                            } elseif ($status === StockInsightsFilterData::STATUS_SLOW_MOVING) {
-                                $q->orWhereRaw($slowMovingSql);
-                            }
+        $leavingNotice = '';
+        if (!empty($this->statuses)) {
+            $queryService = app(StockInsightsQueryService::class);
+            $singleFilter = new StockInsightsFilterData(
+                statuses: $this->statuses,
+                today: Carbon::today()
+            );
+            $stillMatches = $queryService->getEligibleProductsBaseQuery()
+                ->where('products.id', $productId)
+                ->where(function ($q) use ($singleFilter) {
+                    $goodStockSql = StockInsightsQueryService::globalGoodStockSqlExpression();
+                    $slowMovingSql = StockInsightsQueryService::slowMovingSqlExpression($singleFilter->endDate);
+                    foreach ($singleFilter->statuses as $status) {
+                        if ($status === StockInsightsFilterData::STATUS_OUT_OF_STOCK) {
+                            $q->orWhereRaw("({$goodStockSql} <= 0)");
+                        } elseif ($status === StockInsightsFilterData::STATUS_REORDER_REQUIRED) {
+                            $q->orWhereRaw("(COALESCE(products.product_stock_alert, 0) > 0 AND {$goodStockSql} > 0 AND {$goodStockSql} <= products.product_stock_alert)");
+                        } elseif ($status === StockInsightsFilterData::STATUS_MINIMUM_UNSET) {
+                            $q->orWhereRaw("(COALESCE(products.product_stock_alert, 0) = 0)");
+                        } elseif ($status === StockInsightsFilterData::STATUS_SLOW_MOVING) {
+                            $q->orWhereRaw($slowMovingSql);
                         }
-                    })
-                    ->exists();
+                    }
+                })
+                ->exists();
 
-                if (!$stillMatches) {
-                    $leavingNotice = ' Produk tidak lagi memenuhi filter status yang aktif dan telah dikeluarkan dari tampilan saat ini.';
-                }
+            if (!$stillMatches) {
+                $leavingNotice = ' Produk tidak lagi memenuhi filter status yang aktif dan telah dikeluarkan dari tampilan saat ini.';
             }
-
-            $this->feedbackMessage = "Batas minimum stok untuk '{$savedName}' berhasil diperbarui menjadi {$newMinimum}.{$leavingNotice}";
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::error('Gagal menyimpan batas minimum stok produk ' . ($this->modalProductId ?? 'unknown') . ': ' . $e->getMessage(), [
-                'exception' => $e,
-                'product_id' => $this->modalProductId,
-                'minimum_input' => $this->modalMinimumInput,
-            ]);
-            $this->modalErrorMessage = 'Terjadi kesalahan saat menyimpan batas minimum stok. Silakan coba lagi.';
         }
+
+        $this->feedbackMessage = "Batas minimum stok untuk '{$productName}' berhasil diperbarui menjadi {$newMinimum}.{$leavingNotice}";
     }
 
     public function resetFilters(): void
@@ -312,6 +197,10 @@ class StockInsights extends Component
         $this->sortColumn = 'default';
         $this->sortDirection = 'asc';
         $this->resetPage();
+
+        $this->dispatch('sync-select2-categoryIds', ['values' => []]);
+        $this->dispatch('sync-select2-brandIds', ['values' => []]);
+        $this->dispatch('sync-select2-preset', ['values' => '7']);
     }
 
     public function render()
@@ -345,7 +234,6 @@ class StockInsights extends Component
         $attentionCounts = $queryService->getAttentionCounts($filter);
         $paginatedRows = $queryService->paginate($filter);
         $hierarchy = $queryService->getBusinessHierarchy();
-
         $categories = Category::query()->orderBy('category_name')->get(['id', 'category_name']);
         $brands = Brand::query()->orderBy('name')->get(['id', 'name']);
 

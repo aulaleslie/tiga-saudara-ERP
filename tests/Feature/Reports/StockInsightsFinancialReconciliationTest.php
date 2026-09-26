@@ -326,6 +326,73 @@ class StockInsightsFinancialReconciliationTest extends TestCase
         $this->assertTrue($aggregates[$bundleParent->id]['is_cost_incomplete']);
     }
 
+    public function test_bundle_parent_with_non_zero_snapshot_adds_component_cost_instead_of_replacing_it(): void
+    {
+        // Regression: a stock-managed bundle parent (e.g. a laptop sold with
+        // bundled accessories) must have its OWN cost_unit_snapshot summed
+        // with the bundle components' cost, not replaced by it.
+        $bundleParent = $this->createProduct(['product_name' => 'ACER ASPIRE LITE AL14 N4500 8GB 256GB SSD WIN 11']);
+        $accessory = $this->createProduct(['product_name' => 'Mouse Wireless Bundle']);
+
+        $sale = Sale::create([
+            'setting_id' => $this->setting->id,
+            'reference' => 'SL-' . Str::random(8),
+            'date' => $this->now->copy()->subDays(1)->toDateString(),
+            'reporting_date' => $this->now->copy()->subDays(1)->toDateString(),
+            'status' => 'DISPATCHED',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'total_amount' => 29500000,
+            'paid_amount' => 29500000,
+            'due_amount' => 0,
+            'tax_amount' => 0,
+            'discount_amount' => 0,
+            'is_tax_included' => false,
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+        ]);
+
+        $detail = SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $bundleParent->id,
+            'product_name' => $bundleParent->product_name,
+            'product_code' => $bundleParent->product_code,
+            'quantity' => 4,
+            'price' => 7375000,
+            'unit_price' => 7375000,
+            'sub_total' => 29500000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'cost_unit_snapshot' => 7091128.23,
+            'cost_total_snapshot' => 28364512.92,
+            'cost_snapshot_source' => SalesCostSnapshotService::SOURCE_CURRENT_AVERAGE_PRICE,
+        ]);
+
+        SaleBundleItem::create([
+            'bundle_id' => 1,
+            'bundle_item_id' => 1,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $detail->id,
+            'product_id' => $accessory->id,
+            'name' => $accessory->product_name,
+            'price' => 0,
+            'sub_total' => 0,
+            'quantity' => 4,
+            'cost_unit_snapshot' => 36295.98,
+            'cost_total_snapshot' => 145183.92,
+            'cost_snapshot_source' => SalesCostSnapshotService::SOURCE_CURRENT_AVERAGE_PRICE,
+        ]);
+
+        $filter = new StockInsightsFilterData(today: $this->now);
+        $aggregates = $this->service->getSalesAndFinancialAggregates([$bundleParent->id], $filter->startDate, $filter->endDate);
+
+        // 4 * 7,091,128.23 + 4 * 36,295.98 = 28,364,512.92 + 145,183.92 = 28,509,696.84
+        $this->assertEquals(29500000.0, $aggregates[$bundleParent->id]['sales_value']);
+        $this->assertEquals(28509696.84, $aggregates[$bundleParent->id]['sold_cost']);
+        $this->assertEquals(990303.16, $aggregates[$bundleParent->id]['gross_profit']);
+        $this->assertFalse($aggregates[$bundleParent->id]['is_cost_incomplete']);
+    }
+
     public function test_dpp_calculation_respects_is_tax_included_flag(): void
     {
         $pTaxInc = $this->createProduct(['product_name' => 'Tax Inc Product']);

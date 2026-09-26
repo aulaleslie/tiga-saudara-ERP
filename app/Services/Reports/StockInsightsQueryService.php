@@ -197,7 +197,7 @@ class StockInsightsQueryService
      */
     public function getEligibleProductsBaseQuery(): \Illuminate\Database\Eloquent\Builder
     {
-        return Product::query()
+        return Product::without(['media', 'brand', 'category'])
             ->where('is_active', true)
             ->whereNull('merged_into_id')
             ->where('stock_managed', true);
@@ -424,25 +424,21 @@ class StockInsightsQueryService
 
         $soldCostSubquery = "
             SELECT COALESCE(SUM(
-                CASE
-                    WHEN EXISTS (SELECT 1 FROM sale_bundle_items sbi WHERE sbi.sale_detail_id = sd.id)
-                    THEN (
-                        SELECT COALESCE(SUM(
-                            COALESCE(
-                                sbi.cost_unit_snapshot * sbi.quantity,
-                                sbi.cost_total_snapshot,
-                                0
-                            )
-                        ), 0)
-                        FROM sale_bundle_items sbi
-                        WHERE sbi.sale_detail_id = sd.id
-                    )
-                    ELSE COALESCE(
-                        sd.cost_unit_snapshot * sd.quantity,
-                        sd.cost_total_snapshot,
-                        0
-                    )
-                END
+                COALESCE(
+                    sd.cost_unit_snapshot * sd.quantity,
+                    sd.cost_total_snapshot,
+                    0
+                ) + COALESCE((
+                    SELECT COALESCE(SUM(
+                        COALESCE(
+                            sbi.cost_unit_snapshot * sbi.quantity,
+                            sbi.cost_total_snapshot,
+                            0
+                        )
+                    ), 0)
+                    FROM sale_bundle_items sbi
+                    WHERE sbi.sale_detail_id = sd.id
+                ), 0)
             ), 0)
             FROM sale_details sd
             JOIN sales ON sd.sale_id = sales.id
@@ -741,11 +737,18 @@ class StockInsightsQueryService
                     }
                 }
 
-                // Cost calculation: parent line snapshot
-                $parentHasBundleComponents = $bundleItemsByDetail->has($detail->id) && $bundleItemsByDetail->get($detail->id)->isNotEmpty();
+                // Cost calculation: parent line snapshot + bundle component snapshots (never replaced)
+                $lineCost = $detail->cost_unit_snapshot !== null
+                    ? (float) $detail->cost_unit_snapshot * $qty
+                    : (float) ($detail->cost_total_snapshot ?? 0);
+                $results[$pid]['sold_cost'] += $lineCost;
 
-                if ($parentHasBundleComponents) {
-                    // Bundle parent: HPP is attributed from bundle components
+                if ($detail->cost_snapshot_source === \Modules\Sale\Services\SalesCostSnapshotService::SOURCE_MISSING_AVERAGE_PRICE
+                    || ($detail->cost_unit_snapshot === null && $detail->cost_snapshot_source !== \Modules\Sale\Services\SalesCostSnapshotService::SOURCE_NON_STOCK_MANAGED)) {
+                    $results[$pid]['is_cost_incomplete'] = true;
+                }
+
+                if ($bundleItemsByDetail->has($detail->id)) {
                     foreach ($bundleItemsByDetail->get($detail->id) as $bundleItem) {
                         $compCost = $bundleItem->cost_unit_snapshot !== null
                             ? (float) $bundleItem->cost_unit_snapshot * (float) $bundleItem->quantity
@@ -756,17 +759,6 @@ class StockInsightsQueryService
                             || ($bundleItem->cost_unit_snapshot === null && $bundleItem->cost_snapshot_source !== \Modules\Sale\Services\SalesCostSnapshotService::SOURCE_NON_STOCK_MANAGED)) {
                             $results[$pid]['is_cost_incomplete'] = true;
                         }
-                    }
-                } else {
-                    // Normal product line
-                    $lineCost = $detail->cost_unit_snapshot !== null
-                        ? (float) $detail->cost_unit_snapshot * $qty
-                        : (float) ($detail->cost_total_snapshot ?? 0);
-                    $results[$pid]['sold_cost'] += $lineCost;
-
-                    if ($detail->cost_snapshot_source === \Modules\Sale\Services\SalesCostSnapshotService::SOURCE_MISSING_AVERAGE_PRICE
-                        || ($detail->cost_unit_snapshot === null && $detail->cost_snapshot_source !== \Modules\Sale\Services\SalesCostSnapshotService::SOURCE_NON_STOCK_MANAGED)) {
-                        $results[$pid]['is_cost_incomplete'] = true;
                     }
                 }
             }

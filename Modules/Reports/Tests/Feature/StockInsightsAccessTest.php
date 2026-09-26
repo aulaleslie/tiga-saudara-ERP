@@ -74,11 +74,11 @@ class StockInsightsAccessTest extends TestCase
         $this->user->givePermissionTo('stockInsights.access');
         $this->actingAs($this->user);
 
-        $component = Livewire::test('reports.stock-insights');
+        $component = Livewire::test('reports.stock-insights-minimum-modal');
 
         $this->user->revokePermissionTo('stockInsights.access');
 
-        $component->call('updateMinimumStock', 1, 10)
+        $component->call('openMinimumModal', 1, now()->subDays(6)->format('Y-m-d'), '7 Hari Terakhir')
             ->assertForbidden();
     }
 }
