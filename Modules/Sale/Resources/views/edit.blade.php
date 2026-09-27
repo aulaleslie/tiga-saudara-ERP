@@ -1,124 +1,227 @@
 @extends('layouts.app')
 
-@section('title', 'Edit Sale')
+@section('title', 'Ubah Penjualan')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('sales.index') }}">Sales</a></li>
-        <li class="breadcrumb-item active">Edit</li>
+        <li class="breadcrumb-item"><a href="{{ route('sales.index') }}">Penjualan</a></li>
+        <li class="breadcrumb-item active">Ubah</li>
     </ol>
 @endsection
 
 @section('content')
     <div class="container-fluid mb-4">
+        <!-- Search Product Livewire Component -->
+        @if($sale->resolveEditMode() !== \Modules\Sale\Entities\Sale::EDIT_MODE_MONETARY_ONLY)
         <div class="row">
             <div class="col-12">
-                <livewire:search-product/>
+                <livewire:sale.search-product/>
             </div>
         </div>
+        @endif
 
+        <!-- Sale Form -->
         <div class="row mt-4">
             <div class="col-md-12">
                 <div class="card">
-                    <div class="card-body">
-                        @include('utils.alerts')
-                        <form id="sale-form" action="{{ route('sales.update', $sale) }}" method="POST">
-                            @csrf
-                            @method('patch')
-                            <div class="form-row">
-                                <div class="col-lg-4">
-                                    <div class="form-group">
-                                        <label for="reference">Reference <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="reference" required value="{{ $sale->reference }}" readonly>
-                                    </div>
-                                </div>
-                                <div class="col-lg-4">
-                                    <div class="from-group">
-                                        <div class="form-group">
-                                            <label for="customer_id">Customer <span class="text-danger">*</span></label>
-                                            <select class="form-control" name="customer_id" id="customer_id" required>
-                                                @foreach(\Modules\People\Entities\Customer::all() as $customer)
-                                                    <option {{ $sale->customer_id == $customer->id ? 'selected' : '' }} value="{{ $customer->id }}">{{ $customer->customer_name }}</option>
-                                                @endforeach
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-lg-4">
-                                    <div class="from-group">
-                                        <div class="form-group">
-                                            <label for="date">Date <span class="text-danger">*</span></label>
-                                            <input type="date" class="form-control" name="date" required value="{{ $sale->date }}">
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <livewire:product-cart :cartInstance="'sale'" :data="$sale"/>
-
-                            <div class="form-row">
-                                <div class="col-lg-4">
-                                    <div class="form-group">
-                                        <label for="status">Status <span class="text-danger">*</span></label>
-                                        <select class="form-control" name="status" id="status" required>
-                                            <option {{ $sale->status == 'Pending' ? 'selected' : '' }} value="Pending">Pending</option>
-                                            <option {{ $sale->status == 'Shipped' ? 'selected' : '' }} value="Shipped">Shipped</option>
-                                            <option {{ $sale->status == 'Completed' ? 'selected' : '' }} value="Completed">Completed</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div class="col-lg-4">
-                                    <div class="from-group">
-                                        <div class="form-group">
-                                            <label for="payment_method">Payment Method <span class="text-danger">*</span></label>
-                                            <input type="text" class="form-control" name="payment_method" required value="{{ $sale->payment_method }}" readonly>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-lg-4">
-                                    <div class="form-group">
-                                        <label for="paid_amount">Amount Received <span class="text-danger">*</span></label>
-                                        <input id="paid_amount" type="text" class="form-control" name="paid_amount" required value="{{ $sale->paid_amount }}" readonly>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="note">Note (If Needed)</label>
-                                <textarea name="note" id="note" rows="5" class="form-control">{{ $sale->note }}</textarea>
-                            </div>
-
-                            <div class="mt-3">
-                                <button type="submit" class="btn btn-primary">
-                                    Update Sale <i class="bi bi-check"></i>
-                                </button>
-                            </div>
-                        </form>
-                    </div>
+                    <livewire:sale.edit-form :sale="$sale" :isGlobal="isset($globalMode) && $globalMode"/>
                 </div>
             </div>
         </div>
     </div>
+
+    <!-- Modals - placed outside component tree to prevent orphaning during re-renders -->
+    <livewire:modules.purchase.modals.payment-term-quick-add-modal wire:key="sale-edit-payment-term-modal" />
+    <livewire:modules.people.modals.customer-quick-add-modal wire:key="sale-edit-customer-modal" />
+    <livewire:modules.product.modals.product-quick-add-modal wire:key="sale-edit-product-modal" />
+    <livewire:modules.setting.modals.tax-quick-add-modal wire:key="sale-edit-tax-modal" />
+
+    @include('components.confirmation-modal')
 @endsection
 
 @push('page_scripts')
-    <script src="{{ asset('js/jquery-mask-money.js') }}"></script>
-    <script>
-        $(document).ready(function () {
-            $('#paid_amount').maskMoney({
-                prefix:'{{ settings()->currency->symbol }}',
-                thousands:'{{ settings()->currency->thousand_separator }}',
-                decimal:'{{ settings()->currency->decimal_separator }}',
-                allowZero: true,
-            });
+<script>
+    document.addEventListener('livewire:init', () => {
+    });
 
-            $('#paid_amount').maskMoney('mask');
+    document.addEventListener('DOMContentLoaded', function () {
+        const submitButton = document.getElementById('submitWithConfirmation');
+        const submitMethod = 'update';
+        let isProcessing = false;
 
-            $('#sale-form').submit(function () {
-                var paid_amount = $('#paid_amount').maskMoney('unmasked')[0];
-                $('#paid_amount').val(paid_amount);
+        const resolveLivewireComponent = () => {
+            if (!submitButton || typeof Livewire === 'undefined' || typeof Livewire.find !== 'function') {
+                return null;
+            }
+
+            const componentRoot = submitButton.closest('[wire\\:id]');
+            if (!componentRoot) {
+                return null;
+            }
+
+            const wireId = componentRoot.getAttribute('wire:id');
+            if (!wireId) {
+                return null;
+            }
+
+            try {
+                return Livewire.find(wireId);
+            } catch (error) {
+                console.warn('Livewire component lookup failed.', error);
+                return null;
+            }
+        };
+
+        const readDropdownValue = (name) => {
+            return document.querySelector(`input[name="${name}"]`)?.value || null;
+        };
+
+        const submitViaComponent = () => {
+            const wire = resolveLivewireComponent();
+            if (!wire) {
+                return false;
+            }
+
+            const customerId = readDropdownValue('customer_id');
+            const paymentTermId = readDropdownValue('payment_term');
+
+            if (typeof wire.$call === 'function') {
+                wire.$call(submitMethod, customerId, paymentTermId);
+                return true;
+            }
+
+            if (typeof wire.call === 'function') {
+                wire.call(submitMethod, customerId, paymentTermId);
+                return true;
+            }
+
+            if (typeof wire[submitMethod] === 'function') {
+                wire[submitMethod](customerId, paymentTermId);
+                return true;
+            }
+
+            return false;
+        };
+
+        const setButtonProcessing = (processing = false) => {
+            if (!submitButton) return;
+
+            const spinner = submitButton.querySelector('.button-spinner');
+            const textEl = submitButton.querySelector('.button-text');
+            const defaultText = submitButton.dataset.defaultText || submitButton.textContent.trim();
+            const processingText = submitButton.dataset.processingText || 'Processing…';
+
+            if (processing) {
+                submitButton.disabled = true;
+                submitButton.classList.add('disabled');
+                if (spinner) spinner.classList.remove('d-none');
+                if (textEl) textEl.textContent = processingText;
+            } else {
+                submitButton.disabled = false;
+                submitButton.classList.remove('disabled');
+                if (spinner) spinner.classList.add('d-none');
+                if (textEl) textEl.textContent = defaultText;
+            }
+
+            isProcessing = processing;
+        };
+
+        if (submitButton) {
+            submitButton.addEventListener('click', function () {
+                if (isProcessing) return;
+
+                showConfirmationModal(() => {
+                    setButtonProcessing(true);
+
+                    if (submitViaComponent()) {
+                        return;
+                    }
+
+                    console.warn('Livewire submit handler is not available.');
+                    setButtonProcessing(false);
+                }, 'Apakah Anda yakin ingin menyimpan penjualan ini?');
             });
+        }
+
+        window.addEventListener('sale:submit-start', () => setButtonProcessing(true));
+        window.addEventListener('sale:submit-finish', () => setButtonProcessing(false));
+
+        window.addEventListener('sale:lifecycle-warning', async (event) => {
+            setButtonProcessing(false);
+            const data = event.detail?.[0] || event.detail || {};
+            const helper = (typeof window !== 'undefined' && window.BundleLifecycleWarning)
+                || (typeof BundleLifecycleWarning !== 'undefined' ? BundleLifecycleWarning : null);
+
+            if (!helper || typeof helper.buildLifecycleWarningModalHtml !== 'function') {
+                console.error('BundleLifecycleWarning helper is unavailable.');
+                return;
+            }
+
+            const modalHtml = helper.buildLifecycleWarningModalHtml(
+                data,
+                'Terdapat perubahan status pada paket produk dalam penjualan ini.',
+                'Apakah Anda ingin melanjutkan dan menyimpan perubahan penjualan dengan komposisi yang tersimpan?'
+            );
+
+            if (typeof Swal !== 'undefined') {
+                const result = await Swal.fire({
+                    icon: 'warning',
+                    title: 'Peringatan Status Paket',
+                    html: modalHtml,
+                    showCancelButton: true,
+                    confirmButtonText: 'Lanjutkan Simpan',
+                    cancelButtonText: 'Batal',
+                });
+
+                if (result.isConfirmed) {
+                    const wire = resolveLivewireComponent();
+                    if (wire) {
+                        setButtonProcessing(true);
+                        if (typeof wire.set === 'function') {
+                            wire.set('acknowledgeLifecycleWarning', true);
+                        } else if (typeof wire.$set === 'function') {
+                            wire.$set('acknowledgeLifecycleWarning', true);
+                        }
+                        submitViaComponent();
+                    }
+                }
+            } else {
+                console.error('SweetAlert is not available for lifecycle warning modal.');
+            }
         });
-    </script>
+
+        window.addEventListener('sale:initial-lifecycle-warning', async (event) => {
+            const data = event.detail?.[0] || event.detail || {};
+            const helper = (typeof window !== 'undefined' && window.BundleLifecycleWarning)
+                || (typeof BundleLifecycleWarning !== 'undefined' ? BundleLifecycleWarning : null);
+
+            if (!helper || typeof helper.buildLifecycleWarningModalHtml !== 'function') {
+                console.error('BundleLifecycleWarning helper is unavailable.');
+                return;
+            }
+
+            const modalHtml = helper.buildLifecycleWarningModalHtml(
+                data,
+                'Terdapat perubahan status pada paket produk dalam draft penjualan ini.',
+                'Apakah Anda ingin melanjutkan pengeditan draft ini atau kembali ke daftar penjualan?'
+            );
+
+            if (typeof Swal !== 'undefined') {
+                const result = await Swal.fire({
+                    icon: 'warning',
+                    title: 'Peringatan Paket Produk Tersimpan',
+                    html: modalHtml,
+                    showCancelButton: true,
+                    confirmButtonText: 'Lanjutkan Edit',
+                    cancelButtonText: 'Batal & Kembali',
+                });
+
+                if (!result.isConfirmed) {
+                    window.location.href = "{{ route('sales.index') }}";
+                }
+            }
+        });
+    });
+</script>
 @endpush

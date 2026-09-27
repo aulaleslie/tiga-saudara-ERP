@@ -3,103 +3,309 @@
 namespace Modules\Purchase\Http\Controllers;
 
 use Exception;
+use Illuminate\Contracts\View\Factory;
+use Illuminate\Contracts\View\View;
+use Illuminate\Foundation\Application;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
+use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\Transaction;
 use Modules\Purchase\DataTables\PurchaseDataTable;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
+use App\Services\PurchaseAttachmentService;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductPrice;
+use App\Services\SerialNumberHistoryService;
+use Modules\Product\Entities\SerialNumberHistory;
+use Modules\Purchase\DataTables\PurchasePaymentsDataTable;
+use Modules\Purchase\DataTables\PurchaseReceivingsDataTable;
+use Modules\PurchasesReturn\Entities\PurchaseReturn;
+use Modules\PurchasesReturn\Entities\PurchaseReturnItemSettlement;
+use Modules\Setting\Entities\Setting;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
+use Modules\Purchase\Entities\ReceivedNote;
+use Modules\Purchase\Entities\ReceivedNoteDetail;
+use Modules\Purchase\Exceptions\ReceivingApprovalConflict;
 use Modules\Purchase\Http\Requests\StorePurchaseRequest;
 use Modules\Purchase\Http\Requests\UpdatePurchaseRequest;
+use Modules\Purchase\Services\PurchaseNormalizer;
+use Modules\Purchase\Services\PurchaseReceivingCompletionService;
+use Modules\Purchase\Services\PurchaseSourceGuard;
+use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\Tax;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class PurchaseController extends Controller
 {
 
-    public function index(PurchaseDataTable $dataTable) {
-        abort_if(Gate::denies('access_purchases'), 403);
+    public function index(PurchaseDataTable $dataTable)
+    {
+        abort_if(Gate::denies('purchases.access'), 403);
 
         return $dataTable->render('purchase::index');
     }
 
-
-    public function create()
+    /**
+     * Display the purchase receiving landing page.
+     */
+    public function receivingIndex(Request $request): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('create_purchases'), 403);
+        abort_unless(Gate::any(['purchases.receive.access', 'purchases.receive']), 403);
 
-        // Clear the purchase cart
-        Cart::instance('purchase')->destroy();
+        $purchase = null;
 
-        // Retrieve the current setting_id from the session
-        $setting_id = session('setting_id');
+        if ($request->filled('purchase_id')) {
+            $purchase = Purchase::withArchived()->findOrFail($request->input('purchase_id'));
+            $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+        }
 
-        // Filter PaymentTerms by the setting_id
-        $paymentTerms = PaymentTerm::where('setting_id', $setting_id)->get();
+        return view('purchase::receiving.filtered-index', compact('purchase'));
+    }
 
-        // Pass the filtered terms to the view
-        return view('purchase::create', compact('paymentTerms'));
+    /**
+     * Display the list of all receivings with their status.
+     */
+    public function receivingsList(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
+        abort_unless(Gate::any(['purchases.receive.access', 'purchases.receive']), 403);
+
+        $receivings = ReceivedNote::with([
+            'purchase',
+            'location',
+            'receivedNoteDetails.purchaseDetail',
+            'receivedNoteDetails.productSerialNumbers',
+            'receivedNoteDetails.uomNormalizationLines.batch.oldBaseUnit',
+            'receivedNoteDetails.uomNormalizationLines.batch.newBaseUnit',
+            'receivedNoteDetails.uomNormalizationLines.batch.legacyBaseUnit',
+        ])
+            ->whereHas('purchase', function($q) {
+                $settingId = session('setting_id');
+                if ($settingId) {
+                    $q->where('setting_id', $settingId);
+                }
+            })
+            ->orderByDesc('created_at')
+            ->limit(50)
+            ->get();
+
+        return view('purchase::receiving.list', compact('receivings'));
+    }
+
+
+
+    public function createAlpine(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
+        abort_if(Gate::denies('purchases.create'), 403);
+
+        // Get data for Alpine.js form
+        $paymentTerms = PaymentTerm::where('is_active', true)->get();
+        $suppliers = Supplier::where('is_active', true)->get();
+        $isPkp = (bool) (Setting::query()->whereKey((int) session('setting_id'))->value('is_pkp') ?? false);
+        $taxes = \Modules\Setting\Entities\Tax::where('is_active', true)->get();
+        $categories = \Modules\Product\Entities\Category::all();
+        $brands = \Modules\Product\Entities\Brand::all();
+        $units = \Modules\Setting\Entities\Unit::where('is_active', true)->get();
+        $isPkp = (bool) (Setting::query()->whereKey((int) session('setting_id'))->value('is_pkp') ?? false);
+        $idempotencyToken = (string) Str::uuid();
+
+        return view('purchase::create-alpine', compact(
+            'paymentTerms',
+            'suppliers',
+            'taxes',
+            'categories',
+            'brands',
+            'units',
+            'isPkp',
+            'idempotencyToken'
+        ));
+    }
+
+    public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
+        abort_if(Gate::denies('purchases.create'), 403);
+
+        // Get data for new Alpine.js form
+        $paymentTerms = PaymentTerm::where('is_active', true)->get();
+        $taxes = \Modules\Setting\Entities\Tax::where('is_active', true)->get();
+        $categories = \Modules\Product\Entities\Category::all();
+        $brands = \Modules\Product\Entities\Brand::all();
+        $units = \Modules\Setting\Entities\Unit::where('is_active', true)->get();
+        $idempotencyToken = (string) Str::uuid();
+        $duplicateId = request()->query('duplicate');
+
+        return view('purchase::create', compact(
+            'paymentTerms',
+            'taxes',
+            'categories',
+            'brands',
+            'units',
+            'idempotencyToken',
+            'duplicateId'
+        ));
     }
 
 
     public function store(StorePurchaseRequest $request): RedirectResponse
     {
+        abort_if(Gate::denies('purchases.create'), 403);
+
+        // Check if cart data is provided in request (Alpine.js form) or use session cart (Livewire)
+        $cartItems = $request->has('cart') ? $request->cart : Cart::instance('purchase')->content();
+
+        if (empty($cartItems) || (is_array($cartItems) && count($cartItems) == 0) || (!is_array($cartItems) && $cartItems->count() == 0)) {
+            return redirect()->back()->withErrors(['cart' => 'Daftar Produk tidak boleh kosong.'])->withInput();
+        }
+
         $setting_id = session('setting_id');
+        $isPkp = (bool) (Setting::query()->whereKey((int) $setting_id)->value('is_pkp') ?? false);
+        if ($request->has('cart')) {
+            $cartItems = array_map(static function (array $cartItem): array {
+                $product = Product::find($cartItem['product_id'] ?? null);
+
+                $flag = \App\Support\RowTotalRoundingCalculator::RECALC_FLAG;
+
+                // This endpoint accepts a client-built cart. Nothing the client
+                // sends about pricing authority or derived money is trusted:
+                //
+                //  - any client-supplied recalculation flag is discarded;
+                //  - derived totals are dropped so a forged sub_total cannot be
+                //    persisted verbatim;
+                //  - the row is forced to recalculate server-side.
+                //
+                // Manual pricing is not offered here, so a client cannot claim
+                // manual authority to bypass server-side recalculation either.
+                unset(
+                    $cartItem[$flag],
+                    $cartItem['sub_total'],
+                    $cartItem['sub_total_before_tax'],
+                    $cartItem['product_tax_amount'],
+                    $cartItem['pricing_source']
+                );
+
+                if (isset($cartItem['options']) && is_array($cartItem['options'])) {
+                    unset(
+                        $cartItem['options'][$flag],
+                        $cartItem['options']['sub_total'],
+                        $cartItem['options']['sub_total_before_tax'],
+                        $cartItem['options']['product_tax_amount'],
+                        $cartItem['options']['pricing_source']
+                    );
+                }
+
+                return array_merge($cartItem, [
+                    'product_name' => $product?->product_name ?? '',
+                    'product_code' => $product?->product_code ?? '',
+                    'price' => $cartItem['unit_price'] ?? 0,
+                    'pricing_source' => 'automatic',
+                    $flag => true,
+                ]);
+            }, (array) $cartItems);
+        }
+
+        if ($isPkp) {
+            if ($request->has('cart')) {
+                foreach ((array) $request->cart as $index => $cartItem) {
+                    if (empty($cartItem['tax_id'])) {
+                        return redirect()->back()
+                            ->withErrors(['cart' => 'Semua produk wajib memilih pajak karena bisnis PKP.'])
+                            ->withInput();
+                    }
+                }
+            } else {
+                foreach ($cartItems as $cartItem) {
+                    if (empty($cartItem->options['product_tax'])) {
+                        return redirect()->back()
+                            ->withErrors(['cart' => 'Semua produk wajib memilih pajak karena bisnis PKP.'])
+                            ->withInput();
+                    }
+                }
+            }
+        }
+
         DB::beginTransaction(); // Start the transaction manually
         try {
-            // Create the purchase record (example shown earlier)
+            $normalizedPurchase = app(PurchaseNormalizer::class)->normalize([
+                'tax_id' => $request->tax_id,
+                'tax_percentage' => 0,
+                'discount_percentage' => $request->discount_percentage ?? 0,
+                'discount_amount' => $request->discount_amount ?? 0,
+                'shipping_amount' => $request->shipping_amount ?? $request->shipping ?? 0,
+                'paid_amount' => 0,
+                'is_tax_included' => $request->is_tax_included ?? true,
+            ], $cartItems, $isPkp, (int) $setting_id);
+            $header = $normalizedPurchase['header'];
+
+            // Create the purchase record
             $purchase = Purchase::create([
+                'reference' => $request->reference,
                 'date' => $request->date,
                 'due_date' => $request->due_date,
                 'supplier_id' => $request->supplier_id,
-                'tax_id' => $request->tax_id,
-                'tax_percentage' => 0, // Example
-                'tax_amount' => 0, // Example
-                'discount_percentage' => $request->discount_percentage,
-                'discount_amount' => $request->discount_amount,
-                'shipping_amount' => $request->shipping_amount,
-                'total_amount' => $request->total_amount,
-                'due_amount' => $request->total_amount,
+                'supplier_purchase_number' => $request->supplier_purchase_number,
+                'tax_ref_no' => $request->tax_ref_no,
+                'tax_id' => $header['tax_id'],
+                'tax_percentage' => $header['tax_percentage'],
+                'tax_amount' => $header['tax_amount'],
+                'discount_percentage' => $header['discount_percentage'],
+                'discount_amount' => $header['discount_amount'],
+                'shipping_amount' => $header['shipping_amount'],
+                'total_amount' => $header['total_amount'],
+                'due_amount' => $header['due_amount'],
                 'status' => Purchase::STATUS_DRAFTED,
-                'payment_status' => 'unpaid',
-                'payment_term_id' => $request->payment_term,
+                'payment_status' => 'Unpaid',
+                'payment_term_id' => $request->payment_term ?: PaymentTerm::defaultCodTermId(),
                 'note' => $request->note,
                 'setting_id' => $setting_id,
                 'paid_amount' => 0.0,
-                'is_tax_included' => $request->is_tax_included,
+                'is_tax_included' => $request->is_tax_included ?? true,
                 'payment_method' => '',
             ]);
 
-            // Iterate over cart items
-            foreach (Cart::instance('purchase')->content() as $cart_item) {
-                // Map cart item to purchase details
-                $product_tax_amount = $cart_item->options['sub_total'] - $cart_item->options['sub_total_before_tax'];
-
+            foreach ($normalizedPurchase['details'] as $detail) {
                 PurchaseDetail::create([
-                    'purchase_id' => $purchase->id, // FK reference
-                    'product_id' => $cart_item->id,
-                    'product_name' => $cart_item->name,
-                    'product_code' => $cart_item->options['code'],
-                    'quantity' => $cart_item->qty,
-                    'unit_price' => $cart_item->options['unit_price'],
-                    'price' => $cart_item->price,
-                    'product_discount_type' => $cart_item->options['product_discount_type'],
-                    'product_discount_amount' => $cart_item->options['product_discount'],
-                    'sub_total' => $cart_item->options['sub_total'],
-                    'product_tax_amount' => $product_tax_amount, // Calculated
-                    'tax_id' => $cart_item->options['product_tax'], // Tax ID
+                    'purchase_id' => $purchase->id,
+                    'product_id' => $detail['product_id'],
+                    'product_name' => $detail['product_name'],
+                    'product_code' => $detail['product_code'],
+                    'quantity' => $detail['quantity'],
+                    'unit_price' => $detail['unit_price'],
+                    'price' => $detail['price'],
+                    'product_discount_type' => $detail['product_discount_type'],
+                    'product_discount_amount' => $detail['product_discount_amount'],
+                    'sub_total' => $detail['sub_total'],
+                    'product_tax_amount' => $detail['product_tax_amount'],
+                    'tax_id' => $detail['tax_id'],
+                    'pricing_source' => $detail['pricing_source'] ?? 'manual',
+                    'purchase_unit_id' => $detail['purchase_unit_id'] ?? null,
+                    'product_unit_conversion_id' => $detail['product_unit_conversion_id'] ?? null,
+                    'entered_quantity' => $detail['entered_quantity'] ?? null,
+                    'entered_unit_price' => $detail['entered_unit_price'] ?? null,
+                    'entered_product_discount_amount' => $detail['entered_product_discount_amount'] ?? null,
+                    'conversion_factor' => $detail['conversion_factor'] ?? null,
+                    'unit_name' => $detail['unit_name'] ?? null,
+                    'base_unit_name' => $detail['base_unit_name'] ?? null,
                 ]);
+            }
+
+            if (! $request->has('cart')) {
+                Cart::instance('purchase')->destroy();
             }
 
             // Commit transaction
             DB::commit();
 
-            toast('Purchase Created!', 'success');
+            toast('Pembelian Ditambahkan!', 'success');
             return redirect()->route('purchases.index');
         } catch (Exception $e) {
             // Rollback on error
@@ -115,24 +321,147 @@ class PurchaseController extends Controller
     }
 
 
-    public function show(Purchase $purchase) {
-        abort_if(Gate::denies('show_purchases'), 403);
+    public function show(Purchase $purchase, PurchasePaymentsDataTable $dataTable)
+    {
+        abort_if(Gate::denies('purchases.show'), 403);
+
+        if ($purchase->isArchived()) {
+            abort_if(Gate::denies('purchases.archive'), 403);
+        }
+
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        $purchase->load([
+            'reportingDateAudits.actor',
+            'dueDateAudits.actor',
+            'consignmentBillingConfirmation',
+            'purchaseDetails.consignmentLineages.confirmationLine',
+            'purchaseDetails.consignmentLineages.receiptAllocation',
+            'purchaseDetails.consignmentLineages.receivingDetail.receiving.receival',
+            'purchaseDetails.consignmentLineages.serializedAllocation.productSerialNumber',
+            'purchaseDetails.uomNormalizationLines.batch.oldBaseUnit',
+            'purchaseDetails.uomNormalizationLines.batch.newBaseUnit',
+            'purchaseDetails.uomNormalizationLines.batch.legacyBaseUnit',
+            'purchaseDetails.purchaseUnit',
+            'purchaseDetails.product.baseUnit',
+            'purchaseDetails.product.unit',
+        ]);
 
         $supplier = Supplier::findOrFail($purchase->supplier_id);
 
-        return view('purchase::show', compact('purchase', 'supplier'));
+        $receivedNotes = ReceivedNote::where('po_id', $purchase->id)
+            ->with([
+                'purchase',
+                'location',
+                'receivedNoteDetails.purchaseDetail',
+                'receivedNoteDetails.productSerialNumbers',
+                'receivedNoteDetails.uomNormalizationLines.batch.oldBaseUnit',
+                'receivedNoteDetails.uomNormalizationLines.batch.newBaseUnit',
+                'receivedNoteDetails.uomNormalizationLines.batch.legacyBaseUnit',
+            ])
+            ->get();
+
+        // Fetch all received detail IDs for this purchase to find related returned serials
+        $receivedDetailIds = $receivedNotes->flatMap->receivedNoteDetails->pluck('id');
+
+        $resolver = new \Modules\Purchase\Services\ReturnedSerialNumberResolver();
+        $returnedSerials = $resolver->resolveForPurchase($purchase->id, $receivedDetailIds);
+        
+        $allDetails = $receivedNotes->flatMap->receivedNoteDetails;
+        $resolver->mapToDetails($allDetails, $returnedSerials);
+
+        $normBatches = app(\Modules\Purchase\Services\PurchaseNormalizationHistoryQueryService::class)
+            ->getExecutedBatchesForPurchase($purchase);
+
+        return $dataTable->with(['purchase_id' => $purchase->id])
+            ->render('purchase::show', compact('purchase', 'supplier', 'receivedNotes', 'normBatches'));
+    }
+
+    public function storeAttachments(Request $request, Purchase $purchase): RedirectResponse
+    {
+        abort_if(Gate::denies('purchases.update'), 403);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        $service = app(PurchaseAttachmentService::class);
+        $prepared = [];
+        $file = $request->file('attachment');
+
+        if (is_array($file)) {
+            return redirect()->back()->withErrors(['attachment' => 'Maksimal 1 lampiran per unggah.'])->withInput();
+        }
+
+        if (!($file instanceof UploadedFile)) {
+            return redirect()->back()->withErrors(['attachment' => 'Lampiran wajib diunggah.'])->withInput();
+        }
+
+        try {
+            $prepared[] = $service->prepare($file);
+        } catch (\RuntimeException $e) {
+            $service->cleanup($prepared);
+            return redirect()->back()->withErrors(['attachment' => $e->getMessage()])->withInput();
+        } catch (\Throwable $e) {
+            $service->cleanup($prepared);
+            Log::error('Purchase attachment preparation failed', [
+                'purchase_id' => $purchase->id,
+                'error' => $e->getMessage(),
+            ]);
+            return redirect()->back()->withErrors(['attachment' => 'Gagal memproses lampiran.'])->withInput();
+        }
+
+        try {
+            foreach ($prepared as $item) {
+                $service->attachPrepared($purchase, $item);
+            }
+        } catch (\Throwable $e) {
+            $service->cleanup($prepared);
+            Log::error('Purchase attachment upload failed', [
+                'purchase_id' => $purchase->id,
+                'error' => $e->getMessage(),
+            ]);
+            return redirect()->back()->withErrors(['attachment' => 'Gagal menyimpan lampiran.'])->withInput();
+        }
+
+        toast('Lampiran pembelian diperbarui!', 'success');
+        return redirect()->back();
+    }
+
+    public function destroyAttachment(Purchase $purchase, Media $media): RedirectResponse
+    {
+        abort_if(Gate::denies('purchases.update'), 403);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        if ($media->collection_name !== 'attachments' || $media->model_id !== $purchase->id || $media->model_type !== Purchase::class) {
+            abort(404);
+        }
+
+        if ($media->getCustomProperty('source') === 'CONSIGNMENT_BILLING') {
+            abort(403, 'Lampiran tagihan konsinyasi bersifat permanen dan tidak dapat dihapus.');
+        }
+
+        $media->delete();
+        toast('Lampiran dihapus.', 'success');
+        return redirect()->back();
     }
 
 
     public function edit(Purchase $purchase)
     {
-        abort_if(Gate::denies('edit_purchases'), 403);
+        abort_if(Gate::denies('purchases.update'), 403);
 
-        // Retrieve the current setting_id from the session
-        $setting_id = session('setting_id');
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        \Modules\Purchase\Services\PurchaseSourceGuard::assertCommercialEditAllowed($purchase);
+
+        $editMode = $purchase->resolveEditMode();
+        if ($editMode === Purchase::EDIT_MODE_NONE) {
+            abort(403, 'Anda tidak memiliki akses untuk mengubah pembelian ini pada status saat ini.');
+        }
+
 
         // Filter PaymentTerms by the setting_id
-        $paymentTerms = PaymentTerm::where('setting_id', $setting_id)->get();
+        $paymentTerms = PaymentTerm::where('is_active', true)->orWhere('id', $purchase->payment_term_id)->get();
+        $suppliers = Supplier::where('is_active', true)->orWhere('id', $purchase->supplier_id)->get();
+        $isPkp = (bool) (Setting::query()->whereKey((int) session('setting_id'))->value('is_pkp') ?? false);
 
         // Retrieve purchase details
         $purchase_details = $purchase->purchaseDetails;
@@ -141,132 +470,284 @@ class PurchaseController extends Controller
         Cart::instance('purchase')->destroy();
         $cart = Cart::instance('purchase');
         foreach ($purchase_details as $purchase_detail) {
+            $subtotal_before_tax = $purchase_detail->price * $purchase_detail->quantity;
+
+            if ($purchase->is_tax_included) {
+                // Case: Tax is included in the price
+                if ($purchase_detail->tax_id) {
+                    $tax = Tax::find($purchase_detail->tax_id);
+                    if ($tax) {
+                        // Calculate price excluding tax
+                        $price_ex_tax = $purchase_detail->price / (1 + $tax->value / 100);
+//                        $tax_amount_per_unit = $purchase_detail->price - $price_ex_tax;
+//                        $tax_amount = $tax_amount_per_unit * $purchase_detail->quantity;
+                        $subtotal_before_tax = $price_ex_tax * $purchase_detail->quantity;
+                    } else {
+                        $subtotal_before_tax = $purchase_detail->price * $purchase_detail->quantity;
+                    }
+                } else {
+                    // No tax applied
+                    $subtotal_before_tax = $purchase_detail->price * $purchase_detail->quantity;
+                }
+            }
+
+            $normalizedSubTotal = $isPkp ? (float) $purchase_detail->sub_total : (float) $subtotal_before_tax;
+            $normalizedTaxAmount = $isPkp ? (float) $purchase_detail->product_tax_amount : 0.0;
+            $normalizedTaxId = $isPkp ? $purchase_detail->tax_id : null;
+
             $cart->add([
-                'id'      => $purchase_detail->product_id,
-                'name'    => $purchase_detail->product_name,
-                'qty'     => $purchase_detail->quantity,
-                'price'   => $purchase_detail->price,
-                'weight'  => 1,
+                'id' => $purchase_detail->product_id,
+                'name' => $purchase_detail->product_name,
+                'qty' => $purchase_detail->quantity,
+                'price' => $purchase_detail->price,
+                'weight' => 1,
                 'options' => [
                     'product_discount' => $purchase_detail->product_discount_amount,
                     'product_discount_type' => $purchase_detail->product_discount_type,
-                    'sub_total'   => $purchase_detail->sub_total,
-                    'code'        => $purchase_detail->product_code,
-                    'stock'       => Product::findOrFail($purchase_detail->product_id)->product_quantity,
-                    'product_tax' => $purchase_detail->tax_id,
-                    'unit_price'  => $purchase_detail->unit_price
+                    'sub_total' => $normalizedSubTotal,
+                    'code' => $purchase_detail->product_code,
+                    'stock' => Product::findOrFail($purchase_detail->product_id)->product_quantity,
+                    'product_tax' => $normalizedTaxId,
+                    'unit_price' => $purchase_detail->unit_price,
+                    'sub_total_before_tax' => $subtotal_before_tax,
+                    'product_tax_amount' => $normalizedTaxAmount,
+                    'pricing_source' => $purchase_detail->pricing_source ?? 'manual',
+                    'purchase_unit_id' => $purchase_detail->purchase_unit_id,
+                    'product_unit_conversion_id' => $purchase_detail->product_unit_conversion_id,
+                    'entered_quantity' => $purchase_detail->effective_entered_quantity,
+                    'entered_unit_price' => $purchase_detail->effective_entered_unit_price,
+                    'entered_product_discount_amount' => $purchase_detail->effective_entered_product_discount_amount,
+                    'conversion_factor' => $purchase_detail->effective_conversion_factor,
+                    'unit_name' => $purchase_detail->effective_unit_name,
+                    'base_unit_name' => $purchase_detail->effective_base_unit_name,
+                    // Hydration from stored details: not a pricing event.
+                    \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => false,
                 ]
             ]);
         }
 
         // Pass $paymentTerms to the view
-        return view('purchase::edit', compact('purchase', 'paymentTerms'));
+        return view('purchase::edit', compact('purchase', 'paymentTerms', 'suppliers', 'editMode'));
     }
 
+    public function update(UpdatePurchaseRequest $request, Purchase $purchase)
+    {
+        abort_if(Gate::denies('purchases.update'), 403);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+        PurchaseSourceGuard::assertCommercialEditAllowed($purchase);
 
-    public function update(UpdatePurchaseRequest $request, Purchase $purchase) {
-        DB::transaction(function () use ($request, $purchase) {
-            $due_amount = $request->total_amount - $request->paid_amount;
-            if ($due_amount == $request->total_amount) {
-                $payment_status = 'Unpaid';
-            } elseif ($due_amount > 0) {
-                $payment_status = 'Partial';
-            } else {
-                $payment_status = 'Paid';
+        $editMode = $purchase->resolveEditMode();
+        if ($editMode === Purchase::EDIT_MODE_NONE) {
+            abort(403, 'Anda tidak memiliki akses untuk memperbarui pembelian ini pada status saat ini.');
+        }
+
+        // This endpoint's persistence deletes and recreates purchase_details,
+        // which would cascade-delete received_note_details. It cannot serve a
+        // post-receipt edit safely, so monetary-only documents are refused here
+        // and must go through the restricted Livewire path.
+        if ($editMode === Purchase::EDIT_MODE_MONETARY_ONLY) {
+            abort(422, 'Pembelian yang sudah diterima hanya dapat diubah melalui mode edit moneter.');
+        }
+
+        $cartItems = $request->has('cart') ? $request->cart : Cart::instance('purchase')->content();
+
+        if (empty($cartItems) || (is_array($cartItems) && count($cartItems) == 0) || (!is_array($cartItems) && $cartItems->count() == 0)) {
+            return redirect()->back()->withErrors(['cart' => 'Daftar Produk tidak boleh kosong.'])->withInput();
+        }
+
+        DB::transaction(function () use ($request, $purchase, $cartItems) {
+            /** @var Purchase $lockedPurchase */
+            $lockedPurchase = Purchase::query()
+                ->where('id', $purchase->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            PurchaseSourceGuard::assertCommercialEditAllowed($lockedPurchase);
+
+            $editMode = $lockedPurchase->resolveEditMode();
+            if ($editMode === Purchase::EDIT_MODE_NONE) {
+                abort(403, 'Anda tidak memiliki akses untuk memperbarui pembelian ini pada status saat ini.');
+            }
+            if ($editMode === Purchase::EDIT_MODE_MONETARY_ONLY) {
+                abort(422, 'Pembelian yang sudah diterima hanya dapat diubah melalui mode edit moneter.');
             }
 
-            foreach ($purchase->purchaseDetails as $purchase_detail) {
-                if ($purchase->status == 'Completed') {
-                    $product = Product::findOrFail($purchase_detail->product_id);
-                    $product->update([
-                        'product_quantity' => $product->product_quantity - $purchase_detail->quantity
-                    ]);
-                }
-                $purchase_detail->delete();
+            $lifecycleService = app(\Modules\Purchase\Services\PurchaseLifecycleService::class);
+            if ($lifecycleService->hasPositiveApprovedReceiving($lockedPurchase)) {
+                abort(422, 'Pembelian yang sudah memiliki penerimaan barang tidak dapat diubah secara penuh.');
             }
 
-            $purchase->update([
-                'date' => $request->date,
-                'reference' => $request->reference,
-                'supplier_id' => $request->supplier_id,
-                'supplier_name' => Supplier::findOrFail($request->supplier_id)->supplier_name,
-                'tax_percentage' => $request->tax_percentage,
-                'discount_percentage' => $request->discount_percentage,
-                'shipping_amount' => $request->shipping_amount * 100,
-                'paid_amount' => $request->paid_amount * 100,
-                'total_amount' => $request->total_amount * 100,
-                'due_amount' => $due_amount * 100,
-                'status' => $request->status,
-                'payment_status' => $payment_status,
-                'payment_method' => $request->payment_method,
-                'note' => $request->note,
-                'tax_amount' => Cart::instance('purchase')->tax() * 100,
-                'discount_amount' => Cart::instance('purchase')->discount() * 100,
-            ]);
+            $isPkp = (bool) (Setting::query()->whereKey((int) session('setting_id'))->value('is_pkp') ?? false);
+            $setting_id = $lockedPurchase->setting_id ?: session('setting_id');
+            $normalizedPurchase = app(PurchaseNormalizer::class)->normalize([
+                'tax_id' => $request->tax_id ?? $lockedPurchase->tax_id,
+                'tax_percentage' => $request->tax_percentage ?? $lockedPurchase->tax_percentage,
+                'discount_percentage' => $request->discount_percentage ?? $lockedPurchase->discount_percentage,
+                'discount_amount' => $request->discount_amount ?? $lockedPurchase->discount_amount,
+                'shipping_amount' => $request->shipping_amount ?? $lockedPurchase->shipping_amount,
+                'paid_amount' => $request->paid_amount ?? $lockedPurchase->paid_amount,
+                'is_tax_included' => $request->is_tax_included ?? $lockedPurchase->is_tax_included,
+            ], $cartItems, $isPkp, (int) $setting_id, $lockedPurchase);
+            $header = $normalizedPurchase['header'];
 
-            foreach (Cart::instance('purchase')->content() as $cart_item) {
+            // Fields to update, only if new values are passed in the request. Note: status is never modified here.
+            $updateData = array_filter([
+                'date' => $request->filled('date') && $request->date !== $lockedPurchase->date ? $request->date : null,
+                'due_date' => $request->filled('due_date') && $request->due_date !== $lockedPurchase->due_date ? $request->due_date : null,
+                'supplier_id' => $request->filled('supplier_id') && $request->supplier_id !== $lockedPurchase->supplier_id ? $request->supplier_id : null,
+                'tax_id' => $header['tax_id'] !== $lockedPurchase->tax_id ? $header['tax_id'] : null,
+                'tax_percentage' => $header['tax_percentage'] != $lockedPurchase->tax_percentage ? $header['tax_percentage'] : null,
+                'tax_amount' => $header['tax_amount'] != $lockedPurchase->tax_amount ? $header['tax_amount'] : null,
+                'discount_percentage' => $header['discount_percentage'] != $lockedPurchase->discount_percentage ? $header['discount_percentage'] : null,
+                'discount_amount' => $header['discount_amount'] != $lockedPurchase->discount_amount ? $header['discount_amount'] : null,
+                'shipping_amount' => $header['shipping_amount'] != $lockedPurchase->shipping_amount ? $header['shipping_amount'] : null,
+                'paid_amount' => $request->filled('paid_amount') && $request->paid_amount != $lockedPurchase->paid_amount ? $request->paid_amount : null,
+                'total_amount' => $header['total_amount'] != $lockedPurchase->total_amount ? $header['total_amount'] : null,
+                'due_amount' => $header['due_amount'] != $lockedPurchase->due_amount ? $header['due_amount'] : null,
+                'payment_method' => $request->filled('payment_method') && $request->payment_method !== $lockedPurchase->payment_method ? $request->payment_method : null,
+                'note' => $request->filled('note') && $request->note !== $lockedPurchase->note ? $request->note : null,
+                'payment_term_id' => $request->filled('payment_term') && $request->payment_term != $lockedPurchase->payment_term_id ? $request->payment_term : null,
+            ], function ($value) {
+                return $value !== null;
+            });
+
+            if ($request->has('supplier_purchase_number') && $request->supplier_purchase_number !== $lockedPurchase->supplier_purchase_number) {
+                $updateData['supplier_purchase_number'] = $request->supplier_purchase_number;
+            }
+
+            if ($request->has('tax_ref_no') && $request->tax_ref_no !== $lockedPurchase->tax_ref_no) {
+                $updateData['tax_ref_no'] = $request->tax_ref_no;
+            }
+
+            if ($header['tax_id'] === null && $lockedPurchase->tax_id !== null) {
+                $updateData['tax_id'] = null;
+            }
+
+            if (!empty($updateData)) {
+                // Update the purchase record
+                $lockedPurchase->update($updateData);
+            }
+
+            // Clear existing purchase details
+            $lockedPurchase->purchaseDetails()->delete();
+
+            // Re-add updated cart items
+            foreach ($normalizedPurchase['details'] as $detail) {
                 PurchaseDetail::create([
-                    'purchase_id' => $purchase->id,
-                    'product_id' => $cart_item->id,
-                    'product_name' => $cart_item->name,
-                    'product_code' => $cart_item->options->code,
-                    'quantity' => $cart_item->qty,
-                    'price' => $cart_item->price * 100,
-                    'unit_price' => $cart_item->options->unit_price * 100,
-                    'sub_total' => $cart_item->options->sub_total * 100,
-                    'product_discount_amount' => $cart_item->options->product_discount * 100,
-                    'product_discount_type' => $cart_item->options->product_discount_type,
-                    'product_tax_amount' => $cart_item->options->product_tax * 100,
+                    'purchase_id' => $lockedPurchase->id,
+                    'product_id' => $detail['product_id'],
+                    'product_name' => $detail['product_name'],
+                    'product_code' => $detail['product_code'],
+                    'quantity' => $detail['quantity'],
+                    'unit_price' => $detail['unit_price'],
+                    'price' => $detail['price'],
+                    'product_discount_type' => $detail['product_discount_type'],
+                    'product_discount_amount' => $detail['product_discount_amount'],
+                    'sub_total' => $detail['sub_total'],
+                    'product_tax_amount' => $detail['product_tax_amount'],
+                    'tax_id' => $detail['tax_id'],
+                    'pricing_source' => $detail['pricing_source'] ?? 'manual',
+                    'purchase_unit_id' => $detail['purchase_unit_id'] ?? null,
+                    'product_unit_conversion_id' => $detail['product_unit_conversion_id'] ?? null,
+                    'entered_quantity' => $detail['entered_quantity'] ?? null,
+                    'entered_unit_price' => $detail['entered_unit_price'] ?? null,
+                    'entered_product_discount_amount' => $detail['entered_product_discount_amount'] ?? null,
+                    'conversion_factor' => $detail['conversion_factor'] ?? null,
+                    'unit_name' => $detail['unit_name'] ?? null,
+                    'base_unit_name' => $detail['base_unit_name'] ?? null,
                 ]);
-
-                if ($request->status == 'Completed') {
-                    $product = Product::findOrFail($cart_item->id);
-                    $product->update([
-                        'product_quantity' => $product->product_quantity + $cart_item->qty
-                    ]);
-                }
             }
 
             Cart::instance('purchase')->destroy();
         });
 
-        toast('Purchase Updated!', 'info');
-
+        toast('Pembelian Diperbaharui!', 'info');
         return redirect()->route('purchases.index');
     }
 
+    public function destroy(Purchase $purchase)
+    {
+        abort_if(Gate::denies('purchases.delete'), 403);
 
-    public function destroy(Purchase $purchase) {
-        abort_if(Gate::denies('delete_purchases'), 403);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        \Modules\Purchase\Services\PurchaseSourceGuard::assertDeletionAllowed($purchase);
+
+        // Rule: Partially or Fully Received -> Hard Block
+        if (in_array($purchase->status, [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY])) {
+            abort(403, 'Tidak dapat menghapus pembelian yang sudah diterima barangnya.');
+        }
+
+        // Rule: Approved -> Require explicit archive permission
+        if ($purchase->status === Purchase::STATUS_APPROVED) {
+            if (!auth()->user()->can('purchases.archive')) {
+                abort(403, 'Anda tidak memiliki akses untuk mengarsipkan pembelian yang sudah disetujui.');
+            }
+        }
 
         $purchase->delete();
 
-        toast('Purchase Deleted!', 'warning');
+        toast('Pembelian Dihapus!', 'warning');
 
         return redirect()->route('purchases.index');
     }
 
-    public function updateStatus(Request $request, Purchase $purchase)
+    public function archive(Purchase $purchase): RedirectResponse
     {
-        abort_if(Gate::denies('update_purchase_status'), 403);
+        abort_if(Gate::denies('purchases.archive'), 403);
+
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        \Modules\Purchase\Services\PurchaseSourceGuard::assertDeletionAllowed($purchase);
+
+        // Rule: Partially or Fully Received -> Hard Block
+        if (in_array($purchase->status, [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY])) {
+            abort(403, 'Tidak dapat mengarsipkan pembelian yang sudah diterima barangnya.');
+        }
+
+        $purchase->update([
+            'archived_at' => now(),
+            'archived_by' => auth()->id(),
+        ]);
+
+        toast('Pembelian Diarsipkan!', 'info');
+
+        return redirect()->route('purchases.index');
+    }
+
+    public function updateStatus(Request $request, Purchase $purchase): RedirectResponse
+    {
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         $validated = $request->validate([
             'status' => 'required|string|in:' . implode(',', [
+                    Purchase::STATUS_DRAFTED,
                     Purchase::STATUS_WAITING_APPROVAL,
                     Purchase::STATUS_APPROVED,
                     Purchase::STATUS_REJECTED
                 ]),
+            'rejection_note' => 'nullable|string|required_if:status,' . Purchase::STATUS_REJECTED,
         ]);
 
         try {
-            $purchase->update(['status' => $validated['status']]);
-            toast("Purchase status updated to {$validated['status']}!", 'success');
+            $lifecycleService = app(\Modules\Purchase\Services\PurchaseLifecycleService::class);
+            $lifecycleService->transitionUserStatus(
+                $purchase,
+                $validated['status'],
+                $validated['rejection_note'] ?? null,
+                auth()->user()
+            );
+
+            toast("Status pembelian diperbarui menjadi {$validated['status']}!", 'success');
+        } catch (\Modules\Purchase\Exceptions\PurchaseLifecycleTransitionException $e) {
+            toast($e->getMessage(), 'error');
         } catch (Exception $e) {
             Log::error('Failed to update purchase status', ['error' => $e->getMessage()]);
-            toast('Failed to update purchase status.', 'error');
+            toast('Gagal memperbarui status pembelian.', 'error');
         }
 
-        return redirect()->route('purchases.show', $purchase->id);
+        // Redirect back to the referring page
+        return redirect()->to(url()->previous());
     }
 
     public function datatable(PurchaseDataTable $dataTable, Request $request)
@@ -274,40 +755,884 @@ class PurchaseController extends Controller
         return $dataTable->with('supplier_id', $request->get('supplier_id'))->render('purchase::index');
     }
 
-    public function receive(Purchase $purchase)
+    public function receive(Purchase $purchase): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('purchases.receive'), 403);
+
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+        PurchaseSourceGuard::assertReceivingAllowed($purchase);
+
+        $currentSettingId = session('setting_id');
+
+
+        // Received-to-date and remaining, both canonical. Only APPROVED notes count:
+        // summing every note regardless of status would let a pending or rejected
+        // receipt overstate progress and hide genuinely outstanding quantity.
+        $purchase->loadMissing('purchaseDetails.product');
+        $quantityService = app(\Modules\Purchase\Services\PurchaseReceivingQuantityService::class);
+
+        foreach ($purchase->purchaseDetails as $detail) {
+            $detail->quantity_received = $quantityService->approvedReceivedCanonical($detail)->toFloat();
+            $detail->quantity_remaining = $quantityService->remainingCanonical($detail)->toFloat();
+            $detail->conversion_factor_value = $quantityService->factorFor($detail)->toFloat();
+        }
+
         return view('purchase::receive', compact('purchase'));
     }
 
-    public function storeReceive(Request $request, Purchase $purchase)
+    public function storeReceive(Request $request, Purchase $purchase): RedirectResponse
     {
-        $data = $request->validate([
-            'received.*' => 'nullable|integer|min:0',
+        abort_if(Gate::denies('purchases.receive'), 403);
+
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+        PurchaseSourceGuard::assertReceivingAllowed($purchase);
+
+        // The set of detail ids that legitimately belong to this Purchase. Every
+        // submitted key is checked against it: a quantity keyed to another
+        // Purchase's detail must not satisfy the "at least one item" rule and then
+        // silently produce an empty receipt.
+        $ownDetailIds = $purchase->purchaseDetails()->pluck('id')->map(fn ($id) => (string) $id)->all();
+
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
+            'received' => [
+                // Required: an omitted array would otherwise skip the closure below
+                // entirely and create a receipt with no lines.
+                'required',
+                'array',
+                function ($attribute, $value, $fail) use ($ownDetailIds) {
+                    $unknown = array_diff(array_map('strval', array_keys($value)), $ownDetailIds);
+                    if (!empty($unknown)) {
+                        $fail('Terdapat baris penerimaan yang tidak termasuk dalam pembelian ini.');
+                        return;
+                    }
+
+                    // Count only quantities on this Purchase's own lines.
+                    $total = collect($value)
+                        ->filter(fn ($qty, $detailId) => in_array((string) $detailId, $ownDetailIds, true))
+                        ->sum();
+
+                    if ($total <= 0) {
+                        $fail('Minimal satu produk harus memiliki jumlah diterima lebih dari 0.');
+                    }
+                }
+            ],
+            // Decimal quantities: a conversion-unit receipt is not necessarily a
+            // whole number of base units, so integer validation would reject valid
+            // input. Precision and canonical representability are enforced below.
+            'received.*' => 'nullable|numeric|min:0',
+            // Which unit each row's quantity is expressed in. Only the ordered unit
+            // and the base unit are offered; anything else is rejected.
+            'received_unit.*' => 'nullable|in:ordered,base',
             'notes.*' => 'nullable|string|max:255',
+            'serial_numbers.*.*' => ['nullable', 'string', 'max:255'],
+            'external_delivery_number' => [
+                'nullable',
+                'string',
+                'max:255',
+                function ($attribute, $value, $fail) use ($purchase) {
+                    if (!empty($value)) {
+                        $exists = ReceivedNote::where('po_id', $purchase->id)
+                            ->where('external_delivery_number', $value)
+                            ->exists();
+                        if ($exists) {
+                            $fail('Nomor pengiriman eksternal sudah digunakan untuk pembelian ini.');
+                        }
+                    }
+                }
+            ],
+            'location_id' => [
+                'required',
+                'integer',
+                'exists:locations,id',
+                function ($attribute, $value, $fail) use ($purchase) {
+                    $loc = Location::find($value);
+                    if ($loc && ($loc->setting_id !== $purchase->setting_id || $loc->is_consignment)) {
+                        $fail('Lokasi yang dipilih tidak valid atau merupakan lokasi konsinyasi.');
+                    }
+                }
+            ],
+        ], [
+            'location_id.required' => 'Lokasi wajib dipilih.',
+        ], [
+            'location_id' => 'Lokasi',
+            'external_delivery_number' => 'Nomor Surat Jalan Supplier'
         ]);
 
-        DB::transaction(function () use ($data, $purchase) {
-            foreach ($purchase->purchaseDetails as $detail) {
-                $receivedQuantity = $data['received'][$detail->id] ?? 0;
-                $notes = $data['notes'][$detail->id] ?? null;
+        if ($validator->fails()) {
+            return redirect()->back()->withErrors($validator)->withInput();
+        }
 
-                if ($receivedQuantity > 0) {
-                    $detail->update([
-                        'quantity_received' => ($detail->quantity_received ?? 0) + $receivedQuantity,
-                        'notes' => $notes,
-                    ]);
+        $data = $validator->validated();
 
-                    // Optional: Update inventory
-                    $detail->product->increment('quantity', $receivedQuantity);
+        // Prepare to check duplicates
+        $duplicateErrors = [];
+        $checkedSerials = []; // To track duplicates within the request itself
+
+        // Get relevant purchase details to map detail_id -> product_id
+        // Scoped to this Purchase: a serial keyed to another Purchase's detail must
+        // not be validated (or later persisted) as though it belonged here.
+        $inputtedDetailIds = array_keys($data['serial_numbers'] ?? []);
+        $details = PurchaseDetail::whereIn('id', $inputtedDetailIds)
+            ->where('purchase_id', $purchase->id)
+            ->get()
+            ->keyBy('id');
+
+        foreach ($data['serial_numbers'] ?? [] as $detailId => $serials) {
+            $detail = $details->get($detailId);
+            if (!$detail) continue;
+
+            $productId = $detail->product_id;
+
+            foreach ($serials as $serial) {
+                if (!$serial) continue;
+
+                // 1. Check for duplicates within the current request (same product)
+                $key = $productId . '|' . $serial;
+                if (isset($checkedSerials[$key])) {
+                    $duplicateErrors[] = "Serial number '$serial' digandakan dalam input untuk produk yang sama.";
+                    continue;
+                }
+                $checkedSerials[$key] = true;
+
+                // 2. Authoritative receiving validation service
+                $validationService = app(\Modules\Product\Services\ReceivingSerialNumberValidationService::class);
+                $res = $validationService->validateForReceiving((int) $productId, (string) $serial);
+                if (!$res['valid']) {
+                    $duplicateErrors[] = $res['message'];
                 }
             }
+        }
 
-            // Update purchase status to "Received" if all quantities are received
-            if ($purchase->purchaseDetails->every(fn($detail) => $detail->quantity_received >= $detail->quantity)) {
-                $purchase->update(['status' => Purchase::STATUS_RECEIVED]);
+        if (!empty($duplicateErrors)) {
+            return redirect()->back()->withErrors([
+                'serial_numbers' => implode(' ', array_unique($duplicateErrors)),
+            ])->withInput();
+        }
+
+        try {
+            DB::transaction(function () use ($data, $purchase) {
+                $purchase = Purchase::where('id', $purchase->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                if ($purchase->status === Purchase::STATUS_RECEIVED) {
+                    throw new \Exception('Pembelian ini sudah ditutup. Tidak dapat menerima pengiriman lebih lanjut.');
+                }
+
+                // Create a ReceivedNote with PENDING status
+                $receivedNote = ReceivedNote::create([
+                    'po_id' => $purchase->id,
+                    'external_delivery_number' => $data['external_delivery_number'] ?? null,
+                    'date' => now(),
+                    'location_id' => $data['location_id'],
+                    'status' => ReceivedNote::STATUS_PENDING,
+                ]);
+
+                app(\App\Services\Notification\DocumentNotificationService::class)
+                    ->notifyApprovalNeeded($receivedNote, 'Penerimaan ' . $purchase->reference, $purchase->setting_id, $data['location_id']);
+
+                // Get purchase details for validation
+                $purchaseDetails = $purchase->purchaseDetails()->with('product')->get();
+
+                $quantityService = app(\Modules\Purchase\Services\PurchaseReceivingQuantityService::class);
+                $createdLineCount = 0;
+
+                foreach ($purchaseDetails as $detail) {
+                    $enteredQuantity = $data['received'][$detail->id] ?? 0;
+
+                    if ((float) $enteredQuantity <= 0) {
+                        continue;
+                    }
+
+                    // Normalize to base units against the line's own snapshot factor.
+                    // Only the canonical quantity is persisted; the entered unit is a
+                    // presentation choice and never reaches storage.
+                    $unitMode = $data['received_unit'][$detail->id] ?? 'ordered';
+                    $canonicalBd = $quantityService->toCanonical($detail, $enteredQuantity, $unitMode);
+
+                    // A serialized product must resolve to whole base units, each of
+                    // which carries exactly one serial.
+                    $quantityService->assertWholeCanonicalForSerialized($detail, $canonicalBd);
+
+                    // Over-receiving is rejected at submission as well as approval.
+                    // The purchase row is already locked above, so the remaining
+                    // quantity read here cannot be raced by a concurrent approval.
+                    if ($quantityService->wouldOverReceive($detail, $canonicalBd)) {
+                        $remaining = $quantityService->remainingCanonical($detail)->toFloat();
+                        throw new \Exception(
+                            "Jumlah penerimaan untuk {$detail->product_name} melebihi sisa pesanan ({$remaining} {$detail->effective_base_unit_name})."
+                        );
+                    }
+
+                    // Collect pending serial numbers for this detail
+                    $pendingSerials = null;
+                    if ($detail->product->serial_number_required) {
+                        $pendingSerials = array_values(array_filter($data['serial_numbers'][$detail->id] ?? []));
+
+                        // Exactly one unique serial per received base unit.
+                        $expected = (int) $canonicalBd->toFloat();
+                        if (count($pendingSerials) !== $expected) {
+                            throw new \Exception(
+                                "Produk {$detail->product_name} memerlukan tepat {$expected} serial number, diterima " . count($pendingSerials) . '.'
+                            );
+                        }
+                        if (count(array_unique($pendingSerials)) !== count($pendingSerials)) {
+                            throw new \Exception("Serial number untuk {$detail->product_name} tidak boleh digandakan.");
+                        }
+                    }
+
+                    // Create ReceivedNoteDetail with pending serial numbers (not committed yet)
+                    ReceivedNoteDetail::create([
+                        'received_note_id' => $receivedNote->id,
+                        'quantity_received' => $canonicalBd->toFloat(),
+                        'po_detail_id' => $detail->id,
+                        'pending_serial_numbers' => $pendingSerials,
+                        'note' => $data['notes'][$detail->id] ?? null,
+                    ]);
+
+                    $createdLineCount++;
+
+                    // Serial numbers will be committed to product_serial_numbers table on approval
+                }
+
+                // Defence in depth behind the request validation: never commit a
+                // ReceivedNote with no lines. Reaching this point means every
+                // submitted quantity resolved to zero or to a line outside this
+                // Purchase, so the whole submission is rolled back.
+                if ($createdLineCount === 0) {
+                    throw new \Exception('Minimal satu produk harus memiliki jumlah diterima lebih dari 0.');
+                }
+
+                // Stock increment and purchase status update are now done on approval
+            });
+
+            toast('Penerimaan berhasil disimpan dan menunggu persetujuan.', 'success');
+            return redirect()->route('purchases.receiving.index')->with('message', 'Penerimaan berhasil disimpan. Menunggu persetujuan.');
+        } catch (\Exception $e) {
+            toast($e->getMessage(), 'error');
+            return redirect()->back()->withInput();
+        }
+    }
+
+    private function updateAveragePurchasePrice(Product $product, $newPrice, $receivedQuantity)
+    {
+        $previousQuantity = $product->product_quantity - $receivedQuantity;
+
+        // Sanity check to prevent negative or division-by-zero errors
+        $previousQuantity = max($previousQuantity, 0);
+
+        $currentTotalValue = $product->average_purchase_price * $previousQuantity;
+        $newTotalValue = $newPrice * $receivedQuantity;
+
+        $newTotalQuantity = $previousQuantity + $receivedQuantity;
+
+        if ($newTotalQuantity > 0) {
+            $newAveragePrice = ($currentTotalValue + $newTotalValue) / $newTotalQuantity;
+        } else {
+            $newAveragePrice = $newPrice;
+        }
+
+        $product->update(['average_purchase_price' => $newAveragePrice]);
+    }
+
+    public function showReceivings($purchase_id, PurchaseReceivingsDataTable $dataTable)
+    {
+        abort_if(Gate::denies('purchases.receive.access'), 403);
+
+        $purchase = Purchase::withArchived()->findOrFail($purchase_id);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        $receivedNotes = ReceivedNote::where('po_id', $purchase->id)
+            ->with([
+                'purchase',
+                'location',
+                'receivedNoteDetails.purchaseDetail',
+                'receivedNoteDetails.productSerialNumbers',
+                'receivedNoteDetails.uomNormalizationLines.batch.oldBaseUnit',
+                'receivedNoteDetails.uomNormalizationLines.batch.newBaseUnit',
+                'receivedNoteDetails.uomNormalizationLines.batch.legacyBaseUnit',
+            ])
+            ->get();
+
+        return $dataTable->render('purchase::receivings.index', compact('purchase', 'receivedNotes'));
+    }
+
+    private function ensurePurchaseBelongsToCurrentSetting(Purchase $purchase): void
+    {
+        $currentSettingId = session('setting_id');
+
+        if (! is_null($currentSettingId) && (int) $purchase->setting_id !== (int) $currentSettingId) {
+            abort(404);
+        }
+    }
+
+    /**
+     * Approve a receiving and increment stock.
+     */
+    public function approveReceiving(ReceivedNote $receivedNote): RedirectResponse|\Illuminate\Http\JsonResponse|\Illuminate\Http\Response
+    {
+        abort_if(Gate::denies('purchases.receive.approval'), 403);
+
+        $purchase = $receivedNote->purchase;
+
+        if ($purchase->status === Purchase::STATUS_RECEIVED) {
+            if (request()->ajax() || request()->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'purchase_closed',
+                    'message' => 'Pembelian ini sudah ditutup. Tidak dapat menyetujui penerimaan lebih lanjut.',
+                ], 422);
             }
-        });
+            toast('Pembelian ini sudah ditutup. Tidak dapat menyetujui penerimaan lebih lanjut.', 'error');
+            return redirect()->back();
+        }
 
-        return redirect()->route('purchases.show', $purchase->id)->with('message', 'Items successfully received.');
+        // Initial check
+        if (!$receivedNote->isPending()) {
+            if (request()->ajax() || request()->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'already_processed',
+                    'message' => 'Penerimaan ini sudah diproses sebelumnya.',
+                ], 422);
+            }
+            toast('Penerimaan ini sudah diproses sebelumnya.', 'error');
+            return redirect()->back();
+        }
+
+        $purchase = $receivedNote->purchase;
+        $lock = Cache::lock('purchase_approval_' . $purchase->id, 10);
+
+        try {
+            $callback = function () use ($receivedNote, $purchase) {
+                // Re-check status inside lock to handle race conditions
+                if (!$receivedNote->fresh()->isPending()) {
+                    if (request()->ajax() || request()->wantsJson()) {
+                        return response()->json([
+                            'success' => false,
+                            'error' => 'already_processed',
+                            'message' => 'Penerimaan ini sudah diproses sebelumnya.',
+                        ], 422);
+                    }
+                    toast('Penerimaan ini sudah diproses sebelumnya.', 'error');
+                    return redirect()->back();
+                }
+
+                try {
+                DB::transaction(function () use ($receivedNote) {
+                    // Lock shared records in agreed deterministic order:
+                    // 1. Purchase
+                    $purchase = Purchase::query()
+                        ->where('id', $receivedNote->po_id)
+                        ->lockForUpdate()
+                        ->firstOrFail();
+
+                    // Guard against non-ordinary or archived purchase
+                    PurchaseSourceGuard::assertReceivingAllowed($purchase);
+
+                    if ($purchase->archived_at) {
+                        throw new ReceivingApprovalConflict('purchase_archived', 'Pembelian ini sudah diarsipkan. Tidak dapat menyetujui penerimaan.');
+                    }
+
+                    if ($purchase->status === Purchase::STATUS_RECEIVED) {
+                        throw new ReceivingApprovalConflict('purchase_closed', 'Pembelian ini sudah ditutup. Tidak dapat menyetujui penerimaan lebih lanjut.');
+                    }
+
+                    if (!in_array($purchase->status, [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY], true)) {
+                        throw new ReceivingApprovalConflict('invalid_purchase_status', "Status pembelian saat ini ({$purchase->status}) tidak mengizinkan persetujuan penerimaan.");
+                    }
+
+                    // 2. Received Note
+                    $receivedNote = ReceivedNote::query()
+                        ->where('id', $receivedNote->id)
+                        ->where('po_id', $purchase->id)
+                        ->lockForUpdate()
+                        ->firstOrFail();
+
+                    if (!$receivedNote->isPending()) {
+                        throw new ReceivingApprovalConflict('already_processed', 'Penerimaan ini sudah diproses sebelumnya.');
+                    }
+
+                    // 3. Purchase Details & Receiving Details
+                    $receivedNoteDetails = $receivedNote->receivedNoteDetails()->lockForUpdate()->get();
+                    if ($receivedNoteDetails->isEmpty()) {
+                        throw new ReceivingApprovalConflict('empty_receiving_details', 'Penerimaan tidak memiliki detail produk.');
+                    }
+
+                    // Revalidate location (must be active standard location)
+                    $receivingLocation = Location::query()->find($receivedNote->location_id);
+                    if (!$receivingLocation || !$receivingLocation->is_active || (int) $receivingLocation->setting_id !== (int) $purchase->setting_id || $receivingLocation->is_consignment) {
+                        throw new ReceivingApprovalConflict('invalid_location', 'Lokasi penerimaan tidak valid, tidak aktif, atau merupakan lokasi konsinyasi.');
+                    }
+
+                    // Revalidate positive quantity invariant
+                    $hasPositiveQuantity = false;
+                    $lockedDetailIds = [];
+                    foreach ($receivedNoteDetails as $detail) {
+                        if ((float) $detail->quantity_received > 0) {
+                            $hasPositiveQuantity = true;
+                        }
+                        if (!$detail->po_detail_id) {
+                            throw new ReceivingApprovalConflict('missing_purchase_detail_link', 'Detail penerimaan kehilangan relasi ke detail pembelian.');
+                        }
+                        $lockedDetailIds[] = $detail->po_detail_id;
+                    }
+
+                    if (!$hasPositiveQuantity) {
+                        throw new ReceivingApprovalConflict('all_zero_quantity', 'Minimal satu produk harus memiliki jumlah diterima lebih dari 0.');
+                    }
+
+                    $lockedDetailIds = array_values(array_unique($lockedDetailIds));
+                    $purchaseDetails = PurchaseDetail::query()
+                        ->whereIn('id', $lockedDetailIds)
+                        ->where('purchase_id', $purchase->id)
+                        ->lockForUpdate()
+                        ->get()
+                        ->keyBy('id');
+
+                    // Every receiving detail must have a matching purchase detail belonging to this purchase
+                    foreach ($receivedNoteDetails as $detail) {
+                        if (!$purchaseDetails->has($detail->po_detail_id)) {
+                            throw new ReceivingApprovalConflict('unmatched_purchase_detail', "Detail pembelian #{$detail->po_detail_id} tidak ditemukan untuk pembelian ini.");
+                        }
+                    }
+
+                    // Over-receiving check
+                    $quantityService = app(\Modules\Purchase\Services\PurchaseReceivingQuantityService::class);
+                    $overReceivingErrors = [];
+
+                    foreach ($receivedNoteDetails as $detail) {
+                        $purchaseDetail = $purchaseDetails->get($detail->po_detail_id);
+                        $alreadyReceivedBd = $quantityService->approvedReceivedCanonical($purchaseDetail, $receivedNote->id);
+                        $orderedBd = $quantityService->orderedCanonical($purchaseDetail);
+                        $pendingBd = \Brick\Math\BigDecimal::of((string) $detail->quantity_received);
+                        $totalAfterApprovalBd = $alreadyReceivedBd->plus($pendingBd);
+
+                        if ($totalAfterApprovalBd->compareTo($orderedBd) > 0) {
+                            $overReceivingErrors[] = [
+                                'product_name' => $purchaseDetail->product_name,
+                                'product_code' => $purchaseDetail->product_code,
+                                'ordered_quantity' => $orderedBd->toFloat(),
+                                'already_received' => $alreadyReceivedBd->toFloat(),
+                                'pending_quantity' => $pendingBd->toFloat(),
+                                'excess' => $totalAfterApprovalBd->minus($orderedBd)->toFloat(),
+                            ];
+                        }
+                    }
+
+                    if (!empty($overReceivingErrors)) {
+                        throw new ReceivingApprovalConflict(
+                            'over_receiving',
+                            'Jumlah penerimaan melebihi jumlah pesanan',
+                            $overReceivingErrors
+                        );
+                    }
+
+                    $settingLocationIds = Location::where('setting_id', $purchase->setting_id)->pluck('id');
+
+                    // 4. Products & Product Stocks in deterministic lock order
+                    $productIds = $purchaseDetails->pluck('product_id')->unique()->sort()->values();
+                    $products = Product::whereIn('id', $productIds)->lockForUpdate()->get()->keyBy('id');
+                    $productStocks = ProductStock::whereIn('product_id', $productIds)
+                        ->where('location_id', $receivedNote->location_id)
+                        ->lockForUpdate()
+                        ->get()
+                        ->keyBy('product_id');
+
+                    // Revalidate serials if any before mutation
+                    foreach ($receivedNoteDetails as $detail) {
+                        $purchaseDetail = $purchaseDetails->get($detail->po_detail_id);
+                        $receivedQuantity = (float) $detail->quantity_received;
+
+                        if ($receivedQuantity > 0 && !empty($detail->pending_serial_numbers) && is_array($detail->pending_serial_numbers)) {
+                            foreach ($detail->pending_serial_numbers as $serialNumber) {
+                                $existingSerial = ProductSerialNumber::where('product_id', $purchaseDetail->product_id)
+                                    ->where('serial_number', $serialNumber)
+                                    ->lockForUpdate()
+                                    ->first();
+
+                                if ($existingSerial && !in_array($existingSerial->status, [ProductSerialNumber::STATUS_RETURNED, ProductSerialNumber::STATUS_SOLD], true)) {
+                                    throw new ReceivingApprovalConflict('serial_conflict', "Serial number {$serialNumber} sudah ada dan statusnya bukan RETURNED atau SOLD.");
+                                }
+                            }
+                        }
+                    }
+
+                    foreach ($receivedNoteDetails as $detail) {
+                        $purchaseDetail = $purchaseDetails->get($detail->po_detail_id);
+                        $receivedQuantity = (float) $detail->quantity_received;
+
+                        if ($receivedQuantity > 0) {
+                            $product = $products->get($purchaseDetail->product_id);
+                            if (!$product) {
+                                throw new ReceivingApprovalConflict('missing_product', "Produk #{$purchaseDetail->product_id} tidak ditemukan.");
+                            }
+
+                            // Update product stock
+                            $productStock = $productStocks->get($purchaseDetail->product_id);
+
+                            if (!$productStock) {
+                                $productStock = ProductStock::create([
+                                    'product_id' => $purchaseDetail->product_id,
+                                    'location_id' => $receivedNote->location_id,
+                                    'quantity' => 0,
+                                    'quantity_tax' => 0,
+                                    'quantity_non_tax' => 0,
+                                    'broken_quantity_non_tax' => 0,
+                                    'broken_quantity_tax' => 0,
+                                    'broken_quantity' => 0,
+                                ]);
+                                $productStocks->put($purchaseDetail->product_id, $productStock);
+                            }
+
+                            // Capture previous stock
+                            $previous_quantity = $product->product_quantity;
+                            $previous_quantity_at_location = $productStock->quantity;
+                            $previous_quantity_for_setting = ProductStock::where('product_id', $product->id)
+                                ->whereIn('location_id', $settingLocationIds)
+                                ->sum('quantity');
+
+                            // Increment stock quantity
+                            $productStock->increment('quantity', $receivedQuantity);
+
+                            if ($purchaseDetail->tax_id) {
+                                $productStock->increment('quantity_tax', $receivedQuantity);
+                            } else {
+                                $productStock->increment('quantity_non_tax', $receivedQuantity);
+                            }
+
+                            $product->increment('product_quantity', $receivedQuantity);
+
+                            // Capture after stock
+                            $after_quantity = $product->product_quantity;
+                            $after_quantity_at_location = $productStock->quantity;
+                            $after_quantity_for_setting = $previous_quantity_for_setting + $receivedQuantity;
+
+                            app(\App\Services\Notification\StockNotificationService::class)
+                                ->checkGlobalStock($product, $previous_quantity, $after_quantity);
+                            app(\App\Services\Notification\StockNotificationService::class)
+                                ->checkLocationStock($productStock, $previous_quantity_at_location, $after_quantity_at_location);
+
+                            // Update Last Purchase Price
+                            $product->update(['last_purchase_price' => $purchaseDetail->price]);
+
+                            // Calculate unit DPP cost for average price calculation
+                            $dppUnitCost = \Modules\Purchase\Services\PurchaseCostHelper::calculateUnitCost(
+                                $purchaseDetail->sub_total,
+                                $purchaseDetail->product_tax_amount,
+                                $purchaseDetail->product_discount_amount,
+                                $purchaseDetail->quantity
+                            );
+
+                            // Update legacy product price
+                            $this->updateAveragePurchasePrice($product, $dppUnitCost, $receivedQuantity);
+
+                            // Update per-setting ProductPrice (last + average) on approval
+                            $settingId = $purchase->setting_id ?? session('setting_id');
+                            if (!is_null($settingId)) {
+                                $productPrice = ProductPrice::firstOrCreate(
+                                    [
+                                        'product_id' => $product->id,
+                                        'setting_id' => $settingId,
+                                    ],
+                                    [
+                                        'sale_price' => 0,
+                                        'last_purchase_price' => 0,
+                                        'average_purchase_price' => 0,
+                                    ]
+                                );
+
+                                $previousQty = $previous_quantity;
+                                $currentAvgPrice = $productPrice->average_purchase_price ?? 0;
+                                $currentTotalValue = $currentAvgPrice * $previousQty;
+                                $newTotalValue = $dppUnitCost * $receivedQuantity;
+                                $newTotalQuantity = $previousQty + $receivedQuantity;
+
+                                $newAveragePrice = $newTotalQuantity > 0
+                                    ? ($currentTotalValue + $newTotalValue) / $newTotalQuantity
+                                    : $dppUnitCost;
+
+                                $productPrice->update([
+                                    'last_purchase_price' => $purchaseDetail->price,
+                                    'average_purchase_price' => $newAveragePrice,
+                                ]);
+
+                                app(\Modules\Product\Services\ProductLastPurchasePriceSynchronizer::class)
+                                    ->syncLastPurchasePrice($product->id, $purchaseDetail->price);
+
+                                app(\Modules\Product\Services\ProductAveragePriceSynchronizer::class)
+                                    ->syncAveragePurchasePrice($product->id, $newAveragePrice);
+                            }
+
+                            // Insert Transaction Log
+                            Transaction::create([
+                                'product_id' => $purchaseDetail->product_id,
+                                'setting_id' => session('setting_id'),
+                                'quantity' => $receivedQuantity,
+                                'current_quantity' => $after_quantity_for_setting,
+                                'broken_quantity' => 0,
+                                'location_id' => $receivedNote->location_id,
+                                'user_id' => auth()->id(),
+                                'reason' => 'Diterima dari Pembelian #' . $purchase->reference . ' (Disetujui)',
+                                'type' => 'BUY',
+                                'previous_quantity' => $previous_quantity_for_setting,
+                                'after_quantity' => $after_quantity_for_setting,
+                                'previous_quantity_at_location' => $previous_quantity_at_location,
+                                'after_quantity_at_location' => $after_quantity_at_location,
+                                'quantity_non_tax' => $purchaseDetail->tax_id ? 0 : $receivedQuantity,
+                                'quantity_tax' => $purchaseDetail->tax_id ? $receivedQuantity : 0,
+                                'broken_quantity_non_tax' => 0,
+                                'broken_quantity_tax' => 0,
+                                'received_note_detail_id' => $detail->id,
+                            ]);
+
+                            // Commit pending serial numbers to product_serial_numbers table
+                            if (!empty($detail->pending_serial_numbers) && is_array($detail->pending_serial_numbers)) {
+                                foreach ($detail->pending_serial_numbers as $serialNumber) {
+                                    $existingSerial = ProductSerialNumber::where('product_id', $purchaseDetail->product_id)
+                                        ->where('serial_number', $serialNumber)
+                                        ->lockForUpdate()
+                                        ->first();
+
+                                    if ($existingSerial) {
+                                        if (in_array($existingSerial->status, [ProductSerialNumber::STATUS_RETURNED, ProductSerialNumber::STATUS_SOLD], true)) {
+                                            // Reactivate existing serial
+                                            $existingSerial->update([
+                                                'status' => ProductSerialNumber::STATUS_ACTIVE,
+                                                'location_id' => $receivedNote->location_id,
+                                                'tax_id' => $purchaseDetail->tax_id,
+                                                'purchase_return_id' => null,
+                                                'is_in_return_process' => false,
+                                            ]);
+                                            $existingSerial->receivedNoteDetails()->syncWithoutDetaching([$detail->id]);
+                                            $serialRecord = $existingSerial;
+                                        } else {
+                                            throw new ReceivingApprovalConflict(
+                                                'serial_conflict',
+                                                "Serial number {$serialNumber} sudah ada dan statusnya bukan RETURNED atau SOLD."
+                                            );
+                                        }
+                                    } else {
+                                        $serialRecord = ProductSerialNumber::create([
+                                            'product_id' => $purchaseDetail->product_id,
+                                            'location_id' => $receivedNote->location_id,
+                                            'serial_number' => $serialNumber,
+                                            'tax_id' => $purchaseDetail->tax_id,
+                                        ]);
+                                        $serialRecord->receivedNoteDetails()->attach($detail->id);
+                                    }
+
+                                    // Record RECEIVED history event
+                                    SerialNumberHistoryService::record(
+                                        $serialRecord->id,
+                                        SerialNumberHistory::EVENT_RECEIVED,
+                                        $receivedNote->location_id,
+                                        $detail
+                                    );
+                                }
+                                // Clear pending serial numbers after commit
+                                $detail->update(['pending_serial_numbers' => null]);
+                            }
+                        }
+                    }
+
+                    // Update receiving status to APPROVED
+                    $receivedNote->update([
+                        'status' => ReceivedNote::STATUS_APPROVED,
+                        'approved_at' => now(),
+                        'approved_by' => auth()->id(),
+                    ]);
+
+                    app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($receivedNote);
+                    app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($receivedNote);
+
+                    // Calculate and update purchase status based on all APPROVED receivings
+                    $allFullyReceived = true;
+                    foreach ($purchase->purchaseDetails()->get() as $pDetail) {
+                        $receivedBd = $quantityService->approvedReceivedCanonical($pDetail);
+                        $orderedBd = $quantityService->orderedCanonical($pDetail);
+
+                        if ($receivedBd->compareTo($orderedBd) < 0) {
+                            $allFullyReceived = false;
+                            break;
+                        }
+                    }
+
+                    $oldPurchaseStatus = $purchase->status;
+                    $status = $allFullyReceived ? Purchase::STATUS_RECEIVED : Purchase::STATUS_RECEIVED_PARTIALLY;
+                    $purchase->update(['status' => $status]);
+
+                    // Record status transition audit
+                    app(\Modules\Purchase\Services\PurchaseLifecycleService::class)->recordDerivedTransition(
+                        purchase: $purchase,
+                        oldStatus: $oldPurchaseStatus,
+                        newStatus: $status,
+                        source: \Modules\Purchase\Services\PurchaseLifecycleService::SOURCE_RECEIVING_APPROVAL,
+                        receivedNoteId: $receivedNote->id,
+                        actorUserId: auth()->id(),
+                        reason: null
+                    );
+                });
+                } catch (ReceivingApprovalConflict $conflict) {
+                    // The transaction has already rolled back; nothing was posted.
+                    if (request()->ajax() || request()->wantsJson()) {
+                        $payload = [
+                            'success' => false,
+                            'error' => $conflict->errorCode,
+                            'message' => $conflict->getMessage(),
+                        ];
+                        if ($conflict->errorCode === 'over_receiving') {
+                            $payload['details'] = $conflict->details;
+                            $payload['received_note_id'] = $receivedNote->id;
+                        }
+
+                        return response()->json($payload, 422);
+                    }
+
+                    toast(
+                        $conflict->errorCode === 'over_receiving'
+                            ? 'Jumlah penerimaan melebihi jumlah pesanan. Silakan tolak penerimaan ini.'
+                            : $conflict->getMessage(),
+                        'error'
+                    );
+                    return redirect()->back();
+                }
+
+                if (request()->ajax() || request()->wantsJson()) {
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'Penerimaan berhasil disetujui dan stok telah diperbarui.',
+                    ]);
+                }
+
+                toast('Penerimaan berhasil disetujui dan stok telah diperbarui.', 'success');
+                return redirect()->back();
+            };
+
+            $result = $lock->get($callback);
+
+            if ($result === false) {
+                if (request()->ajax() || request()->wantsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'conflict',
+                        'message' => 'Pembelian ini sedang diproses oleh pengguna lain. Silakan coba lagi.',
+                    ], 409);
+                }
+                return response('Pembelian ini sedang diproses oleh pengguna lain. Silakan coba lagi.', 409);
+            }
+
+            return $result;
+
+        } catch (\Throwable $e) {
+            // Handle serial number conflict
+            if (Str::contains($e->getMessage(), 'sudah ada dan statusnya bukan RETURNED')) {
+                $message = $e->getMessage();
+                if (request()->ajax() || request()->wantsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'conflict',
+                        'message' => $message,
+                    ], 409);
+                }
+                return response($message, 409);
+            }
+
+            // Ensure lock is released if it was acquired manually, but get() helper releases it automatically.
+            // But we should rethrow to not silence errors.
+            throw $e;
+        }
+    }
+
+    /**
+     * Reject a receiving.
+     */
+    public function rejectReceiving(Request $request, ReceivedNote $receivedNote): RedirectResponse
+    {
+        abort_if(Gate::denies('purchases.receive.approval'), 403);
+
+        if (!$receivedNote->isPending()) {
+            toast('Penerimaan ini sudah diproses sebelumnya.', 'error');
+            return redirect()->back();
+        }
+
+        $validated = $request->validate([
+            'rejection_reason' => 'required|string|max:1000',
+        ], [
+            'rejection_reason.required' => 'Alasan penolakan wajib diisi.',
+        ]);
+
+        $receivedNote->update([
+            'status' => ReceivedNote::STATUS_REJECTED,
+            'approved_by' => auth()->id(),
+            'approved_at' => now(),
+            'rejection_reason' => $validated['rejection_reason']
+        ]);
+
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($receivedNote);
+        app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded(
+            $receivedNote, 
+            'Penerimaan ' . $receivedNote->purchase->reference, 
+            $receivedNote->purchase->setting_id, 
+            $validated['rejection_reason'], 
+            $receivedNote->location_id
+        );
+
+        toast('Penerimaan ditolak.', 'warning');
+        return redirect()->back();
+    }
+
+    public function previewReceivingCompletion(Purchase $purchase)
+    {
+        abort_if(Gate::denies('purchases.receive.complete_shortfall'), 403);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        try {
+            $preview = app(PurchaseReceivingCompletionService::class)->preview($purchase);
+            return response()->json(['success' => true, 'preview' => $preview]);
+        } catch (Exception $e) {
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+    }
+
+    public function submitReceivingCompletion(Request $request, Purchase $purchase)
+    {
+        abort_if(Gate::denies('purchases.receive.complete_shortfall'), 403);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        $validated = $request->validate([
+            'reason' => 'required|string|max:1000',
+        ], [
+            'reason.required' => 'Alasan kekurangan pemasok wajib diisi.',
+        ]);
+
+        try {
+            $completion = app(PurchaseReceivingCompletionService::class)->complete(
+                $purchase,
+                $validated['reason'],
+                auth()->id()
+            );
+
+            if ($request->ajax() || $request->wantsJson()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Penerimaan berhasil diselesaikan.',
+                    'purchase_id' => $purchase->id,
+                ]);
+            }
+
+            toast('Penerimaan berhasil diselesaikan.', 'success');
+            return redirect()->route('purchases.show', $purchase);
+        } catch (Exception $e) {
+            if ($request->ajax() || $request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => $e->getMessage(),
+                ], 422);
+            }
+
+            toast($e->getMessage(), 'error');
+            return redirect()->back();
+        }
     }
 }

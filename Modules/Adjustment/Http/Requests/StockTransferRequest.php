@@ -15,7 +15,7 @@ class StockTransferRequest extends FormRequest
     public function authorize(): bool
     {
         // Authorize only if the user has permission to create transfers
-        return Gate::allows('create_transfers');
+        return Gate::allows('stockTransfers.create');
     }
 
     /**
@@ -33,6 +33,28 @@ class StockTransferRequest extends FormRequest
             'quantities' => ['required', 'array'],
             'quantities.*' => ['integer', 'min:1'],
         ];
+    }
+
+    public function withValidator($validator)
+    {
+        $validator->after(function ($validator) {
+            $originId = $this->input('origin_location');
+            $destId = $this->input('destination_location');
+
+            if ($originId && $destId) {
+                $origin = \Modules\Setting\Entities\Location::find($originId);
+                $dest = \Modules\Setting\Entities\Location::find($destId);
+
+                if ($origin && $dest) {
+                    if ((bool)$origin->is_consignment !== (bool)$dest->is_consignment) {
+                        $validator->errors()->add(
+                            'destination_location',
+                            'Transfer stok antara lokasi standar dan lokasi konsinyasi tidak diperbolehkan.'
+                        );
+                    }
+                }
+            }
+        });
     }
 
     /**

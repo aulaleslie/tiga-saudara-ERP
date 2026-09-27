@@ -1,0 +1,97 @@
+# sales-list-report Specification
+
+## Purpose
+
+Provide the `Daftar Penjualan` sales list report with detail/header modes, multi-select searchable filters, status and period filtering restricted to report-eligible statuses, sortable columns, snapshot-validated exports, and setting-scoped/global variants.
+
+## Requirements
+
+### Requirement: Detail and header report modes
+
+The sales report SHALL support a "detail" mode (one row per sale line) and a "header" mode (one row per sale document), with the selected mode persisted across requests.
+
+#### Scenario: Switching modes
+
+- **WHEN** the user toggles between detail and header mode
+- **THEN** the table columns and available sort fields change to match the mode
+- **AND** the chosen mode is restored on the next visit within the session
+
+#### Scenario: Invalid mode is normalized
+
+- **WHEN** a request supplies a report mode outside {detail, header}
+- **THEN** the report falls back to detail mode
+
+### Requirement: Multi-select searchable filters
+
+The sales report SHALL allow filtering by multiple customers and multiple tags via searchable inputs that show selected items as removable pills.
+
+#### Scenario: Adding and removing a customer filter
+
+- **WHEN** the user searches a customer name and selects a result
+- **THEN** the customer is added as a pill and results are restricted to selected customers when filters are applied
+- **AND** removing the pill drops that customer from the filter
+
+#### Scenario: Search requires a minimum query length
+
+- **WHEN** the search term is shorter than 2 characters
+- **THEN** no options are suggested
+
+### Requirement: Status and period filters
+
+The sales report SHALL allow filtering by multiple report-eligible document statuses (`DISPATCHED` and `RETURNED PARTIALLY`) and multiple payment statuses, plus a date range with period presets and a date-basis selector. Ineligible statuses SHALL NOT be offered or accepted and the default report population SHALL be restricted to eligible documents.
+
+#### Scenario: Applying a period preset
+
+- **WHEN** the user selects a preset (today, this week, this month, this year)
+- **THEN** the start and end dates are set to that period's bounds
+
+#### Scenario: Multi-status filtering
+
+- **WHEN** one or more eligible document or payment statuses are selected and filters are applied
+- **THEN** results include only sales matching any selected document status and any selected payment status
+
+#### Scenario: Ineligible status is unavailable
+
+- **WHEN** the user opens or submits the document-status filter
+- **THEN** pre-dispatch and partially dispatched statuses are not accepted as report filters
+
+### Requirement: Sortable columns
+
+The sales report SHALL allow sorting by columns appropriate to the active mode, toggling ascending/descending on repeated selection.
+
+#### Scenario: Sorting resets to a safe default across modes
+
+- **WHEN** the active sort field is not valid for the current mode
+- **THEN** the report falls back to sorting by date descending
+
+### Requirement: Snapshot-validated export
+
+The sales report SHALL export the currently filtered result set to Excel or CSV only when the applied filters match a snapshot taken at the last Filter action.
+
+#### Scenario: Export after filtering
+
+- **WHEN** the user has applied filters and the snapshot is still valid
+- **THEN** an Excel or CSV file of the filtered, sorted results is downloaded
+
+#### Scenario: Export blocked after filter drift
+
+- **WHEN** filters were changed after the last Filter action without re-applying
+- **THEN** export is refused with a message asking the user to apply filters again
+
+### Requirement: Setting-scoped and global variants
+
+The sales report SHALL run scoped to the current setting by default and SHALL support a global variant that spans all settings when accessed via the global route.
+
+#### Scenario: Global mode spans settings
+
+- **WHEN** the report is opened in global mode
+- **THEN** results are not restricted to the current `setting_id`
+
+### Requirement: Document discount column
+
+The sales report SHALL present the document-level discount (`Sale.discount_amount`) in a clearly labeled `Diskon` column and SHALL retain the derived `Diskon %` column (the discount as a percentage of the document total). The report SHALL NOT display the per-line discount columns backed by `SaleDetails.product_discount_amount` (`Diskon` per-line and `Diskon Per Baris %`), because the importer never populates them. This applies to detail mode, header mode, and the global variant, and the on-screen columns SHALL match the exported columns.
+
+#### Scenario: Per-line discount columns are not shown
+- **WHEN** a user views or exports the sales report in any mode
+- **THEN** the report shows the document-level `Diskon` and `Diskon %` columns
+- **AND** the report does not show per-line `Diskon` or `Diskon Per Baris %` columns

@@ -2,75 +2,380 @@
 
 namespace Modules\Adjustment\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Modules\Setting\Entities\Location;
+use RuntimeException;
 
-class Transfer extends Model
+class Transfer extends BaseModel
 {
-    use HasFactory;
+    public const STATUS_PENDING           = 'PENDING';
+    public const STATUS_APPROVED          = 'APPROVED';
+    public const STATUS_REJECTED          = 'REJECTED';
+    public const STATUS_DISPATCHED        = 'DISPATCHED';
+    public const STATUS_RECEIVED          = 'RECEIVED';
+    public const STATUS_RETURN_DISPATCHED = 'RETURN_DISPATCHED';
+    public const STATUS_RETURN_RECEIVED   = 'RETURN_RECEIVED';
+    public const STATUS_DRAFT             = 'DRAFT';
+    public const STATUS_COMPLETED         = 'COMPLETED';
+    public const STATUS_AWAITING_RETURN   = 'AWAITING_RETURN';
+    public const STATUS_ARCHIVED          = 'ARCHIVED';
+    public const STATUS_CANCELLED         = 'CANCELLED';
+
+    /**
+     * Workflow version 3: location-free goods entry, approver allocations,
+     * approval-time dispatch, confirmation receipt and dispatch cancellation.
+     */
+    public const WORKFLOW_V3 = 3;
+
+    public const CONDITION_GOOD     = 'GOOD';
+    public const CONDITION_BREAKAGE = 'BREAKAGE';
+
+    public const CONDITIONS = [
+        self::CONDITION_GOOD,
+        self::CONDITION_BREAKAGE,
+    ];
 
     protected $fillable = [
+        'document_number',
         'origin_location_id',
         'destination_location_id',
+        'stock_condition',
         'created_by',
         'approved_by',
         'rejected_by',
         'dispatched_by',
+        'received_by',
+        'return_dispatched_by',
+        'return_received_by',
+        'archived_by',
         'status',
-        'created_at',
+        'revision',
+        'workflow_version',
+        'transfer_date',
         'approved_at',
         'rejected_at',
         'dispatched_at',
-        'transfer_date',
+        'received_at',
+        'return_dispatched_at',
+        'return_received_at',
+        'archived_at',
+        'archive_reason',
+        'v3_reference_key',
+        'created_in_setting_id',
+        'current_request_revision_id',
+        'approval_configuration_revision',
+        'cancelled_by',
+        'cancelled_at',
+        'cancellation_reason',
     ];
+
+    protected $casts = [
+        'document_number'       => 'string',
+        'stock_condition'       => 'string',
+        'approved_at'          => 'datetime',
+        'rejected_at'          => 'datetime',
+        'dispatched_at'        => 'datetime',
+        'received_at'          => 'datetime',
+        'return_dispatched_at' => 'datetime',
+        'return_received_at'   => 'datetime',
+        'archived_at'          => 'datetime',
+        'cancelled_at'         => 'datetime',
+        'revision'             => 'integer',
+        'approval_configuration_revision' => 'integer',
+        'workflow_version'     => 'integer',
+    ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (Transfer $transfer): void {
+            if ($transfer->document_number) {
+                return;
+            }
+
+            if ((int) $transfer->workflow_version === self::WORKFLOW_V3) {
+                // Version 3 documents have no origin: numbering is global and
+                // location-independent, allocated from a locked sequence.
+                $reference = \Modules\Adjustment\Services\TransferV3ReferenceService::allocate(static::resolveSequenceDate($transfer));
+                $transfer->document_number  = $reference;
+                $transfer->v3_reference_key = $reference;
+
+                return;
+            }
+
+            $transfer->document_number = static::nextDocumentNumber($transfer);
+        });
+    }
+
+    /**
+     * Generate the next document number for the given transfer.
+     *
+     * The database enforces uniqueness by combining the origin location ID with
+     * the document number, while this resolver still scopes its lookup by
+     * tenant/setting when available. That means different origins (or tenants)
+     * can legitimately reuse the same sequence value without collisions, but a
+     * single origin will never receive the same document number twice.
+     */
+    protected static function nextDocumentNumber(Transfer $transfer): string
+    {
+        $originLocationId = $transfer->origin_location_id;
+
+        if (! $originLocationId) {
+            throw new RuntimeException('Origin location is required to generate a document number.');
+        }
+
+        $settingId = null;
+
+        if ($transfer->relationLoaded('originLocation')) {
+            $settingId = $transfer->originLocation?->setting?->getKey();
+        }
+
+        if ($settingId === null) {
+            $settingId = Location::query()
+                ->whereKey($originLocationId)
+                ->value('setting_id');
+        }
+
+        $sequenceDate = static::resolveSequenceDate($transfer);
+
+        $year   = $sequenceDate->format('Y');
+        $month  = $sequenceDate->format('m');
+        $prefix = sprintf('TS-%s-%s-', $year, $month);
+
+        $resolver = function () use ($settingId, $transfer, $prefix) {
+            $query = DB::table('transfers')
+                ->leftJoin('locations', 'locations.id', '=', 'transfers.origin_location_id')
+                ->select('transfers.document_number')
+                ->whereNotNull('transfers.document_number')
+                ->where('transfers.document_number', 'like', $prefix . '%')
+                ->orderByDesc('transfers.document_number')
+                ->lockForUpdate();
+
+            $query->where(function ($builder) use ($settingId, $transfer) {
+                if ($settingId !== null) {
+                    $builder->where('locations.setting_id', $settingId);
+                } else {
+                    $builder->whereNull('locations.setting_id')
+                        ->where('transfers.origin_location_id', $transfer->origin_location_id);
+                }
+            });
+
+            $latest = $query->first();
+
+            $nextNumber = 1;
+
+            if ($latest && preg_match('/(\d{4})$/', $latest->document_number, $matches)) {
+                $nextNumber = (int) $matches[1] + 1;
+            }
+
+            return sprintf('%s%04d', $prefix, $nextNumber);
+        };
+
+        return DB::transactionLevel() > 0
+            ? $resolver()
+            : DB::transaction($resolver);
+    }
+
+    protected static function resolveSequenceDate(Transfer $transfer): Carbon
+    {
+        $value = $transfer->transfer_date ?? null;
+
+        if ($value instanceof Carbon) {
+            return $value->copy();
+        }
+
+        if ($value) {
+            try {
+                return Carbon::parse($value);
+            } catch (\Throwable $throwable) {
+                // fall through to now()
+            }
+        }
+
+        return Carbon::now();
+    }
 
     /**
      * Relationships
      */
 
-    // Creator of the transfer
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
     }
 
-    // Approval of the transfer
     public function approvedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approved_by');
     }
 
-    // Rejected By of the transfer
     public function rejectedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'rejected_by');
     }
 
-    // Dispatcher of the transfer
     public function dispatchedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'dispatched_by');
     }
 
-    // Origin Location of the transfer
+    public function receivedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'received_by');
+    }
+
+    public function returnDispatchedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'return_dispatched_by');
+    }
+
+    public function returnReceivedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'return_received_by');
+    }
+
     public function originLocation(): BelongsTo
     {
         return $this->belongsTo(Location::class, 'origin_location_id');
     }
 
-    // Destination Location of the transfer
     public function destinationLocation(): BelongsTo
     {
         return $this->belongsTo(Location::class, 'destination_location_id');
     }
 
-    // Products in this transfer
     public function products(): HasMany
     {
         return $this->hasMany(TransferProduct::class);
+    }
+
+    public function actionHistories(): HasMany
+    {
+        return $this->hasMany(TransferActionHistory::class);
+    }
+
+    public function routePolicies(): HasMany
+    {
+        return $this->hasMany(TransferRoutePolicy::class);
+    }
+
+    public function movementReturnObligations(): HasMany
+    {
+        return $this->hasMany(TransferMovementReturnObligation::class);
+    }
+
+    public function returnObligations(): HasMany
+    {
+        return $this->hasMany(TransferReturnObligation::class);
+    }
+
+    public function movements(): HasMany
+    {
+        return $this->hasMany(TransferMovement::class);
+    }
+
+    public function cancelledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
+    }
+
+    public function createdInSetting(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Setting\Entities\Setting::class, 'created_in_setting_id');
+    }
+
+    public function requestRevisions(): HasMany
+    {
+        return $this->hasMany(TransferRequestRevision::class);
+    }
+
+    public function currentRequestRevision(): BelongsTo
+    {
+        return $this->belongsTo(TransferRequestRevision::class, 'current_request_revision_id');
+    }
+
+    public function approvalAllocations(): HasMany
+    {
+        return $this->hasMany(TransferApprovalAllocation::class);
+    }
+
+    public function movementAllocations(): HasMany
+    {
+        return $this->hasMany(TransferMovementAllocation::class);
+    }
+
+    public function isV3(): bool
+    {
+        return (int) $this->workflow_version === self::WORKFLOW_V3;
+    }
+
+    public function archivedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'archived_by');
+    }
+
+    public function requiresReturn(): bool
+    {
+        // Version 3 creates no automatic return obligations.
+        if ($this->isV3()) {
+            return false;
+        }
+
+        if ($this->returnObligations()->exists()) {
+            return true;
+        }
+
+        if (in_array($this->status, [self::STATUS_RECEIVED, self::STATUS_COMPLETED, self::STATUS_RETURN_DISPATCHED, self::STATUS_RETURN_RECEIVED, self::STATUS_ARCHIVED])) {
+            return false;
+        }
+
+        $latestPolicy = $this->relationLoaded('routePolicies')
+            ? $this->routePolicies->sortByDesc('transfer_revision')->first()
+            : $this->routePolicies()->orderByDesc('transfer_revision')->first();
+
+        if ($latestPolicy !== null) {
+            return (bool) $latestPolicy->mandatory_return;
+        }
+
+        if (! $this->hasDestination()) {
+            return false;
+        }
+
+        $origin      = $this->relationLoaded('originLocation') ? $this->originLocation : $this->originLocation()->first();
+        $destination = $this->relationLoaded('destinationLocation') ? $this->destinationLocation : $this->destinationLocation()->first();
+
+        if (! $origin || ! $destination) {
+            return false;
+        }
+
+        return (int) $origin->setting_id !== (int) $destination->setting_id;
+    }
+
+    /**
+     * Stock condition helpers
+     */
+
+    public function hasDestination(): bool
+    {
+        return $this->destination_location_id !== null;
+    }
+
+    public function isGoodCondition(): bool
+    {
+        return $this->stock_condition === self::CONDITION_GOOD;
+    }
+
+    public function isBreakageCondition(): bool
+    {
+        return $this->stock_condition === self::CONDITION_BREAKAGE;
+    }
+
+    public function hasExplicitCondition(): bool
+    {
+        return in_array($this->stock_condition, self::CONDITIONS, true);
     }
 }

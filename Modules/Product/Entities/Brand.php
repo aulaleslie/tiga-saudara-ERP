@@ -2,13 +2,13 @@
 
 namespace Modules\Product\Entities;
 
+use App\Models\BaseModel;
 use App\Models\User;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Setting\Entities\Setting;
 
-class Brand extends Model
+class Brand extends BaseModel
 {
     use SoftDeletes;
 

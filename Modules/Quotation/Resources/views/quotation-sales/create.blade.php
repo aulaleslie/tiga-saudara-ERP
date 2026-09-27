@@ -25,6 +25,7 @@
                         @include('utils.alerts')
                         <form id="sale-form" action="{{ route('sales.store') }}" method="POST">
                             @csrf
+                            <input type="hidden" name="idempotency_token" value="{{ $idempotencyToken }}">
 
                             <div class="form-row">
                                 <div class="col-lg-4">
@@ -38,7 +39,7 @@
                                         <div class="form-group">
                                             <label for="customer_id">Customer <span class="text-danger">*</span></label>
                                             <select class="form-control" name="customer_id" id="customer_id" required>
-                                                @foreach(\Modules\People\Entities\Customer::all() as $customer)
+                                                @foreach(\Modules\People\Entities\Customer::active()->orWhere('id', $sale->customer_id)->get() as $customer)
                                                     <option {{ $sale->customer_id == $customer->id ? 'selected' : '' }} value="{{ $customer->id }}">{{ $customer->customer_name }}</option>
                                                 @endforeach
                                             </select>
@@ -71,7 +72,7 @@
                                 <div class="col-lg-4">
                                     <div class="from-group">
                                         <div class="form-group">
-                                            <label for="payment_method">Payment Method <span class="text-danger">*</span></label>
+                                            <label for="payment_method">Metode Pembayaran <span class="text-danger">*</span></label>
                                             <select class="form-control" name="payment_method" id="payment_method" required>
                                                 <option value="Cash">Cash</option>
                                                 <option value="Credit Card">Credit Card</option>

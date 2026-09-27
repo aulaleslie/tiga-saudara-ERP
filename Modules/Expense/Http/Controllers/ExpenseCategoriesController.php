@@ -2,6 +2,7 @@
 
 namespace Modules\Expense\Http\Controllers;
 
+use App\Services\IdempotencyService;
 use Modules\Expense\DataTables\ExpenseCategoriesDataTable;
 use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
@@ -12,40 +13,49 @@ use Modules\Expense\Entities\ExpenseCategory;
 class ExpenseCategoriesController extends Controller
 {
 
-    public function index(ExpenseCategoriesDataTable $dataTable) {
-        abort_if(Gate::denies('access_expense_categories'), 403);
+    public function __construct()
+    {
+        $this->middleware('idempotency')->only('store');
+    }
 
-        return $dataTable->render('expense::categories.index');
+    public function index(ExpenseCategoriesDataTable $dataTable, Request $request) {
+        abort_if(Gate::denies('expenseCategories.access'), 403);
+
+        $idempotencyToken = IdempotencyService::tokenFromRequest($request);
+
+        return $dataTable->render('expense::categories.index', compact('idempotencyToken'));
     }
 
     public function store(Request $request) {
-        abort_if(Gate::denies('access_expense_categories'), 403);
+        abort_if(Gate::denies('expenseCategories.create'), 403);
 
         $request->validate([
             'category_name' => 'required|string|max:255|unique:expense_categories,category_name',
             'category_description' => 'nullable|string|max:1000'
         ]);
 
+        $currentSettingId = session('setting_id');
         ExpenseCategory::create([
+            'setting_id' => $currentSettingId,
             'category_name' => $request->category_name,
             'category_description' => $request->category_description
         ]);
 
-        toast('Expense Category Created!', 'success');
+        toast('Kategori Pengeluaran berhasil dibuat!', 'success');
 
         return redirect()->route('expense-categories.index');
     }
 
 
     public function edit(ExpenseCategory $expenseCategory) {
-        abort_if(Gate::denies('access_expense_categories'), 403);
+        abort_if(Gate::denies('expenseCategories.edit'), 403);
 
         return view('expense::categories.edit', compact('expenseCategory'));
     }
 
 
     public function update(Request $request, ExpenseCategory $expenseCategory) {
-        abort_if(Gate::denies('access_expense_categories'), 403);
+        abort_if(Gate::denies('expenseCategories.edit'), 403);
 
         $request->validate([
             'category_name' => 'required|string|max:255|unique:expense_categories,category_name,' . $expenseCategory->id,
@@ -64,9 +74,9 @@ class ExpenseCategoriesController extends Controller
 
 
     public function destroy(ExpenseCategory $expenseCategory) {
-        abort_if(Gate::denies('access_expense_categories'), 403);
+        abort_if(Gate::denies('expenseCategories.delete'), 403);
 
-        if ($expenseCategory->expenses()->isNotEmpty()) {
+        if ($expenseCategory->expenses()->exists()) {
             return back()->withErrors('Can\'t delete beacuse there are expenses associated with this category.');
         }
 

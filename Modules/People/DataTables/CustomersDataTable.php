@@ -21,15 +21,31 @@ class CustomersDataTable extends DataTable
     {
         return datatables()
             ->eloquent($query)
+            ->addColumn('status', function ($data) {
+                return $data->is_active
+                    ? '<span class="badge badge-success">Aktif</span>'
+                    : '<span class="badge badge-secondary">Nonaktif</span>';
+            })
             ->addColumn('action', function ($data) {
                 return view('people::customers.partials.actions', compact('data'));
-            });
+            })
+            ->rawColumns(['status', 'action']);
     }
 
     public function query(Customer $model): Builder
     {
-        $currentSettingId = session('setting_id');
-        return $model->newQuery()->where('setting_id', $currentSettingId);
+        $query = $model->newQuery();
+
+        if (request()->filled('status')) {
+            $status = request('status');
+            if ($status === 'active') {
+                $query->where('is_active', true);
+            } elseif ($status === 'inactive') {
+                $query->where('is_active', false);
+            }
+        }
+
+        return $query;
     }
 
     public function html(): \Yajra\DataTables\Html\Builder
@@ -41,7 +57,7 @@ class CustomersDataTable extends DataTable
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                        'tr' .
                                  <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(4)
+            ->orderBy(5)
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
@@ -57,9 +73,13 @@ class CustomersDataTable extends DataTable
     protected function getColumns(): array
     {
         return [
-            Column::make('contact_name')
+            Column::make('customer_name')
                 ->className('text-center align-middle')
                 ->title('Nama Pelanggan'),
+
+            Column::make('contact_name')
+                ->className('text-center align-middle')
+                ->title('Kontak'),
 
             Column::make('customer_email')
                 ->className('text-center align-middle')
@@ -68,6 +88,10 @@ class CustomersDataTable extends DataTable
             Column::make('customer_phone')
                 ->className('text-center align-middle')
                 ->title('Telepon'),
+
+            Column::computed('status')
+                ->className('text-center align-middle')
+                ->title('Status'),
 
             Column::computed('action')
                 ->exportable(false)

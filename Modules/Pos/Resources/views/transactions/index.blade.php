@@ -1,0 +1,643 @@
+@extends('layouts.app')
+
+@section('title', 'Transaksi POS')
+
+@section('breadcrumb')
+    <ol class="breadcrumb border-0 m-0">
+        <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
+        <li class="breadcrumb-item active">Transaksi POS</li>
+    </ol>
+@endsection
+
+@section('content')
+    <div class="container-fluid">
+        @include('utils.alerts')
+
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white">
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-3">
+                        <label for="pos-transaction-search" class="small text-muted mb-1">Cari Kode</label>
+                        <input id="pos-transaction-search" type="text" class="form-control" placeholder="Contoh: DOC-TXN-2026-03-0001">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="pos-transaction-status" class="small text-muted mb-1">Status</label>
+                        <select id="pos-transaction-status" class="form-control">
+                            <option value="">Semua</option>
+                            <option value="DRAFT">Draf</option>
+                            <option value="LOADED">Dimuat</option>
+                            <option value="COMPLETED">Selesai</option>
+                            <option value="CANCELLED">Dibatalkan</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="pos-transaction-date-from" class="small text-muted mb-1">Dari Tanggal</label>
+                        <input id="pos-transaction-date-from" type="date" class="form-control">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="pos-transaction-date-to" class="small text-muted mb-1">Sampai Tanggal</label>
+                        <input id="pos-transaction-date-to" type="date" class="form-control">
+                    </div>
+                    <div class="col-md-3 d-flex gap-2">
+                        <button id="pos-transaction-filter" type="button" class="btn btn-primary">Muat Data</button>
+                        @can('pos.sell')
+                            <a href="{{ route('pos.sell') }}" class="btn btn-outline-secondary">Buka POS Kasir</a>
+                        @endcan
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="pos-transaction-status-note" class="small text-muted mb-2"></div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="thead-light">
+                        <tr>
+                            <th>Kode</th>
+                            <th>Status</th>
+                            <th>Pemilik</th>
+                            <th>Pelanggan</th>
+                            <th class="text-right">Grand Total</th>
+                            <th>Diperbarui</th>
+                            <th class="text-right">Aksi</th>
+                        </tr>
+                        </thead>
+                        <tbody id="pos-transaction-table-body">
+                        <tr>
+                            <td colspan="7" class="text-center text-muted py-4">Memuat data...</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mt-3">
+                    <small id="pos-transaction-pagination-label" class="text-muted"></small>
+                    <div class="btn-group btn-group-sm">
+                        <button id="pos-transaction-prev" type="button" class="btn btn-outline-secondary" disabled>Sebelumnya</button>
+                        <button id="pos-transaction-next" type="button" class="btn btn-outline-secondary" disabled>Berikutnya</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+@endsection
+
+@push('page_scripts')
+    <script>
+        (function () {
+            const tableBody = document.getElementById('pos-transaction-table-body');
+            const statusNote = document.getElementById('pos-transaction-status-note');
+            const filterButton = document.getElementById('pos-transaction-filter');
+            const searchInput = document.getElementById('pos-transaction-search');
+            const statusSelect = document.getElementById('pos-transaction-status');
+            const dateFromInput = document.getElementById('pos-transaction-date-from');
+            const dateToInput = document.getElementById('pos-transaction-date-to');
+            const prevButton = document.getElementById('pos-transaction-prev');
+            const nextButton = document.getElementById('pos-transaction-next');
+            const paginationLabel = document.getElementById('pos-transaction-pagination-label');
+
+            const dataEndpoint = @json(route('pos.transactions.data'));
+            const transactionsBaseUrl = @json(url('/pos/transactions'));
+            const approvalRequestsBaseUrl = @json(url('/pos/sell/approval-requests'));
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+            const canLoad = @json(auth()->user()->can('pos.sell') && auth()->user()->can('pos.transactions.load'));
+            const canRequestCancel = @json(auth()->user()->can('pos.sell'));
+            const canReprint = @json(auth()->user()->can('pos.receipts.reprint'));
+            const defaultStatusMessage = 'Draft dapat dimuat untuk kolaborasi bila Anda memiliki izin muat. Pembatalan draft memerlukan otorisasi void atau persetujuan supervisor.';
+
+            let page = 1;
+            let pagination = null;
+            let latestLoadToken = 0;
+
+            const formatCurrency = (value) => {
+                const amount = Number(value || 0);
+                const hasFraction = Math.abs(amount % 1) > 0.0001;
+                return new Intl.NumberFormat('id-ID', {
+                    style: 'currency',
+                    currency: 'IDR',
+                    minimumFractionDigits: hasFraction ? 2 : 0,
+                    maximumFractionDigits: 2,
+                }).format(Number.isFinite(amount) ? amount : 0);
+            };
+
+            const escapeHtml = (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+
+            const jsonRequest = async (url, method = 'GET', payload = null) => {
+                const options = {
+                    method,
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                };
+
+                if (method !== 'GET') {
+                    options.headers['X-CSRF-TOKEN'] = csrfToken;
+                    options.headers['Content-Type'] = 'application/json';
+                }
+
+                if (payload !== null) {
+                    options.body = JSON.stringify(payload);
+                }
+
+                const response = await fetch(url, options);
+                let body = null;
+                try {
+                    body = await response.json();
+                } catch (error) {
+                    body = null;
+                }
+
+                if (!response.ok) {
+                    const errorMessage = body && body.message ? body.message : 'Permintaan gagal diproses.';
+                    const err = new Error(errorMessage);
+                    err.code = body && body.code ? body.code : null;
+                    err.details = body && body.details ? body.details : null;
+                    err.warning = body && body.warning ? body.warning : null;
+                    err.status = response.status;
+                    throw err;
+                }
+
+                return body;
+            };
+
+            const statusBadgeClass = (status) => {
+                if (status === 'COMPLETED') return 'badge-success';
+                if (status === 'CANCELLED') return 'badge-secondary';
+                if (status === 'LOADED') return 'badge-info';
+                return 'badge-primary';
+            };
+
+            const getStatusLabel = (status) => {
+                const labels = {
+                    'DRAFT': 'Draf',
+                    'COMPLETED': 'Selesai',
+                    'CANCELLED': 'Dibatalkan',
+                    'LOADED': 'Dimuat',
+                };
+                return labels[status] || status;
+            };
+
+            const canCancelRow = (row) => {
+                if (!row || row.status !== 'DRAFT') {
+                    return false;
+                }
+
+                return canRequestCancel;
+            };
+
+            const applyCancelButtonState = (row) => {
+                const approval = row && row.cancel_approval ? row.cancel_approval : null;
+
+                if (!approval || !approval.request_id) {
+                    return {
+                        className: 'btn btn-sm btn-outline-danger js-cancel-transaction',
+                        label: 'Batalkan',
+                        attrs: '',
+                    };
+                }
+
+                if (approval.state === 'approved' && (approval.approval_token || approval.token)) {
+                    const token = escapeHtml(approval.approval_token || approval.token);
+
+                    return {
+                        className: 'btn btn-sm btn-success js-cancel-transaction',
+                        label: 'Lanjutkan / Batalkan',
+                        attrs: ` data-approval-request-id="${approval.request_id}" data-approval-token="${token}"`,
+                    };
+                }
+
+                return {
+                    className: 'btn btn-sm btn-warning js-cancel-transaction',
+                    label: 'Periksa Persetujuan',
+                    attrs: ` data-approval-request-id="${approval.request_id}" data-approval-pending="${approval.request_id}"`,
+                };
+            };
+
+            const buildActions = (row) => {
+                const actions = [
+                    `<a class="btn btn-sm btn-outline-secondary" href="${transactionsBaseUrl}/${row.id}">Detail</a>`,
+                ];
+
+                if (canReprint) {
+                    actions.push(`<button type="button" class="btn btn-sm btn-outline-primary js-reprint-transaction" data-id="${row.id}">Cetak Ulang</button>`);
+                }
+
+                if (canLoad && row.status === 'DRAFT') {
+                    actions.push(`<button type="button" class="btn btn-sm btn-primary js-load-transaction" data-id="${row.id}">Muat</button>`);
+                }
+
+                if (canCancelRow(row)) {
+                    const cancelState = applyCancelButtonState(row);
+                    actions.push(`<button type="button" class="${cancelState.className}" data-id="${row.id}"${cancelState.attrs}>${cancelState.label}</button>`);
+                }
+
+                return actions.join(' ');
+            };
+
+            const renderLoadingState = (message = 'Memuat transaksi...') => {
+                tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">${escapeHtml(message)}</td></tr>`;
+            };
+
+            const renderEmptyState = (message = 'Tidak ada transaksi pada filter saat ini.') => {
+                tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">${escapeHtml(message)}</td></tr>`;
+            };
+
+            const renderErrorState = (message = 'Gagal memuat transaksi. Silakan klik Muat Data untuk mencoba lagi.') => {
+                tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-danger py-4">${escapeHtml(message)}</td></tr>`;
+            };
+
+            const renderRows = (rows) => {
+                tableBody.innerHTML = rows.map((row) => {
+                    const ownerName = row.owner && row.owner.name ? row.owner.name : '-';
+                    const customerName = row.customer && row.customer.customer_name ? row.customer.customer_name : '-';
+                    const grandTotal = row.snapshot_totals && row.snapshot_totals.grand_total
+                        ? row.snapshot_totals.grand_total
+                        : 0;
+                    const updatedAt = row.updated_at ? new Date(row.updated_at).toLocaleString('id-ID') : '-';
+
+                    return `
+                        <tr>
+                            <td><strong>${escapeHtml(row.code)}</strong></td>
+                            <td><span class="badge ${statusBadgeClass(row.status)}">${escapeHtml(getStatusLabel(row.status) || '-')}</span></td>
+                            <td>${escapeHtml(ownerName)}</td>
+                            <td>${escapeHtml(customerName)}</td>
+                            <td class="text-right">${formatCurrency(grandTotal)}</td>
+                            <td>${escapeHtml(updatedAt)}</td>
+                            <td class="text-right">${buildActions(row)}</td>
+                        </tr>
+                    `;
+                }).join('');
+            };
+
+            const updatePaginationState = () => {
+                const currentPage = Number(pagination?.current_page || 1);
+                const lastPage = Number(pagination?.last_page || 1);
+                const total = Number(pagination?.total || 0);
+                prevButton.disabled = currentPage <= 1;
+                nextButton.disabled = currentPage >= lastPage;
+                paginationLabel.textContent = `Halaman ${currentPage} / ${lastPage} • Total ${total} transaksi`;
+            };
+
+            const buildQueryUrl = () => {
+                const url = new URL(dataEndpoint, window.location.origin);
+                url.searchParams.set('page', String(page));
+
+                const search = (searchInput.value || '').trim();
+                if (search !== '') {
+                    url.searchParams.set('q', search);
+                }
+
+                const status = (statusSelect.value || '').trim();
+                if (status !== '') {
+                    url.searchParams.set('status[]', status);
+                }
+
+                const dateFrom = (dateFromInput.value || '').trim();
+                if (dateFrom !== '') {
+                    url.searchParams.set('date_from', dateFrom);
+                }
+
+                const dateTo = (dateToInput.value || '').trim();
+                if (dateTo !== '') {
+                    url.searchParams.set('date_to', dateTo);
+                }
+
+                return url.toString();
+            };
+
+            const setStatus = (message, tone = 'muted') => {
+                statusNote.textContent = message || '';
+                statusNote.classList.remove('text-danger', 'text-success', 'text-muted');
+                statusNote.classList.add(tone === 'danger' ? 'text-danger' : (tone === 'success' ? 'text-success' : 'text-muted'));
+            };
+
+            const resetCancelButton = (button) => {
+                button.removeAttribute('data-approval-pending');
+                button.removeAttribute('data-approval-token');
+                button.removeAttribute('data-approval-request-id');
+                button.className = 'btn btn-sm btn-outline-danger js-cancel-transaction';
+                button.textContent = 'Batalkan';
+            };
+
+            const requestCancelApproval = async (button, transactionId) => {
+                const { value: reasonInput, isDismissed } = await Swal.fire({
+                    title: 'Permintaan Persetujuan',
+                    text: 'Masukkan alasan pembatalan transaksi (opsional).',
+                    input: 'textarea',
+                    inputPlaceholder: 'Tulis alasan di sini...',
+                    showCancelButton: true,
+                    confirmButtonText: 'Kirim Permintaan',
+                    cancelButtonText: 'Tutup',
+                });
+
+                if (isDismissed) {
+                    return;
+                }
+
+                const response = await jsonRequest(approvalRequestsBaseUrl, 'POST', {
+                    action_type: 'TRANSACTION_CANCEL',
+                    target_type: 'pos_transaction',
+                    target_id: transactionId,
+                    payload: {},
+                    reason: (reasonInput || '').trim() || null,
+                });
+
+                if (!response || !response.request_id) {
+                    throw new Error('Permintaan persetujuan tidak valid.');
+                }
+
+                button.setAttribute('data-approval-pending', String(response.request_id));
+                button.setAttribute('data-approval-request-id', String(response.request_id));
+                button.removeAttribute('data-approval-token');
+                button.className = 'btn btn-sm btn-warning js-cancel-transaction';
+                button.textContent = 'Periksa Persetujuan';
+                setStatus('Permintaan pembatalan dikirim. Klik lagi untuk memeriksa hasil persetujuan.', 'success');
+            };
+
+            const checkCancelApproval = async (button) => {
+                const requestId = button.getAttribute('data-approval-pending') || button.getAttribute('data-approval-request-id');
+                if (!requestId) {
+                    return;
+                }
+
+                const response = await jsonRequest(`${approvalRequestsBaseUrl}/${requestId}`, 'GET');
+                const state = String(response && (response.state || response.status) || '').toLowerCase();
+
+                if (state === 'pending') {
+                    setStatus('Permintaan masih menunggu persetujuan supervisor.', 'muted');
+                    return;
+                }
+
+                if (state === 'approved' && (response.approval_token || response.token)) {
+                    const token = response.approval_token || response.token;
+                    button.removeAttribute('data-approval-pending');
+                    button.setAttribute('data-approval-request-id', String(requestId));
+                    button.setAttribute('data-approval-token', token);
+                    button.className = 'btn btn-sm btn-success js-cancel-transaction';
+                    button.textContent = 'Lanjutkan / Batalkan';
+                    setStatus('Persetujuan tersedia. Klik tombol untuk melanjutkan atau membuang persetujuan.', 'success');
+                    return;
+                }
+
+                resetCancelButton(button);
+
+                if (state === 'rejected') {
+                    const reason = String(response.decision_reason || '').trim();
+                    setStatus(reason ? `Permintaan ditolak: ${reason}` : 'Permintaan pembatalan ditolak.', 'danger');
+                    return;
+                }
+
+                if (state === 'cancelled') {
+                    setStatus('Permintaan pembatalan dibatalkan.', 'muted');
+                    return;
+                }
+
+                if (state === 'expired') {
+                    setStatus('Persetujuan pembatalan kedaluwarsa. Ajukan ulang bila diperlukan.', 'danger');
+                    return;
+                }
+
+                setStatus('Status persetujuan tidak dikenali. Ajukan ulang permintaan.', 'danger');
+            };
+
+            const discardCancelApproval = async (button) => {
+                const requestId = button.getAttribute('data-approval-pending') || button.getAttribute('data-approval-request-id');
+                if (requestId) {
+                    try {
+                        await jsonRequest(`${approvalRequestsBaseUrl}/${requestId}/cancel`, 'POST', {});
+                    } catch (error) {
+                        // UI should still reset even if the approval was already consumed or closed elsewhere.
+                    }
+                }
+
+                resetCancelButton(button);
+                setStatus('Persetujuan pembatalan dibuang tanpa mengubah transaksi.', 'muted');
+            };
+
+            const setLoadingControls = (isLoading) => {
+                filterButton.disabled = Boolean(isLoading);
+                searchInput.disabled = Boolean(isLoading);
+                statusSelect.disabled = Boolean(isLoading);
+                dateFromInput.disabled = Boolean(isLoading);
+                dateToInput.disabled = Boolean(isLoading);
+                prevButton.disabled = true;
+                nextButton.disabled = true;
+            };
+
+            const loadRows = async ({ showLoading = true } = {}) => {
+                const loadToken = ++latestLoadToken;
+                if (showLoading) {
+                    renderLoadingState();
+                }
+                setLoadingControls(true);
+                setStatus(showLoading ? 'Memuat transaksi...' : defaultStatusMessage, showLoading ? 'muted' : 'success');
+                try {
+                    const response = await jsonRequest(buildQueryUrl(), 'GET');
+                    if (loadToken !== latestLoadToken) {
+                        return;
+                    }
+                    pagination = response.pagination || null;
+                    const rows = Array.isArray(response.data) ? response.data : [];
+                    if (rows.length === 0) {
+                        renderEmptyState();
+                    } else {
+                        renderRows(rows);
+                    }
+                    updatePaginationState();
+                    if (rows.length === 0) {
+                        setStatus('Tidak ada transaksi pada filter saat ini.', 'muted');
+                    } else {
+                        const total = Number(pagination?.total || rows.length);
+                        setStatus(`Menampilkan ${rows.length} transaksi (total ${total}). ${defaultStatusMessage}`, 'success');
+                    }
+                } catch (error) {
+                    if (loadToken !== latestLoadToken) {
+                        return;
+                    }
+                    pagination = {
+                        current_page: 1,
+                        last_page: 1,
+                        total: 0,
+                    };
+                    renderErrorState();
+                    updatePaginationState();
+                    setStatus(error.message || 'Gagal memuat transaksi.', 'danger');
+                } finally {
+                    if (loadToken === latestLoadToken) {
+                        setLoadingControls(false);
+                        updatePaginationState();
+                    }
+                }
+            };
+
+            tableBody.addEventListener('click', async (event) => {
+                const reprintButton = event.target.closest('.js-reprint-transaction');
+                if (reprintButton) {
+                    const id = Number(reprintButton.getAttribute('data-id') || 0);
+                    if (id <= 0) return;
+
+                    const receiptUrl = `${transactionsBaseUrl}/${id}/receipt/reprint`;
+                    window.open(receiptUrl, '_blank');
+                    return;
+                }
+
+                const loadButton = event.target.closest('.js-load-transaction');
+                if (loadButton) {
+                    const id = Number(loadButton.getAttribute('data-id') || 0);
+                    if (id <= 0) return;
+
+                    loadButton.disabled = true;
+                    try {
+                        await jsonRequest(`${transactionsBaseUrl}/${id}/load`, 'POST', {
+                            acknowledge_lifecycle_warning: false
+                        });
+                        window.location.href = @json(route('pos.sell'));
+                    } catch (error) {
+                        const helper = window.BundleLifecycleWarning;
+                        if (!helper || typeof helper.resolveLifecycleWarning !== 'function' || typeof helper.buildLifecycleWarningModalHtml !== 'function') {
+                            console.error('BundleLifecycleWarning helper is unavailable.');
+                            setStatus('Gagal memverifikasi status paket produk: modul peringatan tidak tersedia.', 'danger');
+                            return;
+                        }
+
+                        const warningData = helper.resolveLifecycleWarning(error);
+
+                        if (warningData && Array.isArray(warningData.items) && warningData.items.length > 0) {
+                            const modalHtml = helper.buildLifecycleWarningModalHtml(
+                                warningData,
+                                'Terdapat perubahan status pada paket produk dalam transaksi ini.',
+                                'Apakah Anda ingin melanjutkan memuat dengan komposisi yang tersimpan?'
+                            );
+
+                            const result = await Swal.fire({
+                                icon: 'warning',
+                                title: 'Peringatan Status Paket',
+                                html: modalHtml,
+                                showCancelButton: true,
+                                confirmButtonText: 'Lanjutkan Muat',
+                                cancelButtonText: 'Batal',
+                            });
+
+                            if (result.isConfirmed) {
+                                try {
+                                    await jsonRequest(`${transactionsBaseUrl}/${id}/load`, 'POST', {
+                                        acknowledge_lifecycle_warning: true
+                                    });
+                                    window.location.href = @json(route('pos.sell'));
+                                    return;
+                                } catch (ackError) {
+                                    setStatus(ackError.message || 'Gagal memuat transaksi.', 'danger');
+                                }
+                            }
+                        } else {
+                            setStatus(error.message || 'Gagal memuat transaksi.', 'danger');
+                        }
+                    } finally {
+                        loadButton.disabled = false;
+                    }
+                    return;
+                }
+
+                const cancelButton = event.target.closest('.js-cancel-transaction');
+                if (cancelButton) {
+                    const id = Number(cancelButton.getAttribute('data-id') || 0);
+                    if (id <= 0) return;
+
+                    try {
+                        const pendingRequestId = cancelButton.getAttribute('data-approval-pending');
+                        const approvalToken = cancelButton.getAttribute('data-approval-token');
+
+                        if (pendingRequestId) {
+                            await checkCancelApproval(cancelButton);
+                            return;
+                        }
+
+                        if (approvalToken) {
+                            const decision = await Swal.fire({
+                                title: 'Gunakan Persetujuan Pembatalan?',
+                                text: 'Pilih Lanjutkan untuk membatalkan transaksi, atau Buang Persetujuan untuk membatalkan permintaan.',
+                                icon: 'question',
+                                showCancelButton: true,
+                                showDenyButton: true,
+                                confirmButtonText: 'Lanjutkan',
+                                denyButtonText: 'Buang Persetujuan',
+                                cancelButtonText: 'Tutup',
+                            });
+
+                            if (decision.isDenied) {
+                                await discardCancelApproval(cancelButton);
+                                return;
+                            }
+
+                            if (!decision.isConfirmed) {
+                                return;
+                            }
+                        } else {
+                            const result = await Swal.fire({
+                                title: 'Batalkan Transaksi?',
+                                text: 'Pembatalan draft adalah aksi destruktif dan mungkin memerlukan persetujuan supervisor.',
+                                icon: 'warning',
+                                showCancelButton: true,
+                                confirmButtonColor: '#d33',
+                                confirmButtonText: 'Lanjutkan',
+                                cancelButtonText: 'Tutup'
+                            });
+
+                            if (!result.isConfirmed) {
+                                return;
+                            }
+                        }
+
+                        cancelButton.disabled = true;
+
+                        await jsonRequest(`${transactionsBaseUrl}/${id}/cancel`, 'POST', approvalToken ? {
+                            approval_token: approvalToken,
+                        } : {});
+
+                        await loadRows({ showLoading: false });
+                        setStatus('Transaksi berhasil dibatalkan.', 'success');
+                    } catch (error) {
+                        if ((error.message || '') === 'APPROVAL_REQUIRED') {
+                            await requestCancelApproval(cancelButton, id);
+                        } else {
+                            setStatus(error.message || 'Gagal membatalkan transaksi.', 'danger');
+                        }
+                    } finally {
+                        cancelButton.disabled = false;
+                    }
+                }
+            });
+
+            filterButton.addEventListener('click', async () => {
+                page = 1;
+                await loadRows();
+            });
+
+            searchInput.addEventListener('keydown', async (event) => {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                page = 1;
+                await loadRows();
+            });
+
+            prevButton.addEventListener('click', async () => {
+                if (!pagination || Number(pagination.current_page || 1) <= 1) return;
+                page = Number(pagination.current_page) - 1;
+                await loadRows();
+            });
+
+            nextButton.addEventListener('click', async () => {
+                if (!pagination || Number(pagination.current_page || 1) >= Number(pagination.last_page || 1)) return;
+                page = Number(pagination.current_page) + 1;
+                await loadRows();
+            });
+
+            setStatus(defaultStatusMessage, 'muted');
+            loadRows();
+        })();
+    </script>
+@endpush

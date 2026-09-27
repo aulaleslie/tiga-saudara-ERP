@@ -1,18 +1,44 @@
-<script src="https://code.jquery.com/jquery-3.7.0.min.js" integrity="sha256-2Pmvv0kuTBOenSvLm6bvfBSSHrUJ+3A7x6P5Ebd07/g=" crossorigin="anonymous"></script>
+<script src="{{ asset('vendor/jquery/jquery-3.7.0.min.js') }}"></script>
+<script src="{{ asset('js/select2.min.js') }}"></script>
+<script src="{{ asset('js/bundle-lifecycle-warning.js') }}"></script>
+<script src="{{ asset('js/session-expiry.js') }}"></script>
+<script src="{{ asset('js/financial-input.js') }}"></script>
 @vite('resources/js/app.js')
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/pdfmake.min.js"></script>
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/vfs_fonts.js"></script>
-<script defer src="https://cdn.datatables.net/v/bs4/jszip-3.10.1/dt-1.13.5/b-2.4.1/b-html5-2.4.1/b-print-2.4.1/sl-1.7.0/datatables.min.js"></script>
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/jquery.perfect-scrollbar/1.4.0/perfect-scrollbar.js"></script>
-<script defer src="{{ asset('vendor/datatables/buttons.server-side.js') }}"></script>
-<script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.10.2/dist/umd/popper.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.min.js"></script>
 
+@livewireScripts
+
+<script>
+    document.addEventListener('livewire:init', function () {
+        var tabId = window.SessionExpiry ? window.SessionExpiry.getTabId(window.sessionStorage) : null;
+
+        Livewire.hook('request', function ({ options }) {
+            var meta = function (name) {
+                var el = document.querySelector('meta[name="' + name + '"]');
+                return el ? el.content : '';
+            };
+
+            options.headers = options.headers || {};
+            options.headers['X-ERP-Page-View-Id'] = meta('erp-page-view-id');
+            options.headers['X-ERP-Tab-Id'] = tabId || '';
+            options.headers['X-ERP-Page-Rendered-At'] = meta('erp-page-rendered-at');
+            options.headers['X-ERP-Page-Business-Id'] = meta('erp-page-business-id');
+            options.headers['X-ERP-Page-Route'] = meta('erp-page-route');
+        });
+
+        if (window.SessionExpiry) {
+            window.SessionExpiry.init(document, window);
+        }
+    });
+</script>
+
+<script defer src="{{ asset('vendor/datatables/datatables.min.js') }}"></script>
+<script defer src="{{ asset('vendor/datatables/buttons.server-side.js') }}"></script>
+<script defer src="{{ asset('vendor/perfect-scrollbar/perfect-scrollbar.min.js') }}"></script>
+<script src="{{ asset('vendor/popperjs/popper.min.js') }}"></script>
 
 @include('sweetalert::alert')
 
 @yield('third_party_scripts')
 
 @stack('page_scripts')
-
-@livewireScripts
+@stack('scripts')

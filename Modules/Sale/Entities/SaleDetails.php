@@ -2,43 +2,85 @@
 
 namespace Modules\Sale\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Setting\Entities\Tax;
 
-class SaleDetails extends Model
+class SaleDetails extends BaseModel
 {
-    use HasFactory;
-
     protected $guarded = [];
+
+    protected $casts = [
+        // Quantity is decimal to support fractional, weight-based units (e.g. 23.7 KG).
+        'quantity' => 'decimal:3',
+        'price' => 'decimal:2',
+        'unit_price' => 'decimal:2',
+        'sub_total' => 'decimal:2',
+        'product_discount_amount' => 'decimal:2',
+        'product_tax_amount' => 'decimal:2',
+        'serial_number_ids' => 'array',
+        'cost_unit_snapshot' => 'decimal:6',
+        'cost_total_snapshot' => 'decimal:2',
+        'cost_snapshot_source' => 'string',
+        'cost_snapshot_at' => 'datetime',
+        'pricing_source' => 'string',
+    ];
+
+    public function setPricingSourceAttribute($value): void
+    {
+        $this->attributes['pricing_source'] = $value !== null ? strtolower((string) $value) : null;
+    }
 
     protected $with = ['product'];
 
-    public function product() {
+    public function product(): BelongsTo
+    {
         return $this->belongsTo(Product::class, 'product_id', 'id');
     }
 
-    public function sale() {
+    public function tax(): BelongsTo
+    {
+        return $this->belongsTo(Tax::class, 'tax_id', 'id');
+    }
+
+    public function sale(): BelongsTo
+    {
         return $this->belongsTo(Sale::class, 'sale_id', 'id');
     }
 
-    public function getPriceAttribute($value) {
-        return $value / 100;
+    public function bundleItems(): HasMany
+    {
+        return $this->hasMany(SaleBundleItem::class, 'sale_detail_id', 'id');
     }
 
-    public function getUnitPriceAttribute($value) {
-        return $value / 100;
+    /**
+     * Resolved display name: current linked product name first, then the
+     * persisted snapshot. Falls back to null if neither is available, letting
+     * the view boundary apply its own unknown-product label.
+     */
+    public function getDisplayProductNameAttribute(): ?string
+    {
+        $currentName = $this->product?->product_name;
+
+        if (filled($currentName)) {
+            return $currentName;
+        }
+
+        return filled($this->product_name) ? $this->product_name : null;
     }
 
-    public function getSubTotalAttribute($value) {
-        return $value / 100;
-    }
-
-    public function getProductDiscountAmountAttribute($value) {
-        return $value / 100;
-    }
-
-    public function getProductTaxAmountAttribute($value) {
-        return $value / 100;
+    /**
+     * Get all serial numbers for this sale detail.
+     * This relationship retrieves ProductSerialNumber records whose IDs are in the serial_number_ids JSON array.
+     */
+    public function serialNumbers(): HasMany
+    {
+        return $this->hasMany(ProductSerialNumber::class, 'id')
+            ->whereIn('id', $this->serial_number_ids ?? []);
     }
 }

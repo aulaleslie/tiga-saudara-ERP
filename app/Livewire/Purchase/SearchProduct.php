@@ -6,6 +6,9 @@ use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
+use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
 
@@ -14,12 +17,22 @@ class SearchProduct extends Component
     public string $query = '';
     public $search_results;
     public int $how_many = 5;
-    public $settingId;
+    public $supplier_id;
+    public ?int $selectedSettingId = null;
 
-    public function mount(): void
+    #[Locked]
+    public string $selectionTarget = ProductCart::class;
+
+    protected $listeners = [
+        'productCreated' => 'handleProductCreated',
+        'document-business-context-changed' => 'handleBusinessContextChanged',
+    ];
+
+    public function mount(?int $selectedSettingId = null, ?string $selectionTarget = null): void
     {
-        $this->settingId = session('setting_id');
         $this->search_results = Collection::empty();
+        $this->selectedSettingId = $selectedSettingId ?? (int) session('setting_id');
+        $this->selectionTarget = $selectionTarget ?? ProductCart::class;
     }
 
     public function render(): Factory|View|Application
@@ -29,27 +42,52 @@ class SearchProduct extends Component
 
     public function updatedQuery(): void
     {
-        // Ensure settingId is available
-        if (!$this->settingId) {
-            $this->search_results = Collection::empty();
-            return;
+        $this->search_results = $this->getProducts();
+    }
+
+    public function updatedSupplierId(): void
+    {
+        $this->search_results = Collection::empty();
+        $this->query = '';
+    }
+
+    #[On('supplierSelected')]
+    public function handleSupplierSelected($supplier_id = null): void
+    {
+        $this->supplier_id = $supplier_id;
+        $this->search_results = Collection::empty();
+        $this->query = '';
+    }
+
+    private function getProducts()
+    {
+        $query = Product::with('baseUnit')
+            ->where('stock_managed', true);
+
+        if ($this->supplier_id) {
+            // Filter products that have been purchased from this supplier
+            $query->whereHas('purchaseDetails.purchase', function ($q) {
+                $q->where('supplier_id', $this->supplier_id);
+            });
         }
 
-        // Fetch products based on the query and setting_id
-        $this->search_results = Product::where('stock_managed', true)
-            ->where('setting_id', $this->settingId)
-            ->where(function ($query) {
-                $query->where('product_name', 'like', '%' . $this->query . '%')
-                    ->orWhere('product_code', 'like', '%' . $this->query . '%');
-            })
-            ->take($this->how_many)
-            ->get();
+        $query->globalSearch($this->query);
+
+        return $query->take($this->how_many)->get();
     }
 
     public function loadMore(): void
     {
         $this->how_many += 5;
         $this->updatedQuery();
+    }
+
+    public function handleProductCreated($data): void
+    {
+        // Refresh search results to include the new product
+        $this->updatedQuery();
+        // Optionally set the query to the new product name to show it
+        $this->query = $data['product_name'];
     }
 
     public function resetQuery(): void
@@ -59,8 +97,21 @@ class SearchProduct extends Component
         $this->search_results = Collection::empty();
     }
 
+    public function handleBusinessContextChanged(?int $settingId): void
+    {
+        if ($settingId === null) {
+            $this->selectedSettingId = (int) session('setting_id');
+        } else {
+            $this->selectedSettingId = $settingId;
+        }
+    }
+
     public function selectProduct($product): void
     {
-        $this->dispatch('productSelected', $product);
+        Log::info('product', [
+            'product' => $product,
+        ]);
+        // Target the configured recipient directly (defaults to purchase product cart)
+        $this->dispatch('productSelected', $product)->to($this->selectionTarget);
     }
 }

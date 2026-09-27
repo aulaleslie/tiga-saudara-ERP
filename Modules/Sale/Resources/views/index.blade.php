@@ -2,14 +2,10 @@
 
 @section('title', 'Sales')
 
-@section('third_party_stylesheets')
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.10.25/css/dataTables.bootstrap4.min.css">
-@endsection
-
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item active">Sales</li>
+        <li class="breadcrumb-item active">Penjualan</li>
     </ol>
 @endsection
 
@@ -19,16 +15,23 @@
             <div class="col-12">
                 <div class="card">
                     <div class="card-body">
-                        @can("sale.create")
+                        @can("sales.create")
                         <a href="{{ route('sales.create') }}" class="btn btn-primary">
-                            Add Sale <i class="bi bi-plus"></i>
+                            Tambahkan Penjualan <i class="bi bi-plus"></i>
+                        </a>
+                        @endcan
+                        @can("sales.import")
+                        <a href="{{ route('sales.imports.index') }}" class="btn btn-outline-primary">
+                            Import Penjualan <i class="bi bi-upload"></i>
                         </a>
                         @endcan
 
                         <hr>
 
+                        <livewire:sale.sale-summary-cards />
+
                         <div class="table-responsive">
-                            {!! $dataTable->table() !!}
+                            <livewire:sale.sale-table />
                         </div>
                     </div>
                 </div>
@@ -38,5 +41,6 @@
 @endsection
 
 @push('page_scripts')
-    {!! $dataTable->scripts() !!}
+    @include('sale::partials.lifecycle-warning-modal')
 @endpush
+

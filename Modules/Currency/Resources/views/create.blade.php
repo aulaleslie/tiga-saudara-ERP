@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Create Currency')
+@section('title', 'Buat Mata Uang')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
@@ -12,13 +12,13 @@
 
 @section('content')
     <div class="container-fluid">
-        <form action="{{ route('currencies.store') }}" method="POST">
+        <form action="{{ route('currencies.store') }}" method="POST" id="currency-create-form">
             @csrf
             <div class="row">
                 <div class="col-lg-12">
                     @include('utils.alerts')
                     <div class="form-group">
-                        <button class="btn btn-primary">Create Currency <i class="bi bi-check"></i></button>
+                        <x-button type="submit" class="btn btn-primary" processing-text="Menyimpan..." form="currency-create-form">Buat Mata Uang <i class="bi bi-check"></i></x-button>
                     </div>
                 </div>
                 <div class="col-lg-12">
@@ -66,4 +66,11 @@
         </form>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script>
+        // Initialize form submission lock
+        initFormSubmissionLock('currency-create-form', 'currency:submit-error');
+    </script>
+@endpush
 

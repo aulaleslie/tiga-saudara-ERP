@@ -47,12 +47,9 @@
                             <div class="col-sm-4 mb-3 mb-md-0">
                                 <h5 class="mb-2 border-bottom pb-2">Invoice Info:</h5>
                                 <div>Invoice: <strong>INV/{{ $quotation->reference }}</strong></div>
-                                <div>Date: {{ \Carbon\Carbon::parse($quotation->date)->format('d M, Y') }}</div>
+                                <div>Tanggal: {{ \Carbon\Carbon::parse($quotation->date)->format('d M, Y') }}</div>
                                 <div>
                                     Status: <strong>{{ $quotation->status }}</strong>
-                                </div>
-                                <div>
-                                    Payment Status: <strong>{{ $quotation->payment_status }}</strong>
                                 </div>
                             </div>
 

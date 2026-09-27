@@ -4,6 +4,7 @@ namespace Modules\Setting\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 
 class StoreSettingsRequest extends FormRequest
 {
@@ -14,15 +15,27 @@ class StoreSettingsRequest extends FormRequest
      */
     public function rules()
     {
+        $currentSettingId = session('setting_id');
+
         return [
-            'company_name' => 'required|string|max:255',
+            'company_name' => 'required|string|max:255|unique:settings,company_name,' . $currentSettingId,
             'company_email' => 'required|email|max:255',
             'company_phone' => 'required|string|max:255',
-            'notification_email' => 'required|email|max:255',
+            'document_prefix' => 'required|string|max:255',
+            'purchase_prefix_document' => 'required|string|max:255',
+            'sale_prefix_document' => 'required|string|max:255',
+            'purchase_return_prefix_document' => 'nullable|string|max:10',
+            'sale_return_prefix_document' => 'nullable|string|max:10',
             'company_address' => 'required|string|max:500',
-            'default_currency_id' => 'required|numeric',
-            'default_currency_position' => 'required|string|max:255',
-            'footer_text' => 'nullable|string|max:255'
+            'is_pkp' => 'nullable|boolean',
+            'pos_enabled' => 'nullable|boolean',
+            'pos_walk_in_customer_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('customers', 'id'),
+            ],
+            'row_total_rounding_increment' => 'required|numeric|min:0|max:100000',
+            'footer_text' => 'nullable|string|max:255',
         ];
     }
 
@@ -33,6 +46,6 @@ class StoreSettingsRequest extends FormRequest
      */
     public function authorize()
     {
-        return Gate::allows('access_settings');
+        return Gate::allows('settings.access');
     }
 }

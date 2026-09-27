@@ -3,7 +3,7 @@
 @section('title', 'Stock Transfers')
 
 @section('third_party_stylesheets')
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.10.25/css/dataTables.bootstrap4.min.css">
+    <link rel="stylesheet" href="{{ asset('vendor/datatables/datatables.min.css') }}">
 @endsection
 
 @section('breadcrumb')
@@ -19,9 +19,11 @@
             <div class="col-12">
                 <div class="card">
                     <div class="card-body">
+                        @can('stockTransfers.create')
                         <a href="{{ route('transfers.create') }}" class="btn btn-primary">
                             Add Stock Transfer <i class="bi bi-plus"></i>
                         </a>
+                        @endcan
 
                         <hr>
 

@@ -4,6 +4,12 @@ namespace App\Providers;
 
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 use Illuminate\Support\Facades\Gate;
+use App\Policies\ProductPolicy;
+use App\Policies\PurchasePolicy;
+use App\Policies\SalePolicy;
+use Modules\Product\Entities\Product;
+use Modules\Purchase\Entities\Purchase;
+use Modules\Sale\Entities\Sale;
 
 class AuthServiceProvider extends ServiceProvider
 {
@@ -13,7 +19,9 @@ class AuthServiceProvider extends ServiceProvider
      * @var array
      */
     protected $policies = [
-        // 'App\Models\Model' => 'App\Policies\ModelPolicy',
+        Product::class => ProductPolicy::class,
+        Purchase::class => PurchasePolicy::class,
+        Sale::class => SalePolicy::class,
     ];
 
     /**
@@ -26,7 +34,9 @@ class AuthServiceProvider extends ServiceProvider
         $this->registerPolicies();
 
         Gate::before(function ($user, $ability) {
-            return $user->hasRole('Super Admin') ? true : null;
+            $isSuperAdmin = $user->hasRole('Super Admin');
+            
+            return $isSuperAdmin ? true : null;
         });
     }
 }

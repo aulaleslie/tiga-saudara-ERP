@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Create Customer')
+@section('title', 'Buat Pelanggan')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
@@ -12,15 +12,18 @@
 
 @section('content')
     <div class="container-fluid">
-        <form action="{{ route('customers.store') }}" method="POST">
+        <form id="customer-create-form" action="{{ route('customers.store') }}" method="POST">
             @csrf
+            <input type="hidden" name="idempotency_token" value="{{ old('idempotency_token', $idempotencyToken) }}">
             <div class="row">
                 <div class="col-lg-12">
                     <div class="form-group">
                         <a href="{{ route('customers.index') }}" class="btn btn-secondary mr-2">
                             Kembali
                         </a>
-                        <button class="btn btn-primary">Tambahkan Pelanggan <i class="bi bi-check"></i></button>
+                        @can('customers.create')
+                        <x-button label="Tambahkan Pelanggan" icon="bi-check" processing-text="Memproses…" />
+                        @endcan
                     </div>
                 </div>
 
@@ -33,7 +36,20 @@
                         <div class="card-body">
                             <div class="form-row">
                                 <div class="col-lg-6">
-                                    <x-input label="Nama Kontak" name="contact_name" value="{{ old('contact_name') }}"/>
+                                    <div class="form-group">
+                                        <label for="tier">Tier</label>
+                                        <select class="form-control" name="tier" id="tier">
+                                            <option value="" {{ old('tier') == '' ? 'selected' : '' }}>-- Pelanggan Normal --</option>
+                                            <option value="WHOLESALER" {{ old('tier') == 'WHOLESALER' ? 'selected' : '' }}>Grosir</option>
+                                            <option value="RESELLER" {{ old('tier') == 'RESELLER' ? 'selected' : '' }}>Reseller</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="col-lg-6">
+                                    <x-input label="Nama Kontak (Opsional)" name="contact_name" value="{{ old('contact_name') }}"/>
                                 </div>
                                 <div class="col-lg-6">
                                     <div class="form-group">
@@ -61,7 +77,7 @@
                                              value="{{ old('identity_number') }}"/>
                                 </div>
                                 <div class="col-lg-6">
-                                    <x-input label="Nama Perusahaan" name="customer_name"
+                                    <x-input label="Nama Pelanggan / Perusahaan" name="customer_name" required="true"
                                              value="{{ old('customer_name') }}"/>
                                 </div>
                             </div>
@@ -90,6 +106,19 @@
                                 <div class="col-lg-6">
                                     <x-input label="Alamat Pengiriman" name="shipping_address"
                                              value="{{ old('shipping_address') }}"/>
+                                </div>
+                                <div class="col-lg-6">
+                                    <label for="payment_term_id">Syarat Pembayaran</label>
+                                    <select class="form-control" name="payment_term_id" id="payment_term_id">
+                                        <option value="" {{ old('payment_term_id', $customer->payment_term_id ?? '') == '' ? 'selected' : '' }}>
+                                            -- Pilih Syarat Pembayaran --
+                                        </option>
+                                        @foreach($paymentTerms as $paymentTerm)
+                                            <option value="{{ $paymentTerm->id }}" {{ old('payment_term_id', $customer->payment_term_id ?? '') == $paymentTerm->id ? 'selected' : '' }}>
+                                                {{ $paymentTerm->name }}
+                                            </option>
+                                        @endforeach
+                                    </select>
                                 </div>
                                 <div class="col-lg-6">
                                     <div class="form-group">
@@ -138,3 +167,14 @@
         </form>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initFormSubmissionLock('customer-create-form', {
+                errorEventName: 'customer:submit-error'
+            });
+        });
+    </script>
+@endpush

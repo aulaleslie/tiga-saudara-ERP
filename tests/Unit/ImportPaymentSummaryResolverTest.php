@@ -1,0 +1,275 @@
+<?php
+
+namespace Tests\Unit;
+
+use App\Support\ImportPaymentSummaryResolver;
+use PHPUnit\Framework\TestCase;
+
+class ImportPaymentSummaryResolverTest extends TestCase
+{
+    /** @test */
+    public function it_treats_single_separator_exported_float_values_as_decimals(): void
+    {
+        $resolver = new ImportPaymentSummaryResolver();
+
+        $summary = $resolver->resolve([
+            [
+                'source_total' => '144750000.000005',
+                'pembayaran' => '130405405.40541',
+                'sisa_tagihan_hari_ini' => '14344594.594595',
+            ],
+        ], 144750000.0);
+
+        $this->assertSame(144750000.0, $summary['source_total']);
+        $this->assertSame(130405405.41, $summary['paid_amount']);
+        $this->assertSame(14344594.59, $summary['outstanding_balance']);
+        $this->assertTrue($summary['needs_payment']);
+    }
+
+    /** @test */
+    public function it_still_supports_mixed_thousands_and_decimal_separators(): void
+    {
+        $resolver = new ImportPaymentSummaryResolver();
+
+        $summary = $resolver->resolve([
+            [
+                'source_total' => '1.234.567,89',
+                'pembayaran' => '1,234,567.89',
+                'sisa_tagihan' => '0',
+            ],
+        ], 1234567.89);
+
+        $this->assertSame(1234567.89, $summary['source_total']);
+        $this->assertSame(1234567.89, $summary['paid_amount']);
+        $this->assertSame(0.0, $summary['outstanding_balance']);
+        $this->assertTrue($summary['needs_payment']);
+    }
+
+    /** @test */
+    public function it_prefers_sisa_tagihan_when_today_outstanding_does_not_reconcile_with_explicit_payment(): void
+    {
+        $resolver = new ImportPaymentSummaryResolver();
+
+        // Old unpaid invoice later settled: Sisa Tagihan Hari Ini is 0,
+        // Pembayaran is explicitly 0, Sisa Tagihan still carries the full balance.
+        $summary = $resolver->resolve([
+            [
+                'source_total' => '36960000',
+                'pembayaran' => '0',
+                'sisa_tagihan' => '36960000',
+                'sisa_tagihan_hari_ini' => '0',
+            ],
+        ], 36960000.0);
+
+        $this->assertSame(36960000.0, $summary['source_total']);
+        $this->assertSame(0.0, $summary['paid_amount']);
+        $this->assertSame(36960000.0, $summary['outstanding_balance']);
+        $this->assertFalse($summary['needs_payment']);
+    }
+
+    /** @test */
+    public function it_keeps_preferring_today_outstanding_when_it_reconciles_with_explicit_payment(): void
+    {
+        $resolver = new ImportPaymentSummaryResolver();
+
+        // Partially paid: Pembayaran present and Sisa Tagihan Hari Ini reconciles.
+        $summary = $resolver->resolve([
+            [
+                'source_total' => '111000',
+                'pembayaran' => '20000',
+                'sisa_tagihan_hari_ini' => '91000',
+                'sisa_tagihan' => '0',
+            ],
+        ], 111000.0);
+
+        $this->assertSame(20000.0, $summary['paid_amount']);
+        $this->assertSame(91000.0, $summary['outstanding_balance']);
+        $this->assertTrue($summary['needs_payment']);
+    }
+
+    /** @test */
+    public function it_treats_current_lunas_status_with_zero_today_outstanding_as_paid_even_when_export_payment_is_zero(): void
+    {
+        $resolver = new ImportPaymentSummaryResolver();
+
+        $summary = $resolver->resolve([
+            [
+                'status_hari_ini' => 'Lunas',
+                'source_total' => '14979992.640012',
+                'pembayaran' => '0.0',
+                'sisa_tagihan' => '14979992.640012',
+                'sisa_tagihan_hari_ini' => '0.0',
+            ],
+        ], 14979992.64);
+
+        $this->assertSame(14979992.64, $summary['paid_amount']);
+        $this->assertSame(0.0, $summary['outstanding_balance']);
+        $this->assertTrue($summary['needs_payment']);
+    }
+
+    /** @test */
+    public function it_treats_scientific_notation_today_outstanding_as_zero_for_lunas_invoices(): void
+    {
+        $resolver = new ImportPaymentSummaryResolver();
+
+        // Some exports emit a near-zero Sisa Tagihan Hari Ini in scientific notation (e.g. "1.0e-06").
+        // It must parse to ~0 so a Lunas invoice imports as paid rather than falling back to the
+        // stale full-balance Sisa Tagihan.
+        $summary = $resolver->resolve([
+            [
+                'status_hari_ini' => 'Lunas',
+                'source_total' => '18780000.000001',
+                'pembayaran' => '0.0',
+                'sisa_tagihan' => '18780000.000001',
+                'sisa_tagihan_hari_ini' => '1.0e-06',
+            ],
+        ], 18780000.0);
+
+        $this->assertSame(18780000.0, $summary['paid_amount']);
+        $this->assertSame(0.0, $summary['outstanding_balance']);
+        $this->assertTrue($summary['needs_payment']);
+    }
+
+    /** @test */
+    public function it_reconciles_when_jumlah_pemotongan_settles_part_of_the_invoice(): void
+    {
+        $resolver = new ImportPaymentSummaryResolver();
+
+        // Reviewer scenario: 2009DPS227/T0248 — cash 15,176,755.50 + deduction 2,700,000
+        // + outstanding 0 == total 17,876,755.50.
+        $summary = $resolver->resolve([
+            [
+                'source_total' => '17876755.499999',
+                'pembayaran' => '15176755.499999',
+                'sisa_tagihan_hari_ini' => '0',
+                'jumlah_pemotongan' => '2700000',
+            ],
+        ], 17876755.5);
+
+        $this->assertSame(15176755.5, $summary['paid_amount']);
+        $this->assertSame(2700000.0, $summary['deduction_amount']);
+        $this->assertSame(0.0, $summary['outstanding_balance']);
+        $this->assertTrue($summary['needs_payment']);
+    }
+
+    /** @test */
+    public function it_defaults_deduction_to_zero_when_absent(): void
+    {
+        $resolver = new ImportPaymentSummaryResolver();
+
+        $summary = $resolver->resolve([
+            ['source_total' => '100000', 'pembayaran' => '100000', 'sisa_tagihan' => '0'],
+        ], 100000.0);
+
+        $this->assertSame(0.0, $summary['deduction_amount']);
+    }
+
+    /** @test */
+    public function it_rejects_when_deduction_does_not_close_the_reconciliation_gap(): void
+    {
+        $resolver = new ImportPaymentSummaryResolver();
+
+        $this->expectException(\RuntimeException::class);
+
+        $resolver->resolve([
+            [
+                'source_total' => '100000',
+                'pembayaran' => '50000',
+                'sisa_tagihan_hari_ini' => '0',
+                'jumlah_pemotongan' => '10000', // 50000 + 10000 + 0 != 100000
+            ],
+        ], 100000.0);
+    }
+
+    /** @test */
+    public function resolve_for_purchase_clamps_outstanding_to_zero_when_terbayar_sebagian_pembayaran_exceeds_total(): void
+    {
+        $resolver = new ImportPaymentSummaryResolver();
+
+        $summary = $resolver->resolveForPurchase([
+            [
+                'source_total' => '100000',
+                'status_hari_ini' => 'Terbayar Sebagian',
+                'pembayaran' => '150000', // over-payment
+                'sisa_tagihan' => '0',
+            ],
+        ], 100000.0);
+
+        $this->assertGreaterThanOrEqual(0.0, $summary['outstanding_balance'], 'outstanding_balance must not be negative');
+        $this->assertSame(0.0, $summary['outstanding_balance']);
+        $this->assertSame(100000.0, $summary['paid_amount']);
+    }
+
+    /** @test */
+    public function resolve_for_purchase_clamps_outstanding_to_zero_when_lewat_jatuh_tempo_pembayaran_exceeds_total(): void
+    {
+        $resolver = new ImportPaymentSummaryResolver();
+
+        $summary = $resolver->resolveForPurchase([
+            [
+                'source_total' => '100000',
+                'status_hari_ini' => 'Lewat Jatuh Tempo',
+                'pembayaran' => '150000', // over-payment
+                'sisa_tagihan' => '0',
+            ],
+        ], 100000.0);
+
+        $this->assertGreaterThanOrEqual(0.0, $summary['outstanding_balance'], 'outstanding_balance must not be negative');
+        $this->assertSame(0.0, $summary['outstanding_balance']);
+        $this->assertSame(100000.0, $summary['paid_amount']);
+    }
+
+    /** @test */
+    public function resolve_for_purchase_uses_source_total_for_lunas_when_line_total_differs(): void
+    {
+        $resolver = new ImportPaymentSummaryResolver();
+
+        $summary = $resolver->resolveForPurchase([
+            [
+                'source_total' => '100000',
+                'status_hari_ini' => 'Lunas',
+                'pembayaran' => '0',
+                'sisa_tagihan_hari_ini' => '11000',
+            ],
+        ], 111000.0);
+
+        $this->assertSame(100000.0, $summary['paid_amount']);
+        $this->assertSame(0.0, $summary['outstanding_balance']);
+    }
+
+    /** @test */
+    public function resolve_for_purchase_uses_source_total_for_partial_when_line_total_differs(): void
+    {
+        $resolver = new ImportPaymentSummaryResolver();
+
+        $summary = $resolver->resolveForPurchase([
+            [
+                'source_total' => '100000',
+                'status_hari_ini' => 'Terbayar Sebagian',
+                'pembayaran' => '50000',
+                'sisa_tagihan' => '61000',
+            ],
+        ], 111000.0);
+
+        $this->assertSame(50000.0, $summary['paid_amount']);
+        $this->assertSame(50000.0, $summary['outstanding_balance']);
+    }
+
+    /** @test */
+    public function resolve_for_purchase_treats_belum_lunas_alias_as_unpaid(): void
+    {
+        $resolver = new ImportPaymentSummaryResolver();
+
+        $summary = $resolver->resolveForPurchase([
+            [
+                'source_total' => '100000',
+                'status_hari_ini' => 'Belum Lunas',
+                'pembayaran' => '50000',
+                'sisa_tagihan' => '50000',
+            ],
+        ], 100000.0);
+
+        $this->assertSame(0.0, $summary['paid_amount']);
+        $this->assertSame(100000.0, $summary['outstanding_balance']);
+    }
+}

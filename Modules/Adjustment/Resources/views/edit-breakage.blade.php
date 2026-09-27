@@ -16,13 +16,6 @@
 
 @section('content')
     <div class="container-fluid mb-4">
-        <div class="row">
-            <div class="col-12">
-                <!-- Pass the location_id to the SearchProduct Livewire component -->
-                <livewire:search-product :locationId="$adjustment->location_id"/>
-            </div>
-        </div>
-
         <div class="row mt-4">
             <div class="col-md-12">
                 <div class="card">
@@ -47,7 +40,25 @@
                                     </div>
                                 </div>
                             </div>
-                            <livewire:adjustment.breakage-product-table :adjustedProducts="$adjustment->adjustedProducts->toArray()" :locationId="$adjustment->location_id"/>
+
+                            <div class="form-row">
+                                <div class="col-lg-6">
+                                    <div class="form-group">
+                                        <label for="location">Lokasi <span class="text-danger">*</span></label>
+                                        @livewire('modules.setting.location-search-dropdown', [
+                                            'selected' => $adjustment->location_id,
+                                            'consignmentFilter' => 'standard',
+                                            'placeholder' => 'Pilih lokasi barang rusak...',
+                                            'dispatchTo' => \App\Livewire\Adjustment\BreakageProductTable::class,
+                                        ])
+                                        @error('location_id') <span class="text-danger small">{{ $message }}</span> @enderror
+                                    </div>
+                                </div>
+                            </div>
+
+                            <livewire:adjustment.breakage-product-table
+                                :adjustedProducts="$adjustment->adjustedProducts->toArray()"
+                                :locationId="$adjustment->location_id"/>
                             <div class="form-group">
                                 <label for="note">Catatan (Jika Dibutuhkan)</label>
                                 <textarea name="note" id="note" rows="5" class="form-control">{{ $adjustment->note }}</textarea>
@@ -56,9 +67,11 @@
                                 <a href="{{ route('adjustments.index') }}" class="btn btn-secondary mr-2">
                                     Kembali
                                 </a>
+                                @can('adjustments.breakage.edit')
                                 <button type="submit" class="btn btn-primary">
                                     Perbaharui Barang Rusak <i class="bi bi-check"></i>
                                 </button>
+                                @endcan
                             </div>
                         </form>
                     </div>

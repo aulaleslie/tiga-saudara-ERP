@@ -7,7 +7,7 @@ return [
      * Shared translations.
      *
      */
-    'title' => 'Tiga Saudara ERP',
+    'title' => 'CV Tiga Computer',
     'next' => 'Next Step',
     'back' => 'Previous',
     'finish' => 'Install',
@@ -22,7 +22,7 @@ return [
      */
     'welcome' => [
         'templateTitle' => 'Welcome',
-        'title'   => 'Install Tiga Saudara ERP',
+        'title'   => 'Install CV Tiga Computer',
         'message' => 'Easy Installation and Setup Wizard.',
         'next'    => 'Check Requirements',
     ],

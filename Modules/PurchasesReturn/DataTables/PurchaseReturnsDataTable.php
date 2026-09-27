@@ -2,44 +2,94 @@
 
 namespace Modules\PurchasesReturn\DataTables;
 
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Gate;
 use Modules\PurchasesReturn\Entities\PurchaseReturn;
+use Yajra\DataTables\EloquentDataTable;
+use Yajra\DataTables\Exceptions\Exception;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
-use Yajra\DataTables\Html\Editor\Editor;
-use Yajra\DataTables\Html\Editor\Fields;
 use Yajra\DataTables\Services\DataTable;
 
 class PurchaseReturnsDataTable extends DataTable
 {
 
-    public function dataTable($query) {
-        return datatables()
+    /**
+     * @throws Exception
+     */
+    public function dataTable($query): EloquentDataTable
+    {
+        $canViewPrice = Gate::allows('purchaseReturns.viewPrice');
+
+        $table = datatables()
             ->eloquent($query)
-            ->addColumn('total_amount', function ($data) {
-                return format_currency($data->total_amount);
+            ->filter(function ($query) {
+                if ($search = $this->request()->get('search')['value'] ?? null) {
+                    $query->where(function ($q) use ($search) {
+                        $q->where('reference', 'like', "%{$search}%")
+                            ->orWhere('supplier_name', 'like', "%{$search}%")
+                            ->orWhereHas('supplier', function ($q2) use ($search) {
+                                $q2->where('supplier_name', 'like', "%{$search}%");
+                            })
+                            ->orWhereHas('purchaseReturnDetails', function ($q2) use ($search) {
+                                $q2->where('product_name', 'like', "%{$search}%")
+                                   ->orWhere('product_code', 'like', "%{$search}%");
+                            })
+                            ->orWhereHas('purchaseReturnDetails.purchase', function ($q2) use ($search) {
+                                $q2->where('reference', 'like', "%{$search}%")
+                                   ->orWhere('supplier_purchase_number', 'like', "%{$search}%")
+                                   ->orWhere('supplier_reference_no', 'like', "%{$search}%")
+                                   ->orWhere('tax_ref_no', 'like', "%{$search}%");
+                            });
+                    });
+                }
+            }, false)
+            ->editColumn('reference', function ($data) {
+                $details = $data->purchaseReturnDetails->map(function($detail) {
+                    return $detail->product_name . ': ' . $detail->quantity;
+                })->implode("\n");
+
+                return '<a href="' . route('purchase-returns.show', $data->id) . '" title="' . $details . '">' . $data->reference . '</a>';
             })
-            ->addColumn('paid_amount', function ($data) {
-                return format_currency($data->paid_amount);
-            })
-            ->addColumn('due_amount', function ($data) {
-                return format_currency($data->due_amount);
+            ->addColumn('supplier_name', function ($data) {
+                return optional($data->supplier)->supplier_name ?? '-';
             })
             ->addColumn('status', function ($data) {
                 return view('purchasesreturn::partials.status', compact('data'));
             })
-            ->addColumn('payment_status', function ($data) {
-                return view('purchasesreturn::partials.payment-status', compact('data'));
-            })
+
             ->addColumn('action', function ($data) {
                 return view('purchasesreturn::partials.actions', compact('data'));
-            });
+            })
+            ->rawColumns(['reference', 'status', 'action']);
+
+        if ($canViewPrice) {
+            $table->addColumn('total_amount', function ($data) {
+                return format_currency($data->total_amount);
+            })
+                ->addColumn('paid_amount', function ($data) {
+                    return format_currency($data->paid_amount);
+                })
+                ->addColumn('due_amount', function ($data) {
+                    return format_currency($data->due_amount);
+                });
+        }
+
+        return $table;
     }
 
-    public function query(PurchaseReturn $model) {
-        return $model->newQuery();
+    public function query(PurchaseReturn $model): Builder
+    {
+        $query = $model->newQuery()
+            ->with(['supplier', 'location', 'purchaseReturnDetails', 'settlementItems']);
+
+        return $query;
     }
 
-    public function html() {
+    public function html(): \Yajra\DataTables\Html\Builder
+    {
+        $orderByIndex = Gate::allows('purchaseReturns.viewPrice') ? 7 : 4;
+
         return $this->builder()
             ->setTableId('purchase-returns-table')
             ->columns($this->getColumns())
@@ -47,7 +97,7 @@ class PurchaseReturnsDataTable extends DataTable
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                 'tr' .
                                 <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(8)
+            ->orderBy($orderByIndex)
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
@@ -60,9 +110,13 @@ class PurchaseReturnsDataTable extends DataTable
             );
     }
 
-    protected function getColumns() {
-        return [
+    protected function getColumns(): array
+    {
+        $canViewPrice = Gate::allows('purchaseReturns.viewPrice');
+
+        return array_filter([
             Column::make('reference')
+                ->title('Nomor Retur')
                 ->className('text-center align-middle'),
 
             Column::make('supplier_name')
@@ -72,26 +126,26 @@ class PurchaseReturnsDataTable extends DataTable
             Column::computed('status')
                 ->className('text-center align-middle'),
 
-            Column::computed('total_amount')
-                ->className('text-center align-middle'),
+            $canViewPrice ? Column::computed('total_amount')
+                ->title('Total')
+                ->className('text-center align-middle') : null,
 
-            Column::computed('paid_amount')
-                ->className('text-center align-middle'),
+            $canViewPrice ? Column::computed('paid_amount')
+                ->title('Terbayar')
+                ->className('text-center align-middle') : null,
 
-            Column::computed('due_amount')
-                ->className('text-center align-middle'),
-
-            Column::computed('payment_status')
-                ->className('text-center align-middle'),
-
+            $canViewPrice ? Column::computed('due_amount')
+                ->title('Sisa Tagihan')
+                ->className('text-center align-middle') : null,
             Column::computed('action')
+                ->title('Aksi')
                 ->exportable(false)
                 ->printable(false)
                 ->className('text-center align-middle'),
 
             Column::make('created_at')
                 ->visible(false)
-        ];
+        ]);
     }
 
     protected function filename(): string {

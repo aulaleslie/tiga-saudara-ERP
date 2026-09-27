@@ -2,43 +2,150 @@
 
 namespace Modules\SalesReturn\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Product\Entities\Product;
+use Modules\Sale\Entities\DispatchDetail;
+use Modules\Sale\Entities\SaleDetails;
+use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\Tax;
+use Modules\Pos\Entities\PosReturnLine;
 
-class SaleReturnDetail extends Model
+class SaleReturnDetail extends BaseModel
 {
-    use HasFactory;
+    protected $fillable = [
+        'sale_return_id',
+        'pos_return_line_id',
+        'sale_detail_id',
+        'dispatch_detail_id',
+        'product_id',
+        'product_name',
+        'product_code',
+        'quantity',
+        'price',
+        'unit_price',
+        'sub_total',
+        'product_discount_amount',
+        'product_discount_type',
+        'product_tax_amount',
+        'location_id',
+        'tax_id',
+        'serial_number_ids',
+        'bundle_group_key',
+        'stock_behavior',
+        'execution_context',
+        'component_sale_bundle_item_id',
+        'cost_origin',
+        'cost_unit_snapshot',
+        'cost_quantity',
+        'cost_total_snapshot',
+        'cost_snapshot_source',
+        'cost_snapshot_setting_id',
+        'cost_snapshot_setting_is_pkp',
+        'cost_snapshot_at',
+        'cost_effective_at',
+        'commercial_quantity_also_reduced',
+    ];
 
-    protected $guarded = [];
+    const COST_ORIGIN_SALE_DETAIL = 'SALE_DETAIL';
+    const COST_ORIGIN_BUNDLE_ITEM = 'BUNDLE_ITEM';
 
     protected $with = ['product'];
 
-    public function product() {
+    protected $casts = [
+        'quantity'                => 'integer',
+        'price'                   => 'decimal:2',
+        'unit_price'              => 'decimal:2',
+        'sub_total'               => 'decimal:2',
+        'product_discount_amount' => 'decimal:2',
+        'product_tax_amount'      => 'decimal:2',
+        'serial_number_ids'       => 'array',
+        'execution_context'       => 'array',
+        'cost_unit_snapshot'      => 'decimal:6',
+        'cost_quantity'           => 'decimal:4',
+        'cost_total_snapshot'     => 'decimal:2',
+        'cost_snapshot_source'    => 'string',
+        'cost_origin'             => 'string',
+        'cost_snapshot_setting_is_pkp' => 'boolean',
+        'cost_snapshot_at'        => 'datetime',
+        'cost_effective_at'       => 'datetime',
+        'commercial_quantity_also_reduced' => 'boolean',
+    ];
+
+    public function posReturnLine(): BelongsTo
+    {
+        return $this->belongsTo(PosReturnLine::class, 'pos_return_line_id');
+    }
+
+    const METHOD_PRODUCT_REPAIR = 'REPAIR';
+    const METHOD_UNPROCESSED = 'UNPROCESSED';
+    const METHOD_MODIFY_SALE = 'MODIFY_SALE';
+    const METHOD_CUSTOMER_CREDIT = 'CUSTOMER_CREDIT';
+    const METHOD_CASH_REFUND = 'CASH_REFUND';
+
+    public static function settlementMethods(): array
+    {
+        return [
+            self::METHOD_PRODUCT_REPAIR => 'Perbaikan Produk',
+            self::METHOD_UNPROCESSED    => 'Belum Diproses',
+            self::METHOD_MODIFY_SALE    => 'Ubah Nota Penjualan',
+            self::METHOD_CUSTOMER_CREDIT => 'Simpan Sebagai Kredit',
+            self::METHOD_CASH_REFUND    => 'Pengembalian Tunai',
+        ];
+    }
+
+    public function product(): BelongsTo
+    {
         return $this->belongsTo(Product::class, 'product_id', 'id');
     }
 
-    public function saleReturn() {
-        return $this->belongsTo(SaleReturnPayment::class, 'sale_return_id', 'id');
+    public function saleReturn(): BelongsTo
+    {
+        return $this->belongsTo(SaleReturn::class, 'sale_return_id', 'id');
     }
 
-    public function getPriceAttribute($value) {
-        return $value / 100;
+    public function saleDetail(): BelongsTo
+    {
+        return $this->belongsTo(SaleDetails::class, 'sale_detail_id', 'id');
     }
 
-    public function getUnitPriceAttribute($value) {
-        return $value / 100;
+    public function dispatchDetail(): BelongsTo
+    {
+        return $this->belongsTo(DispatchDetail::class, 'dispatch_detail_id', 'id');
     }
 
-    public function getSubTotalAttribute($value) {
-        return $value / 100;
+    public function componentSaleBundleItem(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Sale\Entities\SaleBundleItem::class, 'component_sale_bundle_item_id', 'id');
     }
 
-    public function getProductDiscountAmountAttribute($value) {
-        return $value / 100;
+    public function costSnapshotSetting(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Setting\Entities\Setting::class, 'cost_snapshot_setting_id', 'id');
     }
 
-    public function getProductTaxAmountAttribute($value) {
-        return $value / 100;
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class, 'location_id', 'id');
+    }
+
+    public function tax(): BelongsTo
+    {
+        return $this->belongsTo(Tax::class, 'tax_id', 'id');
+    }
+
+    /**
+     * Get the serial numbers associated with the return detail.
+     *
+     * Returns a collection of serial number strings.
+     */
+    public function getSerialNumbers()
+    {
+        if (empty($this->serial_number_ids)) {
+            return collect();
+        }
+
+        return \Modules\Product\Entities\ProductSerialNumber::whereIn('id', $this->serial_number_ids)
+            ->pluck('serial_number');
     }
 }

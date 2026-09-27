@@ -2,31 +2,40 @@
 
 namespace Modules\User\Http\Controllers;
 
+use App\Services\IdempotencyService;
 use Modules\User\DataTables\RolesDataTable;
+use Modules\User\Helpers\PermissionHelper;
 use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
 class RolesController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware('idempotency')->only('store');
+    }
     public function index(RolesDataTable $dataTable) {
-        abort_if(Gate::denies('role.access'), 403);
+        abort_if(Gate::denies('roles.access'), 403);
 
         return $dataTable->render('user::roles.index');
     }
 
 
-    public function create() {
-        abort_if(Gate::denies('role.create'), 403);
+    public function create(Request $request) {
+        abort_if(Gate::denies('roles.create'), 403);
 
-        return view('user::roles.create');
+        $idempotencyToken = IdempotencyService::tokenFromRequest($request);
+
+        return view('user::roles.create', compact('idempotencyToken'));
     }
 
 
     public function store(Request $request) {
-        abort_if(Gate::denies('role.create'), 403);
+        abort_if(Gate::denies('roles.create'), 403);
 
         $request->validate([
             'name' => 'required|string|max:255',
@@ -37,7 +46,12 @@ class RolesController extends Controller
             'name' => $request->name
         ]);
 
-        $role->givePermissionTo($request->permissions);
+        $permissions = Permission::query()
+            ->whereIn('name', $request->permissions)
+            ->pluck('name')
+            ->all();
+
+        $role->givePermissionTo($permissions);
 
         toast('Role Created With Selected Permissions!', 'success');
 
@@ -46,14 +60,14 @@ class RolesController extends Controller
 
 
     public function edit(Role $role) {
-        abort_if(Gate::denies('role.edit'), 403);
+        abort_if(Gate::denies('roles.edit'), 403);
 
         return view('user::roles.edit', compact('role'));
     }
 
 
     public function update(Request $request, Role $role) {
-        abort_if(Gate::denies('role.edit'), 403);
+        abort_if(Gate::denies('roles.edit'), 403);
 
         $request->validate([
             'name' => 'required|string|max:255',
@@ -64,7 +78,17 @@ class RolesController extends Controller
             'name' => $request->name
         ]);
 
-        $role->syncPermissions($request->permissions);
+        $permissions = Permission::query()
+            ->whereIn('name', $request->permissions)
+            ->pluck('name')
+            ->all();
+
+        $permissions = array_values(array_unique(array_merge(
+            $permissions,
+            PermissionHelper::getHiddenAssignedPermissions($role)
+        )));
+
+        $role->syncPermissions($permissions);
 
         toast('Hak Akses Peran telah diperbarui!', 'success');
 
@@ -73,7 +97,7 @@ class RolesController extends Controller
 
 
     public function destroy(Role $role) {
-        abort_if(Gate::denies('role.delete'), 403);
+        abort_if(Gate::denies('roles.delete'), 403);
 
         $role->delete();
 

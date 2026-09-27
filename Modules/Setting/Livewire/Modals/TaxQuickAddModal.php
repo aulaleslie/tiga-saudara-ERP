@@ -1,0 +1,113 @@
+<?php
+
+namespace Modules\Setting\Livewire\Modals;
+
+use Livewire\Component;
+use Modules\Setting\Entities\Tax;
+use Illuminate\Validation\Rule;
+
+class TaxQuickAddModal extends Component
+{
+    public $showModal = false;
+    public $name = '';
+    public $value = 0;
+    public $is_default = false;
+    public $product_id = null; // Track which product row is requesting the tax
+    public $requester = null; // Track which dropdown requested the tax quick-add
+    public $listenEvent = 'openTaxModal';
+    public int $formResetVersion = 1;
+
+    public function getListeners()
+    {
+        return [
+            $this->listenEvent => 'openModal',
+        ];
+    }
+
+    protected function rules()
+    {
+        return [
+            'name' => [
+                'required',
+                'string',
+                'max:255',
+                Rule::unique('taxes', 'name')
+            ],
+            'value' => 'required|numeric|min:0|max:100',
+            'is_default' => 'nullable|boolean',
+        ];
+    }
+
+    protected function validationAttributes()
+    {
+        return [
+            'name' => 'nama',
+            'value' => 'nilai (%)',
+            'is_default' => 'default',
+        ];
+    }
+
+    public function openModal($requester = null, $product_id = null, $target = null)
+    {
+        $this->resetForm();
+
+        if ($target === null && is_array($requester)) {
+            $this->product_id = $requester['product_id'] ?? null;
+            $this->requester = $requester['requester'] ?? null;
+        } else {
+            $this->requester = $requester ?? (is_array($target) ? ($target['requester'] ?? null) : (is_string($target) && !is_numeric($target) ? $target : null));
+            $this->product_id = $product_id ?? (is_array($target) ? ($target['product_id'] ?? null) : (is_numeric($target) ? $target : null));
+        }
+
+        $this->showModal = true;
+    }
+
+    public function closeModal()
+    {
+        $this->showModal = false;
+        $this->resetForm();
+    }
+
+    public function save()
+    {
+        $this->validate();
+
+        $tax = Tax::create([
+            'name' => $this->name,
+            'value' => $this->value,
+            'is_default' => (bool) $this->is_default,
+        ]);
+
+        // Dispatch event with structured data for ProductCart to handle
+        $evt = $this->dispatch('taxCreated', 
+            id: $tax->id,
+            name: $tax->name,
+            value: $tax->value,
+            product_id: $this->product_id,
+            requester: $this->requester
+        );
+
+        if ($this->requester === 'expense-form') {
+            $evt->to(\App\Livewire\Expense\ExpenseForm::class);
+        }
+
+        $this->closeModal();
+    }
+
+    private function resetForm()
+    {
+        $this->name = '';
+        $this->value = 0;
+        $this->is_default = false;
+        $this->product_id = null;
+        $this->requester = null;
+        $this->formResetVersion++;
+        $this->resetErrorBag();
+        $this->resetValidation();
+    }
+
+    public function render()
+    {
+        return view('livewire.modals.tax-quick-add-modal');
+    }
+}

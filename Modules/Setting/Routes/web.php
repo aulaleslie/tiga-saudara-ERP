@@ -11,24 +11,73 @@
 |
 */
 
+use Modules\Setting\Http\Controllers\PrintController;
 use Illuminate\Support\Facades\Route;
 use Modules\Setting\Http\Controllers\BusinessController;
+use Modules\Setting\Http\Controllers\JournalController;
+use Modules\Setting\Http\Controllers\PaymentMethodController;
+use Modules\Setting\Http\Controllers\SaleLocationConfigurationController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
     //Mail Settings
     Route::patch('/settings/smtp', 'SettingController@updateSmtp')->name('settings.smtp.update');
     //General Settings
+    Route::get('/settings/customers/search', 'SettingController@customerSearch')->name('settings.customers.search');
     Route::get('/settings', 'SettingController@index')->name('settings.index');
     Route::patch('/settings', 'SettingController@update')->name('settings.update');
     // Units
+    Route::patch('units/{unit}/toggle-status', 'UnitsController@toggleStatus')->name('units.toggle-status');
     Route::resource('units', 'UnitsController')->except('show');
     Route::resource('businesses', 'BusinessController');
     Route::post('/update-active-business', [BusinessController::class, 'updateActiveBusiness'])->name('update.active.business');
     // Locations
+    Route::patch('locations/{location}/toggle-status', 'LocationController@toggleStatus')->name('locations.toggle-status');
     Route::resource('locations', 'LocationController')->except('show');
+    Route::get('sales-location-configurations', [SaleLocationConfigurationController::class, 'index'])
+        ->name('sales-location-configurations.index');
+    Route::patch('sales-location-configurations/{location}/toggle', [SaleLocationConfigurationController::class, 'toggle'])
+        ->name('sales-location-configurations.toggle');
+    Route::put('sales-location-configurations/order', [SaleLocationConfigurationController::class, 'order'])
+        ->name('sales-location-configurations.order');
+    // POS Payment Configurations
+    Route::get('pos-payment-configurations', 'PosPaymentConfigurationController@index')
+        ->name('pos-payment-configurations.index');
+    Route::patch('pos-payment-configurations/{paymentMethod}/toggle', 'PosPaymentConfigurationController@toggle')
+        ->name('pos-payment-configurations.toggle');
+    Route::post('pos-payment-configurations/bulk-enable', 'PosPaymentConfigurationController@bulkEnable')
+        ->name('pos-payment-configurations.bulkEnable');
+    Route::post('pos-payment-configurations/bulk-disable', 'PosPaymentConfigurationController@bulkDisable')
+        ->name('pos-payment-configurations.bulkDisable');
     // Taxes
+    Route::patch('taxes/{tax}/toggle-status', 'TaxController@toggleStatus')->name('taxes.toggle-status');
     Route::resource('taxes', 'TaxController')->except('show');
+    // PaymentTerms
+    Route::patch('payment-terms/{payment_term}/toggle-status', 'PaymentTermController@toggleStatus')->name('payment-terms.toggle-status');
+    Route::resource('payment-terms', 'PaymentTermController')->except('show');
     // Chart of accounts
+    Route::patch('chart-of-account/{chart_of_account}/toggle-status', 'ChartofAccountController@toggleStatus')->name('chart-of-account.toggle-status');
     Route::resource('chart-of-account', 'ChartofAccountController')->except('show');
+    // Journals
+    Route::resource('journals', JournalController::class);
+
+    Route::get('/print-receipt', function() {
+
+        $pdf = \PDF::loadView('setting::print.receipt', [
+        ])->setPaper('a4');
+
+        return $pdf->stream('receipt.pdf');
+    })->name('print.receipt');
+    Route::get('/print-sales-document', function() {
+
+        $pdf = \PDF::loadView('setting::print.sales', [
+        ])->setPaper('a4');
+
+        return $pdf->stream('sales.pdf');
+    })->name('print.salesDocument');
+
+    Route::patch('payment-methods/{paymentMethod}/toggle-status', [PaymentMethodController::class, 'toggleStatus'])->name('payment-methods.toggle-status');
+    Route::resource('payment-methods', PaymentMethodController::class)
+        ->except('show');
+
 });

@@ -1,0 +1,145 @@
+{
+  "changeName": "use-bundle-sale-price-in-sales",
+  "changeDir": "/home/aulaleslie/Workspace/Rahmat/tiga-saudara-ERP/openspec/changes/use-bundle-sale-price-in-sales",
+  "schemaName": "spec-driven",
+  "contextFiles": {
+    "proposal": "/home/aulaleslie/Workspace/Rahmat/tiga-saudara-ERP/openspec/changes/use-bundle-sale-price-in-sales/proposal.md",
+    "specs": "/home/aulaleslie/Workspace/Rahmat/tiga-saudara-ERP/openspec/changes/use-bundle-sale-price-in-sales/specs/**/*.md",
+    "design": "/home/aulaleslie/Workspace/Rahmat/tiga-saudara-ERP/openspec/changes/use-bundle-sale-price-in-sales/design.md",
+    "tasks": "/home/aulaleslie/Workspace/Rahmat/tiga-saudara-ERP/openspec/changes/use-bundle-sale-price-in-sales/tasks.md"
+  },
+  "progress": {
+    "total": 25,
+    "complete": 0,
+    "remaining": 25
+  },
+  "tasks": [
+    {
+      "id": "1",
+      "description": "1.1 Update Sales bundle selection to load and use `product_bundles.bundle_sale_price` as the parent cart row unit price.",
+      "done": false
+    },
+    {
+      "id": "2",
+      "description": "1.2 Stop using legacy `product_bundles.price` as a Sales bundle add-on.",
+      "done": false
+    },
+    {
+      "id": "3",
+      "description": "1.3 Add stable bundled-row metadata to cart options so later recalculation paths can detect selected bundles.",
+      "done": false
+    },
+    {
+      "id": "4",
+      "description": "1.4 Ensure selected bundle component rows are added to cart options with non-billable price/subtotal values.",
+      "done": false
+    },
+    {
+      "id": "5",
+      "description": "2.1 Update customer selection repricing so non-bundled rows still use customer tier pricing while bundled rows preserve their current parent row price.",
+      "done": false
+    },
+    {
+      "id": "6",
+      "description": "2.2 Update quantity changes so bundled rows multiply the current parent row price and skip cascading quantity repricing.",
+      "done": false
+    },
+    {
+      "id": "7",
+      "description": "2.3 Update manual parent row price edits so edited bundled row prices remain authoritative for subsequent recalculations.",
+      "done": false
+    },
+    {
+      "id": "8",
+      "description": "2.4 Update line discount, global discount, line tax, and tax-included recalculations to preserve bundled row unit prices.",
+      "done": false
+    },
+    {
+      "id": "9",
+      "description": "2.5 Update PKP/non-PKP reconciliation paths to preserve bundled row pricing and keep component totals non-billable.",
+      "done": false
+    },
+    {
+      "id": "10",
+      "description": "3.1 Update Sales edit cart hydration so existing bundled rows hydrate from the parent `sale_details` price as the current editable row price.",
+      "done": false
+    },
+    {
+      "id": "11",
+      "description": "3.2 Normalize hydrated bundle component prices/subtotals as non-billable cart context.",
+      "done": false
+    },
+    {
+      "id": "12",
+      "description": "3.3 Update Sales create persistence so `sale_bundle_items` component rows do not persist billable subtotal amounts for selected bundles.",
+      "done": false
+    },
+    {
+      "id": "13",
+      "description": "3.4 Update Sales update persistence so recreated `sale_bundle_items` component rows remain non-billable.",
+      "done": false
+    },
+    {
+      "id": "14",
+      "description": "3.5 Verify `SaleNormalizer` continues deriving sale header totals from parent sale details only for bundled rows.",
+      "done": false
+    },
+    {
+      "id": "15",
+      "description": "4.1 Keep the parent bundled cart row price editable in Sales create/update.",
+      "done": false
+    },
+    {
+      "id": "16",
+      "description": "4.2 Hide or render bundle component item prices as read-only informational data in Sales bundle detail UI.",
+      "done": false
+    },
+    {
+      "id": "17",
+      "description": "4.3 Ensure bundle detail labels no longer imply legacy add-on pricing.",
+      "done": false
+    },
+    {
+      "id": "18",
+      "description": "4.4 Verify Sales show/print views do not present bundle component amounts as billable totals for selected bundle rows.",
+      "done": false
+    },
+    {
+      "id": "19",
+      "description": "5.1 Add Sales create coverage for bundle selection initializing parent row price from `bundle_sale_price`.",
+      "done": false
+    },
+    {
+      "id": "20",
+      "description": "5.2 Add coverage that legacy `product_bundles.price` is not added to bundled Sales row totals.",
+      "done": false
+    },
+    {
+      "id": "21",
+      "description": "5.3 Add coverage that manual bundled row price edits are preserved through quantity, discount, tax, and customer-change recalculations.",
+      "done": false
+    },
+    {
+      "id": "22",
+      "description": "5.4 Add coverage that customer tier and cascading quantity repricing still apply to non-bundled rows but not bundled rows.",
+      "done": false
+    },
+    {
+      "id": "23",
+      "description": "5.5 Add Sales edit coverage for hydrating existing bundled rows with parent sale detail price and non-billable component rows.",
+      "done": false
+    },
+    {
+      "id": "24",
+      "description": "5.6 Add persistence coverage that `sale_bundle_items` component price/subtotal values do not accumulate into sale totals.",
+      "done": false
+    },
+    {
+      "id": "25",
+      "description": "5.7 Run targeted Sales cart, Sales persistence, Product Bundle pricing, and existing bundle dispatch regression tests.",
+      "done": false
+    }
+  ],
+  "state": "ready",
+  "instruction": "Read context files, work through pending tasks, mark complete as you go.\nPause if you hit blockers or need clarification."
+}

@@ -20,6 +20,58 @@
 - run `` php artisan serve ``
 - then visit `` http://localhost:8000 or http://127.0.0.1:8000 ``.
 
+## WSL Quick Setup (One Command)
+
+If you're on Windows with WSL2, the bootstrap script handles everything automatically — Docker, PHP, Node, MySQL, database restore, and starting the dev servers:
+
+```bash
+git clone https://github.com/aulaleslie/tiga-saudara-ERP.git
+cd tiga-saudara-ERP
+./scripts/setup-wsl.sh
+```
+
+The script will:
+1. Install **Docker Engine** inside WSL (if not present)
+2. Install **PHP 8.2** with all required extensions (if not present)
+3. Install **Node.js 22 LTS** (if not present)
+4. Start a **MySQL 8.0** Docker container (root, no password, port 3306)
+5. Restore the database from `backup/database-backup-a.zip`
+6. Run `composer install`, `npm install`, and Laravel setup
+7. Start `php artisan serve` and `npm run dev`
+
+**Options:**
+
+| Flag | Description |
+|------|-------------|
+| `--backup=b` | Use backup slot `b` instead of `a` |
+| `--fresh-db` | Drop existing DB and re-restore from backup |
+| `--skip-serve` | Only set up the environment, don't start servers |
+| `--help` | Show usage help |
+
+**Examples:**
+
+```bash
+# First-time setup (installs everything + restores DB + starts servers)
+./scripts/setup-wsl.sh
+
+# Re-run with a clean database
+./scripts/setup-wsl.sh --fresh-db
+
+# Use backup slot b
+./scripts/setup-wsl.sh --backup=b
+
+# Setup only, start servers manually later
+./scripts/setup-wsl.sh --skip-serve
+```
+
+> **Note:** The script is idempotent — safe to run multiple times. It skips what's already installed and only restores the database if it's empty (unless `--fresh-db` is passed).
+
+### Browser Extension Console Noise (Local Dev)
+
+If your browser console shows intermittent `sw.js`, `runtime.lastError`, `mobx-state-tree`, or `lockdown-install.js` warnings during local development, follow this runbook first:
+
+- [`docs/troubleshooting/browser-extension-console-noise.md`](docs/troubleshooting/browser-extension-console-noise.md)
+
 # Admin Credentials
 > Email: super.admin@test.com || Password: 12345678
 
@@ -46,37 +98,177 @@
 
 ### PDF Configuration for Windows
 
-> **Important Note:** "Tiga Saudara ERP" uses the Laravel Snappy package for PDFs. If you are using Linux, no further configuration is needed. For Windows or other operating systems, follow these steps:
+> **Important Note:** "Tiga Saudara ERP" now uses the vendor-provided wkhtmltopdf binaries by default—no `.env` override is required.
 
-1. **Download and Install `wkhtmltopdf`**:
-    - Download `wkhtmltopdf` for Windows from [wkhtmltopdf.org](https://wkhtmltopdf.org/downloads.html).
-    - Install the Windows version of `wkhtmltopdf` (typically installed in `C:\Program Files\wkhtmltopdf`).
-
-2. **Find the Short Path for `wkhtmltopdf` on Windows**:
-    - Open Command Prompt and run the following command to find the short path of the `Program Files` directory:
-      ```bash
-      dir /X "C:\Program Files"
-      ```
-    - The short name for `Program Files` is usually something like `C:\PROGRA~1`.
-    - Next, get the short path for the `wkhtmltopdf\bin` folder:
-      ```bash
-      dir /X "C:\Program Files\wkhtmltopdf\bin"
-      ```
-    - The full short path will look something like: `C:\PROGRA~1\wkhtmltopdf\bin\WKHTML~2.EXE`.
-
-3. **Update `.env` or `config/snappy.php`**:
-    - Open the `.env` file and update the `WKHTML_PDF_BINARY` with the short path:
-      ```bash
-      WKHTML_PDF_BINARY="C:\\PROGRA~1\\wkhtmltopdf\\bin\\WKHTML~2.EXE"
-      ```
-
-4. **Clear Config Cache**:
-   After updating the configuration, clear the Laravel configuration cache to ensure the changes take effect:
-   ```bash
-   php artisan config:clear
-   
-5. **Test PDF Generation**:
-   After completing the above steps, you should be able to generate PDFs without any issues.
+- **Linux:** bundled via `h4cc/wkhtmltopdf-amd64` and used from `vendor/bin/wkhtmltopdf-amd64`.
+- **Windows:** install the Windows binary package with Composer so the vendor path is available:
+  ```bash
+  composer require wemersonjanuario/wkhtmltopdf-windows:^0.12
+  ```
+- **Config cache:** if you change packages, clear config to pick up the new binary location:
+  ```bash
+  php artisan config:clear
+  ```
 
 # License
 **[Creative Commons Attribution 4.0	cc-by-4.0](https://creativecommons.org/licenses/by/4.0/)**
+
+## Maintenance Commands
+
+```bash
+# Restore local database from a backup slot (a or b).
+./restore-db.sh a
+./restore-db.sh b
+
+php artisan queue:work --queue=default --tries=3 --timeout=7200
+php artisan db:seed --class="Modules\User\Database\Seeders\PermissionsTableSeeder"
+php artisan product:normalize-purchase-prices
+php artisan product:normalize-purchase-prices --write
+
+# Seed current average HPP from the latest authoritative imported sales-HPP snapshots.
+# Run the dry-run first, review the selected source dates and row counts, then add --write.
+php artisan product:seed-average-cost-from-sales-hpp
+php artisan product:seed-average-cost-from-sales-hpp --write
+
+# Initialization only: rebuild imported purchase/sales transaction history.
+# Dry-run first, then run with both flags when ready. The write command truncates transactions.
+php artisan inventory:normalize-import-transactions
+php artisan inventory:normalize-import-transactions --initialize --write
+
+# Backfill historical sale detail cost snapshots for Laporan Laba Rugi.
+# Run dry-run first, inspect warning counts, then run with --write.
+php artisan sales:backfill-cost-snapshots
+php artisan sales:backfill-cost-snapshots --write
+
+# Recompute existing backfilled snapshots when historical purchase/receiving data changed.
+php artisan sales:backfill-cost-snapshots --write --force
+
+# Optional filters for smaller/manual runs.
+php artisan sales:backfill-cost-snapshots --product=123
+php artisan sales:backfill-cost-snapshots --setting=1 --start=2026-01-01 --end=2026-06-30
+php artisan sales:backfill-cost-snapshots --write --setting=1 --start=2026-01-01 --end=2026-06-30
+
+# Repair and sync persisted notification rows for stock, approval, and revision states.
+php artisan notifications:sync
+
+# Manually prune old notifications. Notifications are retained unless this command is run.
+php artisan notifications:prune --days=30
+
+# Export product barcodes. The default output is storage/app/product_barcodes_export.csv.
+php artisan product:export-barcodes
+
+# Export to a specific CSV file and overwrite it without confirmation.
+php artisan product:export-barcodes --path=/path/to/barcodes.csv --force
+
+# Normalize all product base-unit barcodes to EAN-13 values.
+# Run the dry-run first; generated internal codes use the 200–299 prefix range.
+php artisan product:generate-ean13-barcodes --dry-run
+php artisan product:generate-ean13-barcodes
+
+# Export the CV TIGA NUSA COMPUTER product price list to Excel.
+# The default output is storage/app/product_prices_tiga_nusa_export.xlsx.
+php artisan product:export-tiga-nusa-prices
+
+# Export to a specific Excel file and overwrite it without confirmation.
+php artisan product:export-tiga-nusa-prices --path=/path/to/tiga-nusa-prices.xlsx --force
+
+# Import requires the CSV path. Run a dry-run before applying changes.
+php artisan product:import-barcodes storage/app/product_barcodes_export.csv --dry-run
+php artisan product:import-barcodes storage/app/product_barcodes_export.csv
+
+# One-off backfill: fix purchase_details rows where a manual unit price edit left
+# unit_price/price desynced from the already-correct sub_total. Run dry-run first,
+# review the table output, then run without --dry-run. Only unit_price, price, and
+# entered_unit_price are updated; sub_total, totals, payments, and stock are untouched.
+php artisan purchase:fix-manual-unit-price-desync --dry-run
+php artisan purchase:fix-manual-unit-price-desync
+
+# Optional: limit the run to specific purchase_details IDs.
+php artisan purchase:fix-manual-unit-price-desync --dry-run --detail-id=37661 --detail-id=37312
+
+# Repair stock-bucket drift conclusively linked to historical POS Return
+# replacement dispatches. The default mode is read-only: review every candidate,
+# its source transaction/serial evidence, and proposed balance before applying.
+php artisan pos:repair-return-replacement-stock-buckets
+
+# Apply only after a fresh dry-run has been reviewed. The repair is evidence-gated
+# and idempotent; unrelated and non-serialized ambiguous discrepancies are not changed.
+php artisan pos:repair-return-replacement-stock-buckets --apply --actor=123
+
+# Optional: narrow either dry-run or apply to one product/location.
+php artisan pos:repair-return-replacement-stock-buckets --product=182 --location=6
+```
+
+### Barcode Import and Export
+
+Barcode CSV files must contain `product_name,barcode`. Import matches an exact product name and skips missing or ambiguous products, products that already have a barcode, invalid barcodes, and barcodes already in use.
+
+### CV TIGA NUSA COMPUTER Product Price Export
+
+`product:export-tiga-nusa-prices` creates an Excel price list with product name, sale price, Tier 1 price, and Tier 2 price. It includes every product ordered alphabetically by name; products without a CV TIGA NUSA COMPUTER price row have blank price cells. The command resolves CV TIGA NUSA COMPUTER by its exact company name and stops without writing a file if the setting is missing or duplicated.
+
+### Sales Cost Snapshot Backfill
+
+`sales:backfill-cost-snapshots` normalizes historical sale detail cost snapshots used by Laporan Laba Rugi. The command replays product purchases, approved receiving notes, purchase returns, and sales by effective date so profit/loss uses `sales - sales cost - expenses` instead of current mutable product average prices.
+
+- Dry-run is the default and does not write changes.
+- `--write` persists calculated `cost_unit_snapshot`, `cost_total_snapshot`, `cost_snapshot_source`, and `cost_snapshot_at` on `sale_details`.
+- `--force` recomputes existing backfilled snapshots; use it after correcting historical purchase or receiving data.
+- `--product`, `--setting`, `--start`, and `--end` can limit the replay scope for manual checks.
+- Review summary warnings before writing, especially `negative_stock`, `missing_receipt_data`, `future_purchase_fallback`, `no_purchase_fallback`, and `non_stock_zero`.
+
+### Seed Current Average HPP from Imported Sales
+
+`product:seed-average-cost-from-sales-hpp` is the explicit post-import reconciliation step for historical sales HPP imports. It seeds `product_prices.average_purchase_price` from the latest successful `HPP_SNAPSHOT_IMPORT` cost snapshots for each stock-managed product, creating missing product-price rows as needed.
+
+- Dry-run is the default; review selected source sale dates and created, updated, unchanged, and unresolved row counts before writing.
+- `--write` seeds only `product_prices.average_purchase_price`; it preserves existing `last_purchase_price`, selling/tier prices, and tax metadata unchanged.
+- Tiga Nusa and Top IT use their own latest HPP when available; other businesses fall back to shared baseline. Non-special settings use shared baseline only.
+- Purchase-import owns `last_purchase_price` reconciliation exclusively; this command does not touch it.
+- Run this after reviewing the historical HPP import. It does not change historical sale snapshots, stock, purchases, or inventory transactions.
+
+See [the full operator guide](docs/SEED_AVERAGE_COST_FROM_SALES_HPP.md) for the workflow and troubleshooting.
+
+### Import Transaction Normalization
+
+`inventory:normalize-import-transactions` is an initialization-only command for rebuilding the stock transaction ledger from imported purchase and sales documents.
+
+- Dry-run is the default and does not write changes.
+- `--initialize --write` truncates `transactions` and recreates normalized import movements.
+- Imported purchases create `BUY` transactions with positive quantities.
+- Imported sales create `SELL` transactions with negative quantities.
+- The command does not update `product_stocks`; product stock snapshot import remains the only import path that hardens current stock quantities.
+- Run this before product stock snapshot import. Stock snapshot import then updates `product_stocks` and creates `ADJ` transactions from the latest normalized ledger balance to the snapshot quantity.
+
+Recommended initialization order:
+
+```bash
+# 1. Import purchase and sales documents through the import screens.
+
+# 2. Rebuild historical BUY/SELL transaction ledger.
+php artisan inventory:normalize-import-transactions
+php artisan inventory:normalize-import-transactions --initialize --write
+
+# 3. Import product stock snapshot through the product stock import screen.
+```
+
+### Import-Origin Base UOM Quick Conversion
+
+`product:convert-uom` is an operator tool to correct the base Unit of Measure (UOM) for products whose stock originated from an import/adjustment (`ADJ`) snapshot rather than receiving notes (`BUY`).
+
+```bash
+# Preview eligibility, projected stock/cost-basis changes, and removable draft documents
+php artisan product:convert-uom 4669 PCS 82 --dry-run
+
+# Execute correction with mandatory reason
+php artisan product:convert-uom 4669 PCS 82 --reason="Koreksi base UOM rokok dari BKS ke PCS"
+```
+
+**Eligibility & Safety Rules:**
+- **Zero Fulfillment History:** Refuses if any `DISPATCH`-type transaction or paid/dispatched `Sale` exists for the product.
+- **No BUY-Lineage:** Refuses if any `BUY`-type transaction exists (use Received Purchase Normalization instead).
+- **Ledger Integrity:** Verifies live stock matches running balance recorded across all locations and globally.
+- **Broken Stock:** Refuses if any `broken_quantity` bucket is non-zero.
+- **Unhandled Complexity:** Refuses if unit conversions exist, if barcode is set, or if footprint spans multiple settings.
+- **Automatic Draft Cleanup:** Force-deletes any pending POS drafts (`DRAFT`/`LOADED`) and unpaid/undispatched Sales referencing the product to prevent silent wrong-quantity dispatch, recording all deleted documents in the audit log (`product_uom_correction_audits` and `product_uom_correction_removed_documents`).
+

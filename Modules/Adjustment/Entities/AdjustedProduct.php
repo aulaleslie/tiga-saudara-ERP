@@ -2,19 +2,22 @@
 
 namespace Modules\Adjustment\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Product\Entities\Product;
 
-class AdjustedProduct extends Model
+class AdjustedProduct extends BaseModel
 {
-    use HasFactory;
+    protected array $uppercaseExcept = [
+        'serial_numbers',     // <- this field stays as typed
+    ];
 
     protected $guarded = [];
 
     protected $with = ['product'];
 
-    public function adjustment() {
+    public function adjustment(): BelongsTo
+    {
         return $this->belongsTo(Adjustment::class, 'adjustment_id', 'id');
     }
 

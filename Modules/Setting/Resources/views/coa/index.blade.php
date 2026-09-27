@@ -1,10 +1,9 @@
 @extends('layouts.app')
 
-@section('title', 'Chart of Accounts')
+@section('title', 'Akun Jurnal')
 
 @section('third_party_stylesheets')
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.10.25/css/dataTables.bootstrap4.min.css">
-    <link rel="stylesheet" href="https://cdn.datatables.net/select/1.3.3/css/select.dataTables.min.css">
+    <link rel="stylesheet" href="{{ asset('vendor/datatables/datatables.min.css') }}">
 @endsection
 
 @section('breadcrumb')
@@ -26,6 +25,17 @@
 
                         <hr>
 
+                        <div class="row mb-3">
+                            <div class="col-md-3">
+                                <label for="status-filter" class="form-label font-weight-bold">Filter Status</label>
+                                <select id="status-filter" class="form-control" onchange="window.location.href = this.value ? '{{ route('chart-of-account.index') }}?status=' + this.value : '{{ route('chart-of-account.index') }}'">
+                                    <option value="">Semua Status</option>
+                                    <option value="active" {{ request('status') === 'active' ? 'selected' : '' }}>Aktif</option>
+                                    <option value="inactive" {{ request('status') === 'inactive' ? 'selected' : '' }}>Nonaktif</option>
+                                </select>
+                            </div>
+                        </div>
+
                         <div class="table-responsive">
                             <table class="table table-bordered mb-0 text-center" id="data-table">
                                 <thead>
@@ -36,6 +46,7 @@
                                     <th class="align-middle">Category</th>
                                     <th class="align-middle">Parent Account</th>
                                     <th class="align-middle">Description</th>
+                                    <th class="align-middle">Status</th>
                                     <th class="align-middle">Action</th>
                                 </tr>
                                 </thead>
@@ -49,10 +60,34 @@
                                         <td class="align-middle">{{ $account->parentAccount->name ?? '-' }}</td>
                                         <td class="align-middle">{{ $account->description ?? '-' }}</td>
                                         <td class="align-middle">
-
+                                            @if($account->is_active)
+                                                <span class="badge badge-success">Aktif</span>
+                                            @else
+                                                <span class="badge badge-secondary">Nonaktif</span>
+                                            @endif
+                                        </td>
+                                        <td class="align-middle">
                                             <a href="{{ route('chart-of-account.edit', $account) }}" class="btn btn-info btn-sm">
                                                 <i class="bi bi-pencil"></i>
                                             </a>
+                                            @if(auth()->user()->can('chartOfAccounts.edit') || auth()->user()->can('chartOfAccounts.delete'))
+                                                @if($account->is_active)
+                                                    <button type="button" class="btn btn-warning btn-sm" title="Nonaktifkan Akun"
+                                                            onclick="if(confirm('Nonaktifkan akun &quot;{{ $account->name }}&quot;?')) document.getElementById('toggle-coa-{{ $account->id }}').submit();">
+                                                        <i class="bi bi-pause-circle"></i>
+                                                    </button>
+                                                @else
+                                                    <button type="button" class="btn btn-success btn-sm" title="Aktifkan Kembali"
+                                                            onclick="if(confirm('Aktifkan kembali akun &quot;{{ $account->name }}&quot;?')) document.getElementById('toggle-coa-{{ $account->id }}').submit();">
+                                                        <i class="bi bi-play-circle"></i>
+                                                    </button>
+                                                @endif
+                                                <form id="toggle-coa-{{ $account->id }}" class="d-none"
+                                                      action="{{ route('chart-of-account.toggle-status', $account->id) }}" method="POST">
+                                                    @csrf
+                                                    @method('patch')
+                                                </form>
+                                            @endif
                                         </td>
                                     </tr>
                                 @endforeach
@@ -68,8 +103,7 @@
 @endsection
 
 @push('page_scripts')
-    <script type="text/javascript" src="https://cdn.datatables.net/v/bs4/jszip-2.5.0/dt-1.10.24/b-1.7.0/b-html5-1.7.0/b-print-1.7.0/datatables.min.js"></script>
-    <script type="text/javascript" src="https://cdn.datatables.net/select/1.3.3/js/dataTables.select.min.js"></script>
+    <script type="text/javascript" src="{{ asset('vendor/datatables/datatables.min.js') }}"></script>
     <script>
         var table = $('#data-table').DataTable({
             dom: "<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4 justify-content-end'f>>tr<'row'<'col-md-5'i><'col-md-7 mt-2'p>>",
@@ -79,7 +113,7 @@
                 {
                     extend: 'print',
                     text: '<i class="bi bi-printer-fill"></i> Print',
-                    title: "Chart of Accounts",
+                    title: "Akun Jurnal",
                     exportOptions: {
                         columns: [0, 1, 2, 3, 4, 5]
                     },

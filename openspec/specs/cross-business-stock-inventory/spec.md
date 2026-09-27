@@ -1,0 +1,210 @@
+# cross-business-stock-inventory Specification
+
+## Purpose
+Give users holding `inventory.view_remaining_stock` a single report showing remaining stock (good and broken, tax and non-tax) for every product across all businesses they are assigned to, with drill-down to per-location detail and sellable serial numbers, so stock no longer has to be checked one business at a time.
+
+## Requirements
+### Requirement: System SHALL gate the cross-business stock inventory menu on the `inventory.view_remaining_stock` permission
+Only users holding `inventory.view_remaining_stock` SHALL be able to access the menu entry and its underlying report route/component.
+
+#### Scenario: Permitted user accesses the menu
+- **WHEN** a user holding `inventory.view_remaining_stock` navigates to the cross-business stock inventory menu
+- **THEN** the report loads and renders
+
+#### Scenario: Unpermitted user is denied
+- **WHEN** a user lacking `inventory.view_remaining_stock` attempts to access the report route directly
+- **THEN** the system responds with a 403 and does not render any stock data
+
+### Requirement: System SHALL scope visible businesses to the acting user's assigned businesses, except for Super Admin
+Business options in the filter dropdown and business columns in the table SHALL be restricted to businesses the acting user is assigned to via the `user_setting` pivot (`User::settings()`), except a user holding the `Super Admin` role SHALL see all businesses unconditionally regardless of assignment.
+
+#### Scenario: Non-Super-Admin user sees only assigned businesses
+- **WHEN** a user assigned to 2 of 7 businesses loads the report
+- **THEN** the business filter dropdown lists only those 2 businesses, and the table shows columns only for those 2 businesses
+
+#### Scenario: Super Admin sees all businesses regardless of assignment
+- **WHEN** a user holding the `Super Admin` role loads the report
+- **THEN** the business filter dropdown lists all businesses in the system, and the table shows columns for all businesses, regardless of any `user_setting` assignment
+
+#### Scenario: Business filter defaults to all assigned businesses
+- **WHEN** a user with any set of assigned businesses loads the report with no prior filter selection
+- **THEN** all businesses visible to that user are selected by default
+
+### Requirement: System SHALL display one row per product with Good and Bad stock quantities per business
+For each product row, the system SHALL show, per visible business, a Good quantity (`SUM(quantity_tax) + SUM(quantity_non_tax)` across the business's locations) and a Bad quantity (`SUM(broken_quantity_tax) + SUM(broken_quantity_non_tax)` across the business's locations), sourced from `product_stocks` joined through `locations.setting_id`.
+
+#### Scenario: Product with stock in multiple businesses
+- **WHEN** a product has stock recorded in `product_stocks` across 3 of the user's visible businesses
+- **THEN** the product's row shows a Good and Bad value for each of those 3 businesses
+
+#### Scenario: Product with no stock in a visible business
+- **WHEN** a product has no `product_stocks` rows for a given visible business
+- **THEN** that business's Good and Bad columns show zero for that product's row
+
+### Requirement: System SHALL allow each business's columns to collapse to a subtotal or expand to per-location detail
+By default, a business's Good/Bad columns SHALL show the aggregated subtotal across all of its locations. The user SHALL be able to toggle that business's column group to show Good/Bad broken out per individual `location_id` under that business's `setting_id`, and toggle back to the collapsed subtotal.
+
+#### Scenario: Business with a single location
+- **WHEN** a business has exactly one location
+- **THEN** its collapsed and expanded views show identical Good/Bad values for that one location
+
+#### Scenario: Expanding a multi-location business
+- **WHEN** a user toggles expand on a business with 3 locations
+- **THEN** that business's column group is replaced with 3 sets of Good/Bad columns, one per location, and the values sum to the previously shown collapsed subtotal
+
+#### Scenario: Collapsing back
+- **WHEN** a user toggles collapse on a previously expanded business
+- **THEN** that business's columns return to the single aggregated Good/Bad subtotal
+
+### Requirement: System SHALL surface tax/non-tax composition as an informational tooltip against the business's PKP status
+When a business's `is_pkp` flag is true and any portion of the displayed Good or Bad quantity for that business (or, when expanded, that location) originates from `quantity_non_tax`/`broken_quantity_non_tax`, a tooltip SHALL show that non-tax quantity. When `is_pkp` is false and any portion originates from `quantity_tax`/`broken_quantity_tax`, a tooltip SHALL show that tax quantity. This is informational only and SHALL NOT block, alter, or validate the displayed totals.
+
+#### Scenario: PKP business with non-tax stock, collapsed view
+- **WHEN** a business with `is_pkp = true` has an aggregated Good quantity where part of the sum comes from `quantity_non_tax`
+- **THEN** the collapsed cell shows a tooltip indicator stating the aggregated non-tax quantity across that business's locations
+
+#### Scenario: PKP business with non-tax stock, expanded view
+- **WHEN** the same business is expanded to per-location columns
+- **THEN** each location's cell shows a tooltip indicator stating that specific location's non-tax quantity, independently of the other locations
+
+#### Scenario: Non-PKP business with tax stock
+- **WHEN** a business with `is_pkp = false` has a Good or Bad quantity where part of the sum comes from `quantity_tax` or `broken_quantity_tax`
+- **THEN** a tooltip indicator states that tax quantity
+
+#### Scenario: No mismatch present
+- **WHEN** a business's displayed quantity has no portion in the "unexpected" tax bucket for its PKP status
+- **THEN** no tooltip indicator is shown for that cell
+
+### Requirement: System SHALL provide a serial number lookup dialog for serialized products
+For any product where `products.serial_number_required` is true, each non-zero Good/Bad cell SHALL show a button that opens a dialog listing serial numbers scoped to that exact business, location (or all of the business's locations when the business is collapsed), and condition (Good or Bad). Good dialogs SHALL use the canonical sellable scope. Bad dialogs SHALL use the canonical available-broken scope. `MISSING`, `SOLD`, `RETURNED`, `RETURN_IN_PROCESS`, dispatched, and return-in-process serials SHALL not appear in either operational dialog.
+
+#### Scenario: Opening the dialog from a Good cell
+- **WHEN** a user clicks the serial button on a Good cell for a serialized product
+- **THEN** the dialog opens listing only active-compatible, not-broken, not-returning, undispatched serials for that product and business/location scope
+
+#### Scenario: Opening the dialog from a Bad cell
+- **WHEN** a user clicks the serial button on a Bad cell for a serialized product
+- **THEN** the dialog opens listing only available-broken serials for that product and business/location scope
+
+#### Scenario: Missing serial is excluded from both dialogs
+- **WHEN** a good-condition serial retains the requested location but has `status=MISSING`
+- **THEN** it appears in neither the Good nor Bad operational dialog
+
+#### Scenario: Good and Bad dialog counts reconcile with stock condition
+- **WHEN** a serialized location has five active-good serials, one active-broken serial, and three missing serials while ProductStock reports five good and one broken
+- **THEN** the Good dialog contains five serials and the Bad dialog contains one serial
+
+#### Scenario: Non-serialized product has no serial button
+- **WHEN** a product has `serial_number_required = false`
+- **THEN** no serial button is shown on any of its cells, regardless of quantity
+
+#### Scenario: Zero-quantity cell has no serial button
+- **WHEN** a serialized product's Good or Bad quantity for a given business/location is zero
+- **THEN** no serial button is shown for that specific cell
+
+### Requirement: System SHALL support a single search box combining product-identity search and exact barcode/serial lookup
+The search input SHALL apply two independent match paths, combined with OR: (1) the existing multi-token, order-independent search across product name, product code, barcode, category name, and brand name; (2) an exact-match lookup against `products.barcode` and `product_serial_numbers.serial_number`. A serial number match SHALL resolve to its owning product's row in the table. When the complete search value exactly matches a serial that is currently eligible for an operational Good or Bad serial dialog, the on-screen table SHALL apply a soft yellow stabilo-style marker only to that serial's corresponding stock cell. The marker SHALL identify the matching business and condition in collapsed view, and the matching location and condition in expanded view. It SHALL NOT alter displayed information, automatically open the serial dialog, or appear in Excel exports.
+
+#### Scenario: Multi-word product identity search
+- **WHEN** a user searches "acer 8 core i3"
+- **THEN** products whose name contains all of "acer", "8", "core", and "i3" as substrings, in any order, are returned
+- **AND** no serial-location marker is shown
+
+#### Scenario: Exact barcode match
+- **WHEN** a user searches a value that exactly matches a product's `barcode`
+- **THEN** that product's row is returned
+- **AND** no serial-location marker is shown
+
+#### Scenario: Partial barcode does not match
+- **WHEN** a user searches a value that is a substring or prefix of a product's `barcode` but not the full value
+- **THEN** that product is not returned via the barcode path, though it may still be returned via the product-identity path if the fragment matches name, code, category, or brand
+- **AND** no serial-location marker is shown
+
+#### Scenario: Exact serial number match resolves to the owning product
+- **WHEN** a user searches a value that exactly matches a `product_serial_numbers.serial_number`
+- **THEN** the table shows the row for the product that owns that serial number
+- **AND** the serial dialog does not open automatically
+- **AND** marker visibility follows the serial's operational status and the currently visible business and location columns
+
+#### Scenario: Exact operational good serial match in collapsed view
+- **WHEN** the complete search value exactly matches an operational Good serial in a currently visible business
+- **AND** that business is collapsed
+- **THEN** the table shows the row for the product that owns that serial
+- **AND** only the matching business's Good subtotal cell receives the serial-location marker
+- **AND** the serial dialog does not open automatically
+
+#### Scenario: Exact operational bad serial match in collapsed view
+- **WHEN** the complete search value exactly matches an operational Bad serial in a currently visible business
+- **AND** that business is collapsed
+- **THEN** only the matching business's Bad subtotal cell receives the serial-location marker
+
+#### Scenario: Exact serial match in expanded view
+- **WHEN** the complete search value exactly matches an operational Good or Bad serial in a currently visible location
+- **AND** the containing business is expanded
+- **THEN** only the matching location's corresponding Good or Bad cell receives the serial-location marker
+
+#### Scenario: Exact non-operational serial match
+- **WHEN** the complete search value exactly matches a serial that is `MISSING`, `SOLD`, `RETURNED`, `RETURN_IN_PROCESS`, dispatched, or in a return process
+- **THEN** the table continues to show the owning product according to the existing exact serial search behavior
+- **AND** no Good or Bad stock cell receives the serial-location marker
+
+#### Scenario: Matching serial is outside the visible business scope
+- **WHEN** the complete search value exactly matches a serial whose business is not among the report's currently selected and visible businesses
+- **THEN** no stock cell receives the serial-location marker
+
+#### Scenario: Search changes or is cleared
+- **WHEN** a marked exact serial search is changed to a non-matching value or cleared
+- **THEN** the serial-location marker is removed
+
+#### Scenario: Excel export during marked search
+- **WHEN** a user exports the report while an exact operational serial search is marked on screen
+- **THEN** the Excel export contains the existing data and formatting without the serial-location marker
+
+### Requirement: System SHALL support category, brand, and availability filters alongside pagination
+The report SHALL provide a category filter (live-search multi-select with implicit OR semantics) and a brand filter (live-search), plus a three-state availability filter (all / available / non-available) and pagination of results.
+
+#### Scenario: Filtering by category
+- **WHEN** a user selects 2 categories
+- **THEN** products belonging to at least one of the 2 selected categories are shown
+
+#### Scenario: Filtering to available stock only
+- **WHEN** a user selects the "available" availability filter
+- **THEN** only products with a nonzero Good or Bad quantity in at least one visible business are shown
+
+#### Scenario: Filtering to non-available stock only
+- **WHEN** a user selects the "non-available" availability filter
+- **THEN** only products with zero Good and Bad quantity across all visible businesses are shown
+
+### Requirement: System SHALL display a cross-business total Good and Bad quantity per product row
+Immediately after the "Merek" (Brand) column, the system SHALL display two additional columns, "Total Bagus" and "Total Rusak", showing each product's Good and Bad quantity summed across all currently selected/visible businesses. These totals SHALL remain unaffected by whether any individual business's columns are collapsed to a subtotal or expanded to per-location detail. The Excel export SHALL mirror these two columns in the same position, vertically merged across all header tiers, consistent with the existing Produk/Kategori/Merek columns.
+
+#### Scenario: Totals sum across multiple selected businesses
+- **WHEN** a product has Good quantity of 5 in Business A and 3 in Business B, both currently selected
+- **THEN** the "Total Bagus" column for that product's row shows 8
+
+#### Scenario: Totals unaffected by expand/collapse toggle
+- **WHEN** a user toggles a business's columns from collapsed to expanded (or back)
+- **THEN** the "Total Bagus" and "Total Rusak" values for every product row remain unchanged
+
+#### Scenario: Totals reflect only currently selected businesses
+- **WHEN** a user deselects a business from the business filter
+- **THEN** the "Total Bagus" and "Total Rusak" columns recalculate to exclude that business's quantities
+
+#### Scenario: Excel export includes the same total columns
+- **WHEN** a user exports the report to Excel
+- **THEN** the exported file contains "Total Bagus" and "Total Rusak" columns positioned immediately after "Merek", with values matching the on-screen totals for the applied filters
+
+### Requirement: System SHALL export the report to Excel, always fully expanded to per-location detail
+The Excel export SHALL mirror the on-screen table layout (product rows, business/location grouped columns, Good/Bad values) but SHALL always show per-location detail for every business, regardless of whether any business is collapsed or expanded on screen at export time. The export SHALL respect the currently applied search/filter criteria and the user's business-visibility scope.
+
+#### Scenario: Exporting while a business is collapsed on screen
+- **WHEN** a user with one business collapsed on screen triggers the Excel export
+- **THEN** the exported file shows that business broken out per location, not as a collapsed subtotal
+
+#### Scenario: Export respects business-visibility scope
+- **WHEN** a non-Super-Admin user assigned to 2 businesses exports the report
+- **THEN** the exported file contains columns only for those 2 businesses' locations
+
+#### Scenario: Export respects applied filters
+- **WHEN** a user has applied a category filter and a search term before exporting
+- **THEN** the exported rows match exactly the filtered result set shown on screen (before pagination)

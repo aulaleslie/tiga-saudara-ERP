@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="./vendor/phpunit/phpunit/phpunit.xsd"
-         bootstrap="vendor/autoload.php"
+         bootstrap="tests/bootstrap.php"
          colors="true"
 >
     <testsuites>
@@ -10,6 +10,30 @@
         </testsuite>
         <testsuite name="Feature">
             <directory suffix="Test.php">./tests/Feature</directory>
+        </testsuite>
+        <testsuite name="Pos">
+            <directory suffix="Test.php">./Modules/Pos/Tests</directory>
+        </testsuite>
+        <testsuite name="Purchase">
+            <directory suffix="Test.php">./Modules/Purchase/Tests</directory>
+        </testsuite>
+        <testsuite name="Sale">
+            <directory suffix="Test.php">./Modules/Sale/Tests</directory>
+        </testsuite>
+        <testsuite name="SalesReturn">
+            <directory suffix="Test.php">./Modules/SalesReturn/Tests</directory>
+        </testsuite>
+        <testsuite name="Reports">
+            <directory suffix="Test.php">./Modules/Reports/Tests</directory>
+        </testsuite>
+        <testsuite name="Adjustment">
+            <directory suffix="Test.php">./Modules/Adjustment/Tests</directory>
+        </testsuite>
+        <testsuite name="Setting">
+            <directory suffix="Test.php">./Modules/Setting/Tests</directory>
+        </testsuite>
+        <testsuite name="Product">
+            <directory suffix="Test.php">./Modules/Product/Tests</directory>
         </testsuite>
     </testsuites>
     <coverage>
@@ -21,11 +45,16 @@
         <server name="APP_ENV" value="testing"/>
         <server name="BCRYPT_ROUNDS" value="4"/>
         <server name="CACHE_DRIVER" value="array"/>
-        <!-- <server name="DB_CONNECTION" value="sqlite"/> -->
-        <!-- <server name="DB_DATABASE" value=":memory:"/> -->
+        <server name="DB_CONNECTION" value="sqlite"/>
+        <server name="DB_DATABASE" value=":memory:"/>
         <server name="MAIL_MAILER" value="array"/>
         <server name="QUEUE_CONNECTION" value="sync"/>
         <server name="SESSION_DRIVER" value="array"/>
         <server name="TELESCOPE_ENABLED" value="false"/>
+        <server name="SCOUT_DRIVER" value="null"/>
+        <server name="algolia_app_id" value="null"/>
+        <server name="algolia_secret" value="null"/>
+        <server name="SEQUENCE_PURCHASE_ENABLED" value="true"/>
+        <server name="SEQUENCE_SALE_ENABLED" value="true"/>
     </php>
 </phpunit>

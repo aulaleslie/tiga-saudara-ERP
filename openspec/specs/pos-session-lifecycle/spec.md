@@ -1,0 +1,121 @@
+# pos-session-lifecycle Specification
+
+## Purpose
+TBD - created by archiving change pos-two-stage-settlement. Update Purpose after archive.
+## Requirements
+### Requirement: Extended session status with FINALIZED state
+
+The POS session lifecycle SHALL support a fourth status, FINALIZED, representing completed settlement. Sessions progress through: OPEN → CLOSED → FINALIZED. Separate paths exist for normal cashier closes (OPEN → CLOSING → CLOSED) and admin force-closes (OPEN → CLOSED), both converging at CLOSED before proceeding to FINALIZED.
+
+#### Scenario: Session status constants include FINALIZED
+
+- **WHEN** PosSession class is initialized
+- **THEN** the following status constants SHALL be defined:
+  - `PosSession::STATUS_OPEN = 'OPEN'`
+  - `PosSession::STATUS_CLOSING = 'CLOSING'`
+  - `PosSession::STATUS_CLOSED = 'CLOSED'`
+  - `PosSession::STATUS_FINALIZED = 'FINALIZED'`
+- **AND** `activeMarkerForStatus()` method SHALL return active marker (1) for OPEN and CLOSING only
+- **AND** CLOSED and FINALIZED sessions SHALL have active_marker = NULL
+
+#### Scenario: Cashier closes session via normal flow
+
+- **WHEN** a cashier initiates session close via POST `/pos/sell/checkout/finalize` or equivalent
+- **THEN** the session status SHALL transition: OPEN → CLOSING → CLOSED
+- **AND** the `closed_by` field SHALL record the cashier's user ID
+- **AND** the metadata SHALL contain `closed_by_role: 'cashier'`
+- **AND** variance approval (if needed) happens at this stage
+- **AND** variance approval REQUIRED: session remains in CLOSING if variance exceeds threshold and approval is pending
+
+#### Scenario: Admin force-closes session via admin override
+
+- **WHEN** admin initiates force-close via POST `/pos/sessions/{session}/close-admin`
+- **THEN** the session status SHALL transition directly: OPEN → CLOSED (skipping CLOSING state)
+- **AND** the `closed_by` field SHALL record the admin user's ID
+- **AND** the metadata SHALL contain `closed_by_role: 'admin'`
+- **AND** no variance calculation or approval happens at close time
+- **AND** the session proceeds immediately to CLOSED status
+
+#### Scenario: Supervisor finalizes CLOSED session
+
+- **WHEN** supervisor initiates finalization via POST `/pos/sessions/{session}/finalize`
+- **AND** the session is in CLOSED status
+- **AND** variance (if any) is approved or within threshold
+- **THEN** the session status SHALL transition: CLOSED → FINALIZED
+- **AND** a `finalized_at` timestamp SHALL be recorded
+- **AND** the metadata may be updated with finalization details
+- **AND** variance approval happens at this stage
+
+#### Scenario: FINALIZED session is immutable
+
+- **WHEN** a session is in FINALIZED status
+- **THEN** neither cashier, supervisor, nor admin SHALL be able to further modify the session
+- **AND** the session's cash count, variance, and settlement details are locked
+- **AND** subsequent modification requests SHALL return HTTP 422 with appropriate error message
+
+#### Scenario: Session active marker reflects lifecycle
+
+- **WHEN** a session is opened (OPEN status)
+- **THEN** `active_marker` SHALL be set to 1
+- **AND** when session transitions to CLOSED, `active_marker` SHALL be set to NULL (terminal is released for other cashiers)
+- **AND** when session transitions to FINALIZED, `active_marker` SHALL be set to NULL
+
+### Requirement: Session can be opened with or without terminal selection
+
+The POS session opening process SHALL allow users to create sessions with an optional terminal assignment. Terminal selection SHALL NOT be required for any user, regardless of role or permissions. Sessions opened without a terminal SHALL have `terminal_id = NULL`.
+
+#### Scenario: Session opened without terminal
+- **WHEN** a user with `pos.sessions.open` permission opens a session without selecting a terminal
+- **THEN** a new PosSession record SHALL be created with `terminal_id = NULL`
+- **AND** the session SHALL enter OPEN status
+- **AND** `opening_float_total` may be 0 or null (not required when no terminal)
+- **AND** the session is valid and usable in the POS system
+
+#### Scenario: Session opened with terminal
+- **WHEN** a user with `pos.sessions.open` permission opens a session and selects a terminal
+- **THEN** a new PosSession record SHALL be created with the selected `terminal_id`
+- **AND** the session SHALL enter OPEN status
+- **AND** the terminal SHALL be allocated to the user (active_marker set appropriately)
+- **AND** `opening_float_total` SHALL be provided and validated
+
+#### Scenario: No permission-based terminal requirement
+- **WHEN** any authenticated user with `pos.sessions.open` permission attempts to open a session
+- **THEN** the system SHALL NOT require terminal selection based on any permission check
+- **AND** the system SHALL NOT enforce `pos.sessions.require-terminal` permission for this purpose
+
+### Requirement: Kas column displays consistent expected cash
+
+The system SHALL display `expected_cash_total` in the "Kas" column for all session states (OPEN, CLOSED, CLOSING, FINALIZED) to provide consistent operational visibility.
+
+#### Scenario: Open session shows expected cash
+- **WHEN** viewing sessions list and session status is OPEN
+- **THEN** "Kas" column displays `expected_cash_total` formatted as currency
+
+#### Scenario: Closed session shows expected cash
+- **WHEN** viewing sessions list and session status is CLOSED
+- **THEN** "Kas" column displays `expected_cash_total` (not counted_cash_total or NULL)
+
+#### Scenario: Closing session shows expected cash
+- **WHEN** viewing sessions list and session status is CLOSING
+- **THEN** "Kas" column displays `expected_cash_total`
+
+#### Scenario: Finalized session shows expected cash
+- **WHEN** viewing sessions list and session status is FINALIZED
+- **THEN** "Kas" column displays `expected_cash_total` (same as during OPEN)
+
+### Requirement: Non-terminal sessions cannot finalize
+
+The system SHALL disable the finalize button for sessions without an associated terminal and display a clear tooltip.
+
+#### Scenario: Finalize disabled for non-terminal
+- **WHEN** viewing sessions list for a session where terminal_id is NULL
+- **THEN** the "Finalisasi" button is disabled with tooltip text "Finalisasi tidak diperlukan untuk sesi tanpa terminal"
+
+#### Scenario: Finalize enabled for terminal session
+- **WHEN** viewing sessions list for a CLOSED session with an associated terminal
+- **THEN** the "Finalisasi" button is enabled and clickable
+
+#### Scenario: Finalize disabled for non-terminal in OPEN state
+- **WHEN** viewing sessions list for an OPEN session without terminal
+- **THEN** the "Finalisasi" button remains disabled (no finalize option for non-terminal at any state)
+

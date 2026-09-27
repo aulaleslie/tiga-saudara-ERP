@@ -33,6 +33,6 @@ class StoreSmtpSettingsRequest extends FormRequest
      */
     public function authorize()
     {
-        return Gate::allows('access_settings');
+        return Gate::allows('settings.access');
     }
 }

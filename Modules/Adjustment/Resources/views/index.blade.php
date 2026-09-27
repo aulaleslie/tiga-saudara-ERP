@@ -3,7 +3,7 @@
 @section('title', 'Adjustments')
 
 @section('third_party_stylesheets')
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.10.25/css/dataTables.bootstrap4.min.css">
+    <link rel="stylesheet" href="{{ asset('vendor/datatables/datatables.min.css') }}">
 @endsection
 
 @section('breadcrumb')
@@ -21,6 +21,10 @@
                     <div class="card-body">
                         <a href="{{ route('adjustments.create') }}" class="btn btn-primary">
                             Tambahkan Penyesuaian <i class="bi bi-plus"></i>
+                        </a>
+
+                        <a href="{{ route('adjustments.createBreakage') }}" class="btn btn-primary">
+                            Tambahkan Penyesuaian Barang Rusak <i class="bi bi-plus"></i>
                         </a>
 
                         <hr>

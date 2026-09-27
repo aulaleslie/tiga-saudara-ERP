@@ -1,11 +1,11 @@
 @extends('layouts.app')
 
-@section('title', 'Edit Settings')
+@section('title', 'Ubah Bisnis')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item active">Settings</li>
+        <li class="breadcrumb-item active">Ubah Bisnis</li>
     </ol>
 @endsection
 
@@ -19,7 +19,7 @@
                         <h5 class="mb-0">Ubah Informasi Bisnis</h5>
                     </div>
                     <div class="card-body">
-                        <form action="{{ route('businesses.update', $business) }}" method="POST">
+                        <form id="business-edit-form" action="{{ route('businesses.update', $business) }}" method="POST">
                             @csrf
                             @method('patch')
                             <div class="form-row">
@@ -32,13 +32,13 @@
                                 <div class="col-lg-4">
                                     <div class="form-group">
                                         <label for="company_email">Email Bisnis <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="company_email" value="{{ $business->company_email }}" required>
+                                        <input type="email" class="form-control" name="company_email" value="{{ $business->company_email }}" required>
                                     </div>
                                 </div>
                                 <div class="col-lg-4">
                                     <div class="form-group">
-                                        <label for="company_phone">Kontak Bisnis <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="company_phone" value="{{ $business->company_phone }}" required>
+                                        <label for="company_phone">Telepon Bisnis <span class="text-danger">*</span></label>
+                                        <input type="number" class="form-control" name="company_phone" value="{{ $business->company_phone }}" required>
                                     </div>
                                 </div>
                             </div>
@@ -46,26 +46,59 @@
                             <div class="form-row">
                                 <div class="col-lg-4">
                                     <div class="form-group">
-                                        <label for="default_currency_id">Pengaturan Mata Uang <span class="text-danger">*</span></label>
-                                        <select name="default_currency_id" id="default_currency_id" class="form-control" required>
-                                            @foreach(\Modules\Currency\Entities\Currency::all() as $currency)
-                                                <option {{ $business->default_currency_id == $currency->id ? 'selected' : '' }} value="{{ $currency->id }}">{{ $currency->currency_name }}</option>
-                                            @endforeach
-                                        </select>
+                                        <label for="document_prefix">Prefix Dokumen <span
+                                                class="text-danger">*</span></label>
+                                        <input type="text" class="form-control" name="document_prefix"
+                                               value="{{ $business->document_prefix }}" required>
                                     </div>
                                 </div>
                                 <div class="col-lg-4">
                                     <div class="form-group">
-                                        <label for="default_currency_position">Pengaturan Posisi Mata Uang <span class="text-danger">*</span></label>
-                                        <select name="default_currency_position" id="default_currency_position" class="form-control" required>
-                                            <option {{ $business->default_currency_position == 'prefix' ? 'selected' : '' }} value="prefix">Prefix</option>
-                                            <option {{ $business->default_currency_position == 'suffix' ? 'selected' : '' }} value="suffix">Suffix</option>
-                                        </select>
+                                        <label for="purchase_prefix_document">Prefix Dokumen Pembelian <span
+                                                class="text-danger">*</span></label>
+                                        <input type="text" class="form-control" name="purchase_prefix_document"
+                                               value="{{ $business->purchase_prefix_document }}" required>
+                                    </div>
+                                </div>
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="sale_prefix_document">Prefix Dokumen Penjualan <span
+                                                class="text-danger">*</span></label>
+                                        <input type="text" class="form-control" name="sale_prefix_document"
+                                               value="{{ $business->sale_prefix_document }}" required>
+                                    </div>
+                                </div>
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="purchase_return_prefix_document">Prefix Dokumen Retur Pembelian</label>
+                                        <input type="text" class="form-control" name="purchase_return_prefix_document"
+                                               value="{{ $business->purchase_return_prefix_document }}">
+                                        <small class="form-text text-muted">Contoh: PRRN</small>
+                                    </div>
+                                </div>
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="sale_return_prefix_document">Prefix Dokumen Retur Penjualan</label>
+                                        <input type="text" class="form-control" name="sale_return_prefix_document"
+                                               value="{{ $business->sale_return_prefix_document }}">
+                                        <small class="form-text text-muted">Contoh: SLRN</small>
                                     </div>
                                 </div>
                             </div>
 
                             <div class="form-row">
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="is_pkp">Status PKP</label>
+                                        <div class="form-check mt-2">
+                                            <input class="form-check-input" type="checkbox" id="is_pkp" name="is_pkp" value="1"
+                                                   {{ old('is_pkp', (bool) ($business->is_pkp ?? false)) ? 'checked' : '' }}>
+                                            <label class="form-check-label" for="is_pkp">
+                                                Bisnis ini PKP
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
                                 <div class="col-lg-12">
                                     <div class="form-group">
                                         <label for="company_address">Alamat Bisnis<span class="text-danger">*</span></label>
@@ -78,7 +111,7 @@
                                 <a href="{{ route('businesses.index') }}" class="btn btn-secondary mr-2">
                                     Kembali
                                 </a>
-                                <button type="submit" class="btn btn-primary"><i class="bi bi-check"></i> Simpan Perubahan</button>
+                                <x-button label="Simpan Perubahan" icon="bi-check" processing-text="Memproses…" />
                             </div>
                         </form>
                     </div>
@@ -88,3 +121,13 @@
     </div>
 @endsection
 
+@push('page_scripts')
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initFormSubmissionLock('business-edit-form', {
+                errorEventName: 'business:submit-error'
+            });
+        });
+    </script>
+@endpush

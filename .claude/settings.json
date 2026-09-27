@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /home/aulaleslie/Workspace/Rahmat/tiga-saudara-ERP log --oneline --all)",
+      "Bash(git -C /home/aulaleslie/Workspace/Rahmat/tiga-saudara-ERP show 42cb887 --stat)"
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+Tanggal,Transaksi,Nomor,Kategori,Deskripsi,Supplier,Jumlah,Tax,Status,Sisa Tagihan
+06/07/2020	,Expense,10024	,pajak cv,"",PAJAK CV TIGA NUSA,6591.0,0.0,Paid,0.0
+06/07/2020	,Expense,10019	,PLN,"",PLN,111385.0,0.0,Paid,0.0
+06/07/2020	,Expense,10018	,telkom,"",telkom,572000.0,0.0,Paid,0.0
+06/07/2020	,Expense,10016	,pajak cv,"",PAJAK CV TIGA NUSA,56585.0,0.0,Paid,0.0
+06/07/2020	,Expense,10017	,PDAM,"",PDAM,58125.0,0.0,Paid,0.0
+05/08/2020	,Expense,10025	,pajak cv,"",PAJAK CV TIGA NUSA,251023.0,0.0,Paid,0.0
+20/08/2020	,Expense,10022	,PLN,"",PLN,265462.0,0.0,Paid,0.0
+09/09/2020	,Expense,10026	,pajak cv,"",PAJAK CV TIGA NUSA,354705.0,0.0,Paid,0.0
+06/10/2020	,Expense,10027	,PLN,"",PLN,143263.0,0.0,Paid,0.0
+06/10/2020	,Expense,10028	,PDAM,"",PDAM,42490.0,0.0,Paid,0.0
+06/10/2020	,Expense,10029	,telkom,"",,621498.0,0.0,Paid,0.0
+09/10/2020	,Expense,10030	,pajak cv,"",PAJAK CV TIGA NUSA,65545.0,0.0,Paid,0.0
+06/11/2020	,Expense,10033	,PDAM,"",PDAM,42490.0,0.0,Paid,0.0
+06/11/2020	,Expense,10031	,telkom,"",telkom,621498.0,0.0,Paid,0.0
+06/11/2020	,Expense,10032	,PLN,"",PLN,101822.0,0.0,Paid,0.0
+06/11/2020	,Expense,10034	,pajak cv,"",PAJAK CV TIGA NUSA,3090602.0,0.0,Paid,0.0
+05/12/2020	,Expense,10037	,PDAM,"",PDAM,42490.0,0.0,Paid,0.0
+05/12/2020	,Expense,10035	,telkom,"",telkom,623698.0,0.0,Paid,0.0
+05/12/2020	,Expense,10036	,PLN,"",PLN,260149.0,0.0,Paid,0.0
+11/12/2020	,Expense,10038	,pajak cv,"",PAJAK CV TIGA NUSA,3948955.0,0.0,Paid,0.0

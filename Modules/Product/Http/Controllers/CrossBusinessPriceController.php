@@ -1,0 +1,62 @@
+<?php
+
+namespace Modules\Product\Http\Controllers;
+
+use App\Http\Controllers\Controller;
+use Modules\Product\Http\Requests\CrossBusinessPriceUpdateRequest;
+use Modules\Product\Entities\Product;
+use Modules\Product\Services\CrossBusinessPriceService;
+
+class CrossBusinessPriceController extends Controller
+{
+    protected CrossBusinessPriceService $priceService;
+
+    public function __construct(CrossBusinessPriceService $priceService)
+    {
+        $this->priceService = $priceService;
+    }
+
+    public function edit(Product $product)
+    {
+        $prices = $this->priceService->loadPricesForProduct($product);
+        $conversionsData = $this->priceService->loadConversionPricesForProduct($product);
+        $conversionSnapshot = $this->priceService->generateConversionSnapshot($product);
+        $bundlesData = $this->priceService->loadBundlePricesForProduct($product);
+        $bundleSnapshot = $this->priceService->generateBundleSnapshot($product);
+
+        return view('product::products.cross-business-prices', compact(
+            'product',
+            'prices',
+            'conversionsData',
+            'conversionSnapshot',
+            'bundlesData',
+            'bundleSnapshot'
+        ));
+    }
+
+    public function update(CrossBusinessPriceUpdateRequest $request, Product $product)
+    {
+        $validated = $request->validated();
+
+        try {
+            $this->priceService->savePricesForProduct(
+                $product,
+                $validated['prices'],
+                $validated['conversions'] ?? null,
+                $validated['conversion_snapshot'] ?? null,
+                $validated['conversion_snapshot_signature'] ?? null,
+                $validated['bundles'] ?? null,
+                $validated['bundle_snapshot'] ?? null,
+                $validated['bundle_snapshot_signature'] ?? null
+            );
+            return redirect()
+                ->route('products.cross-business-prices.edit', $product)
+                ->with('success', 'Prices updated successfully.');
+        } catch (\Exception $e) {
+            return redirect()->back()
+                ->with('error', $e->getMessage())
+                ->withInput();
+        }
+    }
+}
+

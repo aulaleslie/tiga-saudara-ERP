@@ -11,39 +11,121 @@
 |
 */
 
+use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Http\Controllers\PurchaseController;
+use Modules\Purchase\Http\Controllers\PurchasePaymentsController;
+use Modules\Purchase\Http\Controllers\PurchaseUploadController;
+use Modules\Purchase\Http\Controllers\GlobalPurchasePaymentController;
+use Modules\Purchase\Http\Controllers\PurchaseCorrectionController;
+use Modules\Purchase\Http\Controllers\PurchaseDateAdjustmentController;
+use Modules\Purchase\Http\Controllers\PurchaseReportingDateController;
 
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
+
+    // Purchase Upload Routes
+    Route::get('/purchases/imports', [PurchaseUploadController::class, 'index'])->name('purchases.imports.index');
+    Route::get('/purchases/upload', [PurchaseUploadController::class, 'uploadPage'])->name('purchases.upload.form');
+    Route::post('/purchases/upload', [PurchaseUploadController::class, 'upload'])->name('purchases.upload.store');
+    Route::get('/purchases/upload/template', [PurchaseUploadController::class, 'downloadTemplate'])->name('purchases.upload.template');
+    Route::get('/purchases/imports/{batch}', [PurchaseUploadController::class, 'show'])->name('purchases.imports.show');
 
     Route::get('/purchases/datatable', [PurchaseController::class, 'datatable'])->name('datatable.purchases');
     //Generate PDF
     Route::get('/purchases/pdf/{id}', function ($id) {
-        $purchase = Purchase::findOrFail($id);
-        $supplier = Supplier::findOrFail($purchase->supplier_id);
+        // Ambil data purchase + relasi supplier + details + product
+        $purchase = Purchase::with([
+            'supplier',
+            'purchaseDetails.product', // join ke produk agar dapat nama/unit jika perlu
+            'purchaseDetails.product.baseUnit'
+        ])->withArchived()->findOrFail($id);
 
-        $pdf = \PDF::loadView('purchase::print', [
+        // Optional: Logging untuk debug
+        Log::info("Data", [
+            'purchase' => $purchase->toArray(),
+            'supplier' => $purchase->supplier->toArray(),
+            'details'  => $purchase->purchaseDetails->toArray(),
+        ]);
+
+        // Kirim ke view untuk PDF
+        $pdf = Pdf::loadView('purchase::print', [
             'purchase' => $purchase,
-            'supplier' => $supplier,
-        ])->setPaper('a4');
-
-        return $pdf->stream('purchase-'. $purchase->reference .'.pdf');
+            'supplier' => $purchase->supplier,
+            'details'  => $purchase->purchaseDetails,
+        ]);
+        return $pdf->stream('purchase-order-'.$purchase->reference.'.pdf');
     })->name('purchases.pdf');
 
     //Purchases
+    Route::middleware('can:purchases.receive.access')
+        ->get('/purchases/receiving', [PurchaseController::class, 'receivingIndex'])
+        ->name('purchases.receiving.index');
+    Route::get('/purchases/receivings/{purchase_id}', [PurchaseController::class, 'showReceivings'])
+        ->name('purchases.receivings');
     Route::post('/purchases/{purchase}/receive', [PurchaseController::class, 'storeReceive'])->name('purchases.storeReceive');
+    Route::post('/receivings/{receivedNote}/approve', [PurchaseController::class, 'approveReceiving'])
+        ->name('receivings.approve');
+    Route::post('/receivings/{receivedNote}/reject', [PurchaseController::class, 'rejectReceiving'])
+        ->name('receivings.reject');
+    Route::get('/receivings/list', [PurchaseController::class, 'receivingsList'])
+        ->name('receivings.list');
     Route::get('/purchases/{purchase}/receive', [PurchaseController::class, 'receive'])->name('purchases.receive');
     Route::patch('purchases/{purchase}/status', [PurchaseController::class, 'updateStatus'])->name('purchases.updateStatus');
-    Route::resource('purchases', 'PurchaseController');
+    Route::put('purchases/{purchase}/archive', [PurchaseController::class, 'archive'])->name('purchases.archive');
+    Route::get('/purchases/create-alpine', [PurchaseController::class, 'createAlpine'])->name('purchases.create-alpine');
+    Route::post('/purchases/{purchase}/attachments', [PurchaseController::class, 'storeAttachments'])
+        ->name('purchases.attachments.store');
+    Route::delete('/purchases/{purchase}/attachments/{media}', [PurchaseController::class, 'destroyAttachment'])
+        ->name('purchases.attachments.destroy');
+
+    // Purchase Corrections
+    Route::middleware('can:purchases.received.correct')
+        ->group(function () {
+            Route::get('/purchases/{purchase}/correct', [PurchaseCorrectionController::class, 'edit'])->name('purchases.correction.edit');
+            Route::post('/purchases/{purchase}/correct', [PurchaseCorrectionController::class, 'store'])->name('purchases.correction.store');
+            Route::post('/purchases/{purchase}/correct/payment-preview', [PurchaseCorrectionController::class, 'previewPaymentCorrection'])->name('purchases.correction.payment-preview');
+            Route::get('/purchases/{purchase}/correct/recalculate/preview', [PurchaseCorrectionController::class, 'previewRecalculation'])->name('purchases.correction.recalculate.preview');
+            Route::post('/purchases/{purchase}/correct/recalculate', [PurchaseCorrectionController::class, 'executeRecalculation'])->name('purchases.correction.recalculate');
+        });
+
+    // Purchase Receiving Completions
+    Route::middleware('can:purchases.receive.complete_shortfall')
+        ->group(function () {
+            Route::get('/purchases/{purchase}/receiving-completion/preview', [PurchaseController::class, 'previewReceivingCompletion'])->name('purchases.receiving-completion.preview');
+            Route::post('/purchases/{purchase}/receiving-completion/submit', [PurchaseController::class, 'submitReceivingCompletion'])->name('purchases.receiving-completion.submit');
+        });
+
+    // Purchase Reporting Date Overrides & Combined Date Adjustments
+    Route::put('/purchases/{purchase}/date-adjustment', [PurchaseDateAdjustmentController::class, 'update'])->name('purchases.date-adjustment.update');
+    Route::post('/purchases/{purchase}/reporting-date', [PurchaseReportingDateController::class, 'store'])->name('purchases.reporting-date.store');
+    Route::delete('/purchases/{purchase}/reporting-date', [PurchaseReportingDateController::class, 'destroy'])->name('purchases.reporting-date.destroy');
+
+    // Global Purchase Payments
+    Route::group(['middleware' => ['can:purchasePayments.global.access']], function () {
+        Route::get('/purchases/global-payments', [GlobalPurchasePaymentController::class, 'index'])->name('purchases.global-payments.index');
+        Route::get('/purchases/global-payments/supplier/{supplier}/create', [GlobalPurchasePaymentController::class, 'create'])->middleware('can:purchasePayments.create')->name('purchases.global-payments.create');
+        Route::post('/purchases/global-payments/supplier/{supplier}', [GlobalPurchasePaymentController::class, 'store'])->middleware(['can:purchasePayments.create', 'idempotency'])->name('purchases.global-payments.store');
+        Route::get('/purchases/global-payments/history/{purchase_id}', [GlobalPurchasePaymentController::class, 'history'])->name('purchases.global-payments.history');
+        Route::get('/purchases/global-payments/datatable/{purchase_id}', [GlobalPurchasePaymentController::class, 'datatable'])->name('datatable.global_purchase_payments');
+        Route::get('/purchases/global-payments/{purchase_id}', [GlobalPurchasePaymentController::class, 'show'])->name('purchases.global-payments.show');
+        Route::get('/purchases/global-payments/{purchase_id}/edit-monetary', [GlobalPurchasePaymentController::class, 'editMonetary'])->name('purchases.global-payments.edit-monetary');
+        Route::put('/purchases/global-payments/{purchase_id}/date-adjustment', [GlobalPurchasePaymentController::class, 'updateDateAdjustment'])->name('purchases.global-payments.date-adjustment.update');
+    });
+
+    Route::resource('purchases', 'PurchaseController')->middleware('idempotency');
 
     //Payments
+    Route::get('/purchase-payments/datatable/{purchase_id}', [PurchasePaymentsController::class, 'datatable'])
+        ->name('datatable.purchase_payments');
     Route::get('/purchase-payments/{purchase_id}', 'PurchasePaymentsController@index')->name('purchase-payments.index');
     Route::get('/purchase-payments/{purchase_id}/create', 'PurchasePaymentsController@create')->name('purchase-payments.create');
     Route::post('/purchase-payments/store', 'PurchasePaymentsController@store')->name('purchase-payments.store');
     Route::get('/purchase-payments/{purchase_id}/edit/{purchasePayment}', 'PurchasePaymentsController@edit')->name('purchase-payments.edit');
     Route::patch('/purchase-payments/update/{purchasePayment}', 'PurchasePaymentsController@update')->name('purchase-payments.update');
-    Route::delete('/purchase-payments/destroy/{purchasePayment}', 'PurchasePaymentsController@destroy')->name('purchase-payments.destroy');
+    Route::delete('/purchase-payments/destroy/{purchasePayment}', [PurchasePaymentsController::class, 'destroy'])->name('purchase-payments.destroy');
+    Route::post('/purchase-payments/{purchasePayment}/invalidate', [PurchasePaymentsController::class, 'invalidate'])->name('purchase-payments.invalidate');
 
 });

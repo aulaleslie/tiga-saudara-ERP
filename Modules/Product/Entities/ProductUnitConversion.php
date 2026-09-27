@@ -2,12 +2,15 @@
 
 namespace Modules\Product\Entities;
 
-use Illuminate\Database\Eloquent\Model;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Modules\Setting\Entities\Location;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Setting\Entities\Unit;
 
-class ProductUnitConversion extends Model
+/**
+ * @property-read \Illuminate\Support\Collection<int, ProductUnitConversionPrice> $prices
+ */
+class ProductUnitConversion extends BaseModel
 {
     protected $fillable = [
         'product_id',
@@ -34,8 +37,42 @@ class ProductUnitConversion extends Model
         return $this->belongsTo(Unit::class, 'base_unit_id');
     }
 
-    public function location(): BelongsTo
+    public function prices(): HasMany
     {
-        return $this->belongsTo(Location::class);
+        return $this->hasMany(ProductUnitConversionPrice::class, 'product_unit_conversion_id');
+    }
+
+    public function priceForSetting(int $settingId): ?ProductUnitConversionPrice
+    {
+        if ($this->relationLoaded('prices')) {
+            return $this->prices->firstWhere('setting_id', $settingId);
+        }
+
+        return $this->prices()->where('setting_id', $settingId)->first();
+    }
+
+    public function priceValueForSetting(int $settingId): float
+    {
+        return (float) optional($this->priceForSetting($settingId))->price ?? 0.0;
+    }
+
+    public function isSalesEnabledForSetting(int $settingId): bool
+    {
+        $price = $this->priceForSetting($settingId);
+        if (!$price) {
+            return true;
+        }
+
+        return (bool) ($price->sales_enabled ?? true);
+    }
+
+    public function isPurchaseEnabledForSetting(int $settingId): bool
+    {
+        $price = $this->priceForSetting($settingId);
+        if (!$price) {
+            return true;
+        }
+
+        return (bool) ($price->purchase_enabled ?? true);
     }
 }

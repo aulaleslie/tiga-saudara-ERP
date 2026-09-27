@@ -20,24 +20,28 @@
                         <div class="table-responsive">
                             <table class="table table-bordered">
                                 <tr>
-                                    <th>Contact Name</th>
+                                    <th>Nama Kontak</th>
                                     <td>{{ $supplier->contact_name }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Supplier Name</th>
+                                    <th>Nama Supplier</th>
                                     <td>{{ $supplier->supplier_name }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Phone</th>
+                                    <th>Nomor Kontak</th>
                                     <td>{{ $supplier->supplier_phone }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Billing Address</th>
+                                    <th>Alamat Penagihan</th>
                                     <td>{{ $supplier->billing_address }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Shipping Address</th>
+                                    <th>Alamat Pengiriman</th>
                                     <td>{{ $supplier->shipping_address }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Syarat Pembayaran</th>
+                                    <td>{{ $supplier->paymentTerm?->name ?? '-' }}</td>
                                 </tr>
                             </table>
                         </div>
@@ -46,58 +50,21 @@
             </div>
         </div>
 
-        <!-- Purchases Table -->
+        @can('purchasePayments.global.access')
+        <!-- Global Purchase Payments Workspace -->
         <div class="row mt-4">
             <div class="col-lg-12">
                 <div class="card">
                     <div class="card-body">
-                        <h4 class="mb-3">Purchases</h4>
-                        <div class="table-responsive">
-                            <table id="purchases-table" class="table table-striped table-bordered">
-                                <thead>
-                                <tr>
-                                    <th>Reference</th>
-                                    <th>Supplier Name</th>
-                                    <th>Status</th>
-                                    <th>Total Amount</th>
-                                    <th>Paid Amount</th>
-                                    <th>Due Amount</th>
-                                    <th>Payment Status</th>
-                                    <th>Action</th>
-                                </tr>
-                                </thead>
-                            </table>
-                        </div>
+                        <h4 class="mb-3">Pembayaran Pembelian Global</h4>
+                        @include('purchase::payments.partials.workspace', [
+                            'supplierId' => $supplier->id,
+                            'keyPrefix' => "supplier-{$supplier->id}",
+                        ])
                     </div>
                 </div>
             </div>
         </div>
+        @endcan
     </div>
 @endsection
-
-@push('page_scripts')
-    <script>
-        $(document).ready(function () {
-            $('#purchases-table').DataTable({
-                processing: true,
-                serverSide: true,
-                ajax: {
-                    url: '{{ route("datatable.purchases") }}',
-                    data: function (d) {
-                        d.supplier_id = '{{ $supplier->id }}'; // Add supplier_id to the request
-                    }
-                },
-                columns: [
-                    { data: 'reference', name: 'reference' },
-                    { data: 'supplier_name', name: 'supplier_name' },
-                    { data: 'status', name: 'status', orderable: false },
-                    { data: 'total_amount', name: 'total_amount', orderable: false },
-                    { data: 'paid_amount', name: 'paid_amount', orderable: false },
-                    { data: 'due_amount', name: 'due_amount', orderable: false },
-                    { data: 'payment_status', name: 'payment_status', orderable: false },
-                    { data: 'action', name: 'action', orderable: false, searchable: false },
-                ]
-            });
-        });
-    </script>
-@endpush

@@ -122,6 +122,12 @@ class ProductCart extends Component
         Cart::instance($this->cart_instance)->setGlobalDiscount((integer)$this->global_discount);
     }
 
+    public function updateQuantityDirect($row_id, $product_id, $value) {
+        $newQty = max(1, (int) $value);
+        $this->quantity[$product_id] = $newQty;
+        $this->updateQuantity($row_id, $product_id);
+    }
+
     public function updateQuantity($row_id, $product_id) {
         if  ($this->cart_instance == 'sale' || $this->cart_instance == 'purchase_return') {
             if ($this->check_quantity[$product_id] < $this->quantity[$product_id]) {

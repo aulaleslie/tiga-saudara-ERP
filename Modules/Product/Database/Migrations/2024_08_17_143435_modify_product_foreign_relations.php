@@ -3,6 +3,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
@@ -12,20 +13,24 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('products', function (Blueprint $table) {
-            // Drop the existing foreign key constraints
-            $table->dropForeign(['category_id']);
-            $table->dropForeign(['brand_id']);
-            $table->dropForeign(['base_unit_id']);
+            if (DB::getDriverName() !== 'sqlite') {
+                // Drop the existing foreign key constraints
+                $table->dropForeign(['category_id']);
+                $table->dropForeign(['brand_id']);
+                $table->dropForeign(['base_unit_id']);
+            }
 
             // Make the columns nullable
             $table->unsignedBigInteger('category_id')->nullable()->change();
             $table->unsignedInteger('brand_id')->nullable()->change();
             $table->unsignedBigInteger('base_unit_id')->nullable()->change();
 
-            // Re-add the foreign key constraints with ON DELETE SET NULL
-            $table->foreign('category_id')->references('id')->on('categories')->onDelete('set null');
-            $table->foreign('brand_id')->references('id')->on('brands')->onDelete('set null');
-            $table->foreign('base_unit_id')->references('id')->on('units')->onDelete('set null');
+            if (DB::getDriverName() !== 'sqlite') {
+                // Re-add the foreign key constraints with ON DELETE SET NULL
+                $table->foreign('category_id')->references('id')->on('categories')->onDelete('set null');
+                $table->foreign('brand_id')->references('id')->on('brands')->onDelete('set null');
+                $table->foreign('base_unit_id')->references('id')->on('units')->onDelete('set null');
+            }
         });
     }
 

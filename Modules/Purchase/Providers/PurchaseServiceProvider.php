@@ -27,7 +27,15 @@ class PurchaseServiceProvider extends ServiceProvider
         $this->registerTranslations();
         $this->registerConfig();
         $this->registerViews();
+        $this->registerLivewireComponents();
         $this->loadMigrationsFrom(module_path($this->moduleName, 'Database/Migrations'));
+
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                \Modules\Purchase\Console\BackfillReceivingSerials::class,
+                \Modules\Purchase\Console\FixManualUnitPriceDesync::class,
+            ]);
+        }
     }
 
     /**
@@ -71,6 +79,19 @@ class PurchaseServiceProvider extends ServiceProvider
         ], ['views', $this->moduleNameLower . '-module-views']);
 
         $this->loadViewsFrom(array_merge($this->getPublishableViewPaths(), [$sourcePath]), $this->moduleNameLower);
+    }
+
+    /**
+     * Register Livewire components.
+     *
+     * @return void
+     */
+    public function registerLivewireComponents()
+    {
+        \Livewire\Livewire::component('modules.purchase.modals.payment-term-quick-add-modal', \Modules\Purchase\Livewire\Modals\PaymentTermQuickAddModal::class);
+        \Livewire\Livewire::component('modules.purchase.payment-term-search-dropdown', \Modules\Purchase\Livewire\PaymentTermSearchDropdown::class);
+        \Livewire\Livewire::component('purchase.purchase-summary-cards', \Modules\Purchase\Livewire\PurchaseSummaryCards::class);
+        \Livewire\Livewire::component('purchase.modals.purchase-receiving-completion-modal', \Modules\Purchase\Livewire\Modals\PurchaseReceivingCompletionModal::class);
     }
 
     /**

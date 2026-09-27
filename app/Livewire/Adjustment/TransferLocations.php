@@ -21,7 +21,7 @@ class TransferLocations extends Component
     {
         $this->currentSettingId = $currentSettingId;
         $this->currentSetting = Setting::find($this->currentSettingId);
-        $this->locations = Location::where('setting_id', $currentSettingId)->get();
+        $this->locations = Location::where('setting_id', $currentSettingId)->active()->get();
         $this->destinationLocations = $this->locations; // Default to current setting locations
     }
 
@@ -29,7 +29,7 @@ class TransferLocations extends Component
     {
         $this->destinationSettingId = $destinationSettingId;
         $this->destinationLocations = $destinationSettingId
-            ? Location::where('setting_id', $destinationSettingId)->get()
+            ? Location::where('setting_id', $destinationSettingId)->active()->get()
             : $this->locations; // Reset to current setting locations if no destination is selected
     }
 

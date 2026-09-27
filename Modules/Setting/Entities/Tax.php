@@ -2,18 +2,43 @@
 
 namespace Modules\Setting\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Models\BaseModel;
 
-class Tax extends Model
+class Tax extends BaseModel
 {
     protected $guarded = [];
 
-    /**
-     * Get the setting (business) that owns the location.
-     */
-    public function setting(): BelongsTo
+    protected $casts = [
+        'is_default' => 'boolean',
+        'is_active' => 'boolean',
+    ];
+
+    public function scopeActive($query)
     {
-        return $this->belongsTo(Setting::class);
+        return $query->where('is_active', true);
+    }
+
+    public function scopeEligible($query)
+    {
+        return $query->where('is_active', true);
+    }
+
+    public function scopeInactive($query)
+    {
+        return $query->where('is_active', false);
+    }
+
+    protected static function booted(): void
+    {
+        static::saved(function (self $tax): void {
+            if (! $tax->is_default) {
+                return;
+            }
+
+            static::query()
+                ->whereKeyNot($tax->id)
+                ->where('is_default', true)
+                ->update(['is_default' => false]);
+        });
     }
 }

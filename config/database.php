@@ -38,7 +38,9 @@ return [
         'sqlite' => [
             'driver' => 'sqlite',
             'url' => env('DATABASE_URL'),
-            'database' => env('DB_DATABASE', database_path('database.sqlite')),
+            'database' => env('APP_ENV') === 'testing'
+                ? database_path('testing.sqlite')
+                : env('DB_DATABASE', database_path('database.sqlite')),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
         ],
@@ -61,6 +63,21 @@ return [
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
+        ],
+
+        'mysql_test' => [
+            'driver' => 'mysql',
+            'host' => env('MYSQL_TEST_HOST', '127.0.0.1'),
+            'port' => env('MYSQL_TEST_PORT', '33066'),
+            'database' => env('MYSQL_TEST_DATABASE', 'tiga_saudara_test'),
+            'username' => env('MYSQL_TEST_USERNAME', 'test_user'),
+            'password' => env('MYSQL_TEST_PASSWORD', 'test_password'),
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_0900_ai_ci',
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => true,
+            'engine' => 'InnoDB',
         ],
 
         'pgsql' => [

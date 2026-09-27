@@ -7,6 +7,7 @@ export default defineConfig({
             'resources/sass/app.scss',
             'resources/js/app.js',
             'resources/js/chart-config.js',
+            'resources/css/tw.css',
         ]),
     ],
 });

@@ -42,10 +42,10 @@
                             <div>Invoice: <strong>INV/{{ $sale_return->reference }}</strong></div>
                             <div>Date: {{ \Carbon\Carbon::parse($sale_return->date)->format('d M, Y') }}</div>
                             <div>
-                                Status: <strong>{{ $sale_return->status }}</strong>
+                                Status: <strong>{{ \Modules\SalesReturn\Entities\SaleReturn::statusLabel($sale_return->status) }}</strong>
                             </div>
                             <div>
-                                Payment Status: <strong>{{ $sale_return->payment_status }}</strong>
+                                Status Pembayaran: <strong>{{ \App\Constants\PaymentStatus::label($sale_return->payment_status) }}</strong>
                             </div>
                         </div>
 
@@ -71,6 +71,13 @@
                                         <span class="badge badge-success">
                                                 {{ $item->product_code }}
                                             </span>
+                                        @if($item->getSerialNumbers()->isNotEmpty())
+                                            <div class="mt-1">
+                                                @foreach($item->getSerialNumbers() as $serial)
+                                                    <span style="display:inline-block;padding:3px 6px;margin:2px;background:#6c757d;color:#fff;border-radius:3px;font-size:11px;">{{ $serial }}</span>
+                                                @endforeach
+                                            </div>
+                                        @endif
                                     </td>
 
                                     <td class="align-middle">{{ format_currency($item->unit_price) }}</td>

@@ -1,29 +1,31 @@
-@props(['label', 'name', 'options' => [], 'selected' => null, 'required' => false, 'addCategoryButton' => false, 'placeholder' => 'Pilih', 'disabled' => null])
+@props(['label', 'name', 'options' => [], 'selected' => null, 'required' => false, 'addCategoryButton' => false, 'placeholder' => 'Pilih', 'disabled' => false, 'quickAddButton' => null])
 
 <div class="form-group">
-    <label for="{{ $name }}">{{ $label }}
-        @if($required)
-            <span class="text-danger">*</span>
-        @endif
-    </label>
+    <label for="{{ $name }}">{{ $label }} @if($required)<span class="text-danger">*</span>@endif</label>
     <div class="input-group">
-        <select class="form-control @error($name) is-invalid @enderror" name="{{ $name }}" id="{{ $name }}"
+        <select class="form-control @error($name) is-invalid @enderror"
+                name="{{ $name }}" id="{{ $name }}"
                 @if($required) required @endif
                 @if($disabled) disabled @endif>
-            <option value="0">{{ $placeholder }} {{ $label }}</option> <!-- Allow re-selection of the placeholder -->
+            <option value="">{{ $placeholder }} {{ $label }}</option>
             @foreach($options as $key => $value)
-                <option value="{{ $key }}"
-                        @if($key == old($name, $selected)) selected @endif>
+                <option value="{{ $key }}" @if((string)$key === (string)old($name, $selected)) selected @endif>
                     {{ $value }}
                 </option>
             @endforeach
         </select>
+        @if($quickAddButton)
+            <x-quick-add-button
+                entity="{{ $quickAddButton['entity'] ?? '' }}"
+                permission="{{ $quickAddButton['permission'] ?? '' }}"
+                modal-event="{{ $quickAddButton['modal-event'] ?? '' }}"
+                tooltip="{{ $quickAddButton['tooltip'] ?? '' }}"
+                size="{{ $quickAddButton['size'] ?? 'sm' }}"
+            />
+        @endif
     </div>
 
-    <!-- Error Message -->
     @error($name)
-    <span class="invalid-feedback d-block" role="alert">
-            <strong>{{ $message }}</strong>
-        </span>
+    <span class="invalid-feedback d-block" role="alert"><strong>{{ $message }}</strong></span>
     @enderror
 </div>

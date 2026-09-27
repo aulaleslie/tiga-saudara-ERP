@@ -19,8 +19,12 @@
                         <div class="table-responsive">
                             <table class="table table-bordered">
                                 <tr>
+                                    <th>Tier</th>
+                                    <td>{{ $customer->tier ?? 'Pelanggan Normal' }}</td>
+                                </tr>
+                                <tr>
                                     <th>Nama Pelanggan</th>
-                                    <td>{{ $customer->contact_name }}</td>
+                                    <td>{{ $customer->customer_name }}</td>
                                 </tr>
                                 <tr>
                                     <th>Identitas</th>
@@ -31,8 +35,8 @@
                                     <td>{{ $customer->identity_number ?? '-' }}</td>
                                 </tr>
                                 <tr>
-                                    <th>Nama Perusahaan</th>
-                                    <td>{{ $customer->customer_name }}</td>
+                                    <th>Kontak</th>
+                                    <td>{{ $customer->contact_name ?? '-' }}</td>
                                 </tr>
                                 <tr>
                                     <th>Nomor Handphone</th>
@@ -53,6 +57,10 @@
                                 <tr>
                                     <th>Alamat Pengiriman</th>
                                     <td>{{ $customer->shipping_address ?? '-' }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Syarat Pembayaran</th>
+                                    <td>{{ $customer->paymentTerm->name ?? '-' }}</td>
                                 </tr>
                                 <tr>
                                     <th>Info Lainnya</th>
@@ -83,5 +91,21 @@
                 </div>
             </div>
         </div>
+
+        @can('salePayments.global.access')
+        <div class="row mt-4">
+            <div class="col-lg-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h4 class="mb-3">Pembayaran Penjualan Global</h4>
+                        @include('sale::global-payments.partials.workspace', [
+                            'customerId' => $customer->id,
+                            'keyPrefix' => "customer-{$customer->id}",
+                        ])
+                    </div>
+                </div>
+            </div>
+        </div>
+        @endcan
     </div>
 @endsection

@@ -12,7 +12,7 @@
     <!-- CoreUI CSS -->
     <link rel="stylesheet" href="{{ mix('css/app.css') }}" crossorigin="anonymous">
     <!-- Bootstrap Icons -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.5.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{{ asset('vendor/bootstrap-icons/bootstrap-icons.min.css') }}">
 </head>
 <body class="c-app flex-row align-items-center">
 <div class="container">

@@ -9,6 +9,45 @@
     <link rel="stylesheet" href="{{ public_path('b3/bootstrap.min.css') }}">
 </head>
 <body>
+@php
+    // Load settlement items for status derivation
+    $items = $purchase_return->relationLoaded('settlementItems') 
+        ? $purchase_return->settlementItems 
+        : $purchase_return->settlementItems()->get();
+
+    $allApproved = $items->isNotEmpty() && $items->every(fn($i) => strtoupper($i->status) === 'APPROVED');
+    $anyApproved = $items->contains(fn($i) => strtoupper($i->status) === 'APPROVED');
+    $anySubmitted = $items->contains(fn($i) => strtoupper($i->status) === 'SUBMITTED');
+    $approvalStatus = strtolower($purchase_return->approval_status ?? '');
+
+    // Derive settlement label
+    if ($allApproved) {
+        $settlementLabel = 'Selesai';
+        $methodLabels = \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::settlementMethods();
+        $methods = $items->pluck('method')->unique()->filter()->map(fn($m) => $methodLabels[$m] ?? $m)->implode(', ');
+        $settlementDetail = $methods ? 'Metode: ' . $methods : null;
+    } elseif ($anyApproved) {
+        $settlementLabel = 'Selesai Sebagian';
+        $approvedCount = $items->filter(fn($i) => strtoupper($i->status) === 'APPROVED')->count();
+        $settlementDetail = $approvedCount . ' dari ' . $items->count() . ' item disetujui';
+    } elseif ($approvalStatus === 'rejected') {
+        $settlementLabel = 'Ditolak';
+        $settlementDetail = $purchase_return->rejection_reason ? 'Alasan: ' . $purchase_return->rejection_reason : null;
+    } elseif ($anySubmitted) {
+        $settlementLabel = 'Menunggu Persetujuan Item';
+        $settlementDetail = null;
+    } elseif ($purchase_return->status === 'Awaiting Settlement' || ($approvalStatus === 'approved' && $items->isEmpty())) {
+        $settlementLabel = 'Menunggu Penyelesaian';
+        $settlementDetail = null;
+    } elseif ($approvalStatus !== 'approved') {
+        $settlementLabel = 'Menunggu Persetujuan';
+        $settlementDetail = null;
+    } else {
+        $settlementLabel = 'Belum Diproses';
+        $settlementDetail = null;
+    }
+@endphp
+
 <div class="container-fluid">
     <div class="row">
         <div class="col-xs-12">
@@ -42,83 +81,195 @@
                             <div>Invoice: <strong>INV/{{ $purchase_return->reference }}</strong></div>
                             <div>Date: {{ \Carbon\Carbon::parse($purchase_return->date)->format('d M, Y') }}</div>
                             <div>
-                                Status: <strong>{{ $purchase_return->status }}</strong>
+                                Status: <strong>{{ $purchase_return->unified_status_label }}</strong>
                             </div>
                             <div>
-                                Payment Status: <strong>{{ $purchase_return->payment_status }}</strong>
+                                Status Penyelesaian: <strong>{{ $settlementLabel }}</strong>
+                                @if($settlementDetail)
+                                    <div style="font-size: 12px; color: #6c757d;">{{ $settlementDetail }}</div>
+                                @endif
                             </div>
                         </div>
 
                     </div>
 
                     <div class="table-responsive-sm" style="margin-top: 30px;">
+                        @can('purchaseReturns.viewPrice')
+                            <table class="table table-striped">
+                                <thead>
+                                <tr>
+                                    <th class="align-middle">Product</th>
+                                    <th class="align-middle">Net Unit Price</th>
+                                    <th class="align-middle">Quantity</th>
+                                    <th class="align-middle">Discount</th>
+                                    <th class="align-middle">Tax</th>
+                                    <th class="align-middle">Sub Total</th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                @foreach($purchase_return->purchaseReturnDetails as $item)
+                                    <tr>
+                                        <td class="align-middle">
+                                            {{ $item->product_name }} <br>
+                                            <span class="badge badge-success">
+                                                    {{ $item->product_code }}
+                                                </span>
+                                        </td>
+
+                                        <td class="align-middle">{{ format_currency($item->unit_price) }}</td>
+
+                                        <td class="align-middle">
+                                            {{ $item->quantity }}
+                                        </td>
+
+                                        <td class="align-middle">
+                                            {{ format_currency($item->product_discount_amount) }}
+                                        </td>
+
+                                        <td class="align-middle">
+                                            {{ format_currency($item->product_tax_amount) }}
+                                        </td>
+
+                                        <td class="align-middle">
+                                            {{ format_currency($item->sub_total) }}
+                                        </td>
+                                    </tr>
+                                @endforeach
+                                </tbody>
+                            </table>
+                        @else
+                            <table class="table table-striped">
+                                <thead>
+                                <tr>
+                                    <th class="align-middle">Product</th>
+                                    <th class="align-middle">Quantity</th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                @foreach($purchase_return->purchaseReturnDetails as $item)
+                                    <tr>
+                                        <td class="align-middle">
+                                            {{ $item->product_name }} <br>
+                                            <span class="badge badge-success">
+                                                    {{ $item->product_code }}
+                                                </span>
+                                        </td>
+
+                                        <td class="align-middle">
+                                            {{ $item->quantity }}
+                                        </td>
+                                    </tr>
+                                @endforeach
+                                </tbody>
+                            </table>
+                        @endcan
+                    </div>
+
+                    {{-- Per-Item Settlement Details --}}
+                    @if($items->isNotEmpty())
+                    <div class="table-responsive-sm" style="margin-top: 30px;">
+                        <h4 class="mb-2" style="border-bottom: 1px solid #dddddd;padding-bottom: 10px;">Penyelesaian Per Item:</h4>
                         <table class="table table-striped">
                             <thead>
                             <tr>
-                                <th class="align-middle">Product</th>
-                                <th class="align-middle">Net Unit Price</th>
-                                <th class="align-middle">Quantity</th>
-                                <th class="align-middle">Discount</th>
-                                <th class="align-middle">Tax</th>
-                                <th class="align-middle">Sub Total</th>
+                                <th class="align-middle">Produk</th>
+                                <th class="align-middle">Serial Number</th>
+                                <th class="align-middle">Metode</th>
+                                @can('purchaseReturns.viewPrice')
+                                <th class="align-middle">Nominal</th>
+                                @endcan
+                                <th class="align-middle">Status</th>
                             </tr>
                             </thead>
                             <tbody>
-                            @foreach($purchase_return->purchaseReturnDetails as $item)
+                            @foreach($items as $settlementItem)
                                 <tr>
                                     <td class="align-middle">
-                                        {{ $item->product_name }} <br>
-                                        <span class="badge badge-success">
-                                                {{ $item->product_code }}
-                                            </span>
+                                        {{ $settlementItem->detail?->product_name ?? 'N/A' }} <br>
+                                        <span class="badge badge-success">{{ $settlementItem->detail?->product_code ?? '-' }}</span>
                                     </td>
-
-                                    <td class="align-middle">{{ format_currency($item->unit_price) }}</td>
-
                                     <td class="align-middle">
-                                        {{ $item->quantity }}
+                                        @if($settlementItem->serialNumber)
+                                            {{ $settlementItem->serialNumber->serial_number }}
+                                        @else
+                                            N/A
+                                        @endif
                                     </td>
-
                                     <td class="align-middle">
-                                        {{ format_currency($item->product_discount_amount) }}
+                                        @php
+                                            $methodLabels = \Modules\PurchasesReturn\Entities\PurchaseReturnDetail::settlementMethods();
+                                        @endphp
+                                        @if($settlementItem->method)
+                                            @php 
+                                                $methodKey = strtoupper(str_replace(' ', '_', trim($settlementItem->method))); 
+                                                $isPurchaseLinked = in_array($methodKey, ['MODIFY_PURCHASE', 'CREDIT', 'CASH'], true);
+                                                $targetPurchase = $settlementItem->targetPurchase;
+                                            @endphp
+                                            {{ $methodLabels[$settlementItem->method] ?? $settlementItem->method }}
+                                            @if($isPurchaseLinked && $targetPurchase)
+                                                <div style="font-size: 10px; color: #6c757d; margin-top: 2px;">
+                                                    <div>Ref: {{ $targetPurchase->reference }}</div>
+                                                    <div>Supplier Ref: {{ $targetPurchase->supplier_purchase_number ?: '-' }}</div>
+                                                </div>
+                                            @endif
+                                        @else
+                                            <em>Belum ditentukan</em>
+                                        @endif
                                     </td>
-
+                                    @can('purchaseReturns.viewPrice')
+                                    <td class="align-middle">{{ format_currency($settlementItem->getEffectiveNominal()) }}</td>
+                                    @endcan
                                     <td class="align-middle">
-                                        {{ format_currency($item->product_tax_amount) }}
-                                    </td>
-
-                                    <td class="align-middle">
-                                        {{ format_currency($item->sub_total) }}
+                                        @switch(strtoupper($settlementItem->status))
+                                            @case('DRAFT')
+                                                Draft
+                                                @break
+                                            @case('SUBMITTED')
+                                                Menunggu Persetujuan
+                                                @break
+                                            @case('APPROVED')
+                                                Disetujui
+                                                @break
+                                            @case('REJECTED')
+                                                Ditolak
+                                                @break
+                                            @default
+                                                {{ $settlementItem->status }}
+                                        @endswitch
                                     </td>
                                 </tr>
                             @endforeach
                             </tbody>
                         </table>
                     </div>
-                    <div class="row">
-                        <div class="col-xs-4 col-xs-offset-8">
-                            <table class="table">
-                                <tbody>
-                                <tr>
-                                    <td class="left"><strong>Discount ({{ $purchase_return->discount_percentage }}%)</strong></td>
-                                    <td class="right">{{ format_currency($purchase_return->discount_amount) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="left"><strong>Tax ({{ $purchase_return->tax_percentage }}%)</strong></td>
-                                    <td class="right">{{ format_currency($purchase_return->tax_amount) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="left"><strong>Shipping)</strong></td>
-                                    <td class="right">{{ format_currency($purchase_return->shipping_amount) }}</td>
-                                </tr>
-                                <tr>
-                                    <td class="left"><strong>Grand Total</strong></td>
-                                    <td class="right"><strong>{{ format_currency($purchase_return->total_amount) }}</strong></td>
-                                </tr>
-                                </tbody>
-                            </table>
+                    @endif
+
+                    @can('purchaseReturns.viewPrice')
+                        <div class="row">
+                            <div class="col-xs-4 col-xs-offset-8">
+                                <table class="table">
+                                    <tbody>
+                                    <tr>
+                                        <td class="left"><strong>Discount ({{ $purchase_return->discount_percentage }}%)</strong></td>
+                                        <td class="right">{{ format_currency($purchase_return->discount_amount) }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="left"><strong>Tax ({{ $purchase_return->tax_percentage }}%)</strong></td>
+                                        <td class="right">{{ format_currency($purchase_return->tax_amount) }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="left"><strong>Shipping)</strong></td>
+                                        <td class="right">{{ format_currency($purchase_return->shipping_amount) }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="left"><strong>Grand Total</strong></td>
+                                        <td class="right"><strong>{{ format_currency($purchase_return->total_amount) }}</strong></td>
+                                    </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
-                    </div>
+                    @endcan
                     <div class="row" style="margin-top: 25px;">
                         <div class="col-xs-12">
                             <p style="font-style: italic;text-align: center">{{ settings()->company_name }} &copy; {{ date('Y') }}.</p>

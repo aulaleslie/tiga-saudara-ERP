@@ -25,6 +25,7 @@
                         @include('utils.alerts')
                         <form id="quotation-form" action="{{ route('quotations.store') }}" method="POST">
                             @csrf
+                            <input type="hidden" name="idempotency_token" value="{{ old('idempotency_token', $idempotencyToken) }}">
 
                             <div class="form-row">
                                 <div class="col-lg-4">
@@ -38,7 +39,7 @@
                                         <div class="form-group">
                                             <label for="customer_id">Customer <span class="text-danger">*</span></label>
                                             <select class="form-control" name="customer_id" id="customer_id" required>
-                                                @foreach(\Modules\People\Entities\Customer::all() as $customer)
+                                                @foreach(\Modules\People\Entities\Customer::active()->get() as $customer)
                                                     <option value="{{ $customer->id }}">{{ $customer->customer_name }}</option>
                                                 @endforeach
                                             </select>
@@ -75,9 +76,7 @@
                             </div>
 
                             <div class="mt-3">
-                                <button type="submit" class="btn btn-primary">
-                                    Create Quotation <i class="bi bi-check"></i>
-                                </button>
+                                <x-button label="Create Quotation" icon="bi-check" processing-text="Memproses…" />
                             </div>
                         </form>
                     </div>
@@ -88,5 +87,12 @@
 @endsection
 
 @push('page_scripts')
-
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initFormSubmissionLock('quotation-form', {
+                errorEventName: 'quotation:submit-error'
+            });
+        });
+    </script>
 @endpush

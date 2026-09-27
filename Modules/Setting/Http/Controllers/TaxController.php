@@ -2,13 +2,14 @@
 
 namespace Modules\Setting\Http\Controllers;
 
-use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 use Modules\Setting\Entities\Tax;
 
 class TaxController extends Controller
@@ -19,8 +20,19 @@ class TaxController extends Controller
      */
     public function index(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        $currentSettingId = session('setting_id');
-        $taxes = Tax::where('setting_id', $currentSettingId)->get();
+        abort_if(Gate::denies('taxes.access'), 403);
+
+        $query = Tax::query();
+        if (request()->filled('status')) {
+            $status = request('status');
+            if ($status === 'active') {
+                $query->where('is_active', true);
+            } elseif ($status === 'inactive') {
+                $query->where('is_active', false);
+            }
+        }
+
+        $taxes = $query->get();
 
         return view('setting::taxes.index', [
             'taxes' => $taxes
@@ -33,6 +45,7 @@ class TaxController extends Controller
      */
     public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('taxes.create'), 403);
         return view('setting::taxes.create');
     }
 
@@ -43,19 +56,26 @@ class TaxController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
+        abort_if(Gate::denies('taxes.create'), 403);
+
+        // Normalize text inputs first (so validation sees canonical values)
+        $request->merge([
+            'name' => mb_strtoupper(trim((string) $request->input('name')), 'UTF-8'),
+        ]);
+
         $request->validate([
-            'name' => 'required|string|max:255|unique:taxes,name,NULL,id,setting_id,' . session('setting_id'),
-            'value' => 'required|numeric|gt:0',
+            'name'  => 'required|string|max:255|unique:taxes,name',
+            'value' => 'required|numeric|gt:0|lte:100',
+            'is_default' => 'nullable|boolean',
         ]);
 
         Tax::create([
-            'name' => $request->name,
-            'value' => $request->value,
-            'setting_id' => session('setting_id'),  // Get setting_id from session
+            'name'       => $request->name,         // already uppercased
+            'value'      => $request->value,
+            'is_default' => $request->boolean('is_default'),
         ]);
 
         toast('Pajak Berhasil ditambahkan!', 'success');
-
         return redirect()->route('taxes.index');
     }
 
@@ -66,6 +86,7 @@ class TaxController extends Controller
      */
     public function edit(Tax $tax): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
+        abort_if(Gate::denies('taxes.edit'), 403);
         return view('setting::taxes.edit', [
             'tax' => $tax
         ]);
@@ -79,19 +100,45 @@ class TaxController extends Controller
      */
     public function update(Request $request, Tax $tax): RedirectResponse
     {
+        abort_if(Gate::denies('taxes.edit'), 403);
+
+        $request->merge([
+            'name' => mb_strtoupper(trim((string) $request->input('name')), 'UTF-8'),
+        ]);
+
         $request->validate([
-            'name' => 'required|string|max:255|unique:taxes,name,' . $tax->id . ',id,setting_id,' . session('setting_id'),
-            'value' => 'required|numeric|gt:0',
+            'name'  => 'required|string|max:255|unique:taxes,name,' . $tax->id,
+            'value' => 'required|numeric|gt:0|lte:100',
+            'is_default' => 'nullable|boolean',
         ]);
 
         $tax->update([
-            'name' => $request->name,
+            'name'  => $request->name,   // already uppercased
             'value' => $request->value,
+            'is_default' => $request->boolean('is_default'),
         ]);
 
         toast('Pajak diperbaharui!', 'info');
-
         return redirect()->route('taxes.index');
+    }
+
+    public function toggleStatus(Tax $tax, \App\Services\MasterDataLifecycleService $lifecycleService): RedirectResponse
+    {
+        abort_if(! Gate::allows('taxes.edit') && ! Gate::allows('taxes.delete'), 403);
+
+        try {
+            if ($tax->is_active) {
+                $lifecycleService->deactivate($tax);
+                toast('Pajak berhasil dinonaktifkan!', 'info');
+            } else {
+                $lifecycleService->reactivate($tax);
+                toast('Pajak berhasil diaktifkan kembali!', 'success');
+            }
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
+        }
+
+        return redirect()->back();
     }
 
     /**
@@ -99,11 +146,16 @@ class TaxController extends Controller
      * @param Tax $tax
      * @return RedirectResponse
      */
-    public function destroy(Tax $tax): RedirectResponse
+    public function destroy(Tax $tax, \App\Services\MasterDataLifecycleService $lifecycleService): RedirectResponse
     {
-        $tax->delete();
+        abort_if(! Gate::allows('taxes.edit') && ! Gate::allows('taxes.delete'), 403);
 
-        toast('Pajak Berhasil dihapus!', 'warning');
+        try {
+            $lifecycleService->deactivate($tax);
+            toast('Pajak berhasil dinonaktifkan!', 'info');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
+        }
 
         return redirect()->route('taxes.index');
     }

@@ -7,155 +7,239 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 use Modules\Product\Entities\ProductUnitConversion;
+use Modules\Product\Support\ProductConversionPriceNormalizer;
 
 class UpdateProductRequest extends FormRequest
 {
-    /**
-     * Determine if the user is authorized to make this request.
-     *
-     * @return bool
-     */
     public function authorize(): bool
     {
-        // Check if the user has permission to edit products
-        return Gate::allows('edit_products');
+        return Gate::allows('products.edit');
     }
 
-    /**
-     * Get the validation rules that apply to the request.
-     *
-     * @return array
-     */
     public function rules(): array
     {
-        return [
-            'product_name' => ['sometimes', 'required', 'string', 'max:255'],
-            'product_code' => ['sometimes', 'required', 'string', 'max:255', 'unique:products,product_code,' . $this->product->id],
-            'product_stock_alert' => ['nullable', 'integer', 'min:0'],
-            'purchase_price' => ['nullable', 'numeric', 'min:0'],
-            'purchase_tax' => ['nullable'],
-            'sale_price' => ['nullable', 'numeric', 'min:0'],
-            'sale_tax' => ['nullable'],
-            'product_note' => ['nullable', 'string', 'max:1000'],
-            'category_id' => ['nullable', 'integer'],
-            'brand_id' => ['nullable', 'integer'],
-            'stock_managed' => ['nullable', 'boolean'],
-            'barcode' => [
-                'nullable',
-                'digits:13',
-                'regex:/^\d{13}$/',
-                'unique:products,barcode,' . $this->product->id,
-            ],
+        // Get the current product id for unique ignores
+        $productId = $this->route('product')?->id ?? ($this->product->id ?? null);
 
-            'base_unit_id' => [
-                'required_if:stock_managed,1',
-                'integer',
+        return [
+            // === Core ===
+            'product_name'        => ['required', 'string', 'max:255'],
+            'product_code'        => ['nullable', 'string', 'max:255', Rule::unique('products', 'product_code')->ignore($productId)],
+            'category_id'         => ['nullable', 'integer'],
+            'brand_id'            => ['nullable', 'integer'],
+
+            'stock_managed'          => [
+                'nullable',
+                'boolean',
+                function ($attribute, $value, $fail) use ($productId) {
+                    $product = $this->route('product');
+                    if (!$this->boolean('stock_managed') && $product && $product->stock_managed) {
+                        $hasStock = \Modules\Product\Entities\ProductStock::where('product_id', $productId)
+                            ->where('quantity', '>', 0)
+                            ->exists();
+                        if ($hasStock) {
+                            $fail('Manajemen stok tidak dapat dinonaktifkan karena produk masih memiliki stok.');
+                        }
+                    }
+                }
+            ],
+            'serial_number_required' => [
+                'nullable',
+                'boolean',
+                function ($attribute, $value, $fail) use ($productId) {
+                    $product = $this->route('product');
+                    if ($this->boolean('serial_number_required') && $product && ! $product->serial_number_required) {
+                        $hasStock = \Modules\Product\Entities\ProductStock::where('product_id', $productId)
+                            ->where(function ($q) {
+                                $q->where('quantity', '>', 0)
+                                    ->orWhere('quantity_non_tax', '>', 0)
+                                    ->orWhere('quantity_tax', '>', 0)
+                                    ->orWhere('broken_quantity', '>', 0)
+                                    ->orWhere('broken_quantity_non_tax', '>', 0)
+                                    ->orWhere('broken_quantity_tax', '>', 0);
+                            })
+                            ->exists();
+                        $hasSerials = \Modules\Product\Entities\ProductSerialNumber::where('product_id', $productId)->exists();
+
+                        if ($hasStock || $hasSerials) {
+                            $fail('Pengaktifan pelacakan nomor seri untuk produk yang memiliki stok harus dilakukan melalui menu konversi stok.');
+                        }
+                    }
+                },
+            ],
+            'product_stock_alert'    => ['nullable', 'integer', 'min:0'],
+
+            // === Buying (same as create) ===
+            'is_purchased'     => ['nullable', 'boolean'],
+            'purchase_price'   => ['nullable', 'numeric', 'min:0'],
+            'purchase_tax_id'  => ['nullable', 'integer', 'exists:taxes,id'],
+
+            // === Selling (same as create) ===
+            'is_sold'        => ['nullable', 'boolean'],
+            'sale_price'     => ['nullable', 'numeric', 'min:0'],
+            'tier_1_price'   => ['nullable', 'numeric', 'min:0'],
+            'tier_2_price'   => ['nullable', 'numeric', 'min:0'],
+            'sale_tax_id'    => ['nullable', 'integer', 'exists:taxes,id'],
+
+            // === Barcode (same as create, but ignore current product) ===
+            'barcode'        => ['nullable', 'string', 'max:255', new \Modules\Product\Rules\UniqueBarcodeIdentity($productId)],
+
+            // === Base Unit (same as create) ===
+            'base_unit_id'   => [
+                'required_if:stock_managed,1,true,on',
+                // Non-stock-managed edits disable the base unit field, so it arrives
+                // as null; only enforce integer typing when stock is managed.
+                $this->boolean('stock_managed') ? 'integer' : 'nullable',
                 function ($attribute, $value, $fail) {
-                    if ($this->input('stock_managed') && $value == 0) {
-                        $fail('Unit dasar tidak boleh 0 ketika manajemen stok diaktifkan.');
+                    if ($this->boolean('stock_managed') && (is_null($value) || (string)$value === '0')) {
+                        $fail('Unit dasar tidak boleh kosong ketika manajemen stok diaktifkan.');
                     }
                 }
             ],
 
-            'conversions' => ['nullable', 'array'],
+            // === Conversions (aligned with create; keep smarter update uniqueness) ===
+            'conversions'                     => ['nullable', 'array'],
+            'conversions.*.id'                => ['nullable', 'integer'],
 
-            // Unit ID validation with custom logic for duplicates and base_unit_id conflict
-            'conversions.*.unit_id' => [
-                'required_if:stock_managed,1',
+            'conversions.*.unit_id'           => [
+                'required_if:stock_managed,1,true,on',
                 'integer',
                 'not_in:0',
                 function ($attribute, $value, $fail) {
-                    // Prevent duplicates within conversions array
                     $conversions = $this->input('conversions') ?? [];
-                    $unitIds = array_column($conversions, 'unit_id');
+                    // ignore blank unit_id when checking duplicates
+                    $unitIds = array_values(array_filter(array_column($conversions, 'unit_id')));
 
-                    // Check for duplicate unit_id in conversions array
                     if (count(array_unique($unitIds)) !== count($unitIds)) {
                         $fail('Unit ID tidak boleh duplikat di antara elemen-elemen konversi.');
                     }
 
-                    // Check if the unit_id matches the base_unit_id
-                    $baseUnitId = (int)$this->input('base_unit_id');
-                    $unitId = (int)$value;
-
-                    if ($unitId === $baseUnitId) {
+                    $baseUnitId = (int) $this->input('base_unit_id');
+                    if ($value && (int)$value === $baseUnitId) {
                         $fail('Unit ID di konversi tidak boleh sama dengan unit dasar.');
                     }
                 },
             ],
 
-            'conversions.*.conversion_factor' => ['required_if:stock_managed,1', 'numeric', 'min:0.0001'],
-            'conversions.*.barcode' => [
+            'conversions.*.conversion_factor' => [
+                'required_if:stock_managed,1,true,on',
+                'numeric',
+                'gt:1',
+                function ($attribute, $value, $fail) {
+                    $isSerialized = $this->boolean('serial_number_required');
+                    if ($isSerialized && $value !== null && is_numeric($value)) {
+                        if (abs((float) $value - round((float) $value)) > 1e-6) {
+                            $fail('Faktor konversi untuk produk serial harus berupa bilangan bulat (contoh: 12, bukan 12.5).');
+                        }
+                    }
+                },
+            ],
+
+            'conversions.*.barcode'           => [
                 'nullable',
-                'digits:13',
-                'regex:/^\d{13}$/',
+                'string',
+                'max:255',
                 function ($attribute, $value, $fail) {
                     $conversions = $this->input('conversions') ?? [];
-                    $barcodes = array_column($conversions, 'barcode');
+                    // ignore blank barcodes when checking duplicates-in-payload
+                    $barcodes = array_values(array_filter(array_column($conversions, 'barcode')));
 
-                    // Check for duplicates within the conversions array
                     if (count(array_unique($barcodes)) !== count($barcodes)) {
                         $fail('Barcode konversi tidak boleh duplikat di antara elemen-elemen konversi.');
                     }
 
-                    if ($value && ProductUnitConversion::where('barcode', $value)
-                        ->where('product_id', '!=', $this->product->id)
-                        ->exists()) {
-                        $fail('Barcode konversi ini sudah ada di database.');
+                    if ($value) {
+                        // in-payload record index
+                        $index = (int) (explode('.', $attribute)[1] ?? -1);
+                        $currentId = data_get($conversions, "$index.id");
+
+                        // DB uniqueness: ignore current conversion row (edit case)
+                        $rule = new \Modules\Product\Rules\UniqueBarcodeIdentity(null, $currentId ?: null);
+                        if (!$rule->passes($attribute, $value)) {
+                            $fail($rule->message());
+                        }
                     }
                 }
             ],
 
-            'conversions.*.locations' => ['nullable', 'array'],
-            'conversions.*.locations.*.location_id' => ['required', 'integer', 'exists:locations,id'],
-            'conversions.*.locations.*.price' => ['nullable', 'numeric', 'min:0'],
+            'conversions.*.price'             => ['required_with:conversions.*.unit_id', 'numeric', 'gt:0'],
+            'conversions.*.sales_enabled'     => ['nullable', 'boolean'],
+            'conversions.*.purchase_enabled'  => ['nullable', 'boolean'],
 
-            'document' => ['nullable', 'array'],
+            // === Files ===
+            'document'   => ['nullable', 'array'],
             'document.*' => ['nullable', 'string'],
-
-            // Location required if product_quantity is greater than 0
-            'location_id' => [
-                'integer',
-                function ($attribute, $value, $fail) {
-                    if ($this->input('product_quantity') > 0 && empty($value)) {
-                        $fail('Location harus diisi jika jumlah produk lebih dari 0.');
-                    }
-                }
-            ],
         ];
     }
 
-    /**
-     * Customize the error messages.
-     *
-     * @return array
-     */
     public function messages(): array
     {
+        // Keep messages aligned with StoreProductInfoRequest
         return [
-            'product_name.required' => 'Nama Barang diperlukan.',
-            'product_code.required' => 'Diperlukan Kode Produk.',
-            'product_code.unique' => 'Kode Produk ini sudah digunakan.',
-            'base_unit_id.required_if' => 'Unit primer diperlukan ketika manajemen stok diaktifkan.',
-            'conversions.*.unit_id.required_with' => 'Konversi ke satuan diperlukan ketika memberikan faktor konversi.',
-            'conversions.*.conversion_factor.required_with' => 'Faktor konversi diperlukan saat menyediakan unit.',
-            'conversions.*.conversion_factor' => 'Conversion factor harus dipilih jika stock managed',
-            'conversions.*.locations.*.location_id.required' => 'Lokasi untuk harga konversi wajib diisi.',
-            'conversions.*.locations.*.location_id.integer' => 'Lokasi untuk harga konversi tidak valid.',
-            'conversions.*.locations.*.location_id.exists' => 'Lokasi yang dipilih untuk harga konversi tidak ditemukan.',
-            'conversions.*.locations.*.price.numeric' => 'Harga konversi per lokasi harus berupa angka.',
-            'conversions.*.locations.*.price.min' => 'Harga konversi per lokasi tidak boleh kurang dari 0.',
-            // Add custom messages for other fields as needed
+            'product_name.required' => 'Nama produk wajib diisi.',
+            'product_name.max'      => 'Nama produk tidak boleh lebih dari 255 karakter.',
+            'product_code.required' => 'Kode produk wajib diisi.',
+            'product_code.unique'   => 'Kode produk sudah digunakan.',
+
+            'category_id.integer'   => 'Kategori yang dipilih tidak valid.',
+            'brand_id.integer'      => 'Merek yang dipilih tidak valid.',
+            'stock_managed.boolean' => 'Nilai manajemen stok tidak valid.',
+            'product_stock_alert.integer' => 'Peringatan jumlah stok harus berupa angka.',
+            'product_stock_alert.min'     => 'Peringatan jumlah stok tidak boleh kurang dari 0.',
+
+            // Buying
+            'is_purchased.boolean'          => 'Nilai pembelian produk tidak valid.',
+            'purchase_price.numeric'        => 'Harga beli harus berupa angka.',
+            'purchase_price.min'            => 'Harga beli tidak boleh kurang dari 0.',
+            'purchase_tax_id.exists'        => 'Pajak beli yang dipilih tidak valid.',
+
+            // Selling
+            'is_sold.boolean'             => 'Nilai penjualan produk tidak valid.',
+            'sale_price.numeric'          => 'Harga jual harus berupa angka.',
+            'sale_price.min'              => 'Harga jual tidak boleh kurang dari 0.',
+            'tier_1_price.numeric'        => 'Harga jual Partai Besar harus berupa angka.',
+            'tier_1_price.min'            => 'Harga jual Partai Besar tidak boleh kurang dari 0.',
+            'tier_2_price.numeric'        => 'Harga jual Reseller harus berupa angka.',
+            'tier_2_price.min'            => 'Harga jual Reseller tidak boleh kurang dari 0.',
+            'sale_tax_id.exists'          => 'Pajak jual yang dipilih tidak valid.',
+
+            // Barcode
+            'barcode.max'    => 'Barcode tidak boleh lebih dari 255 karakter.',
+            'barcode.unique' => 'Barcode sudah digunakan.',
+
+            // Conversions
+            'base_unit_id.required_if'                       => 'Unit dasar diperlukan ketika manajemen stok diaktifkan.',
+            'conversions.*.unit_id.required_if'              => 'Konversi ke unit wajib diisi ketika manajemen stok diaktifkan.',
+            'conversions.*.unit_id.not_in'                   => 'Unit ID tidak boleh 0 atau sama dengan unit dasar.',
+            'conversions.*.conversion_factor.required_if'    => 'Faktor konversi wajib diisi jika unit tersedia.',
+            'conversions.*.conversion_factor.gt'             => 'Faktor konversi harus lebih besar dari 1 karena unit dasar adalah satuan terkecil.',
+            'conversions.*.barcode.max'                      => 'Barcode konversi tidak boleh lebih dari 255 karakter.',
+            'conversions.*.price.required_with'              => 'Harga konversi wajib diisi jika Anda memilih unit konversi.',
+            'conversions.*.price.numeric'                    => 'Harga konversi harus berupa angka.',
+            'conversions.*.price.gt'                         => 'Harga konversi harus lebih dari 0.',
         ];
     }
 
     /**
-     * Handle a failed validation attempt.
-     *
-     * @param Validator $validator
-     * @throws HttpResponseException
+     * Normalize incoming checkbox values so required_if behaves like the create request.
      */
+    protected function prepareForValidation(): void
+    {
+        $stockManaged = $this->boolean('stock_managed');
+
+        $this->merge([
+            'is_purchased'           => $this->boolean('is_purchased'),
+            'is_sold'                => $this->boolean('is_sold'),
+            'stock_managed'          => $stockManaged,
+            'serial_number_required' => $this->boolean('serial_number_required'),
+            'conversions'            => $stockManaged && is_array($this->input('conversions'))
+                ? ProductConversionPriceNormalizer::normalizeConversions($this->input('conversions'))
+                : [],
+        ]);
+    }
+
     protected function failedValidation(Validator $validator)
     {
         Log::info('Validation input:', $this->input());

@@ -18,27 +18,38 @@ class HomeController extends Controller
 {
 
     public function index() {
-        $sales = Sale::completed()->sum('total_amount');
-        $sale_returns = SaleReturn::completed()->sum('total_amount');
-        $purchase_returns = PurchaseReturn::completed()->sum('total_amount');
-        $product_costs = 0;
+        $user = auth()->user();
+        $name = trim($user->name ?? '');
+        $firstName = $name !== '' ? explode(' ', $name)[0] : '';
 
-        foreach (Sale::completed()->with('saleDetails')->get() as $sale) {
-            foreach ($sale->saleDetails as $saleDetail) {
-                if (!is_null($saleDetail->product)) {
-                    $product_costs += $saleDetail->product->product_cost * $saleDetail->quantity;
-                }
-            }
+        $hour = (int) Carbon::now()->format('H');
+        if ($hour >= 4 && $hour <= 10) {
+            $greeting = 'Selamat pagi';
+        } elseif ($hour >= 11 && $hour <= 14) {
+            $greeting = 'Selamat siang';
+        } elseif ($hour >= 15 && $hour <= 17) {
+            $greeting = 'Selamat sore';
+        } else {
+            $greeting = 'Selamat malam';
         }
 
-        $revenue = ($sales - $sale_returns) / 100;
-        $profit = $revenue - $product_costs;
+        $greetingText = $firstName !== '' ? "{$greeting}, {$firstName}" : $greeting;
+
+        $feedService = app(\Modules\Product\Services\ProductPriceFeedQueryService::class);
+        $feedEvents = $feedService->getFeedEvents($user, ['limit' => 10]);
 
         return view('home', [
-            'revenue'          => $revenue,
-            'sale_returns'     => $sale_returns / 100,
-            'purchase_returns' => $purchase_returns / 100,
-            'profit'           => $profit
+            'greetingText' => $greetingText,
+            'feedEvents' => $feedEvents,
+        ]);
+    }
+
+    public function dashboard() {
+        return view('dashboard', [
+            'revenue'          => 0,
+            'sale_returns'     => 0,
+            'purchase_returns' => 0,
+            'profit'           => 0
         ]);
     }
 
@@ -46,20 +57,20 @@ class HomeController extends Controller
     public function currentMonthChart() {
         abort_if(!request()->ajax(), 404);
 
-        $currentMonthSales = Sale::where('status', 'Completed')->whereMonth('date', date('m'))
-                ->whereYear('date', date('Y'))
-                ->sum('total_amount') / 100;
-        $currentMonthPurchases = Purchase::where('status', 'Completed')->whereMonth('date', date('m'))
-                ->whereYear('date', date('Y'))
-                ->sum('total_amount') / 100;
-        $currentMonthExpenses = Expense::whereMonth('date', date('m'))
-                ->whereYear('date', date('Y'))
-                ->sum('amount') / 100;
+//        $currentMonthSales = Sale::where('status', 'Completed')->whereMonth('date', date('m'))
+//                ->whereYear('date', date('Y'))
+//                ->sum('total_amount') / 100;
+//        $currentMonthPurchases = Purchase::where('status', 'Completed')->whereMonth('date', date('m'))
+//                ->whereYear('date', date('Y'))
+//                ->sum('total_amount') / 100;
+//        $currentMonthExpenses = Expense::whereMonth('date', date('m'))
+//                ->whereYear('date', date('Y'))
+//                ->sum('amount') / 100;
 
         return response()->json([
-            'sales'     => $currentMonthSales,
-            'purchases' => $currentMonthPurchases,
-            'expenses'  => $currentMonthExpenses
+            'sales'     => 0,
+            'purchases' => 0,
+            'expenses'  => 0
         ]);
     }
 
@@ -117,7 +128,9 @@ class HomeController extends Controller
             ->groupBy('month')->orderBy('month')
             ->get()->pluck('amount', 'month');
 
-        $expenses = Expense::where('date', '>=', $date_range)
+        $expenses = Expense::where('status', Expense::STATUS_APPROVED)
+            ->whereNull('archived_at')
+            ->where('date', '>=', $date_range)
             ->select([
                 DB::raw("DATE_FORMAT(date, '%m-%Y') as month"),
                 DB::raw("SUM(amount) as amount")

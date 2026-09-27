@@ -2,59 +2,69 @@
 
 namespace App\Livewire;
 
+use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
-use Illuminate\Foundation\Application;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use Modules\Product\Entities\Product;
-use Modules\Product\Entities\Transaction;
 
 class SearchProduct extends Component
 {
     public string $query = '';
-    public $search_results;
+    public Collection $search_results;
     public int $how_many = 5;
-    public $locationId;  // Add locationId as a public property
 
-    protected $listeners = ['locationSelected'];
-
-    public function mount($locationId = null): void
+    public function mount(): void
     {
-        Log::info("locationSelectedMounted: " . $locationId);
-        $this->locationId = $locationId;
-
-        $this->search_results = Collection::empty();
+        $this->search_results = collect();
     }
 
-    public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    public function render()
     {
         return view('livewire.search-product');
     }
 
     public function updatedQuery(): void
     {
-        $this->search_results = Product::where('stock_managed', true)
-            ->where(function ($query) {
-                $query->where('product_name', 'like', '%' . $this->query . '%')
-                    ->orWhere('product_code', 'like', '%' . $this->query . '%');
-            })
-            ->take($this->how_many)
-            ->get()
-            ->map(function ($product) {
-                $quantity = $this->getProductQuantityAtLocation($product->id, $this->locationId);
-                $product->product_quantity = $quantity;  // Adding the calculated quantity to the product object
-                return $product;
-            });
-    }
+        $term = trim($this->query);
 
-    public function getProductQuantityAtLocation($productId, $locationId): int
-    {
-        return Transaction::where('product_id', $productId)
-            ->where('location_id', $locationId)
-            ->groupBy('product_id', 'location_id')
-            ->sum('quantity');
+        if (mb_strlen($term) < 2) {
+            $this->search_results = collect();
+
+            return;
+        }
+
+        $this->search_results = Product::query()
+            ->where('stock_managed', true)
+            ->globalSearch($term)
+            ->take($this->how_many)
+            ->get([
+                'id',
+                'product_name',
+                'product_code',
+                'product_quantity',
+                'product_unit',
+                'product_price',
+                'sale_price',
+                'product_cost',
+                'product_tax_type',
+                'product_order_tax',
+            ])
+            ->map(function (Product $product) {
+                return [
+                    'id' => $product->id,
+                    'product_name' => $product->product_name,
+                    'product_code' => $product->product_code,
+                    'product_quantity' => (int) $product->product_quantity,
+                    'product_unit' => $product->product_unit,
+                    'product_price' => (float) ($product->sale_price ?? $product->product_price),
+                    'sale_price' => (float) ($product->sale_price ?? $product->product_price),
+                    'product_cost' => (float) $product->product_cost,
+                    'product_tax_type' => (int) $product->product_tax_type,
+                    'product_order_tax' => (float) $product->product_order_tax,
+                ];
+            });
     }
 
     public function loadMore(): void
@@ -67,18 +77,19 @@ class SearchProduct extends Component
     {
         $this->query = '';
         $this->how_many = 5;
-        $this->search_results = Collection::empty();
+        $this->search_results = collect();
     }
 
-    public function selectProduct($product): void
+    public function showSearchResults(): void
     {
-        $this->dispatch('productSelected', $product);
+        $this->updatedQuery();
     }
 
-    public function locationSelected($locationId): void
+    public function selectProduct($result): void
     {
-        Log::info("locationSelected: " . $locationId);
-        $this->locationId = $locationId;
-        $this->updatedQuery();  // Re-run the query with the new locationId
+        $payload = is_array($result) ? $result : (array) $result;
+
+        $this->dispatch('productSelected', $payload);
+        $this->resetQuery();
     }
 }

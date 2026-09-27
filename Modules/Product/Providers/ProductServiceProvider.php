@@ -27,7 +27,22 @@ class ProductServiceProvider extends ServiceProvider
         $this->registerTranslations();
         $this->registerConfig();
         $this->registerViews();
+        $this->registerLivewireComponents();
         $this->loadMigrationsFrom(module_path($this->moduleName, 'Database/Migrations'));
+        
+        $this->commands([
+            \Modules\Product\Console\NormalizeProductPurchasePricesCommand::class,
+            \Modules\Product\Console\SeedAverageCostFromSalesHppCommand::class,
+            \Modules\Product\Console\FillAverageCostFromLastPurchasePriceCommand::class,
+            \Modules\Product\Console\PreflightBarcodesCommand::class,
+            \Modules\Product\Console\ExportBarcodesCommand::class,
+            \Modules\Product\Console\ImportBarcodesCommand::class,
+            \Modules\Product\Console\ExportTigaNusaPricesCommand::class,
+            \Modules\Product\Console\GenerateEan13BarcodesCommand::class,
+            \Modules\Product\Console\PreflightIdentityCollisionsCommand::class,
+            \Modules\Product\Console\ReconcileCatalogGroupCommand::class,
+            \Modules\Product\Console\ConvertProductUomCommand::class,
+        ]);
     }
 
     /**
@@ -71,6 +86,27 @@ class ProductServiceProvider extends ServiceProvider
         ], ['views', $this->moduleNameLower . '-module-views']);
 
         $this->loadViewsFrom(array_merge($this->getPublishableViewPaths(), [$sourcePath]), $this->moduleNameLower);
+    }
+
+    /**
+     * Register Livewire components.
+     *
+     * @return void
+     */
+    public function registerLivewireComponents()
+    {
+        \Livewire\Livewire::component('modules.product.modals.category-quick-add-modal', \Modules\Product\Livewire\Modals\CategoryQuickAddModal::class);
+        \Livewire\Livewire::component('modules.product.modals.brand-quick-add-modal', \Modules\Product\Livewire\Modals\BrandQuickAddModal::class);
+        \Livewire\Livewire::component('modules.product.category-search-dropdown', \Modules\Product\Livewire\CategorySearchDropdown::class);
+        \Livewire\Livewire::component('modules.product.brand-search-dropdown', \Modules\Product\Livewire\BrandSearchDropdown::class);
+        \Livewire\Livewire::component('modules.product.product-search-dropdown', \Modules\Product\Livewire\ProductSearchDropdown::class);
+        \Livewire\Livewire::component('modules.product.tax-search-dropdown', \Modules\Product\Livewire\TaxSearchDropdown::class);
+        \Livewire\Livewire::component('modules.product.unit-search-dropdown', \Modules\Product\Livewire\UnitSearchDropdown::class);
+        \Livewire\Livewire::component('modules.product.product-price-setup', \Modules\Product\Livewire\ProductPriceSetup::class);
+        \Livewire\Livewire::component('modules.product.sale-price-setup', \Modules\Product\Livewire\SalePriceSetup::class);
+        \Livewire\Livewire::component('product::barcode-initialization', \Modules\Product\Livewire\BarcodeInitialization::class);
+        \Livewire\Livewire::component('modules.product.barcode-batch-workspace', \Modules\Product\Livewire\BarcodeBatchWorkspace::class);
+        \Livewire\Livewire::component('modules.product.barcode-product-search', \Modules\Product\Livewire\BarcodeProductSearch::class);
     }
 
     /**

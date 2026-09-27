@@ -2,43 +2,104 @@
 
 namespace Modules\PurchasesReturn\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Product\Entities\Product;
+use Modules\Purchase\Entities\Purchase;
 
-class PurchaseReturnDetail extends Model
+class PurchaseReturnDetail extends BaseModel
 {
-    use HasFactory;
-
     protected $guarded = [];
 
-    protected $with = ['product'];
+    protected $casts = [
+        'quantity'                => 'decimal:3',
+        'price'                   => 'decimal:2',
+        'unit_price'              => 'decimal:2',
+        'sub_total'               => 'decimal:2',
+        'product_discount_amount' => 'decimal:2',
+        'product_tax_amount'      => 'decimal:2',
+        'serial_number_ids'       => 'array',
+        'location_id'             => 'integer',
+        'settlement_nominal'      => 'decimal:2',
+        'settlement_target_purchase_id' => 'integer',
+    ];
 
-    public function product() {
+    const METHOD_PRODUCT_REPAIR = 'PRODUCT_REPAIR';
+    const METHOD_BROKEN_STOCK = 'BROKEN_STOCK';
+    const METHOD_MODIFY_PURCHASE = 'MODIFY_PURCHASE';
+    /**
+     * @deprecated Legacy settlement method for historical records only.
+     * Do not re-enable in selectableSettlementMethods().
+     */
+    const METHOD_CREDIT = 'CREDIT';
+    /**
+     * @deprecated Legacy settlement method for historical records only.
+     * Do not re-enable in selectableSettlementMethods().
+     */
+    const METHOD_CASH = 'CASH';
+
+    public static function settlementMethods(): array
+    {
+        return [
+            self::METHOD_PRODUCT_REPAIR => 'Perbaikan Produk',
+            self::METHOD_BROKEN_STOCK   => 'Kembali Barang Rusak',
+            self::METHOD_MODIFY_PURCHASE => 'Ubah Nota Pembelian',
+            // Deprecated but kept for old data readability.
+            self::METHOD_CREDIT         => 'Simpan Sebagai Kredit',
+            // Deprecated but kept for old data readability.
+            self::METHOD_CASH           => 'Pengembalian Tunai',
+        ];
+    }
+
+    public static function selectableSettlementMethods(): array
+    {
+        return [
+            self::METHOD_PRODUCT_REPAIR => 'Perbaikan Produk',
+            self::METHOD_BROKEN_STOCK   => 'Kembali Barang Rusak',
+            self::METHOD_MODIFY_PURCHASE => 'Ubah Nota Pembelian',
+        ];
+    }
+
+    public function settlementItems()
+    {
+        return $this->hasMany(PurchaseReturnItemSettlement::class, 'purchase_return_detail_id');
+    }
+
+    public function product(): BelongsTo
+    {
         return $this->belongsTo(Product::class, 'product_id', 'id');
     }
 
-    public function purchaseReturn() {
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Setting\Entities\Location::class, 'location_id', 'id');
+    }
+
+    public function purchaseReturn(): BelongsTo
+    {
         return $this->belongsTo(PurchaseReturn::class, 'purchase_return_id', 'id');
     }
 
-    public function getPriceAttribute($value) {
-        return $value / 100;
+    public function purchase(): BelongsTo
+    {
+        return $this->belongsTo(Purchase::class, 'po_id', 'id');
     }
 
-    public function getUnitPriceAttribute($value) {
-        return $value / 100;
+    public function targetPurchase(): BelongsTo
+    {
+        return $this->belongsTo(Purchase::class, 'settlement_target_purchase_id', 'id');
     }
 
-    public function getSubTotalAttribute($value) {
-        return $value / 100;
-    }
+    /**
+     * Get the serial numbers associated with the return detail.
+     */
+    public function getSerialNumbers()
+    {
+        if (empty($this->serial_number_ids)) {
+            return collect();
+        }
 
-    public function getProductDiscountAmountAttribute($value) {
-        return $value / 100;
-    }
-
-    public function getProductTaxAmountAttribute($value) {
-        return $value / 100;
+        return \Modules\Product\Entities\ProductSerialNumber::whereIn('id', $this->serial_number_ids)
+            ->pluck('serial_number');
     }
 }

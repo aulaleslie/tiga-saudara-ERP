@@ -23,13 +23,24 @@ class AdjustmentsDataTable extends DataTable
                 return strtoupper($data->type);
             })
             ->editColumn('status', function ($data) {
-                return strtoupper($data->status);
+                return $data->status instanceof \Modules\Adjustment\Entities\AdjustmentStatus
+                    ? $data->status->value
+                    : strtoupper((string) $data->status);
+            })
+            ->addColumn('adjusted_products_count', function ($data) {
+                if ($data->isVersionedCountDraft()) {
+                    $rows = $data->count_draft['rows'] ?? [];
+                    return count($rows);
+                }
+                return $data->adjusted_products_count;
             });
     }
 
     public function query(Adjustment $model): Builder
     {
-        return $model->newQuery()->withCount('adjustedProducts');
+        return $model->newQuery()
+            ->withCount('adjustedProducts')
+            ->orderByDesc('created_at');
     }
 
     public function html(): \Yajra\DataTables\Html\Builder
@@ -63,7 +74,7 @@ class AdjustmentsDataTable extends DataTable
 
             Column::make('reference')
                 ->className('text-center align-middle')
-                ->title('Catatan'),
+                ->title('No. Penyesuaian'),
 
             Column::make('type')
                 ->className('text-center align-middle')
@@ -75,6 +86,10 @@ class AdjustmentsDataTable extends DataTable
             Column::make('adjusted_products_count')
                 ->title('Products')
                 ->className('text-center align-middle'),
+
+            Column::make('note')
+                ->className('text-center align-middle')
+                ->title('Catatan'),
 
             Column::computed('action')
                 ->exportable(false)

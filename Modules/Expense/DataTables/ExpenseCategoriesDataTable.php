@@ -2,17 +2,23 @@
 
 namespace Modules\Expense\DataTables;
 
+use Illuminate\Database\Eloquent\Builder;
+use LaravelIdea\Helper\Modules\Expense\Entities\_IH_ExpenseCategory_QB;
 use Modules\Expense\Entities\ExpenseCategory;
+use Yajra\DataTables\EloquentDataTable;
+use Yajra\DataTables\Exceptions\Exception;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
-use Yajra\DataTables\Html\Editor\Editor;
-use Yajra\DataTables\Html\Editor\Fields;
 use Yajra\DataTables\Services\DataTable;
 
 class ExpenseCategoriesDataTable extends DataTable
 {
 
-    public function dataTable($query) {
+    /**
+     * @throws Exception
+     */
+    public function dataTable($query): EloquentDataTable
+    {
         return datatables()
             ->eloquent($query)
             ->addColumn('action', function ($data) {
@@ -20,11 +26,17 @@ class ExpenseCategoriesDataTable extends DataTable
             });
     }
 
-    public function query(ExpenseCategory $model) {
-        return $model->newQuery()->withCount('expenses');
+    public function query(ExpenseCategory $model): _IH_ExpenseCategory_QB|Builder
+    {
+        $currentSettingId = session('setting_id');
+        return $model->newQuery()
+            ->withCount(['expenses' => function ($query) use ($currentSettingId) {
+                $query->where('setting_id', $currentSettingId);
+            }]);
     }
 
-    public function html() {
+    public function html(): \Yajra\DataTables\Html\Builder
+    {
         return $this->builder()
             ->setTableId('expensecategories-table')
             ->columns($this->getColumns())
@@ -45,18 +57,23 @@ class ExpenseCategoriesDataTable extends DataTable
             );
     }
 
-    protected function getColumns() {
+    protected function getColumns(): array
+    {
         return [
             Column::make('category_name')
+                ->title('Nama Kategori')
                 ->addClass('text-center'),
 
             Column::make('category_description')
+                ->title('Deskripsi Kategori')
                 ->addClass('text-center'),
 
             Column::make('expenses_count')
+                ->title('Jumlah Biaya')
                 ->addClass('text-center'),
 
             Column::computed('action')
+                ->title('Aksi')
                 ->exportable(false)
                 ->printable(false)
                 ->addClass('text-center'),

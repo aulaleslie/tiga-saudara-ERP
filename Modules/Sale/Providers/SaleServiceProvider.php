@@ -27,8 +27,17 @@ class SaleServiceProvider extends ServiceProvider
         $this->registerTranslations();
         $this->registerConfig();
         $this->registerViews();
+        $this->registerLivewireComponents();
+
         $this->loadMigrationsFrom(module_path($this->moduleName, 'Database/Migrations'));
+        
+        $this->commands([
+            \Modules\Sale\Console\ImportSalesCommand::class,
+            \Modules\Sale\Console\BackfillSalesCostSnapshotsCommand::class,
+            \Modules\Sale\Console\BackfillSaleBundleItemCostSnapshotsCommand::class,
+        ]);
     }
+
 
     /**
      * Register the service provider.
@@ -71,6 +80,18 @@ class SaleServiceProvider extends ServiceProvider
         ], ['views', $this->moduleNameLower . '-module-views']);
 
         $this->loadViewsFrom(array_merge($this->getPublishableViewPaths(), [$sourcePath]), $this->moduleNameLower);
+    }
+
+    /**
+     * Register Livewire components.
+     *
+     * @return void
+     */
+    public function registerLivewireComponents()
+    {
+        \Livewire\Livewire::component('sale::global-sales-search', \Modules\Sale\Http\Livewire\GlobalSalesSearch::class);
+        \Livewire\Livewire::component('sale::global-sales-filters', \Modules\Sale\Http\Livewire\GlobalSalesFilters::class);
+        \Livewire\Livewire::component('sale.sale-summary-cards', \Modules\Sale\Livewire\SaleSummaryCards::class);
     }
 
     /**

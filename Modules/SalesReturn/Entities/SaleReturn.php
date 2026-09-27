@@ -2,75 +2,225 @@
 
 namespace Modules\SalesReturn\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
+use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Modules\Sale\Entities\Sale;
+use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\Setting;
+use App\Traits\Archivable;
+use Modules\Pos\Entities\PosReturn;
 
-class SaleReturn extends Model
+class SaleReturn extends BaseModel
 {
-    use HasFactory;
+    use Archivable;
 
-    protected $guarded = [];
+    public const STATUS_PENDING = 'Pending';
+    public const STATUS_COMPLETED = 'Completed';
+    public const STATUS_CANCELLED = 'Cancelled';
+    public const STATUS_AWAITING_RECEIVING = 'Awaiting Receiving';
+    public const STATUS_AWAITING_SETTLEMENT = 'Awaiting Settlement';
+    public const STATUS_REJECTED = 'Rejected';
+    public const STATUS_DRAFT = 'Draft';
 
-    public function saleReturnDetails() {
+    public const STATUS_LABELS = [
+        'draft' => 'Draf',
+        'Draft' => 'Draf',
+        'pending' => 'Menunggu',
+        'Pending' => 'Menunggu',
+        'pending approval' => 'Menunggu Persetujuan',
+        'Pending Approval' => 'Menunggu Persetujuan',
+        'awaiting receiving' => 'Menunggu Penerimaan',
+        'Awaiting Receiving' => 'Menunggu Penerimaan',
+        'awaiting settlement' => 'Menunggu Penyelesaian',
+        'Awaiting Settlement' => 'Menunggu Penyelesaian',
+        'rejected' => 'Ditolak',
+        'Rejected' => 'Ditolak',
+        'completed' => 'Selesai',
+        'Completed' => 'Selesai',
+        'cancelled' => 'Dibatalkan',
+        'Cancelled' => 'Dibatalkan',
+    ];
+
+    public const APPROVAL_STATUS_LABELS = [
+        'draft' => 'Draf',
+        'pending' => 'Menunggu',
+        'approved' => 'Disetujui',
+        'rejected' => 'Ditolak',
+    ];
+
+    public static function statusLabel(?string $status): string
+    {
+        if ($status === null || $status === '') {
+            return '';
+        }
+        return self::STATUS_LABELS[$status] ?? (self::STATUS_LABELS[strtolower($status)] ?? $status);
+    }
+
+    public static function approvalStatusLabel(?string $status): string
+    {
+        if ($status === null || $status === '') {
+            return '';
+        }
+        return self::APPROVAL_STATUS_LABELS[strtolower($status)] ?? ucfirst($status);
+    }
+    
+    protected $fillable = [
+        'date',
+        'reference',
+        'sale_id',
+        'sale_reference',
+        'customer_id',
+        'customer_name',
+        'setting_id',
+        'location_id',
+        'tax_percentage',
+        'tax_amount',
+        'discount_percentage',
+        'discount_amount',
+        'shipping_amount',
+        'total_amount',
+        'paid_amount',
+        'due_amount',
+        'status',
+        'payment_status',
+        'payment_method',
+        'note',
+        'pos_return_id',
+        'approval_status',
+        'return_type',
+        'approved_by',
+        'approved_at',
+        'rejected_by',
+        'rejected_at',
+        'rejection_reason',
+        'settled_at',
+        'settled_by',
+        'received_at',
+        'received_by',
+    ];
+
+    protected $casts = [
+        'tax_amount'       => 'decimal:2',
+        'discount_amount'  => 'decimal:2',
+        'shipping_amount'  => 'decimal:2',
+        'total_amount'     => 'decimal:2',
+        'paid_amount'      => 'decimal:2',
+        'due_amount'       => 'decimal:2',
+        'date'             => 'date',
+        'approved_at'      => 'datetime',
+        'rejected_at'      => 'datetime',
+        'settled_at'       => 'datetime',
+        'received_at'      => 'datetime',
+        'archived_at'      => 'datetime',
+    ];
+
+    public function posReturn(): BelongsTo
+    {
+        return $this->belongsTo(PosReturn::class, 'pos_return_id');
+    }
+
+    public function saleReturnDetails(): Builder|HasMany|SaleReturn
+    {
         return $this->hasMany(SaleReturnDetail::class, 'sale_return_id', 'id');
     }
 
-    public function saleReturnPayments() {
+    public function saleReturnPayments(): Builder|HasMany|SaleReturn
+    {
         return $this->hasMany(SaleReturnPayment::class, 'sale_return_id', 'id');
     }
 
-    public static function boot(): void
+    public function customer(): BelongsTo
     {
-        parent::boot();
-
-        static::creating(function ($model) {
-            $year = now()->year;
-            $month = now()->month;
-
-            // Fetch the latest reference for the current year and month
-            $latestReference = SaleReturn::whereYear('created_at', $year)
-                ->whereMonth('created_at', $month)
-                ->latest('id')
-                ->value('reference');
-
-            // Extract the number from the latest reference
-            $nextNumber = 1; // Default to 1 if no reference exists
-            if ($latestReference) {
-                $parts = explode('-', $latestReference);
-                $lastNumber = (int) end($parts);
-                $nextNumber = $lastNumber + 1;
-            }
-
-            // Generate the new reference ID
-            $model->reference = make_reference_id('SLRN', $year, $month, $nextNumber);
-        });
+        return $this->belongsTo(\Modules\People\Entities\Customer::class, 'customer_id', 'id');
     }
 
-    public function scopeCompleted($query) {
+    public function sale(): BelongsTo
+    {
+        return $this->belongsTo(Sale::class, 'sale_id', 'id');
+    }
+
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class, 'location_id', 'id');
+    }
+
+    public function setting(): BelongsTo
+    {
+        return $this->belongsTo(Setting::class, 'setting_id', 'id');
+    }
+
+    public function approvedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by', 'id');
+    }
+
+    public function rejectedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'rejected_by', 'id');
+    }
+
+    public function settledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'settled_by', 'id');
+    }
+
+    public function scopeActive(Builder $query)
+    {
+        return $query->where('status', '!=', 'Cancelled');
+    }
+
+    public function scopePending(Builder $query)
+    {
+        return $query->where('status', 'Pending');
+    }
+
+    public function scopeCompleted(Builder $query)
+    {
         return $query->where('status', 'Completed');
     }
 
-    public function getShippingAmountAttribute($value) {
-        return $value / 100;
+    /**
+     * Get the credit associated with this return.
+     */
+    public function customerCredit(): HasOne
+    {
+        return $this->hasOne(CustomerCredit::class, 'sale_return_id', 'id');
     }
 
-    public function getPaidAmountAttribute($value) {
-        return $value / 100;
+    /**
+     * Get the goods received associated with this return.
+     */
+    public function returnGoods(): HasMany
+    {
+        return $this->hasMany(SaleReturnGood::class, 'sale_return_id', 'id');
     }
 
-    public function getTotalAmountAttribute($value) {
-        return $value / 100;
+    /**
+     * Get the settlement items associated with this return.
+     */
+    public function settlementItems(): HasMany
+    {
+        return $this->hasMany(SaleReturnItemSettlement::class, 'sale_return_id', 'id');
     }
 
-    public function getDueAmountAttribute($value) {
-        return $value / 100;
-    }
+    /**
+     * Get the settlement status of the return.
+     */
+    public function getSettlementStatusAttribute(): string
+    {
+        $items = $this->settlementItems;
+        if ($items->isEmpty()) {
+            return 'Pending';
+        }
 
-    public function getTaxAmountAttribute($value) {
-        return $value / 100;
-    }
+        $allSettled = $items->every(function ($item) {
+            return in_array($item->status, SaleReturnItemSettlement::finalSettlementStatuses());
+        });
 
-    public function getDiscountAmountAttribute($value) {
-        return $value / 100;
+        return $allSettled ? 'Settled' : 'Pending';
     }
 }

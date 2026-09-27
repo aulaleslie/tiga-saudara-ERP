@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Create Supplier')
+@section('title', 'Buat Supplier')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
@@ -12,15 +12,18 @@
 
 @section('content')
     <div class="container-fluid">
-        <form action="{{ route('suppliers.store') }}" method="POST">
+        <form id="supplier-create-form" action="{{ route('suppliers.store') }}" method="POST">
             @csrf
+            <input type="hidden" name="idempotency_token" value="{{ old('idempotency_token', $idempotencyToken) }}">
             <div class="row">
                 <div class="col-lg-12">
                     <div class="form-group">
                         <a href="<?php echo e(route('suppliers.index')); ?>" class="btn btn-secondary mr-2">
                             Kembali
                         </a>
-                        <button class="btn btn-primary">Tambahkan Pemasok <i class="bi bi-check"></i></button>
+                        @can('suppliers.create')
+                        <x-button label="Tambahkan Pemasok" icon="bi-check" processing-text="Memproses…" />
+                        @endcan
                     </div>
                 </div>
 
@@ -80,6 +83,19 @@
                                 <div class="col-lg-6">
                                     <x-input label="Alamat Pengiriman" name="shipping_address"/>
                                 </div>
+                                <div class="col-lg-6">
+                                    <label for="payment_term_id">Syarat Pembayaran</label>
+                                    <select class="form-control" name="payment_term_id" id="payment_term_id">
+                                        <option value="" {{ old('payment_term_id', $supplier->payment_term_id ?? '') == '' ? 'selected' : '' }}>
+                                            -- Pilih Syarat Pembayaran --
+                                        </option>
+                                        @foreach($paymentTerms as $paymentTerm)
+                                            <option value="{{ $paymentTerm->id }}" {{ old('payment_term_id', $supplier->payment_term_id ?? '') == $paymentTerm->id ? 'selected' : '' }}>
+                                                {{ $paymentTerm->name }}
+                                            </option>
+                                        @endforeach
+                                    </select>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -117,3 +133,14 @@
         </form>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initFormSubmissionLock('supplier-create-form', {
+                errorEventName: 'supplier:submit-error'
+            });
+        });
+    </script>
+@endpush

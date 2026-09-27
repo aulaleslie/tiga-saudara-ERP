@@ -12,7 +12,7 @@
 
 @section('content')
     <div class="container-fluid">
-        <form action="{{ route('units.update', $unit) }}" method="POST">
+        <form action="{{ route('units.update', $unit) }}" method="POST" id="unit-edit-form">
             @csrf
             @method('put')
             <div class="row">
@@ -40,7 +40,7 @@
                                         <a href="{{ route('units.index') }}" class="btn btn-secondary mr-2">
                                             Kembali
                                         </a>
-                                        <button class="btn btn-primary">Perbaharui Unit <i class="bi bi-check"></i></button>
+                                        <x-button type="submit" class="btn btn-primary" processing-text="Menyimpan..." form="unit-edit-form">Perbaharui Unit <i class="bi bi-check"></i></x-button>
                                     </div>
                                 </div>
                             </div>
@@ -51,3 +51,10 @@
         </form>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script>
+        // Initialize form submission lock
+        initFormSubmissionLock('unit-edit-form', 'unit:submit-error');
+    </script>
+@endpush

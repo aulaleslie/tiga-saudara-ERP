@@ -27,7 +27,43 @@ Route::group(['middleware' => ['auth', 'role.setting']], function() {
     })->name('purchase-returns.pdf');
 
     //Purchase Returns
+    Route::get('purchase-returns/{purchase_return}/settlement', 'PurchasesReturnController@settlement')
+        ->name('purchase-returns.settlement');
+    Route::put('purchase-returns/{purchase_return}/archive', 'PurchasesReturnController@archive')
+        ->name('purchase-returns.archive');
     Route::resource('purchase-returns', 'PurchasesReturnController');
+    Route::post('purchase-returns/{purchase_return}/approve', 'PurchaseReturnApprovalController@approve')
+        ->name('purchase-returns.approve');
+    Route::post('purchase-returns/{purchase_return}/reject', 'PurchaseReturnApprovalController@reject')
+        ->name('purchase-returns.reject');
+    Route::post('purchase-returns/{purchase_return}/repropose', 'PurchasesReturnController@repropose')
+        ->name('purchase-returns.repropose');
+    Route::post('purchase-returns/{purchase_return}/dispatch-request', 'PurchaseReturnDispatchController@requestDispatch')
+        ->name('purchase-returns.dispatch-request');
+    Route::post('purchase-returns/{purchase_return}/dispatch-approve', 'PurchaseReturnDispatchController@approveDispatch')
+        ->name('purchase-returns.dispatch-approve');
+    Route::post('purchase-returns/{purchase_return}/dispatch-reject', 'PurchaseReturnDispatchController@rejectDispatch')
+        ->name('purchase-returns.dispatch-reject');
+    
+    //Settlements
+    Route::group(['prefix' => 'purchase-returns/settlements', 'as' => 'purchase-return-settlements.'], function () {
+        Route::get('/', 'PurchasesReturnSettlementController@index')->name('index');
+        Route::post('/{purchase_return}', 'PurchasesReturnSettlementController@store')->name('store');
+        Route::post('/{settlement}/submit', 'PurchasesReturnSettlementController@submit')->name('submit');
+        Route::post('/{settlement}/approve', 'PurchasesReturnSettlementController@approve')->name('approve');
+        Route::post('/{settlement}/reject', 'PurchasesReturnSettlementController@reject')->name('reject');
+        Route::post('/{settlement}/execute', 'PurchasesReturnSettlementController@execute')->name('execute');
+        Route::post('/{settlement}/dispatch', 'PurchasesReturnSettlementController@dispatchStock')->name('dispatch');
+        Route::post('/{settlement}/receive', 'PurchasesReturnSettlementController@receiveStock')->name('receive');
+
+        // Per-item settlement approval routes
+        Route::post('/item/{itemSettlement}/approve', 'PurchasesReturnSettlementController@approveItemSettlement')
+            ->name('item.approve');
+        Route::post('/item/{itemSettlement}/reject', 'PurchasesReturnSettlementController@rejectItemSettlement')
+            ->name('item.reject');
+        Route::post('/item/{itemSettlement}/receive', 'PurchasesReturnSettlementController@receiveItemSettlement')
+            ->name('item.receive');
+    });
 
     //Payments
     Route::get('/purchase-return-payments/{purchase_return_id}', 'PurchaseReturnPaymentsController@index')

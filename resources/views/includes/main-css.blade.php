@@ -1,10 +1,14 @@
 <!-- Dropezone CSS -->
 <link rel="stylesheet" href="{{ asset('css/dropzone.css') }}">
+<!-- Select2 CSS -->
+<link rel="stylesheet" href="{{ asset('css/select2.min.css') }}">
+<link rel="stylesheet" href="{{ asset('css/select2-coreui.min.css') }}">
 <!-- CoreUI CSS -->
 @vite('resources/sass/app.scss')
-<link href="https://cdn.datatables.net/v/bs4/jszip-3.10.1/dt-1.13.5/b-2.4.1/b-html5-2.4.1/b-print-2.4.1/sl-1.7.0/datatables.min.css" rel="stylesheet">
+@vite('resources/css/tw.css')
+<link href="{{ asset('vendor/datatables/datatables.min.css') }}" rel="stylesheet">
 <!-- Bootstrap Icons -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<link rel="stylesheet" href="{{ asset('vendor/bootstrap-icons/bootstrap-icons.min.css') }}">
 
 @yield('third_party_stylesheets')
 
@@ -13,6 +17,8 @@
 @livewireStyles
 
 <style>
+    [x-cloak] { display: none !important; }
+
     div.dataTables_wrapper div.dataTables_length select {
         width: 65px;
         display: inline-block;
@@ -38,5 +44,44 @@
     }
     .select2-container--default .select2-selection--single .select2-selection__arrow b {
         margin-top: 2px;
+    }
+
+    .text-uppercase {
+        text-transform: uppercase;
+    }
+
+    .payment-note {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        text-align: left;
+    }
+
+    .document-note-container {
+        white-space: pre-wrap !important;
+        overflow-wrap: anywhere !important;
+        word-break: break-word !important;
+        text-align: left;
+        max-width: 280px;
+    }
+
+    [data-sale-table-root],
+    [data-purchase-table-root] {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+    }
+
+    .global-payment-table-scroll {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .global-payment-table-scroll > table {
+        width: max-content;
+        min-width: 100%;
+        white-space: nowrap;
     }
 </style>

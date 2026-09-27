@@ -6,10 +6,16 @@ use Exception;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use League\Csv\InvalidArgument;
+use League\Csv\SyntaxError;
+use League\Csv\UnavailableStream;
 use Modules\Product\DataTables\ProductDataTable;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
@@ -29,13 +35,24 @@ use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
 use League\Csv\Reader;
 use League\Csv\Statement;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
+use Modules\Product\Entities\ProductPrice;
+use Modules\Product\Entities\ProductUnitConversionPrice;
+use Modules\Product\Services\ProductCreator;
+use Modules\Setting\Entities\Setting;
 
 class ProductController extends Controller
 {
 
-    public function index(ProductDataTable $dataTable)
+    public function index(Request $request, ProductDataTable $dataTable)
     {
-        abort_if(Gate::denies('access_products'), 403);
+        abort_if(Gate::denies('products.access'), 403);
+
+        if ($request->ajax()) {
+            return $dataTable->ajax();
+        }
 
         return $dataTable->render('product::products.index');
     }
@@ -43,16 +60,24 @@ class ProductController extends Controller
 
     public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('create_products'), 403);
-
-        $currentSettingId = session('setting_id');
+        abort_if(Gate::denies('products.create'), 403);
 
         // Filter units, brands, and categories by setting_id
-        $units = Unit::where('setting_id', $currentSettingId)->get();
-        $brands = Brand::where('setting_id', $currentSettingId)->get();
-        $categories = Category::where('setting_id', $currentSettingId)->with('parent')->get();
-        $locations = Location::where('setting_id', $currentSettingId)->get();
-        $taxes = Tax::where('setting_id', $currentSettingId)->get();
+        $units = Unit::all()->unique('id')->values();
+        $brands = Brand::all()->unique('id')->values();
+        $categories = Category::with('parent')->distinct()->get();
+
+        $settingId = session('setting_id');
+        $parentCategories = Category::query()
+            ->whereNull('parent_id')
+            ->when($settingId, function ($query) use ($settingId) {
+                $query->where('setting_id', $settingId);
+            })
+            ->orderBy('category_name')
+            ->distinct()
+            ->get();
+        $locations = Location::where('is_active', true)->get();
+        $taxes = Tax::where('is_active', true)->get()->unique('id')->values();
 
         // Format categories with parent category
         $formattedCategories = $categories->mapWithKeys(function ($category) {
@@ -60,119 +85,25 @@ class ProductController extends Controller
             return [$category->id => $formattedName];
         })->sortBy('name')->toArray();
 
-        return view('product::products.create', compact('units', 'brands', 'formattedCategories', 'locations', 'taxes'));
+        $idempotencyToken = (string) Str::uuid();
+
+        return view('product::products.create', compact('units', 'brands', 'formattedCategories', 'locations', 'taxes', 'idempotencyToken', 'parentCategories'));
     }
 
 
     /**
      * Common logic to handle product creation.
      *
-     * @param array $validatedData
+     * - Legacy price columns on `products` are kept at defaults (0 / null).
+     * - The submitted prices are written to `product_prices` for ALL settings.
+     *
+     * @param  array  $validatedData
      * @return Product
-     * @throws Exception
+     * @throws Throwable
      */
     private function handleProductCreation(array $validatedData): Product
     {
-        Log::info('Starting product creation.');
-
-        Log::info('Validated data.', $validatedData);
-
-        // Set default values for nullable fields
-        $fieldsWithDefaults = [
-            'product_quantity' => 0,
-            'product_cost' => 0,
-            'product_stock_alert' => 0,
-            'product_order_tax' => 0,
-            'product_tax_type' => 0,
-            'profit_percentage' => 0,
-            'purchase_price' => 0,
-            'purchase_tax' => 0,
-            'sale_price' => 0,
-            'sale_tax' => 0,
-            'product_price' => 0,
-            'last_purchase_price' => 0,  // Last purchase price
-            'average_purchase_price' => 0,  // Average purchase price
-        ];
-
-        foreach ($fieldsWithDefaults as $field => $defaultValue) {
-            if (empty($validatedData[$field])) {
-                $validatedData[$field] = $defaultValue;
-            }
-        }
-
-        $validatedData['last_purchase_price'] = $validatedData['purchase_price'];
-        $validatedData['average_purchase_price'] = $validatedData['purchase_price'];
-
-        $fieldsConvertedToNulls = ['brand_id', 'category_id', 'base_unit_id'];
-        foreach ($fieldsConvertedToNulls as $field) {
-            if (empty($validatedData[$field])) {
-                $validatedData[$field] = null;
-            }
-        }
-
-        $validatedData['setting_id'] = session('setting_id');
-
-        // Handle documents and conversions separately
-        $documents = $validatedData['document'] ?? [];
-        $conversions = $validatedData['conversions'] ?? [];
-        unset($validatedData['document'], $validatedData['conversions'], $validatedData['location_id']);
-
-        DB::beginTransaction();
-
-        try {
-            $product = Product::create($validatedData);
-            Log::info('Product created successfully', ['product_id' => $product->id]);
-
-            // Handle document uploads
-            if (!empty($documents)) {
-                foreach ($documents as $file) {
-                    $product->addMedia(Storage::path('temp/dropzone/' . $file))->toMediaCollection('images');
-                }
-            }
-
-            // Handle unit conversions
-            if (!empty($conversions)) {
-                foreach ($conversions as $conversion) {
-                    $locations = $conversion['locations'] ?? [];
-                    $baseData = [
-                        'unit_id' => $conversion['unit_id'] ?? null,
-                        'base_unit_id' => $validatedData['base_unit_id'] ?? null,
-                        'conversion_factor' => $conversion['conversion_factor'] ?? null,
-                        'barcode' => $conversion['barcode'] ?? null,
-                    ];
-
-                    if (empty($baseData['unit_id']) || $baseData['conversion_factor'] === null) {
-                        continue;
-                    }
-
-                    foreach ($locations as $locationData) {
-                        if (empty($locationData['location_id'])) {
-                            continue;
-                        }
-
-                        $priceValue = $locationData['price'] ?? null;
-                        if ($priceValue === '' || !is_numeric($priceValue)) {
-                            $priceValue = null;
-                        }
-
-                        $product->conversions()->create(array_merge($baseData, [
-                            'location_id' => $locationData['location_id'],
-                            'price' => $priceValue,
-                        ]));
-                    }
-                }
-            }
-
-            DB::commit();
-            Log::info('Pembuatan produk berhasil, transaksi dilakukan.');
-
-            return $product; // Return the created product
-        } catch (Exception $e) {
-            DB::rollBack();
-            Log::error('Gagal membuat Produk. Silakan coba lagi.', ['error' => $e->getMessage()]);
-
-            throw new \Exception('Pembuatan Produk gagal');
-        }
+        return app(ProductCreator::class)->create($validatedData);
     }
 
     /**
@@ -180,10 +111,11 @@ class ProductController extends Controller
      *
      * @param StoreProductInfoRequest $request
      * @return RedirectResponse
-     * @throws Exception
+     * @throws Exception|Throwable
      */
     public function store(StoreProductInfoRequest $request): RedirectResponse
     {
+        abort_if(Gate::denies('products.create'), 403);
         $validatedData = $request->validated();
 
         // Use the handleProductCreation method to create the product and get the product object
@@ -197,10 +129,11 @@ class ProductController extends Controller
      *
      * @param StoreProductInfoRequest $request
      * @return RedirectResponse
-     * @throws Exception
+     * @throws Exception|Throwable
      */
     public function storeProductAndRedirectToInitializeProductStock(StoreProductInfoRequest $request): RedirectResponse
     {
+        abort_if(Gate::denies('products.create'), 403);
         $validatedData = $request->validated();
 
         $product = $this->handleProductCreation($validatedData); // Retrieve the created product
@@ -212,187 +145,516 @@ class ProductController extends Controller
 
     public function show(Product $product): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('show_products'), 403);
+        abort_if(Gate::denies('products.show'), 403);
 
-        $baseUnit = $product->baseUnit; // Assuming this relation exists
-        $conversions = $product->conversions; // Assuming this relation exists
+        // --- per-setting price lookup ---
+        $settingId = $this->getActiveSettingId();
+        $pp = ProductPrice::select(
+            'sale_price','tier_1_price','tier_2_price',
+            'last_purchase_price','average_purchase_price',
+            'purchase_tax_id','sale_tax_id'
+        )
+            ->where('product_id', $product->id)
+            ->where('setting_id', $settingId)
+            ->first();
+
+        // Prefer product_prices exclusively (default to zero/blank when row missing)
+        $price = (object) [
+            'sale_price'             => data_get($pp, 'sale_price', 0),
+            'tier_1_price'           => data_get($pp, 'tier_1_price', 0),
+            'tier_2_price'           => data_get($pp, 'tier_2_price', 0),
+            'last_purchase_price'    => data_get($pp, 'last_purchase_price', 0),
+            'average_purchase_price' => data_get($pp, 'average_purchase_price', 0),
+            'purchase_tax_id'        => data_get($pp, 'purchase_tax_id'),
+            'sale_tax_id'            => data_get($pp, 'sale_tax_id'),
+        ];
+
+        // --- quantity display (unchanged) ---
+        $product->load(['conversions.unit', 'conversions.prices']);
+        $baseUnit    = $product->baseUnit;
+        $conversions = $product->conversions;
 
         if ($baseUnit && $conversions->isNotEmpty()) {
             $biggestConversion = $conversions->sortByDesc('conversion_factor')->first();
             $convertedQuantity = floor($product->product_quantity / $biggestConversion->conversion_factor);
-            $remainder = $product->product_quantity % $biggestConversion->conversion_factor;
-
-            $displayQuantity = "{$convertedQuantity} {$biggestConversion->unit->short_name} {$remainder} {$baseUnit->short_name}";
+            $remainder         = $product->product_quantity % $biggestConversion->conversion_factor;
+            $displayQuantity   = "$convertedQuantity {$biggestConversion->unit->short_name} $remainder $baseUnit->short_name";
         } else {
             $displayQuantity = $product->product_quantity . ' ' . ($product->product_unit ?? '');
         }
 
-        // Eager load the location relationship on transactions
-        $transactions = Transaction::where('product_id', $product->id)
-            ->with('location') // Eager load the location
-            ->orderBy('created_at', 'desc')
-            ->get();// Fetch transactions
-
         $productStocks = ProductStock::where('product_id', $product->id)
-            ->with('location') // Eager load the location
-            ->get();// Fetch transactions
-
-        $serialNumbers = ProductSerialNumber::where('product_id', $product->id)
-            ->with('location')
-            ->with('tax') // Eager load the location
+            ->whereHas('location', function ($q) use ($settingId) {
+                $q->where('setting_id', $settingId);
+            })
+            ->with(['location' => function ($q) {
+                $q->select('id', 'name', 'setting_id');
+            }])
             ->get();
 
-        return view('product::products.show', compact('product', 'displayQuantity', 'transactions', 'productStocks', 'serialNumbers'));
+        $bundles = $product->bundles()->where('setting_id', $settingId)->with('items.product')->get();
+
+        $activeSetting = Setting::find($settingId);
+
+        return view('product::products.show', compact(
+            'product',
+            'displayQuantity',
+            'productStocks',
+            'bundles',
+            'price',
+            'settingId',
+            'activeSetting'
+        ));
+    }
+
+    private function getActiveSettingId(): int
+    {
+        $user = auth()->user();
+
+        return (int) (
+            session('setting_id')
+            ?? optional($user?->settings()->select('settings.id')->first())->id
+            ?? Setting::query()->min('id')
+        );
     }
 
 
-    public function edit(Product $product): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    public function edit(Product $product)
     {
-        abort_if(Gate::denies('edit_products'), 403);
+        abort_if(Gate::denies('products.edit'), 403);
 
-        $currentSettingId = session('setting_id');
+        $idempotencyToken = (string) Str::uuid();
 
-        // Filter units, brands, and categories by setting_id
-        $units = Unit::where('setting_id', $currentSettingId)->get();
-        $brands = Brand::where('setting_id', $currentSettingId)->get();
-        $categories = Category::where('setting_id', $currentSettingId)->with('parent')->get();
-        $locations = Location::where('setting_id', $currentSettingId)->get();
+        $units      = Unit::where('is_active', true)->orWhere('id', $product->product_unit)->get();
+        $brands     = Brand::all();
+        $categories = Category::with('parent')->get();
+        $locations  = Location::where('is_active', true)->get();
+        $taxes      = Tax::where('is_active', true)->orWhere('id', $product->product_tax_id)->get();
 
-        // Format categories with parent category
         $formattedCategories = $categories->mapWithKeys(function ($category) {
-            $formattedName = $category->parent ? "{$category->parent->category_name} | $category->category_name" : $category->category_name;
+            $formattedName = $category->parent
+                ? "{$category->parent->category_name} | $category->category_name"
+                : $category->category_name;
             return [$category->id => $formattedName];
         })->sortBy('name')->toArray();
 
-        $conversionFormData = $product->conversions
-            ->groupBy('unit_id')
-            ->map(function ($group) use ($locations) {
-                $first = $group->first();
+        // ✅ Per-setting prices for the current setting
+        $settingId = $this->getActiveSettingId();
+        $pp = ProductPrice::where('product_id', $product->id)
+            ->where('setting_id', $settingId)
+            ->first();
 
-                return [
-                    'unit_id' => $first?->unit_id,
-                    'conversion_factor' => $first?->conversion_factor,
-                    'barcode' => $first?->barcode,
-                    'locations' => $locations->map(function ($location) use ($group) {
-                        $match = $group->firstWhere('location_id', $location->id);
+        // Always prefer the per-setting price row. If it is missing, default to zero/blank values.
+        $price = (object) [
+            // For editing “Harga Beli” we’ll show last_purchase_price only
+            'purchase_price'  => data_get($pp, 'last_purchase_price', 0),
+            'sale_price'      => data_get($pp, 'sale_price', 0),
+            'tier_1_price'    => data_get($pp, 'tier_1_price', 0),
+            'tier_2_price'    => data_get($pp, 'tier_2_price', 0),
+            'purchase_tax_id' => data_get($pp, 'purchase_tax_id'),
+            'sale_tax_id'     => data_get($pp, 'sale_tax_id'),
+        ];
 
-                        return [
-                            'location_id' => $location->id,
-                            'price' => $match?->price ?? '',
-                        ];
-                    })->toArray(),
-                ];
-            })
+        $product->load(['conversions.prices', 'conversions.unit']);
+
+        $conversionFormData = $product->conversions->map(function ($conversion) use ($settingId) {
+            $payload = $conversion->toArray();
+            $payload['price'] = $conversion->priceValueForSetting($settingId);
+            $payload['sales_enabled'] = $conversion->isSalesEnabledForSetting($settingId);
+            $payload['purchase_enabled'] = $conversion->isPurchaseEnabledForSetting($settingId);
+
+            return $payload;
+        })->toArray();
+
+        // existing media for the dropzone
+        $existingMedia = $product->getMedia('images')->map(function ($m) {
+            return [
+                'id'   => $m->id,
+                'name' => $m->file_name,
+                'url'  => $m->getUrl(),
+                'size' => $m->size,
+            ];
+        })->values();
+
+        // Check if product has existing stock globally (across all tenants)
+        $hasStock = ProductStock::where('product_id', $product->id)
+            ->where('quantity', '>', 0)
+            ->exists();
+
+        // Format data like create.blade.php
+        $categoryOptions = collect($formattedCategories ?? [])
+            ->map(fn($name, $id) => ['id' => $id, 'name' => $name])
             ->values()
-            ->toArray();
+            ->all();
 
-        return view('product::products.edit', compact('product', 'units', 'brands', 'formattedCategories', 'locations', 'conversionFormData'));
+        $brandOptions = $brands->map(fn($brand) => ['id' => $brand->id, 'name' => $brand->name])
+            ->values()
+            ->all();
+
+        $taxOptions = collect($taxes ?? [])->map(fn($tax) => [
+            'id' => $tax->id,
+            'name' => $tax->name,
+            'value' => $tax->value,
+        ])->values()->all();
+
+        $unitOptions = $units->map(fn($unit) => ['id' => $unit->id, 'name' => $unit->name])
+            ->values()
+            ->all();
+
+        return view('product::products.edit', compact(
+            'product', 'units', 'taxes', 'brands', 'formattedCategories',
+            'locations', 'existingMedia', 'price', 'settingId', 'conversionFormData', 'idempotencyToken',
+            'hasStock', 'categoryOptions', 'brandOptions', 'taxOptions', 'unitOptions'
+        ));
     }
 
 
+    /**
+     * @throws Throwable
+     */
     public function update(UpdateProductRequest $request, Product $product): RedirectResponse
     {
+        abort_if(Gate::denies('products.edit'), 403);
+
+        Log::info('Update product request', [
+            'request' => $request->all(),
+            'product' => $product->id,
+        ]);
+
         $validatedData = $request->validated();
 
-        // Ensure brand_id and category_id are either NULL or valid
-        $validatedData['brand_id'] = $validatedData['brand_id'] ?: null;
-        $validatedData['category_id'] = $validatedData['category_id'] ?: null;
+        $validatedData['brand_id']    = $validatedData['brand_id']    ?? null;
+        $validatedData['category_id'] = $validatedData['category_id'] ?? null;
+
+        $isPurchased = (bool)($validatedData['is_purchased'] ?? false);
+        $isSold      = (bool)($validatedData['is_sold'] ?? false);
+
+        // Respect the toggles (these affect *per-setting* prices below)
+        if (!$isPurchased) {
+            $validatedData['purchase_price']  = 0;
+            $validatedData['purchase_tax_id'] = $validatedData['purchase_tax_id'] ?? null; // leave taxes as-is if you want global; or null if desired
+        }
+        if (!$isSold) {
+            $validatedData['sale_price']   = 0;
+            $validatedData['tier_1_price'] = 0;
+            $validatedData['tier_2_price'] = 0;
+            $validatedData['sale_tax_id']  = $validatedData['sale_tax_id'] ?? null; // same note as above
+        }
+
+        // Pull price inputs (to write into product_prices), then remove them from the product update
+        $pricePayload = [
+            // purchase_price is the source for both snapshots
+            'purchase_price' => (float) ($validatedData['purchase_price'] ?? 0),
+            'sale_price'     => (float) ($validatedData['sale_price']     ?? 0),
+            'tier_1_price'   => (float) ($validatedData['tier_1_price']   ?? 0),
+            'tier_2_price'   => (float) ($validatedData['tier_2_price']   ?? 0),
+            // if you still store per-setting taxes, uncomment the lines in the upsert below
+            'purchase_tax_id'=> $validatedData['purchase_tax_id'] ?? null,
+            'sale_tax_id'    => $validatedData['sale_tax_id']     ?? null,
+        ];
+        unset(
+            $validatedData['purchase_price'],
+            $validatedData['sale_price'],
+            $validatedData['tier_1_price'],
+            $validatedData['tier_2_price'],
+            $validatedData['purchase_tax_id'],
+            $validatedData['sale_tax_id']
+        );
+
+        // Reset legacy price columns on `products` so we no longer persist stale values there.
+        foreach ([
+            'purchase_price'         => 0,
+            'sale_price'             => 0,
+            'tier_1_price'           => 0,
+            'tier_2_price'           => 0,
+            'last_purchase_price'    => 0,
+            'average_purchase_price' => 0,
+            'purchase_tax_id'        => null,
+            'sale_tax_id'            => null,
+        ] as $column => $default) {
+            $validatedData[$column] = $default;
+        }
 
         // Handle location_id, conversions, and documents separately
-        $locationId = $validatedData['location_id'] ?? null;
         $conversions = $validatedData['conversions'] ?? [];
-        $documents = $validatedData['document'] ?? [];
-
-        // Unset fields that should not be saved directly to the products table
         unset($validatedData['location_id'], $validatedData['conversions'], $validatedData['document']);
 
         DB::beginTransaction();
 
         try {
-            // Update the product fields
+            // Coordinate product mutations with deterministic product-row lock
+            Product::where('id', $product->id)->lockForUpdate()->first();
+
+            // 1) Update non-price product fields on `products`
+            $oldBarcode = $product->barcode;
+            $newBarcode = $validatedData['barcode'] ?? null;
+
             $product->update($validatedData);
 
-            // Handle document uploads if new files are provided
-            if ($request->hasFile('document')) {
-                foreach ($request->file('document') as $file) {
-                    $product->addMedia($file)->toMediaCollection('images');
+            if ($oldBarcode !== $newBarcode) {
+                $identityService = app(\Modules\Product\Services\BarcodeIdentityService::class);
+                if ($oldBarcode && !$newBarcode) {
+                    $identityService->release($oldBarcode, $product->id);
+                } elseif (!$oldBarcode && $newBarcode) {
+                    $res = $identityService->reserve($newBarcode, $product->id);
+                    if (!$res['success']) {
+                        throw new \Exception("Barcode sudah digunakan atau tidak valid: " . $newBarcode);
+                    }
+                } else {
+                    $res = $identityService->replace($oldBarcode, $newBarcode, $product->id);
+                    if (!$res['success']) {
+                        throw new \Exception("Barcode sudah digunakan atau tidak valid: " . $newBarcode);
+                    }
                 }
             }
 
-            // Handle unit conversions
+            // 2) Upsert prices only for the current setting on `product_prices`
+            $settingId = $this->getActiveSettingId();
+            $allSettingIds = Setting::query()->pluck('id');
+            if ($allSettingIds->isEmpty()) {
+                $allSettingIds = collect([$settingId]);
+            }
+
+            $productPrice = ProductPrice::firstOrNew([
+                'product_id' => $product->id,
+                'setting_id' => $settingId,
+            ]);
+
+            $beforePrices = [
+                'sale_price'          => (float) $productPrice->getOriginal('sale_price'),
+                'tier_1_price'        => (float) $productPrice->getOriginal('tier_1_price'),
+                'tier_2_price'        => (float) $productPrice->getOriginal('tier_2_price'),
+                'last_purchase_price' => (float) $productPrice->getOriginal('last_purchase_price'),
+            ];
+
+            $productPrice->last_purchase_price = $isPurchased ? $pricePayload['purchase_price'] : 0;
+            if (!$productPrice->exists) {
+                $productPrice->average_purchase_price = 0;
+            }
+
+            $productPrice->sale_price   = $isSold ? $pricePayload['sale_price']   : 0;
+            $productPrice->tier_1_price = $isSold ? $pricePayload['tier_1_price'] : 0;
+            $productPrice->tier_2_price = $isSold ? $pricePayload['tier_2_price'] : 0;
+            $productPrice->purchase_tax_id = $pricePayload['purchase_tax_id'];
+            $productPrice->sale_tax_id     = $pricePayload['sale_tax_id'];
+
+            $productPrice->save();
+
+            // Record update-feed event
+            app(\Modules\Product\Services\ProductPriceFeedRecorder::class)->record(
+                \Modules\Product\Entities\ProductPriceFeedEvent::TYPE_PRODUCT_PRICE_UPDATED,
+                \Modules\Product\Entities\ProductPriceFeedEvent::SUBJECT_PRODUCT,
+                $product->id,
+                $product->product_name,
+                $product->product_code,
+                [
+                    [
+                        'setting_id' => $settingId,
+                        'before' => $beforePrices,
+                        'after' => [
+                            'sale_price'          => (float) $productPrice->sale_price,
+                            'tier_1_price'        => (float) $productPrice->tier_1_price,
+                            'tier_2_price'        => (float) $productPrice->tier_2_price,
+                            'last_purchase_price' => (float) $productPrice->last_purchase_price,
+                        ],
+                    ],
+                ]
+            );
+
+            // 3) Documents (unchanged)
+            if ($request->has('document')) {
+                if (count($product->getMedia('images')) > 0) {
+                    foreach ($product->getMedia('images') as $media) {
+                        if (!in_array($media->file_name, $request->input('document', []))) {
+                            $media->delete();
+                        }
+                    }
+                }
+
+                $media = $product->getMedia('images')->pluck('file_name')->toArray();
+                foreach ($request->input('document', []) as $file) {
+                    if (count($media) === 0 || !in_array($file, $media)) {
+                        $product->addMedia(Storage::path('temp/dropzone/' . $file))->toMediaCollection('images');
+                    }
+                }
+            }
+
+            $existingConversions = $product->conversions()->with('prices')->get()->keyBy('id');
+            $processedIds = [];
+
             if (!empty($conversions)) {
-                $product->conversions()->delete(); // Remove existing conversions
-
                 foreach ($conversions as $conversion) {
-                    $locations = $conversion['locations'] ?? [];
-                    $baseData = [
-                        'unit_id' => $conversion['unit_id'] ?? null,
-                        'base_unit_id' => $product->base_unit_id,
-                        'conversion_factor' => $conversion['conversion_factor'] ?? null,
-                        'barcode' => $conversion['barcode'] ?? null,
-                    ];
-
-                    if (empty($baseData['unit_id']) || $baseData['conversion_factor'] === null) {
+                    $unitId = $conversion['unit_id'] ?? null;
+                    if (!$unitId) {
                         continue;
                     }
 
-                    foreach ($locations as $locationData) {
-                        if (empty($locationData['location_id'])) {
-                            continue;
+                    $price = (float) ($conversion['price'] ?? 0);
+                    $payload = [
+                        'unit_id'           => $unitId,
+                        'base_unit_id'      => $product->base_unit_id,
+                        'conversion_factor' => $conversion['conversion_factor'] ?? 0,
+                        'barcode'           => $conversion['barcode'] ?? null,
+                    ];
+
+                    if (!empty($conversion['id']) && $existingConversions->has((int) $conversion['id'])) {
+                        $model = $existingConversions[(int) $conversion['id']];
+
+                        $oldConvBarcode = $model->barcode;
+                        $newConvBarcode = $payload['barcode'] ?? null;
+
+                        $model->update($payload);
+
+                        if ($oldConvBarcode !== $newConvBarcode) {
+                            $identityService = app(\Modules\Product\Services\BarcodeIdentityService::class);
+                            if ($oldConvBarcode && !$newConvBarcode) {
+                                $identityService->release($oldConvBarcode, null, $model->id);
+                            } elseif (!$oldConvBarcode && $newConvBarcode) {
+                                $res = $identityService->reserve($newConvBarcode, null, $model->id);
+                                if (!$res['success']) {
+                                    throw new \Exception("Barcode konversi sudah digunakan atau tidak valid: " . $newConvBarcode);
+                                }
+                            } else {
+                                $res = $identityService->replace($oldConvBarcode, $newConvBarcode, null, $model->id);
+                                if (!$res['success']) {
+                                    throw new \Exception("Barcode konversi sudah digunakan atau tidak valid: " . $newConvBarcode);
+                                }
+                            }
                         }
 
-                        $priceValue = $locationData['price'] ?? null;
-                        if ($priceValue === '' || !is_numeric($priceValue)) {
-                            $priceValue = null;
+                        $priceAttributes = [
+                            'product_unit_conversion_id' => $model->id,
+                            'setting_id'                 => $settingId,
+                            'price'                      => $price,
+                        ];
+
+                        if (array_key_exists('sales_enabled', $conversion)) {
+                            $priceAttributes['sales_enabled'] = (bool) $conversion['sales_enabled'];
+                        }
+                        if (array_key_exists('purchase_enabled', $conversion)) {
+                            $priceAttributes['purchase_enabled'] = (bool) $conversion['purchase_enabled'];
                         }
 
-                        $product->conversions()->create(array_merge($baseData, [
-                            'location_id' => $locationData['location_id'],
-                            'price' => $priceValue,
-                        ]));
+                        ProductUnitConversionPrice::upsertFor($priceAttributes);
+                    } else {
+                        $model = $product->conversions()->create($payload);
+
+                        if (!empty($payload['barcode'])) {
+                            $res = app(\Modules\Product\Services\BarcodeIdentityService::class)
+                                ->reserve($payload['barcode'], null, $model->id);
+                            if (!$res['success']) {
+                                throw new \Exception("Barcode konversi sudah digunakan atau tidak valid: " . $payload['barcode']);
+                            }
+                        }
+
+                        ProductUnitConversionPrice::seedForSettings(
+                            $model->id,
+                            $price,
+                            $allSettingIds
+                        );
+
+                        $explicitSales = array_key_exists('sales_enabled', $conversion) ? (bool) $conversion['sales_enabled'] : null;
+                        $explicitPurchase = array_key_exists('purchase_enabled', $conversion) ? (bool) $conversion['purchase_enabled'] : null;
+
+                        if ($explicitSales !== null || $explicitPurchase !== null) {
+                            $updatePayload = [
+                                'product_unit_conversion_id' => $model->id,
+                                'setting_id'                 => $settingId,
+                                'price'                      => $price,
+                            ];
+                            if ($explicitSales !== null) {
+                                $updatePayload['sales_enabled'] = $explicitSales;
+                            }
+                            if ($explicitPurchase !== null) {
+                                $updatePayload['purchase_enabled'] = $explicitPurchase;
+                            }
+                            ProductUnitConversionPrice::upsertFor($updatePayload);
+                        }
+                    }
+
+                    $processedIds[] = $model->id;
+                }
+            }
+
+            $idsToDelete = $existingConversions->keys()->diff($processedIds);
+            if ($idsToDelete->isNotEmpty()) {
+                foreach ($idsToDelete as $idToDelete) {
+                    $deletedConv = $existingConversions[$idToDelete];
+                    if ($deletedConv->barcode) {
+                        app(\Modules\Product\Services\BarcodeIdentityService::class)->release($deletedConv->barcode, null, $deletedConv->id);
                     }
                 }
+                $product->conversions()->whereIn('id', $idsToDelete->all())->delete();
             }
 
             DB::commit();
 
             toast('Produk Diperbaharui!', 'info');
             return redirect()->route('products.index');
+
         } catch (Exception $e) {
             DB::rollBack();
             Log::error('Pembaruan Produk Gagal', ['error' => $e->getMessage()]);
-
             toast('Gagal Perbaharui Produk. Silahkan Coba Lagi !.', 'error');
             return redirect()->back()->withInput();
         }
     }
 
 
-    public function destroy(Product $product): RedirectResponse
+    public function toggleStatus(Product $product, \App\Services\MasterDataLifecycleService $lifecycleService): RedirectResponse
     {
-        abort_if(Gate::denies('delete_products'), 403);
+        abort_if(! Gate::allows('products.edit') && ! Gate::allows('products.delete'), 403);
 
-        $product->delete();
+        try {
+            if ($product->is_active) {
+                $lifecycleService->deactivate($product);
+                toast('Produk berhasil dinonaktifkan!', 'info');
+            } else {
+                $lifecycleService->reactivate($product);
+                toast('Produk berhasil diaktifkan kembali!', 'success');
+            }
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
+        }
 
-        toast('Produk Dihapus!', 'warning');
+        return redirect()->back();
+    }
+
+    public function destroy(Product $product, \App\Services\MasterDataLifecycleService $lifecycleService): RedirectResponse
+    {
+        abort_if(! Gate::allows('products.edit') && ! Gate::allows('products.delete'), 403);
+
+        try {
+            $lifecycleService->deactivate($product);
+            toast('Produk berhasil dinonaktifkan!', 'info');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            toast($e->getMessage(), 'error');
+        }
 
         return redirect()->route('products.index');
     }
 
     public function uploadPage(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        // Get the current setting ID from the session
-        $currentSettingId = session('setting_id');
+        abort_if(Gate::denies('products.create'), 403);
 
         // Query the locations for the current setting ID
-        $locations = Location::where('setting_id', $currentSettingId)->get();
+        $locations = Location::all();
 
         // Return the upload view with the locations data
         return view('product::products.upload', compact('locations'));
     }
 
+    /**
+     * @throws UnavailableStream
+     * @throws InvalidArgument
+     * @throws Throwable
+     * @throws SyntaxError
+     * @throws \League\Csv\Exception
+     */
     public function upload(Request $request): RedirectResponse
     {
+        abort_if(Gate::denies('products.create'), 403);
         // Validate the request
         $request->validate([
             'file' => 'required|mimes:csv,txt',
@@ -401,7 +663,7 @@ class ProductController extends Controller
 
         // Handle the uploaded file
         $file = $request->file('file');
-        $csv = Reader::createFromPath($file->getPathname(), 'r');
+        $csv = Reader::createFromPath($file->getPathname());
         $csv->setHeaderOffset(0); // The CSV has headers
         $records = (new Statement())->process($csv);
 
@@ -437,20 +699,22 @@ class ProductController extends Controller
                 // Check for duplicate product name
                 $existingProductWithName = Product::where('product_name', $name)->first();
                 if ($existingProductWithName) {
-                    Log::error("Row $rowsRead: A product with the name '{$name}' already exists.");
+                    Log::error("Row $rowsRead: A product with the name '$name' already exists.");
                     continue; // Skip this row
                 }
 
                 // Find or create the unit
                 $unit = Unit::firstOrCreate(['name' => $unitName]);
 
-                // Set tax values based on the tax name
-                $purchaseTax = $buyTaxName === 'PPN 11%' ? 1 : 0;
-                $saleTax = $sellTaxName === 'PPN 11%' ? 1 : 0;
+                // Resolve tax IDs based on provided names (explicit choice)
+                $purchaseTaxId = $buyTaxName ? Tax::where('name', $buyTaxName)->value('id') : null;
+                $saleTaxId = $sellTaxName ? Tax::where('name', $sellTaxName)->value('id') : null;
 
                 // Determine if the product is sold or purchased
                 $isPurchased = $buyPrice > 0;
                 $isSold = $sellPrice > 0;
+
+                $settingId = $this->getActiveSettingId();
 
                 // Create or update the product using Eloquent
                 $product = Product::updateOrCreate(
@@ -459,23 +723,49 @@ class ProductController extends Controller
                         'product_name' => $name,
                         'product_quantity' => $stock,
                         'base_unit_id' => $unit->id,
-                        'purchase_price' => $buyPrice,
-                        'purchase_tax' => $purchaseTax,
-                        'sale_price' => $sellPrice,
-                        'sale_tax' => $saleTax,
+                        'purchase_price' => 0, // Legacy column
+                        'purchase_tax_id' => $purchaseTaxId,
+                        'sale_price' => 0,     // Legacy column
+                        'sale_tax_id' => $saleTaxId,
                         'stock_managed' => true,
                         'product_stock_alert' => $minimumStock,
                         'is_purchased' => $isPurchased,
                         'is_sold' => $isSold,
-                        'setting_id' => session('setting_id'),
+                        'setting_id' => $settingId,
 
-                        // set to default
+                        // Clear legacy flag columns
+                        'purchase_tax' => 0,
+                        'sale_tax' => 0,
+
+                        // set to default for other legacy columns
                         'product_cost' => 0,
                         'product_order_tax' => 0,
                         'product_tax_type' => 0,
                         'profit_percentage' => 0,
-                        'product_price' => 0
+                        'product_price' => 0,
+                        'last_purchase_price' => 0,
+                        'average_purchase_price' => 0,
                     ]
+                );
+
+                // Seed prices for all settings to match the current multi-setting architecture
+                $settingIds = Setting::query()->pluck('id');
+                if ($settingIds->isEmpty()) {
+                    $settingIds = collect([$settingId]);
+                }
+
+                ProductPrice::seedForSettings(
+                    $product->id,
+                    [
+                        'sale_price'             => $isSold ? $sellPrice : 0,
+                        'tier_1_price'           => $isSold ? $sellPrice : 0,
+                        'tier_2_price'           => $isSold ? $sellPrice : 0,
+                        'last_purchase_price'    => $isPurchased ? $buyPrice : 0,
+                        'average_purchase_price' => $isPurchased ? $buyPrice : 0,
+                        'purchase_tax_id'        => $purchaseTaxId,
+                        'sale_tax_id'            => $saleTaxId,
+                    ],
+                    $settingIds
                 );
 
                 // If stock is more than 0, record a transaction
@@ -495,7 +785,7 @@ class ProductController extends Controller
 
                 // Log each successfully processed row
                 $rowsProcessed++;
-                Log::info("Row $rowsRead: Product '{$name}' processed successfully.");
+                Log::info("Row $rowsRead: Product '$name' processed successfully.");
             }
 
             DB::commit();
@@ -516,86 +806,142 @@ class ProductController extends Controller
         return (int)str_replace([','], '', trim($price));
     }
 
-    public function initializeProductStock(Request $request): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    public function initializeProductStock(Request $request)
     {
-        $product = Product::findOrFail($request->product_id);
+        abort_if(Gate::denies('products.create'), 403);
 
-        // Fetch the locations from the database
-        $locations = Location::where('setting_id', session('setting_id'))->get();
+        $product   = Product::findOrFail($request->product_id);
+        $settingId = $this->getActiveSettingId(); // already defined in your controller
 
-        // Get prices from product
-        $last_purchase_price = $product->purchase_price;
-        $average_purchase_price = $product->purchase_price;
-        $sale_price = $product->sale_price;
+        // per-setting prices (fallback to legacy columns if missing)
+        $pp = ProductPrice::where('product_id', $product->id)
+            ->where('setting_id', $settingId)
+            ->first();
 
-        // Pass the product, prices, and locations to the view
-        return view('product::products.initialize-product-stock', compact('product', 'last_purchase_price', 'average_purchase_price', 'sale_price', 'locations'));
+        $last_purchase_price    = data_get($pp, 'last_purchase_price',    $product->last_purchase_price ?? $product->purchase_price);
+        $average_purchase_price = data_get($pp, 'average_purchase_price', $product->average_purchase_price ?? $product->purchase_price);
+        $sale_price             = data_get($pp, 'sale_price',             $product->sale_price);
+
+        // locations with their company (⚠️ no `name` column on settings)
+        $locations = Location::with(['setting:id,company_name'])->get();
+
+        // build "Location — Company" options for the <x-select>
+        $locationOptions = $locations->mapWithKeys(function ($loc) {
+            $company = optional($loc->setting)->company_name ?? '—';
+            return [$loc->id => "{$loc->name} — {$company}"];
+        });
+
+        return view('product::products.initialize-product-stock', compact(
+            'product',
+            'last_purchase_price',
+            'average_purchase_price',
+            'sale_price',
+            'locations',
+            'locationOptions',   // <-- pass to blade
+            'settingId'
+        ));
     }
 
+    /**
+     * @throws Throwable
+     */
     public function storeInitialProductStock(InitializeProductStockRequest $request): RedirectResponse
     {
+        abort_if(Gate::denies('products.create'), 403);
         return $this->handleStockInitialization($request, 'products.index');
     }
 
+    /**
+     * @throws Throwable
+     */
     public function storeInitialProductStockAndRedirectToInputSerialNumbers(InitializeProductStockRequest $request): RedirectResponse
     {
+        abort_if(Gate::denies('products.create'), 403);
         return $this->handleStockInitialization($request, 'products.inputSerialNumbers', [
             'product_id' => $request->route('product_id'),
             'location_id' => $request->input('location_id'),
         ]);
     }
 
+    /**
+     * @throws Throwable
+     */
     private function handleStockInitialization(InitializeProductStockRequest $request, string $redirectRoute, array $routeParams = []): RedirectResponse
     {
-        $validatedData = $request->validated();
+        abort_if(Gate::denies('products.create'), 403);
+
+        $data   = $request->validated();
+        $locId  = (int) $data['location_id'];
 
         DB::beginTransaction();
-
         try {
-            // Assuming the product ID is passed in the request or retrieved from session
-            $product = Product::findOrFail($request->route('product_id'));
+            // Lock to keep totals consistent
+            $product = Product::lockForUpdate()->findOrFail($request->route('product_id'));
 
-            // Create a transaction for product stock initialization
-            Transaction::create([
-                'product_id' => $product->id,
-                'setting_id' => session('setting_id'),
-                'type' => 'INIT', // Assuming 'INIT' is used for initial stock setup
-                'quantity' => $validatedData['quantity'],
-                'previous_quantity' => 0,
-                'previous_quantity_at_location' => 0,
-                'after_quantity' => $validatedData['quantity'],
-                'after_quantity_at_location' => 0,
-                'quantity_tax' => $validatedData['quantity_tax'],
-                'quantity_non_tax' => $validatedData['quantity_non_tax'],
-                'current_quantity' => $validatedData['quantity'],
-                'broken_quantity' => $validatedData['broken_quantity_tax'] + $validatedData['broken_quantity_non_tax'],
-                'broken_quantity_tax' => $validatedData['broken_quantity_tax'],
-                'broken_quantity_non_tax' => $validatedData['broken_quantity_non_tax'],
-                'location_id' => $validatedData['location_id'],
-                'user_id' => auth()->id(), // Assuming the user is authenticated
-                'reason' => 'Initial stock setup',
+            // Parts
+            $qtyNonTax = (int) $data['quantity_non_tax'];
+            $qtyTax    = (int) $data['quantity_tax'];
+            $bqNonTax  = (int) $data['broken_quantity_non_tax'];
+            $bqTax     = (int) $data['broken_quantity_tax'];
+
+            $total         = $qtyNonTax + $qtyTax + $bqNonTax + $bqTax;     // equals $data['quantity'] (validator ensures this)
+            $brokenTotal   = $bqNonTax + $bqTax;
+
+            $prevProduct   = (int) $product->product_quantity;
+            $prevAtLoc     = (int) (ProductStock::where('product_id', $product->id)
+                ->where('location_id', $locId)->value('quantity') ?? 0);
+
+            // Update product aggregate counters
+            $product->product_quantity = $total;
+            $product->broken_quantity  = $brokenTotal; // products.broken_quantity exists with default 0. :contentReference[oaicite:1]{index=1}
+            $product->save();
+
+            // Upsert product stock at location (avoid mass-assignment; set fields explicitly)
+            $stock = ProductStock::firstOrNew([
+                'product_id'  => $product->id,
+                'location_id' => $locId,
             ]);
+            $stock->quantity                 = $total;
+            $stock->quantity_non_tax         = $qtyNonTax;
+            $stock->quantity_tax             = $qtyTax;
+            $stock->broken_quantity_non_tax  = $bqNonTax;
+            $stock->broken_quantity_tax      = $bqTax;
+            $stock->broken_quantity          = $brokenTotal; // REQUIRED by schema. :contentReference[oaicite:2]{index=2}
+            $stock->save();
 
-            ProductStock::create([
-                'product_id' => $product->id,  // Assuming $product is available
-                'location_id' => $validatedData['location_id'],  // Assuming location_id comes from the request
-                'quantity' => $validatedData['quantity'],  // Quantity
-                'quantity_non_tax' => $validatedData['quantity_non_tax'],  // Quantity without tax
-                'quantity_tax' => $validatedData['quantity_tax'],  // Quantity with tax
-                'broken_quantity_non_tax' => $validatedData['broken_quantity_non_tax'],  // Broken quantity without tax
-                'broken_quantity_tax' => $validatedData['broken_quantity_tax'],  // Broken quantity with tax
-                'sale_price' => $product->sale_price,  // Sale price
+            $afterProduct = $product->product_quantity; // $total
+            $afterAtLoc   = $stock->quantity;           // $total
+
+            // Record transaction (columns exist in schema) :contentReference[oaicite:3]{index=3}
+            Transaction::create([
+                'product_id'                 => $product->id,
+                'setting_id'                 => $this->getActiveSettingId(),
+                'type'                       => 'INIT',
+                'reason'                     => 'Initial stock setup',
+                'user_id'                    => auth()->id(),
+                'location_id'                => $locId,
+
+                'quantity'                   => $total,        // involved quantity
+                'current_quantity'           => $afterProduct, // product qty after txn
+                'broken_quantity'            => $brokenTotal,
+                'quantity_non_tax'           => $qtyNonTax,
+                'quantity_tax'               => $qtyTax,
+                'broken_quantity_non_tax'    => $bqNonTax,
+                'broken_quantity_tax'        => $bqTax,
+
+                'previous_quantity'          => $prevProduct,
+                'after_quantity'             => $afterProduct,
+                'previous_quantity_at_location' => $prevAtLoc,
+                'after_quantity_at_location' => $afterAtLoc,
             ]);
 
             DB::commit();
-
             toast('Stok berhasil diinisialisasi!', 'success');
-
             return redirect()->route($redirectRoute, $routeParams);
-        } catch (Exception $e) {
+
+        } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Gagal menginisialisasi stok.', ['error' => $e->getMessage()]);
-
             toast('Gagal menginisialisasi stok. Silakan coba lagi.', 'error');
             return redirect()->back()->withInput();
         }
@@ -605,7 +951,7 @@ class ProductController extends Controller
     {
         $product = Product::findOrFail($request->route('product_id'));
         $location = Location::findOrFail($request->route('location_id'));
-        $taxes = Tax::all(); // Retrieve all available taxes (assuming they are global, adjust if needed)
+        $taxes = Tax::where('is_active', true)->get();
         $transaction = Transaction::where('location_id', $request->route('location_id'))
             ->where('product_id', $request->route('product_id'))
             ->firstOrFail();
@@ -615,8 +961,12 @@ class ProductController extends Controller
         ));
     }
 
+    /**
+     * @throws Throwable
+     */
     public function storeSerialNumbers(InputSerialNumbersRequest $request): RedirectResponse
     {
+        abort_if(Gate::denies('products.create'), 403);
         DB::beginTransaction();
 
         try {
@@ -643,5 +993,69 @@ class ProductController extends Controller
             toast('Failed to save serial numbers. Please try again.', 'error');
             return redirect()->back()->withInput();
         }
+    }
+
+    public function search(Request $request): JsonResponse
+    {
+        abort_if(Gate::denies('products.access'), 403);
+        $search = $request->input('q');
+        $products = Product::eligible()
+            ->where('product_name', 'LIKE', "%$search%")
+            ->select('id', 'product_name as text')
+            ->limit(10)
+            ->get();
+        return response()->json($products);
+    }
+
+    public function destroyMedia(Product $product, Media $media): Response
+    {
+        abort_if(Gate::denies('products.edit'), 403);
+
+        // Safety: ensure media belongs to this product
+        if ($media->model_id !== $product->id || $media->model_type !== Product::class) {
+            abort(404);
+        }
+
+        $media->delete();
+        return response()->noContent();
+    }
+
+    public function downloadCsvTemplate(): StreamedResponse
+    {
+        abort_if(Gate::denies('products.create'), 403);
+
+        $filename = 'template_upload_produk.csv';
+
+        // Template mengikuti struktur kolom product.csv
+        $headers = [
+            'Kode Produk',
+            'Nama Produk',
+            'Stok di tangan',
+            'Batas Minimum',
+            'Satuan',
+            'Harga Rata-rata',
+            'Nilai',
+        ];
+
+        // Contoh baris (boleh dihapus saat diisi pengguna)
+        $example = [
+            'SKU-001',
+            'Produk Contoh',
+            0,
+            1,
+            'PCS',
+            '123,456.78',
+            '123,456.78',
+        ];
+
+        return response()->streamDownload(function () use ($headers, $example) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, $headers);
+            fputcsv($out, $example);
+            fclose($out);
+        }, $filename, [
+            'Content-Type'  => 'text/csv; charset=UTF-8',
+            'Cache-Control' => 'no-store, no-cache',
+        ]);
     }
 }

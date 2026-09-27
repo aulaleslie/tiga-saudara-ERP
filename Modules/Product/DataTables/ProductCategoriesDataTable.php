@@ -36,7 +36,9 @@ class ProductCategoriesDataTable extends DataTable
             if (request()->has('search') && request('search')['value']) {
                 $searchValue = strtolower(request('search')['value']);
                 $query->where(function ($query) use ($searchValue) {
+                    // Add conditions for searching by category_name and category_code
                     $query->whereRaw('LOWER(category_name) LIKE ?', ["%{$searchValue}%"])
+                        ->orWhereRaw('LOWER(category_code) LIKE ?', ["%{$searchValue}%"]) // Search by category_code
                         ->orWhereHas('parent', function ($query) use ($searchValue) {
                             $query->whereRaw('LOWER(category_name) LIKE ?', ["%{$searchValue}%"]);
                         });
@@ -49,8 +51,7 @@ class ProductCategoriesDataTable extends DataTable
 
     public function query(Category $model): \Illuminate\Database\Eloquent\Builder
     {
-        $settingId = session("setting_id");
-        return $model->newQuery()->where('setting_id', $settingId)->with('parent')->withCount('products'); // Eager load the parent category
+        return $model->newQuery()->with('parent')->withCount('products'); // Eager load the parent category
     }
 
     public function html(): Builder
@@ -58,21 +59,10 @@ class ProductCategoriesDataTable extends DataTable
         return $this->builder()
             ->setTableId('product_categories-table')
             ->columns($this->getColumns())
-            ->minifiedAjax()
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                 'tr' .
                                 <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(4)
-            ->buttons(
-                Button::make('excel')
-                    ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
-                Button::make('print')
-                    ->text('<i class="bi bi-printer-fill"></i> Print'),
-                Button::make('reset')
-                    ->text('<i class="bi bi-x-circle"></i> Reset'),
-                Button::make('reload')
-                    ->text('<i class="bi bi-arrow-repeat"></i> Reload')
-            );
+            ->orderBy(4);
     }
 
     protected function getColumns(): array

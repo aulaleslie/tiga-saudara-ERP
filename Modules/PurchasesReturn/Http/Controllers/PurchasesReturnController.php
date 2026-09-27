@@ -2,6 +2,8 @@
 
 namespace Modules\PurchasesReturn\Http\Controllers;
 
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Modules\PurchasesReturn\DataTables\PurchaseReturnsDataTable;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Routing\Controller;
@@ -19,14 +21,14 @@ class PurchasesReturnController extends Controller
 {
 
     public function index(PurchaseReturnsDataTable $dataTable) {
-        abort_if(Gate::denies('access_purchase_returns'), 403);
+        abort_if(Gate::denies('purchaseReturns.access'), 403);
 
         return $dataTable->render('purchasesreturn::index');
     }
 
 
     public function create() {
-        abort_if(Gate::denies('create_purchase_returns'), 403);
+        abort_if(Gate::denies('purchaseReturns.create'), 403);
 
         Cart::instance('purchase_return')->destroy();
 
@@ -34,7 +36,15 @@ class PurchasesReturnController extends Controller
     }
 
 
+    /**
+     * @deprecated Use Livewire PurchaseReturnCreateForm instead.
+     * Ticket 7: Creation only creates a pending document without mutation.
+     */
     public function store(StorePurchaseReturnRequest $request) {
+        abort_if(Gate::denies('purchaseReturns.create'), 403);
+        Log::info('Purchase Return store request (LEGACY)', [
+            'request' => $request->all()
+        ]);
         DB::transaction(function () use ($request) {
             $due_amount = $request->total_amount - $request->paid_amount;
 
@@ -52,16 +62,17 @@ class PurchasesReturnController extends Controller
                 'supplier_name' => Supplier::findOrFail($request->supplier_id)->supplier_name,
                 'tax_percentage' => $request->tax_percentage,
                 'discount_percentage' => $request->discount_percentage,
-                'shipping_amount' => $request->shipping_amount * 100,
-                'paid_amount' => $request->paid_amount * 100,
-                'total_amount' => $request->total_amount * 100,
-                'due_amount' => $due_amount * 100,
-                'status' => $request->status,
+                'shipping_amount' => $request->shipping_amount,
+                'paid_amount' => $request->paid_amount,
+                'total_amount' => $request->total_amount,
+                'due_amount' => $due_amount,
+                'approval_status' => 'pending',
+                'status' => PurchaseReturn::STATUS_PENDING_APPROVAL,
                 'payment_status' => $payment_status,
                 'payment_method' => $request->payment_method,
                 'note' => $request->note,
-                'tax_amount' => Cart::instance('purchase_return')->tax() * 100,
-                'discount_amount' => Cart::instance('purchase_return')->discount() * 100,
+                'tax_amount' => Cart::instance('purchase_return')->tax(),
+                'discount_amount' => Cart::instance('purchase_return')->discount(),
             ]);
 
             foreach (Cart::instance('purchase_return')->content() as $cart_item) {
@@ -71,20 +82,23 @@ class PurchasesReturnController extends Controller
                     'product_name' => $cart_item->name,
                     'product_code' => $cart_item->options->code,
                     'quantity' => $cart_item->qty,
-                    'price' => $cart_item->price * 100,
-                    'unit_price' => $cart_item->options->unit_price * 100,
-                    'sub_total' => $cart_item->options->sub_total * 100,
-                    'product_discount_amount' => $cart_item->options->product_discount * 100,
+                    'price' => $cart_item->price,
+                    'unit_price' => $cart_item->options->unit_price,
+                    'sub_total' => $cart_item->options->sub_total,
+                    'product_discount_amount' => $cart_item->options->product_discount,
                     'product_discount_type' => $cart_item->options->product_discount_type,
-                    'product_tax_amount' => $cart_item->options->product_tax * 100,
+                    'product_tax_amount' => $cart_item->options->product_tax,
                 ]);
 
+                /*
+                // Stock deduction is now handled by the Dispatch Return action (Batch 6)
                 if ($request->status == 'Shipped' || $request->status == 'Completed') {
                     $product = Product::findOrFail($cart_item->id);
                     $product->update([
                         'product_quantity' => $product->product_quantity - $cart_item->qty
                     ]);
                 }
+                */
             }
 
             Cart::instance('purchase_return')->destroy();
@@ -100,23 +114,56 @@ class PurchasesReturnController extends Controller
             }
         });
 
-        toast('Purchase Return Created!', 'success');
+        toast('Retur Pembelian Dibuat!', 'success');
 
         return redirect()->route('purchase-returns.index');
     }
 
 
     public function show(PurchaseReturn $purchase_return) {
-        abort_if(Gate::denies('show_purchase_returns'), 403);
+        abort_if(Gate::denies('purchaseReturns.show'), 403);
 
+        $purchase_return->load([
+            'purchaseReturnDetails.product',
+            'purchaseReturnDetails.location.setting',
+            'goods.product',
+            'supplierCredit',
+            'purchaseReturnPayments',
+            'location',
+            'settlement',
+            'settlementItems.detail.location',
+            'settlementItems.serialNumber',
+            'settlementItems.targetPurchase',
+        ]);
         $supplier = Supplier::findOrFail($purchase_return->supplier_id);
+        $locations = \Modules\Setting\Entities\Location::with('setting')->get();
 
-        return view('purchasesreturn::show', compact('purchase_return', 'supplier'));
+        return view('purchasesreturn::show', compact('purchase_return', 'supplier', 'locations'));
+    }
+
+
+    public function settlement(PurchaseReturn $purchase_return)
+    {
+        abort_if(Gate::denies('purchaseReturnSettlements.submit'), 403);
+
+        $dispatchStatus = Str::lower($purchase_return->return_dispatch_status ?? '');
+
+        if ($dispatchStatus !== 'dispatched') {
+            toast('Penyelesaian hanya dapat diproses setelah retur dikirim.', 'error');
+            return redirect()->route('purchase-returns.show', $purchase_return);
+        }
+
+        return view('purchasesreturn::settlement', compact('purchase_return'));
     }
 
 
     public function edit(PurchaseReturn $purchase_return) {
-        abort_if(Gate::denies('edit_purchase_returns'), 403);
+        abort_if(Gate::denies('purchaseReturns.update'), 403);
+
+        // Rule: Dispatched -> Hard Block
+        if (!is_null($purchase_return->return_dispatched_at)) {
+            abort(403, 'Tidak dapat mengubah retur pembelian yang sudah dikirim barangnya.');
+        }
 
         $purchase_return_details = $purchase_return->purchaseReturnDetails;
 
@@ -148,6 +195,20 @@ class PurchasesReturnController extends Controller
 
 
     public function update(UpdatePurchaseReturnRequest $request, PurchaseReturn $purchase_return) {
+        abort_if(Gate::denies('purchaseReturns.update'), 403);
+
+        // Rule: Dispatched -> Hard Block
+        if (!is_null($purchase_return->return_dispatched_at)) {
+            abort(403, 'Tidak dapat memperbarui retur pembelian yang sudah dikirim barangnya.');
+        }
+
+        // Rule: Approved -> Lock supplier_id
+        if (Str::lower($purchase_return->approval_status) === 'approved') {
+            if ((int) $request->supplier_id !== (int) $purchase_return->supplier_id) {
+                return redirect()->back()->withErrors(['supplier_id' => 'Pemasok tidak dapat diubah setelah retur disetujui.'])->withInput();
+            }
+        }
+
         DB::transaction(function () use ($request, $purchase_return) {
             $due_amount = $request->total_amount - $request->paid_amount;
 
@@ -159,13 +220,22 @@ class PurchasesReturnController extends Controller
                 $payment_status = 'Paid';
             }
 
+            $status = Str::lower($purchase_return->approval_status ?? '');
+
+            $approvalStatus = $status === 'approved'
+                ? 'approved'
+                : 'pending';
+
             foreach ($purchase_return->purchaseReturnDetails as $purchase_return_detail) {
+                /*
+                // Stock restoration is disabled to prevent conflicts with Dispatch flow
                 if ($purchase_return->status == 'Shipped' || $purchase_return->status == 'Completed') {
                     $product = Product::findOrFail($purchase_return_detail->product_id);
                     $product->update([
                         'product_quantity' => $product->product_quantity + $purchase_return_detail->quantity
                     ]);
                 }
+                */
                 $purchase_return_detail->delete();
             }
 
@@ -176,16 +246,21 @@ class PurchasesReturnController extends Controller
                 'supplier_name' => Supplier::findOrFail($request->supplier_id)->supplier_name,
                 'tax_percentage' => $request->tax_percentage,
                 'discount_percentage' => $request->discount_percentage,
-                'shipping_amount' => $request->shipping_amount * 100,
-                'paid_amount' => $request->paid_amount * 100,
-                'total_amount' => $request->total_amount * 100,
-                'due_amount' => $due_amount * 100,
-                'status' => $request->status,
+                'shipping_amount' => $request->shipping_amount,
+                'paid_amount' => $request->paid_amount,
+                'total_amount' => $request->total_amount,
+                'due_amount' => $due_amount,
+                'approval_status' => $approvalStatus,
+                'status' => $approvalStatus === 'approved'
+                    ? ($purchase_return->return_dispatch_status === 'dispatched'
+                        ? $purchase_return->unified_status
+                        : PurchaseReturn::STATUS_AWAITING_DISPATCH)
+                    : PurchaseReturn::STATUS_PENDING_APPROVAL,
                 'payment_status' => $payment_status,
                 'payment_method' => $request->payment_method,
                 'note' => $request->note,
-                'tax_amount' => Cart::instance('purchase_return')->tax() * 100,
-                'discount_amount' => Cart::instance('purchase_return')->discount() * 100,
+                'tax_amount' => Cart::instance('purchase_return')->tax(),
+                'discount_amount' => Cart::instance('purchase_return')->discount(),
             ]);
 
             foreach (Cart::instance('purchase_return')->content() as $cart_item) {
@@ -195,38 +270,105 @@ class PurchasesReturnController extends Controller
                     'product_name' => $cart_item->name,
                     'product_code' => $cart_item->options->code,
                     'quantity' => $cart_item->qty,
-                    'price' => $cart_item->price * 100,
-                    'unit_price' => $cart_item->options->unit_price * 100,
-                    'sub_total' => $cart_item->options->sub_total * 100,
-                    'product_discount_amount' => $cart_item->options->product_discount * 100,
+                    'price' => $cart_item->price,
+                    'unit_price' => $cart_item->options->unit_price,
+                    'sub_total' => $cart_item->options->sub_total,
+                    'product_discount_amount' => $cart_item->options->product_discount,
                     'product_discount_type' => $cart_item->options->product_discount_type,
-                    'product_tax_amount' => $cart_item->options->product_tax * 100,
+                    'product_tax_amount' => $cart_item->options->product_tax,
                 ]);
 
+                /*
+                // Stock deduction is now handled by the Dispatch Return action (Batch 6)
                 if ($request->status == 'Shipped' || $request->status == 'Completed') {
                     $product = Product::findOrFail($cart_item->id);
                     $product->update([
                         'product_quantity' => $product->product_quantity - $cart_item->qty
                     ]);
                 }
+                */
             }
 
             Cart::instance('purchase_return')->destroy();
         });
 
-        toast('Purchase Return Updated!', 'info');
+        toast('Retur Pembelian Diperbaharui!', 'info');
 
         return redirect()->route('purchase-returns.index');
     }
 
 
+    public function archive(PurchaseReturn $purchase_return)
+    {
+        abort_if(Gate::denies('purchaseReturns.archive'), 403);
+
+        // Rule: Dispatched -> Hard Block
+        if (!is_null($purchase_return->return_dispatched_at)) {
+            abort(403, 'Tidak dapat mengarsipkan retur pembelian yang sudah dikirim barangnya.');
+        }
+
+        $purchase_return->update([
+            'archived_at' => now(),
+            'archived_by' => auth()->id(),
+        ]);
+
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($purchase_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($purchase_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($purchase_return, 'dispatch');
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($purchase_return, 'dispatch');
+
+        toast('Retur Pembelian Diarsipkan!', 'info');
+
+        return redirect()->route('purchase-returns.index');
+    }
+
     public function destroy(PurchaseReturn $purchase_return) {
-        abort_if(Gate::denies('delete_purchase_returns'), 403);
+        abort_if(Gate::denies('purchaseReturns.delete'), 403);
+
+        // Rule: Dispatched -> Hard Block
+        if (!is_null($purchase_return->return_dispatched_at)) {
+            abort(403, 'Tidak dapat menghapus retur pembelian yang sudah dikirim barangnya.');
+        }
+
+        // Rule: Approved -> Require explicit archive permission
+        if (Str::lower($purchase_return->approval_status) === 'approved') {
+            if (!auth()->user()->can('purchaseReturns.archive')) {
+                abort(403, 'Anda tidak memiliki akses untuk mengarsipkan retur pembelian yang sudah disetujui.');
+            }
+        }
 
         $purchase_return->delete();
 
-        toast('Purchase Return Deleted!', 'warning');
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($purchase_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($purchase_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($purchase_return, 'dispatch');
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($purchase_return, 'dispatch');
+
+        toast('Retur Pembelian Dihapus!', 'warning');
 
         return redirect()->route('purchase-returns.index');
+    }
+
+    public function repropose(PurchaseReturn $purchase_return) {
+        abort_if(Gate::denies('purchaseReturns.update'), 403);
+
+        if (Str::lower($purchase_return->approval_status) !== 'rejected') {
+            abort(403, 'Hanya retur pembelian yang ditolak yang dapat diajukan ulang.');
+        }
+
+        $purchase_return->update([
+            'approval_status' => 'pending',
+            'status' => PurchaseReturn::STATUS_PENDING_APPROVAL,
+            'rejected_at' => null,
+            'rejected_by' => null,
+            'rejection_reason' => null,
+        ]);
+
+        app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded($purchase_return, $purchase_return->reference, $purchase_return->setting_id);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($purchase_return);
+
+        toast('Retur Pembelian Diajukan Ulang!', 'success');
+
+        return redirect()->route('purchase-returns.show', $purchase_return);
     }
 }

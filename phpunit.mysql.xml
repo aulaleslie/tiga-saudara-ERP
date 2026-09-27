@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="./vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true">
+    <testsuites>
+        <testsuite name="MySQL Sequence Concurrency">
+            <directory suffix="Test.php">./tests/Feature/Services/Sequence/Concurrency</directory>
+        </testsuite>
+        <testsuite name="MySQL Migrations">
+            <directory suffix="Test.php">./tests/Feature/Database/Migrations</directory>
+        </testsuite>
+    </testsuites>
+    <php>
+        <env name="APP_ENV" value="testing"/>
+        <env name="APP_KEY" value="base64:YgbyTdUl6tH9OYAbmHqlRWp5IreCa1zvTXoF2o1mVRA="/>
+        <env name="BCRYPT_ROUNDS" value="4"/>
+        <env name="CACHE_DRIVER" value="array"/>
+        <env name="DB_CONNECTION" value="mysql_test"/>
+        <env name="MYSQL_TEST_HOST" value="127.0.0.1"/>
+        <env name="MYSQL_TEST_PORT" value="33066"/>
+        <env name="MYSQL_TEST_DATABASE" value="tiga_saudara_test"/>
+        <env name="MYSQL_TEST_USERNAME" value="test_user"/>
+        <env name="MYSQL_TEST_PASSWORD" value="test_password"/>
+        <env name="MAIL_MAILER" value="array"/>
+        <env name="PULSE_ENABLED" value="false"/>
+        <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="SESSION_DRIVER" value="array"/>
+        <env name="TELESCOPE_ENABLED" value="false"/>
+        <env name="SEQUENCE_PURCHASE_ENABLED" value="true"/>
+        <env name="SEQUENCE_SALE_ENABLED" value="true"/>
+    </php>
+</phpunit>

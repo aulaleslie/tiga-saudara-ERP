@@ -3,141 +3,81 @@
 namespace Modules\User\Database\Seeders;
 
 use Illuminate\Database\Seeder;
-use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
+use Spatie\Permission\PermissionRegistrar;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
 class PermissionsTableSeeder extends Seeder
 {
+    private const DEFAULT_GUARD = 'web';
+
     /**
      * Run the database seeds.
      *
-     * @return void
+     * Loads all permissions from the centralized configuration (app/Config/Permissions.php)
+     * and synchronizes the database to match exactly:
+     * - Creates missing permissions
+     * - Deletes orphaned permissions (not in config)
+     * - Syncs Admin role to all configured permissions
      */
     public function run()
     {
-        $permissions = [
-            //User Mangement
-            'edit_own_profile',
-            'access_user_management',
-            //Dashboard
-            'show_total_stats',
-            'show_month_overview',
-            'show_weekly_sales_purchases',
-            'show_monthly_cashflow',
-            'show_notifications',
-            //Products
-            'access_products',
-            'create_products',
-            'show_products',
-            'edit_products',
-            'delete_products',
+        // Load permissions from centralized configuration
+        $permissionsConfig = config('permissions');
 
-            //Stock Adjustments
-            'adjustment.access',
-            'adjustment.create',
-            'adjustment.view',
-            'adjustment.edit',
-            'adjustment.delete',
-            //Brand
-            //Product Categories
-            'access_product_categories',
-            //customer
-            //supplier
-            //Barcode Printing
-            'print_barcodes',
-            //Adjustments
-            //Quotaions
-            'access_quotations',
-            'create_quotations',
-            'show_quotations',
-            'edit_quotations',
-            'delete_quotations',
-            //Create Sale From Quotation
-            'create_quotation_sales',
-            //Send Quotation On Email
-            'send_quotation_mails',
-            //Expenses
-            'access_expenses',
-            'create_expenses',
-            'edit_expenses',
-            'delete_expenses',
-            //Expense Categories
-            'access_expense_categories',
-            //Customers
-            'access_customers',
-            'create_customers',
-            'show_customers',
-            'edit_customers',
-            'delete_customers',
-            //Suppliers
-            'access_suppliers',
-            'create_suppliers',
-            'show_suppliers',
-            'edit_suppliers',
-            'delete_suppliers',
-            //Sales
-            'access_sales',
-            'create_sales',
-            'show_sales',
-            'edit_sales',
-            'delete_sales',
-            //POS Sale
-            'create_pos_sales',
-            //Sale Payments
-            'access_sale_payments',
-            //Sale Returns
-            'access_sale_returns',
-            'create_sale_returns',
-            'show_sale_returns',
-            'edit_sale_returns',
-            'delete_sale_returns',
-            //Sale Return Payments
-            'access_sale_return_payments',
-            //Purchases
-            'access_purchases',
-            'create_purchases',
-            'show_purchases',
-            'edit_purchases',
-            'delete_purchases',
-            //Purchase Payments
-            'access_purchase_payments',
-            //Purchase Returns
-            'access_purchase_returns',
-            'create_purchase_returns',
-            'show_purchase_returns',
-            'edit_purchase_returns',
-            'delete_purchase_returns',
-            //Purchase Return Payments
-            'access_purchase_return_payments',
-            //Reports
-            'access_reports',
-            //Currencies
-            'access_currencies',
-            'create_currencies',
-            'edit_currencies',
-            'delete_currencies',
-            //Settings
-            'access_settings',
-
-            'crud_bussiness',
-
-            //lokasi
-            //Units
-            'access_units'
-        ];
-
-        foreach ($permissions as $permission) {
-            Permission::create([
-                'name' => $permission
-            ]);
+        // Flatten the grouped config into a simple permission list
+        $permissions = [];
+        foreach ($permissionsConfig as $group => $groupPermissions) {
+            $permissions = array_merge($permissions, array_keys($groupPermissions));
         }
 
-        $role = Role::create([
-            'name' => 'Admin'
-        ]);
+        // Normalize & dedupe
+        $permissions = array_values(array_unique($permissions));
 
-        $role->givePermissionTo($permissions);
-        $role->revokePermissionTo('access_user_management');
+        $this->info("Syncing " . count($permissions) . " permissions from configuration...");
+
+        DB::transaction(function () use ($permissions) {
+            // Create missing permissions
+            $createdCount = 0;
+            foreach ($permissions as $permission) {
+                $created = Permission::firstOrCreate([
+                    'name' => $permission,
+                    'guard_name' => self::DEFAULT_GUARD,
+                ]);
+                if ($created->wasRecentlyCreated) {
+                    $createdCount++;
+                }
+            }
+
+            if ($createdCount > 0) {
+                $this->info("Created $createdCount new permissions");
+            }
+
+            // Delete permissions not in config (orphaned)
+            $deletedCount = Permission::whereNotIn('name', $permissions)->count();
+            if ($deletedCount > 0) {
+                Permission::whereNotIn('name', $permissions)->delete();
+                $this->info("Deleted $deletedCount orphaned permissions");
+            }
+
+            // Sync Admin role to exactly this set
+            $role = Role::firstOrCreate([
+                'name' => 'Admin',
+                'guard_name' => self::DEFAULT_GUARD,
+            ]);
+            $role->syncPermissions($permissions);
+            $this->info("Synced Admin role to all " . count($permissions) . " permissions");
+        });
+
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+        $this->info("Permission synchronization complete.");
+    }
+
+    private function info(string $message): void
+    {
+        if ($this->command !== null) {
+            $this->command->info($message);
+        }
     }
 }

@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use Modules\Currency\Entities\Currency;
 use Modules\Setting\DataTables\BusinessDataTable;
 use Modules\Setting\Entities\Setting;
 
@@ -15,9 +16,14 @@ class BusinessController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index(BusinessDataTable $dataTable)
+    public function index(Request $request, BusinessDataTable $dataTable)
     {
-        abort_if(Gate::denies('access_settings'), 403);
+
+        abort_if(Gate::denies('businesses.access'), 403);
+
+        if ($request->ajax()) {
+            return $dataTable->ajax();
+        }
 
         return $dataTable->render('setting::businesses.index');
     }
@@ -27,7 +33,7 @@ class BusinessController extends Controller
      */
     public function create()
     {
-        abort_if(Gate::denies('access_settings'), 403);
+        abort_if(Gate::denies('businesses.create'), 403);
 
         return view('setting::businesses.create');
     }
@@ -37,29 +43,58 @@ class BusinessController extends Controller
      */
     public function store(Request $request)
     {
-        $currentYear = date("Y");
-        $footer_text = "$request->company_name © $currentYear";
-        Setting::create([
-            'company_name' => $request->company_name,
-            'company_email' => $request->company_email,
-            'company_phone' => $request->company_phone,
-            'notification_email' => $request->company_email,
-            'company_address' => $request->company_address,
-            'default_currency_id' => $request->default_currency_id,
-            'default_currency_position' => $request->default_currency_position,
-            'footer_text' => $footer_text,
+        abort_if(Gate::denies('businesses.create'), 403);
+
+        $request->validate([
+            'company_name' => [
+                'required',
+                'string',
+                'max:255',
+                'unique:settings,company_name',
+            ],
+            'company_email' => 'required|email|max:255',
+            'company_phone' => 'nullable|string|max:20',
+            'company_address' => 'nullable|string|max:500',
+            'is_pkp' => 'nullable|boolean',
+            'document_prefix' => 'nullable|string|max:10',
+            'purchase_prefix_document' => 'nullable|string|max:10',
+            'sale_prefix_document' => 'nullable|string|max:10',
+            'purchase_return_prefix_document' => 'nullable|string|max:10',
+            'sale_return_prefix_document' => 'nullable|string|max:10',
+            'default_currency_id' => 'nullable|exists:currencies,id',
+        ], [
+            'company_name.required' => 'Nama perusahaan wajib diisi.',
+            'company_name.unique' => 'Nama perusahaan sudah digunakan.',
+            'company_email.required' => 'Email perusahaan wajib diisi.',
+            'company_email.email' => 'Format email tidak valid.',
+            'company_phone.max' => 'Nomor telepon maksimal 20 karakter.',
+            'company_address.max' => 'Alamat maksimal 500 karakter.',
+            'is_pkp.boolean' => 'Status PKP tidak valid.',
+            'document_prefix.max' => 'Prefix dokumen maksimal 10 karakter.',
+            'purchase_prefix_document.max' => 'Prefix dokumen pembelian maksimal 10 karakter.',
+            'sale_prefix_document.max' => 'Prefix dokumen penjualan maksimal 10 karakter.',
+            'purchase_return_prefix_document.max' => 'Prefix dokumen retur pembelian maksimal 10 karakter.',
+            'sale_return_prefix_document.max' => 'Prefix dokumen retur penjualan maksimal 10 karakter.',
+            'default_currency_id.exists' => 'Mata uang yang dipilih tidak valid.',
         ]);
 
+        $currentYear = date("Y");
+        $currency    = Currency::first();
+        $currencyId  = $request->default_currency_id ?: optional($currency)->id;
+
+        $data = $this->normalizeData($request, $currencyId, $currentYear);
+
+        Setting::create($data);
+
+        // Refresh session user_settings
         if (auth()->user()->hasRole('Super Admin')) {
             $userSettings = Setting::orderBy('id')->get();
         } else {
             $userSettings = auth()->user()->settings()->orderBy('id')->get();
         }
-
         session(['user_settings' => $userSettings]);
 
         toast('Bisnis Telah Dibuat!', 'success');
-
         return redirect()->route('businesses.index');
     }
 
@@ -68,6 +103,7 @@ class BusinessController extends Controller
      */
     public function show($id)
     {
+        abort_if(Gate::denies('businesses.show'), 403);
         return view('setting::show');
     }
 
@@ -76,7 +112,7 @@ class BusinessController extends Controller
      */
     public function edit(Setting $business)
     {
-        abort_if(Gate::denies('access_settings'), 403);
+        abort_if(Gate::denies('businesses.edit'), 403);
 
         return view('setting::businesses.edit', compact('business'));
     }
@@ -86,26 +122,61 @@ class BusinessController extends Controller
      */
     public function update(Request $request, Setting $business)
     {
-       $business->update([
-            'company_name' => $request->company_name,
-            'company_email' => $request->company_email,
-            'company_phone' => $request->company_phone,
-            'notification_email' => $request->company_email,
-            'company_address' => $request->company_address,
-            'default_currency_id' => $request->default_currency_id,
-            'default_currency_position' => $request->default_currency_position,
+        abort_if(Gate::denies('businesses.edit'), 403);
+
+        $request->validate([
+            'company_name' => [
+                'required',
+                'string',
+                'max:255',
+                'unique:settings,company_name,' . $business->id,
+            ],
+            'company_email' => 'required|email|max:255',
+            'company_phone' => 'nullable|string|max:20',
+            'company_address' => 'nullable|string|max:500',
+            'is_pkp' => 'nullable|boolean',
+            'document_prefix' => 'nullable|string|max:10',
+            'purchase_prefix_document' => 'nullable|string|max:10',
+            'sale_prefix_document' => 'nullable|string|max:10',
+            'purchase_return_prefix_document' => 'nullable|string|max:10',
+            'sale_return_prefix_document' => 'nullable|string|max:10',
+            'default_currency_id' => 'nullable|exists:currencies,id',
+        ], [
+            'company_name.required' => 'Nama perusahaan wajib diisi.',
+            'company_name.unique' => 'Nama perusahaan sudah digunakan.',
+            'company_email.required' => 'Email perusahaan wajib diisi.',
+            'company_email.email' => 'Format email tidak valid.',
+            'company_phone.max' => 'Nomor telepon maksimal 20 karakter.',
+            'company_address.max' => 'Alamat maksimal 500 karakter.',
+            'is_pkp.boolean' => 'Status PKP tidak valid.',
+            'document_prefix.max' => 'Prefix dokumen maksimal 10 karakter.',
+            'purchase_prefix_document.max' => 'Prefix dokumen pembelian maksimal 10 karakter.',
+            'sale_prefix_document.max' => 'Prefix dokumen penjualan maksimal 10 karakter.',
+            'purchase_return_prefix_document.max' => 'Prefix dokumen retur pembelian maksimal 10 karakter.',
+            'sale_return_prefix_document.max' => 'Prefix dokumen retur penjualan maksimal 10 karakter.',
+            'default_currency_id.exists' => 'Mata uang yang dipilih tidak valid.',
         ]);
 
+        $currency   = Currency::first();
+        $currencyId = $request->default_currency_id ?: optional($currency)->id;
+        $currentYear = date("Y");
+
+        $data = $this->normalizeData($request, $currencyId, $currentYear);
+
+        $business->update($data);
+
+        // Refresh session user_settings
         if (auth()->user()->hasRole('Super Admin')) {
             $userSettings = Setting::orderBy('id')->get();
         } else {
             $userSettings = auth()->user()->settings()->orderBy('id')->get();
         }
-
         session(['user_settings' => $userSettings]);
-
+        
+        // Bust settings cache
+        cache()->forget('settings_' . $business->id);
+ 
         toast('Informasi Bisnis Telah Berhasil Diubah!', 'info');
-
         return redirect()->route('businesses.index');
     }
 
@@ -114,47 +185,86 @@ class BusinessController extends Controller
      */
     public function destroy(Setting $business): RedirectResponse
     {
-        abort_if(Gate::denies('access_settings'), 403);
-        // Check if the setting ID is 1
-        if ($business->id == 1) {
-            // Toast a warning message
-            toast('Bisnis Utama Tidak Dapat Dihapus', 'warning');
+        abort_if(Gate::denies('businesses.delete'), 403);
 
-            // Redirect back to the previous page
+        // Lindungi bisnis utama
+        if ($business->id == 1) {
+            toast('Bisnis Utama Tidak Dapat Dihapus', 'warning');
             return redirect()->back();
         }
 
-        if (auth()->user()->hasRole('Super Admin')) {
-            $userSettings = Setting::orderBy('id')->get();
-        } else {
-            $userSettings = auth()->user()->settings()->orderBy('id')->get();
-        }
+        $user = Auth::user();
+        $wasActive = session('setting_id') == $business->id;
 
-        session(['user_settings' => $userSettings]);
+        // Hapus cache setting lama (kalau ada)
+        cache()->forget('settings_' . $business->id);
 
-        // Delete the setting
+        // Hapus bisnisnya dulu
         $business->delete();
 
-        // Toast a success message
-        toast('Bisnis Telah Dihapus!', 'success');
+        // Ambil ulang daftar bisnis setelah delete
+        if ($user->hasRole('Super Admin')) {
+            $userSettings = Setting::orderBy('id')->get();
+        } else {
+            // Jika relasi user-settings adalah many-to-many, ini otomatis exclude yg sudah terhapus
+            $userSettings = $user->settings()->orderBy('id')->get();
+        }
 
-        // Redirect to the settings index page
+        // Pastikan session user_settings diperbarui
+        session(['user_settings' => $userSettings]);
+
+        // Jika bisnis yang dihapus adalah yang sedang aktif, pilih fallback & refresh cache/role
+        if ($wasActive) {
+            // fallback: pakai bisnis pertama yang tersisa (id 1 tidak bisa dihapus, jadi aman)
+            $newActive = optional($userSettings->first())->id;
+
+            if ($newActive) {
+                session(['setting_id' => $newActive]);
+
+                // refresh cache setting aktif
+                cache()->forget('settings_' . $newActive);
+                $settings = Setting::findOrFail($newActive);
+                cache()->put('settings_' . $newActive, $settings, 24 * 60);
+
+                // perbarui role sesuai bisnis aktif
+                $role = $user->getCurrentSettingRole();
+                if ($role) {
+                    $user->syncRoles([$role->name]);
+                }
+            } else {
+                // Guard ekstra kalau benar-benar tidak ada bisnis tersisa (seharusnya tidak terjadi)
+                session()->forget('setting_id');
+            }
+        }
+
+        toast('Bisnis Telah Dihapus!', 'success');
         return redirect()->route('businesses.index');
     }
 
-    public function updateActiveBusiness(Request $request)
+    public function updateActiveBusiness(Request $request): RedirectResponse
     {
-        $settingId = $request->input('setting_id');
+        $settingId = (int) $request->input('setting_id');
+        $user = Auth::user();
+
+        // Resolve the target setting from authoritative data
+        $setting = Setting::find($settingId);
+
+        // Determine if the user is authorized to access this setting
+        $isAuthorized = $user->hasRole('Super Admin') || $user->settings()->where('setting_id', $settingId)->exists();
+
+        // If not authorized or setting does not exist, deny uniformly without mutating context
+        if (!$setting || !$isAuthorized) {
+            abort(403);
+        }
+
+        $oldSettingId = $request->session()->get('setting_id');
 
         // Update the session with the new setting ID
         $request->session()->put('setting_id', $settingId);
 
         // Refresh the settings cache
         cache()->forget('settings_' . $settingId);
-        $settings = Setting::findOrFail($settingId);
-        cache()->put('settings_' . $settingId, $settings, 24 * 60);
-
-        $user = Auth::user();
+        cache()->put('settings_' . $settingId, $setting, 24 * 60);
 
         // Assign the role for the new setting
         $role = $user->getCurrentSettingRole();
@@ -162,7 +272,70 @@ class BusinessController extends Controller
             $user->syncRoles([$role->name]);
         }
 
-        // Redirect back to the previous page
-        return redirect()->back();
+        $diagnostics = app(\App\Services\SessionIncidentDiagnosticsService::class);
+        $diagnostics->record('business_context_switched', [
+            'user_id' => $user->id,
+            'old_business_id' => $oldSettingId,
+            'new_business_id' => $settingId,
+            'session_fingerprint' => $diagnostics->fingerprint($request->session()->getId()),
+        ], 'info');
+
+        // Redirect to the named Home route
+        return redirect()->route('home');
+    }
+
+    /**
+     * @param Request $request
+     * @param mixed $currencyId
+     * @param string $currentYear
+     * @return array
+     */
+    public function normalizeData(Request $request, mixed $currencyId, string $currentYear): array
+    {
+        $data = [
+            'company_name' => $request->company_name,
+            'company_email' => $request->company_email,
+            'company_phone' => $request->company_phone,
+            'notification_email' => $request->company_email,
+            'company_address' => $request->company_address,
+            'is_pkp' => $request->boolean('is_pkp'),
+            'default_currency_id' => $currencyId,
+            'default_currency_position' => 'prefix',
+            'document_prefix' => $request->document_prefix,
+            'purchase_prefix_document' => $request->purchase_prefix_document,
+            'sale_prefix_document' => $request->sale_prefix_document,
+            'purchase_return_prefix_document' => $request->purchase_return_prefix_document,
+            'sale_return_prefix_document' => $request->sale_return_prefix_document,
+            // footer_text will be set after uppercasing company_name
+        ];
+
+        // Uppercase user-typed text fields
+        foreach ([
+                     'company_name',
+                     'company_address',
+                     'document_prefix',
+                     'purchase_prefix_document',
+                     'sale_prefix_document',
+                     'purchase_return_prefix_document',
+                     'sale_return_prefix_document',
+                 ] as $key) {
+            if (isset($data[$key]) && $data[$key] !== null) {
+                $data[$key] = mb_strtoupper(trim((string)$data[$key]), 'UTF-8');
+            }
+        }
+
+        // Normalize emails (lowercase) & trim phone
+        foreach (['company_email', 'notification_email'] as $ek) {
+            if (isset($data[$ek])) {
+                $data[$ek] = trim(mb_strtolower($data[$ek], 'UTF-8'));
+            }
+        }
+        if (isset($data['company_phone'])) {
+            $data['company_phone'] = trim((string)$data['company_phone']);
+        }
+
+        // Keep footer_text in sync with company_name on updates
+        $data['footer_text'] = sprintf('%s © %s', $data['company_name'] ?? '', $currentYear);
+        return $data;
     }
 }

@@ -21,7 +21,9 @@
                         <a href="{{ route('customers.index') }}" class="btn btn-secondary mr-2">
                             Kembali
                         </a>
+                        @can('customers.edit')
                         <button class="btn btn-primary">Perbaharui Data Pelanggan <i class="bi bi-check"></i></button>
+                        @endcan
                     </div>
                 </div>
 
@@ -34,7 +36,19 @@
                         <div class="card-body">
                             <div class="form-row">
                                 <div class="col-lg-6">
-                                    <x-input label="Nama Kontak" name="contact_name" value="{{ old('contact_name', $customer->contact_name) }}"/>
+                                    <div class="form-group">
+                                    <label for="tier">Tier</label>
+                                        <select class="form-control" name="tier" id="tier">
+                                            <option value="" {{ old('tier', $customer->tier) == '' ? 'selected' : '' }}>-- Pelanggan Normal --</option>
+                                            <option value="WHOLESALER" {{ old('tier', $customer->tier) == 'WHOLESALER' ? 'selected' : '' }}>Grosir</option>
+                                            <option value="RESELLER" {{ old('tier', $customer->tier) == 'RESELLER' ? 'selected' : '' }}>Reseller</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="col-lg-6">
+                                    <x-input label="Nama Kontak (Opsional)" name="contact_name" value="{{ old('contact_name', $customer->contact_name) }}"/>
                                 </div>
                                 <div class="col-lg-6">
                                     <div class="form-group">
@@ -54,7 +68,7 @@
                                     <x-input label="Nomor Identitas" name="identity_number" value="{{ old('identity_number', $customer->identity_number) }}"/>
                                 </div>
                                 <div class="col-lg-6">
-                                    <x-input label="Nama Perusahaan" name="customer_name" value="{{ old('customer_name', $customer->customer_name) }}"/>
+                                    <x-input label="Nama Pelanggan / Perusahaan" name="customer_name" required="true" value="{{ old('customer_name', $customer->customer_name) }}"/>
                                 </div>
                             </div>
 
@@ -77,8 +91,25 @@
                             </div>
 
                             <div class="form-row">
+
+                            </div>
+
+                            <div class="form-row">
                                 <div class="col-lg-6">
                                     <x-input label="Alamat Pengiriman" name="shipping_address" value="{{ old('shipping_address', $customer->shipping_address) }}"/>
+                                </div>
+                                <div class="col-lg-6">
+                                    <label for="payment_term_id">Syarat Pembayaran</label>
+                                    <select class="form-control" name="payment_term_id" id="payment_term_id">
+                                        <option value="" {{ old('payment_term_id', $customer->payment_term_id ?? '') == '' ? 'selected' : '' }}>
+                                            -- Pilih Syarat Pembayaran --
+                                        </option>
+                                        @foreach($paymentTerms as $paymentTerm)
+                                            <option value="{{ $paymentTerm->id }}" {{ old('payment_term_id', $customer->payment_term_id ?? '') == $paymentTerm->id ? 'selected' : '' }}>
+                                                {{ $paymentTerm->name }}
+                                            </option>
+                                        @endforeach
+                                    </select>
                                 </div>
                                 <div class="col-lg-6">
                                     <div class="form-group">

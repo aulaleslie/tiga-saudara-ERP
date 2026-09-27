@@ -1,18 +1,18 @@
 @extends('layouts.app')
 
-@section('title', 'Edit Chart of Account')
+@section('title', 'Ubah Akun Jurnal')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('chart-of-account.index') }}">Chart of Accounts</a></li>
+        <li class="breadcrumb-item"><a href="{{ route('chart-of-account.index') }}">Akun Jurnal</a></li>
         <li class="breadcrumb-item active">Edit</li>
     </ol>
 @endsection
 
 @section('content')
     <div class="container-fluid">
-        <form action="{{ route('chart-of-account.update', $chartOfAccount) }}" method="POST">
+        <form id="chart-of-account-edit-form" action="{{ route('chart-of-account.update', $chartOfAccount) }}" method="POST">
             @csrf
             @method('put')
             <div class="row">
@@ -87,8 +87,8 @@
                                 <div class="col-lg-12 d-flex justify-content-end">
                                     <div class="form-group">
                                         <a href="{{ route('chart-of-account.index') }}" class="btn btn-secondary mr-2">Kembali</a>
-                                        @can("edit_account")
-                                        <button class="btn btn-primary">Update Akun <i class="bi bi-check"></i></button>
+                                        @can("chartOfAccounts.edit")
+                                        <x-button label="Update Akun" icon="bi-check" processing-text="Memproses…" />
                                         @endcan
                                     </div>
                                 </div>
@@ -100,3 +100,14 @@
         </form>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initFormSubmissionLock('chart-of-account-edit-form', {
+                errorEventName: 'chart-of-account:submit-error'
+            });
+        });
+    </script>
+@endpush

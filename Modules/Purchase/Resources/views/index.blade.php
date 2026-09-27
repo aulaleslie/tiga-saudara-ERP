@@ -2,10 +2,6 @@
 
 @section('title', 'Purchases')
 
-@section('third_party_stylesheets')
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.10.25/css/dataTables.bootstrap4.min.css">
-@endsection
-
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
@@ -19,22 +15,31 @@
             <div class="col-12">
                 <div class="card">
                     <div class="card-body">
-                        <a href="{{ route('purchases.create') }}" class="btn btn-primary">
-                            Add Purchase <i class="bi bi-plus"></i>
-                        </a>
+                        @can('purchases.create')
+                            <a href="{{ route('purchases.create') }}" class="btn btn-primary">
+                                Tambahkan Pembelian <i class="bi bi-plus"></i>
+                            </a>
+                        @endcan
+                        @can('purchases.import')
+                            <a href="{{ route('purchases.imports.index') }}" class="btn btn-secondary">
+                                Upload Pembelian <i class="bi bi-upload"></i>
+                            </a>
+                        @endcan
 
                         <hr>
 
-                        <div class="table-responsive">
-                            {!! $dataTable->table() !!}
+                        <livewire:purchase.purchase-summary-cards />
+
+                        <div class="table-responsive" style="min-height: 300px;">
+                            <livewire:purchase.purchase-table />
                         </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
-@endsection
 
-@push('page_scripts')
-    {!! $dataTable->scripts() !!}
-@endpush
+    @can('purchases.receive.complete_shortfall')
+        <livewire:purchase.modals.purchase-receiving-completion-modal />
+    @endcan
+@endsection

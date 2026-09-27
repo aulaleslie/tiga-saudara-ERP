@@ -2,16 +2,13 @@
 
 namespace Modules\Product\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Tax;
 
-class ProductStock extends Model
+class ProductStock extends BaseModel
 {
-    use HasFactory;
-
     protected $fillable = [
         'product_id',
         'location_id',
@@ -20,7 +17,19 @@ class ProductStock extends Model
         'quantity_tax',
         'broken_quantity_non_tax',
         'broken_quantity_tax',
+        'broken_quantity',
         'tax_id', // Nullable tax field
+        'sale_price',
+    ];
+
+    protected $casts = [
+        // Quantities are decimal to support fractional, weight-based units (e.g. 23.7 KG).
+        'quantity' => 'decimal:3',
+        'quantity_non_tax' => 'decimal:3',
+        'quantity_tax' => 'decimal:3',
+        'broken_quantity_non_tax' => 'decimal:3',
+        'broken_quantity_tax' => 'decimal:3',
+        'broken_quantity' => 'decimal:3',
     ];
 
     // Define the table if it's different from the default plural form

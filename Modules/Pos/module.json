@@ -1,0 +1,13 @@
+{
+    "name": "Pos",
+    "alias": "pos",
+    "description": "",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\Pos\\Providers\\PosServiceProvider"
+    ],
+    "aliases": {},
+    "files": [],
+    "requires": []
+}

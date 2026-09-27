@@ -3,8 +3,7 @@
 @section('title', 'Units')
 
 @section('third_party_stylesheets')
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.10.25/css/dataTables.bootstrap4.min.css">
-    <link rel="stylesheet" href="https://cdn.datatables.net/select/1.3.3/css/select.dataTables.min.css">
+    <link rel="stylesheet" href="{{ asset('vendor/datatables/datatables.min.css') }}">
 @endsection
 
 @section('breadcrumb')
@@ -26,6 +25,17 @@
 
                         <hr>
 
+                        <div class="row mb-3">
+                            <div class="col-md-3">
+                                <label for="status-filter" class="form-label font-weight-bold">Filter Status</label>
+                                <select id="status-filter" class="form-control" onchange="window.location.href = this.value ? '{{ route('units.index') }}?status=' + this.value : '{{ route('units.index') }}'">
+                                    <option value="">Semua Status</option>
+                                    <option value="active" {{ request('status') === 'active' ? 'selected' : '' }}>Aktif</option>
+                                    <option value="inactive" {{ request('status') === 'inactive' ? 'selected' : '' }}>Nonaktif</option>
+                                </select>
+                            </div>
+                        </div>
+
                         <div class="table-responsive">
                             <table class="table table-bordered mb-0 text-center" id="data-table">
                                 <thead>
@@ -33,6 +43,7 @@
                                     <th class="align-middle">No.</th>
                                     <th class="align-middle">Nama</th>
                                     <th class="align-middle">Singkatan</th>
+                                    <th class="align-middle">Status</th>
                                     <th class="align-middle">Aksi</th>
                                 </tr>
                                 </thead>
@@ -43,18 +54,34 @@
                                         <td class="align-middle">{{ $unit->name }}</td>
                                         <td class="align-middle">{{ $unit->short_name }}</td>
                                         <td class="align-middle">
+                                            @if($unit->is_active)
+                                                <span class="badge badge-success">Aktif</span>
+                                            @else
+                                                <span class="badge badge-secondary">Nonaktif</span>
+                                            @endif
+                                        </td>
+                                        <td class="align-middle">
                                             <a href="{{ route('units.edit', $unit) }}" class="btn btn-info btn-sm">
                                                 <i class="bi bi-pencil"></i>
                                             </a>
-                                            <button class="btn btn-danger btn-sm"
-                                                    onclick="showDeleteModal({{ $unit->id }})">
-                                                <i class="bi bi-trash"></i>
-                                            </button>
-                                            <form id="destroy{{ $unit->id }}" class="d-none"
-                                                  action="{{ route('units.destroy', $unit) }}" method="POST">
-                                                @csrf
-                                                @method('delete')
-                                            </form>
+                                            @if(auth()->user()->can('units.edit') || auth()->user()->can('units.delete'))
+                                                @if($unit->is_active)
+                                                    <button type="button" class="btn btn-warning btn-sm" title="Nonaktifkan Satuan"
+                                                            onclick="if(confirm('Nonaktifkan satuan &quot;{{ $unit->name }}&quot;?')) document.getElementById('toggle-unit-{{ $unit->id }}').submit();">
+                                                        <i class="bi bi-pause-circle"></i>
+                                                    </button>
+                                                @else
+                                                    <button type="button" class="btn btn-success btn-sm" title="Aktifkan Kembali"
+                                                            onclick="if(confirm('Aktifkan kembali satuan &quot;{{ $unit->name }}&quot;?')) document.getElementById('toggle-unit-{{ $unit->id }}').submit();">
+                                                        <i class="bi bi-play-circle"></i>
+                                                    </button>
+                                                @endif
+                                                <form id="toggle-unit-{{ $unit->id }}" class="d-none"
+                                                      action="{{ route('units.toggle-status', $unit) }}" method="POST">
+                                                    @csrf
+                                                    @method('patch')
+                                                </form>
+                                            @endif
                                         </td>
                                     </tr>
                                 @endforeach
@@ -71,8 +98,7 @@
 
 @push('page_scripts')
     <script type="text/javascript"
-            src="https://cdn.datatables.net/v/bs4/jszip-2.5.0/dt-1.10.24/b-1.7.0/b-html5-1.7.0/b-print-1.7.0/datatables.min.js"></script>
-    <script type="text/javascript" src="https://cdn.datatables.net/select/1.3.3/js/dataTables.select.min.js"></script>
+            src="{{ asset('vendor/datatables/datatables.min.js') }}"></script>
     <script>
         var table = $('#data-table').DataTable({
             dom: "<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4 justify-content-end'f>>tr<'row'<'col-md-5'i><'col-md-7 mt-2'p>>",

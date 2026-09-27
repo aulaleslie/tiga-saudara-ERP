@@ -14,8 +14,10 @@
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
     //Customers
+    Route::patch('customers/{customer}/toggle-status', 'CustomersController@toggleStatus')->name('customers.toggle-status');
     Route::resource('customers', 'CustomersController');
     //Suppliers
+    Route::patch('suppliers/{supplier}/toggle-status', 'SuppliersController@toggleStatus')->name('suppliers.toggle-status');
     Route::resource('suppliers', 'SuppliersController');
 
 });

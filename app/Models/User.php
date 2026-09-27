@@ -3,10 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
+use LaravelIdea\Helper\Spatie\Permission\Models\_IH_Role_C;
 use Modules\Setting\Entities\Setting;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
@@ -15,7 +18,7 @@ use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable implements HasMedia
 {
-    use HasFactory, Notifiable, HasRoles, InteractsWithMedia;
+    use HasFactory, Notifiable, HasRoles, InteractsWithMedia, HasApiTokens;
 
     /**
      * The attributes that are mass assignable.
@@ -26,7 +29,10 @@ class User extends Authenticatable implements HasMedia
         'name',
         'email',
         'password',
-        'is_active'
+        'is_active',
+        'two_factor_secret',
+        'two_factor_confirmed_at',
+        'two_factor_recovery_codes',
     ];
 
     /**
@@ -46,6 +52,9 @@ class User extends Authenticatable implements HasMedia
      */
     protected $casts = [
         'email_verified_at' => 'datetime',
+        'two_factor_secret' => 'encrypted',
+        'two_factor_recovery_codes' => 'encrypted',
+        'two_factor_confirmed_at' => 'datetime', // Not encrypted - just a timestamp marker
     ];
 
     protected $with = ['media'];
@@ -54,6 +63,15 @@ class User extends Authenticatable implements HasMedia
     {
         $this->addMediaCollection('avatars')
             ->useFallbackUrl('https://www.gravatar.com/avatar/' . md5("test@mail.com"));
+    }
+
+    protected function name(): Attribute
+    {
+        return Attribute::make(
+            set: fn ($v) => is_null($v)
+                ? null
+                : mb_strtoupper(preg_replace('/\s+/u', ' ', trim((string) $v)), 'UTF-8')
+        );
     }
 
     public function scopeIsActive(Builder $builder): Builder
@@ -67,7 +85,7 @@ class User extends Authenticatable implements HasMedia
             ->withPivot('role_id');
     }
 
-    public function getCurrentSettingRole()
+    public function getCurrentSettingRole(): array|Role|_IH_Role_C|null
     {
         $currentSettingId = session('setting_id');
         $setting = $this->settings()->where('setting_id', $currentSettingId)->first();
@@ -77,5 +95,10 @@ class User extends Authenticatable implements HasMedia
         }
 
         return null;
+    }
+
+    public function hasTwoFactorEnabled(): bool
+    {
+        return ! is_null($this->two_factor_confirmed_at);
     }
 }

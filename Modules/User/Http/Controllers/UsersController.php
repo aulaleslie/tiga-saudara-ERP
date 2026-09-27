@@ -2,14 +2,13 @@
 
 namespace Modules\User\Http\Controllers;
 
+use App\Services\IdempotencyService;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\RedirectResponse;
-use Modules\Setting\Entities\Setting;
 use Modules\User\DataTables\UsersDataTable;
 use App\Models\User;
-use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
@@ -20,17 +19,23 @@ use Spatie\Permission\Models\Role;
 
 class UsersController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware('idempotency')->only('store');
+    }
     public function index(UsersDataTable $dataTable) {
         abort_if(Gate::denies('users.access'), 403);
 
         return $dataTable->render('user::users.index');
     }
 
-    public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    public function create(Request $request): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
         abort_if(Gate::denies('users.create'), 403);
 
-        return view('user::users.create');
+        $idempotencyToken = IdempotencyService::tokenFromRequest($request);
+
+        return view('user::users.create', compact('idempotencyToken'));
     }
 
     public function store(Request $request): RedirectResponse
@@ -68,7 +73,6 @@ class UsersController extends Controller
         foreach ($validatedData['settings'] as $settingId) {
             $roleName = $validatedData['roles'][$settingId];
             $role = Role::where('name', $roleName)->first();
-            $user->assignRole($role);
 
             // Attach the setting with the associated role to the user
             $user->settings()->attach($settingId, ['role_id' => $role->id]);
@@ -134,6 +138,7 @@ class UsersController extends Controller
         $user->update($updateData);
 
         // Sync user settings and roles
+        $wasSuperAdmin = $user->hasRole('Super Admin');
         $userSettings = [];
         foreach ($validatedData['settings'] as $settingId) {
             $roleName = $validatedData['roles'][$settingId];
@@ -141,6 +146,9 @@ class UsersController extends Controller
             $userSettings[$settingId] = ['role_id' => $roleId];
         }
         $user->settings()->sync($userSettings);
+        if (! $wasSuperAdmin) {
+            $user->syncRoles([]);
+        }
 
         // Handle image upload
         if ($request->has('image')) {

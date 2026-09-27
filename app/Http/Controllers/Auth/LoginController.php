@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Providers\RouteServiceProvider;
+use App\Services\SessionIncidentDiagnosticsService;
 use Illuminate\Foundation\Auth\AuthenticatesUsers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -22,7 +23,10 @@ class LoginController extends Controller
     |
     */
 
-    use AuthenticatesUsers;
+    use AuthenticatesUsers {
+        login as protected traitLogin;
+        logout as protected traitLogout;
+    }
 
     /**
      * Where to redirect users after login.
@@ -41,13 +45,48 @@ class LoginController extends Controller
         $this->middleware('guest')->except('logout');
     }
 
+    public function login(Request $request)
+    {
+        $diagnostics = app(SessionIncidentDiagnosticsService::class);
+        $beforeFingerprint = $diagnostics->fingerprint($request->session()->getId());
+
+        $response = $this->traitLogin($request);
+
+        $diagnostics->record('auth_session_rotated', [
+            'cause' => 'login',
+            'before_session_fingerprint' => $beforeFingerprint,
+            'after_session_fingerprint' => $diagnostics->fingerprint($request->session()->getId()),
+            'user_id' => Auth::id(),
+        ], 'info');
+
+        return $response;
+    }
+
+    public function logout(Request $request)
+    {
+        $diagnostics = app(SessionIncidentDiagnosticsService::class);
+        $userId = Auth::id();
+        $beforeFingerprint = $diagnostics->fingerprint($request->session()->getId());
+
+        $response = $this->traitLogout($request);
+
+        $diagnostics->record('auth_session_rotated', [
+            'cause' => 'logout',
+            'before_session_fingerprint' => $beforeFingerprint,
+            'after_session_fingerprint' => $diagnostics->fingerprint($request->session()->getId()),
+            'user_id' => $userId,
+        ], 'info');
+
+        return $response;
+    }
+
     protected function authenticated(Request $request, $user)
     {
         if ($user->is_active != 1) {
             Auth::logout();
 
             return back()->with([
-                'account_deactivated' => 'Your account is deactivated! Please contact the Super Admin.'
+                'account_deactivated' => 'Akun Anda telah dinonaktifkan! Silakan hubungi Super Admin.'
             ]);
         }
 
@@ -70,5 +109,47 @@ class LoginController extends Controller
         }
 
         return redirect()->intended(RouteServiceProvider::HOME);
+    }
+
+    public function apiLogin(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|email',
+            'password' => 'required',
+        ]);
+
+        if (Auth::attempt($request->only('email', 'password'))) {
+            $user = Auth::user();
+
+            // Ensure the user is active
+            if ($user->is_active != 1) {
+                return response()->json([
+                    'message' => 'Akun Anda telah dinonaktifkan! Silakan hubungi Super Admin.',
+                ], 403);
+            }
+
+            // Issue a Sanctum token
+            $token = $user->createToken('api-token')->plainTextToken;
+
+            return response()->json([
+                'message' => 'Login berhasil',
+                'token' => $token,
+                'user' => $user,
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'Kredensial tidak valid',
+        ], 401);
+    }
+
+    public function apiLogout(Request $request)
+    {
+        // Revoke the token used to authenticate the request
+        $request->user()->currentAccessToken()->delete();
+
+        return response()->json([
+            'message' => 'Berhasil keluar',
+        ]);
     }
 }

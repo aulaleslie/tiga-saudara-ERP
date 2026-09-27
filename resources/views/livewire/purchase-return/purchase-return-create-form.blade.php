@@ -1,0 +1,118 @@
+<div class="container-fluid py-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-start mb-3 gap-2">
+        <div>
+            <h3 class="mb-1">{{ $this->formTitle }}</h3>
+            <p class="text-muted mb-0">Kelola informasi retur untuk memastikan proses persetujuan berjalan lancar.</p>
+        </div>
+
+        @if (property_exists($this, 'purchaseReturn'))
+            <div class="text-end">
+                <span class="badge bg-light text-dark border">Ref: {{ $this->purchaseReturn->reference }}</span>
+                <div class="small text-muted mt-1 text-uppercase">Status Persetujuan: {{ ucfirst($this->purchaseReturn->approval_status ?? 'pending') }}</div>
+            </div>
+        @endif
+    </div>
+
+    @if ($this->approvalLocked)
+        <div class="alert alert-warning d-flex align-items-center gap-2" role="alert">
+            <i class="bi bi-lock-fill"></i>
+            <span>Retur ini telah disetujui. Beberapa informasi kunci tidak dapat diubah.</span>
+        </div>
+    @endif
+
+    <form id="purchase-return-form" wire:submit.prevent="submit" class="needs-validation" novalidate>
+        @csrf
+
+        <div class="card shadow-sm mb-4" style="overflow: visible;">
+            <div class="card-header bg-white border-0 pb-0">
+                <h5 class="mb-1">Informasi Retur</h5>
+                <p class="text-muted small mb-0">Pilih pemasok dan tanggal transaksi sebelum menambahkan produk.</p>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-lg-6 mb-3">
+                        <label class="form-label fw-semibold" for="supplier">Pemasok</label>
+                        @if ($this->approvalLocked)
+                            <input type="text" class="form-control" value="{{ $this->supplierName ?? '-' }}" disabled>
+                            <div class="form-text">Pemasok tidak dapat diubah setelah retur disetujui.</div>
+                        @else
+                            <livewire:modules.people.supplier-search-dropdown
+                                name="supplier_id"
+                                placeholder="Pilih pemasok..."
+                                :allow-create="false"
+                                :selected="$supplier_id"
+                                :error="$errors->first('supplier_id')"
+                                wire:key="purchase-return-supplier-dropdown"
+                            />
+                        @endif
+                        @error('supplier_id')
+                            <div class="invalid-feedback d-block">{{ $message }}</div>
+                        @enderror
+                    </div>
+
+                    <div class="col-lg-6 mb-3">
+                        <label class="form-label fw-semibold" for="date">Tanggal Retur</label>
+                        <input type="date" id="date" class="form-control" wire:model.defer="date" {{ $this->dispatchLocked ? 'disabled' : 'required' }}>
+                        @if ($this->dispatchLocked)
+                            <div class="form-text">Tanggal tidak dapat diubah setelah dispatch disetujui.</div>
+                        @endif
+                        @error('date')
+                            <div class="invalid-feedback d-block">{{ $message }}</div>
+                        @enderror
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4" style="overflow: visible;">
+            <div class="card-header bg-white border-0 d-flex align-items-center">
+                <div>
+                    <h5 class="mb-1">Detail Produk</h5>
+                    <p class="text-muted small mb-0">Daftar produk yang akan diretur beserta informasi ketersediaan stok.</p>
+                </div>
+                <div class="ms-auto small text-muted">
+                    @error('rows')
+                        <span class="text-danger">{{ $message }}</span>
+                    @enderror
+                </div>
+            </div>
+            <div class="card-body" style="overflow: visible;">
+                <livewire:purchase-return.purchase-return-table :rows="$rows" :supplier-id="$supplier_id" :hide-price="true" :dispatch-locked="$this->dispatchLocked" />
+
+                @if (!$supplier_id)
+                    <div class="alert alert-light border mt-3 mb-0" role="alert">
+                        Pilih pemasok terlebih dahulu untuk menampilkan daftar produk yang dapat diretur.
+                    </div>
+                @endif
+            </div>
+
+
+        </div>
+
+        <div class="alert alert-info d-flex align-items-center gap-2 mb-4" role="alert">
+            <i class="bi bi-info-circle-fill"></i>
+            <span>Metode penyelesaian retur akan ditentukan setelah dokumen disetujui oleh penanggung jawab.</span>
+        </div>
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white border-0">
+                <h5 class="mb-1">Catatan Tambahan</h5>
+                <p class="text-muted small mb-0">Tambahkan informasi tambahan yang perlu diketahui oleh tim gudang atau akuntansi.</p>
+            </div>
+            <div class="card-body">
+                <textarea id="note" class="form-control" wire:model.defer="note" rows="3" placeholder="Opsional"></textarea>
+                @error('note')
+                    <div class="invalid-feedback d-block">{{ $message }}</div>
+                @enderror
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end">
+            <a href="{{ route('purchase-returns.index') }}" class="btn btn-light border">Batal</a>
+            <button type="submit" class="btn btn-primary ms-2" wire:loading.attr="disabled">
+                <span wire:loading.remove>{{ $this->submitLabel }}</span>
+                <span wire:loading class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+            </button>
+        </div>
+    </form>
+</div>

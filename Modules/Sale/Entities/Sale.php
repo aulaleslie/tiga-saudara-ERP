@@ -2,21 +2,181 @@
 
 namespace Modules\Sale\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\BaseModel;
+use App\Models\User;
+use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Database\Eloquent\Relations\MorphToMany;
+use Illuminate\Support\Facades\DB;
+use Modules\People\Entities\Customer;
+use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Purchase\Entities\ReportingDateAudit;
+use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\Setting;
+use Spatie\Tags\HasTags;
+use Spatie\Tags\Tag;
+use App\Traits\Archivable;
+use Spatie\MediaLibrary\HasMedia;
+use Spatie\MediaLibrary\InteractsWithMedia;
 
-class Sale extends Model
+class Sale extends BaseModel implements HasMedia
 {
-    use HasFactory;
+    use HasTags, Archivable, InteractsWithMedia;
 
     protected $guarded = [];
 
-    public function saleDetails() {
+    protected function shouldUppercase(string $key): bool
+    {
+        if (in_array($key, ['note', 'rejection_note'], true)) {
+            return false;
+        }
+
+        return parent::shouldUppercase($key);
+    }
+
+    protected $casts = [
+        'tax_amount' => 'decimal:2',
+        'discount_amount' => 'decimal:2',
+        'shipping_amount' => 'decimal:2',
+        'total_amount' => 'decimal:2',
+        'paid_amount' => 'decimal:2',
+        'due_amount' => 'decimal:2',
+        'archived_at' => 'datetime',
+        'date' => 'date',
+        'reporting_date' => 'date',
+        'due_date' => 'date',
+    ];
+
+    public function registerMediaCollections(): void
+    {
+        $this->addMediaCollection('attachments');
+    }
+
+    const STATUS_DRAFTED = 'DRAFTED';
+    const STATUS_WAITING_APPROVAL = 'WAITING_APPROVAL';
+    const STATUS_APPROVED = 'APPROVED';
+    const STATUS_REJECTED = 'REJECTED';
+    const STATUS_DISPATCHED_PARTIALLY = 'DISPATCHED PARTIALLY';
+    const STATUS_DISPATCHED = 'DISPATCHED';
+    const STATUS_RETURNED = 'RETURNED';
+    const STATUS_RETURNED_PARTIALLY = 'RETURNED PARTIALLY';
+
+    const STATUS_LABELS = [
+        self::STATUS_DRAFTED => 'Draf',
+        self::STATUS_WAITING_APPROVAL => 'Menunggu Persetujuan',
+        self::STATUS_APPROVED => 'Disetujui',
+        self::STATUS_REJECTED => 'Ditolak',
+        self::STATUS_DISPATCHED_PARTIALLY => 'Dikirim Sebagian',
+        self::STATUS_DISPATCHED => 'Dikirim',
+        self::STATUS_RETURNED => 'Dikembalikan',
+        self::STATUS_RETURNED_PARTIALLY => 'Dikembalikan Sebagian',
+    ];
+
+    const PAYMENT_STATUS_PAID = 'Paid';
+    const PAYMENT_STATUS_PARTIAL = 'Partial';
+    const PAYMENT_STATUS_UNPAID = 'Unpaid';
+
+    const PAYMENT_STATUS_LABELS = [
+        self::PAYMENT_STATUS_PAID => 'Lunas',
+        self::PAYMENT_STATUS_PARTIAL => 'Dibayar Sebagian',
+        self::PAYMENT_STATUS_UNPAID => 'Belum Dibayar',
+    ];
+
+    const EDIT_MODE_FULL = 'FULL';
+    const EDIT_MODE_MONETARY_ONLY = 'MONETARY_ONLY';
+    const EDIT_MODE_NONE = 'NONE';
+
+    /**
+     * Resolve how far this document may be edited by the given user.
+     *
+     * Pre-approval states keep their historical behaviour: route/controller
+     * `sales.edit` gates already guard entry, so this method does not re-check
+     * it there. The exceptional lifecycle states each require the ordinary edit
+     * permission *plus* their own lifecycle permission.
+     */
+    public function resolveEditMode(?\Illuminate\Contracts\Auth\Authenticatable $user = null): string
+    {
+        $user = $user ?? auth()->user();
+        if (!$user) {
+            return self::EDIT_MODE_NONE;
+        }
+
+        if (in_array($this->status, [self::STATUS_DRAFTED, self::STATUS_WAITING_APPROVAL, self::STATUS_REJECTED])) {
+            return self::EDIT_MODE_FULL;
+        }
+
+        // Beyond approval, ordinary edit authority is a prerequisite for the
+        // lifecycle-specific permission.
+        if (!$user->can('sales.edit')) {
+            return self::EDIT_MODE_NONE;
+        }
+
+        if ($this->status === self::STATUS_APPROVED) {
+            return $user->can('sales.approved.edit') ? self::EDIT_MODE_FULL : self::EDIT_MODE_NONE;
+        }
+
+        if (in_array($this->status, [self::STATUS_DISPATCHED_PARTIALLY, self::STATUS_DISPATCHED])) {
+            return $user->can('sales.dispatched.monetary.edit') ? self::EDIT_MODE_MONETARY_ONLY : self::EDIT_MODE_NONE;
+        }
+
+        return self::EDIT_MODE_NONE;
+    }
+
+    public function saleDetails(): HasMany
+    {
         return $this->hasMany(SaleDetails::class, 'sale_id', 'id');
     }
 
-    public function salePayments() {
+    public function salePayments(): HasMany
+    {
         return $this->hasMany(SalePayment::class, 'sale_id', 'id');
+    }
+
+    public function saleDispatches(): HasMany
+    {
+        return $this->hasMany(Dispatch::class);
+    }
+
+    public function dispatchDetails(): HasMany
+    {
+        return $this->hasMany(DispatchDetail::class, 'sale_id', 'id');
+    }
+
+    public function bundleItems(): HasMany
+    {
+        return $this->hasMany(SaleBundleItem::class, 'sale_id', 'id');
+    }
+
+    public function posCheckout(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(\Modules\Pos\Entities\PosCheckout::class, 'sale_id', 'id');
+    }
+
+    public function checkoutSale(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(\Modules\Pos\Entities\PosCheckoutSale::class, 'sale_id', 'id');
+    }
+
+    public function serialTrackings(): HasMany
+    {
+        return $this->hasMany(SalesOrderSerialTracking::class, 'sale_id', 'id');
+    }
+
+    public function reportingDateAudits(): MorphMany
+    {
+        return $this->morphMany(ReportingDateAudit::class, 'auditable');
+    }
+
+    public function dueDateAudits()
+    {
+        return $this->morphMany(\Modules\Purchase\Entities\DueDateAudit::class, 'auditable');
+    }
+
+    public function getEffectiveDateAttribute(): ?\Carbon\CarbonInterface {
+        return $this->reporting_date ?? $this->date;
     }
 
     public static function boot(): void
@@ -24,53 +184,258 @@ class Sale extends Model
         parent::boot();
 
         static::creating(function ($model) {
-            $year = now()->year;
-            $month = now()->month;
-
-            // Fetch the latest reference for the current year and month
-            $latestReference = Sale::whereYear('created_at', $year)
-                ->whereMonth('created_at', $month)
-                ->latest('id')
-                ->value('reference');
-
-            // Extract the number from the latest reference
-            $nextNumber = 1; // Default to 1 if no reference exists
-            if ($latestReference) {
-                $parts = explode('-', $latestReference);
-                $lastNumber = (int) end($parts);
-                $nextNumber = $lastNumber + 1;
+            // Respect provided reference if set manually (e.g. from POS or direct API)
+            if ($model->reference) {
+                return;
             }
 
-            // Generate the new reference ID
-            $model->reference = make_reference_id('SL', $year, $month, $nextNumber);
+            // If created raw without an existing reference, require an active database transaction to guarantee atomic persistence
+            if (DB::transactionLevel() === 0) {
+                throw new \LogicException('Creating a Sale without an explicit reference requires an active database transaction to ensure sequence atomicity.');
+            }
+
+            // Fallback allocation via authoritative sequence allocator
+            $allocator = app(\App\Services\Sequence\DocumentSequenceAllocator::class);
+            $saleDate = $model->date ? Carbon::parse($model->date) : now();
+            $namespace = $allocator->buildNamespace(\App\Services\Sequence\DocumentType::SALE, (int) $model->setting_id, $saleDate);
+
+            $allocation = $allocator->allocate($namespace);
+            $model->reference = $allocation->reference;
         });
     }
 
+    public static function generateReference(int $settingId, ?Carbon $date = null): string
+    {
+        if (DB::transactionLevel() === 0) {
+            throw new \LogicException('Sale::generateReference() requires an active database transaction to guarantee atomic persistence and prevent counter gaps.');
+        }
+
+        $allocator = app(\App\Services\Sequence\DocumentSequenceAllocator::class);
+        $saleDate = $date ?? now();
+        $namespace = $allocator->buildNamespace(\App\Services\Sequence\DocumentType::SALE, $settingId, $saleDate);
+
+        return $allocator->allocate($namespace)->reference;
+    }
+
     public function scopeCompleted($query) {
-        return $query->where('status', 'Completed');
+        return $query->where('status', self::STATUS_DISPATCHED);
     }
 
-    public function getShippingAmountAttribute($value) {
-        return $value / 100;
+    /**
+     * Get the canonical settlement SQL formula for live due amount.
+     * This formula is the single source of truth for settlement calculations:
+     *   live_due = total_amount - (active cash payments + active credit applications)
+     *
+     * Used by scopeWhereLiveDueAmountGreaterThan and scopeWhereLiveDueAmountLessThanOrEqual
+     * to ensure both scopes implement the exact same calculation without drift.
+     */
+    private static function canonicalLiveDueFormula(): string
+    {
+        return 'total_amount - COALESCE((
+            SELECT SUM(amount) FROM sale_payments
+            WHERE sale_payments.sale_id = sales.id
+            AND sale_payments.status = ?
+        ), 0) - COALESCE((
+            SELECT SUM(spca.amount) FROM sale_payment_credit_applications spca
+            INNER JOIN sale_payments sp ON spca.sale_payment_id = sp.id
+            WHERE sp.sale_id = sales.id
+            AND sp.status = ?
+        ), 0)';
     }
 
-    public function getPaidAmountAttribute($value) {
-        return $value / 100;
+    /**
+     * Filter sales by live due amount using the canonical settlement calculation.
+     * Live due = total_amount - (active cash payments + active credit applications).
+     * Includes customer-credit applications to match getEffectivePaidAmount().
+     *
+     * Excludes invalidated payments and their associated credits.
+     */
+    public function scopeWhereLiveDueAmountGreaterThan($query, $amount = 0)
+    {
+        return $query->whereRaw(
+            self::canonicalLiveDueFormula() . ' > ?',
+            [SalePayment::STATUS_ACTIVE, SalePayment::STATUS_ACTIVE, $amount]
+        );
     }
 
-    public function getTotalAmountAttribute($value) {
-        return $value / 100;
+    /**
+     * Filter sales by live due amount using the canonical settlement calculation.
+     * Live due = total_amount - (active cash payments + active credit applications).
+     * Includes customer-credit applications to match getEffectivePaidAmount().
+     *
+     * Excludes invalidated payments and their associated credits.
+     */
+    public function scopeWhereLiveDueAmountLessThanOrEqual($query, $amount = 0)
+    {
+        return $query->whereRaw(
+            self::canonicalLiveDueFormula() . ' <= ?',
+            [SalePayment::STATUS_ACTIVE, SalePayment::STATUS_ACTIVE, $amount]
+        );
     }
 
-    public function getDueAmountAttribute($value) {
-        return $value / 100;
+    public function scopeApprovedUp($query)
+    {
+        return $query->whereIn('status', [
+            self::STATUS_APPROVED,
+            self::STATUS_DISPATCHED_PARTIALLY,
+            self::STATUS_DISPATCHED,
+        ]);
     }
 
-    public function getTaxAmountAttribute($value) {
-        return $value / 100;
+    public function scopeGlobalPaymentEligible($query)
+    {
+        return $query->whereIn('status', [
+            self::STATUS_APPROVED,
+            self::STATUS_DISPATCHED_PARTIALLY,
+            self::STATUS_DISPATCHED,
+            self::STATUS_RETURNED_PARTIALLY,
+        ]);
     }
 
-    public function getDiscountAmountAttribute($value) {
-        return $value / 100;
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class, 'customer_id', 'id');
+    }
+
+    /**
+     * Calculate the canonical settlement total from active payments and credits.
+     * This is the single source of truth for settlement calculations:
+     *   - SUM(sale_payments.amount WHERE status = ACTIVE)
+     *   + SUM(sale_payment_credit_applications.amount WHERE sale_payment.status = ACTIVE)
+     *
+     * Used consistently by:
+     *   - getEffectivePaidAmount() (PHP accessor for individual sale)
+     *   - getLiveDueAmountAttribute() (PHP accessor for live balance)
+     *   - reconcileFromActivePayments() (atomic header reconciliation)
+     *   - scopeWhereLiveDueAmountGreaterThan() (query-level filtering)
+     *   - scopeWhereLiveDueAmountLessThanOrEqual() (query-level filtering)
+     *
+     * Excludes invalidated payments and their associated credits.
+     */
+    public function getEffectivePaidAmount(): float
+    {
+        if (array_key_exists('active_payments_sum', $this->attributes)) {
+            $monetarySum = (float) ($this->attributes['active_payments_sum'] ?: 0);
+        } else {
+            $monetarySum = (float) $this->salePayments()
+                ->where('status', SalePayment::STATUS_ACTIVE)
+                ->sum('amount');
+        }
+
+        // Get sum of credit applications attached to active payments
+        $creditSum = (float) DB::table('sale_payment_credit_applications')
+            ->join('sale_payments', 'sale_payment_credit_applications.sale_payment_id', '=', 'sale_payments.id')
+            ->where('sale_payments.sale_id', $this->id)
+            ->where('sale_payments.status', SalePayment::STATUS_ACTIVE)
+            ->sum('sale_payment_credit_applications.amount');
+
+        return round($monetarySum + $creditSum, 2);
+    }
+
+    /**
+     * Get live outstanding balance derived from total_amount minus active payments and credits.
+     * Returns max(0, total_amount - getEffectivePaidAmount()).
+     * Preserves any existing customer-credit settlement effects when reconciling.
+     */
+    public function getLiveDueAmountAttribute(): float
+    {
+        return max(0, round($this->total_amount - $this->getEffectivePaidAmount(), 2));
+    }
+
+    /**
+     * Get live paid amount derived from active payments and credits.
+     * Returns the same value as getEffectivePaidAmount() as a dynamic accessor.
+     */
+    public function getLivePaidAmountAttribute(): float
+    {
+        return $this->getEffectivePaidAmount();
+    }
+
+    public function getPaymentDueDateAttribute(): ?string
+    {
+        return $this->due_date ? \Carbon\Carbon::parse($this->due_date)->format('Y-m-d') : null;
+    }
+
+    /**
+     * Reconcile sale header from canonical settlement totals.
+     * Updates paid_amount, due_amount, and payment_status from active payments and existing credits.
+     * Used after payment allocation to ensure consistency.
+     */
+    public function reconcileFromActivePayments(): void
+    {
+        $paidAmount = $this->getEffectivePaidAmount();
+        $dueAmount = round($this->total_amount - $paidAmount, 2);
+        $dueAmount = max(0, $dueAmount);
+
+        $status = $dueAmount <= 0 ? 'PAID' : ($paidAmount > 0.01 ? 'PARTIAL' : 'UNPAID');
+
+        $this->update([
+            'paid_amount' => $paidAmount,
+            'due_amount' => $dueAmount,
+            'payment_status' => $status,
+        ]);
+    }
+
+    /**
+     * Get all serial numbers associated with this sale through sale details.
+     */
+    public function serialNumbers(): HasManyThrough
+    {
+        return $this->hasManyThrough(
+            ProductSerialNumber::class,
+            SaleDetails::class,
+            'sale_id',
+            'id'
+        )->distinct();
+    }
+
+    /**
+     * Get the seller (user) who created this sale.
+     */
+    public function seller(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by', 'id');
+    }
+
+    /**
+     * Get the setting (tenant) for this sale through the location.
+     */
+    public function tenantSetting(): BelongsTo
+    {
+        return $this->belongsTo(Setting::class, 'setting_id', 'id');
+    }
+
+    /**
+     * Get the location associated with this sale.
+     */
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class, 'location_id', 'id');
+    }
+
+    public function tags(): MorphToMany
+    {
+        return $this->morphToMany(Tag::class, 'taggable');
+    }
+
+    /**
+     * Retrieve the model for a bound value.
+     *
+     * @param  mixed  $value
+     * @param  string|null  $field
+     * @return \Illuminate\Database\Eloquent\Model|null
+     */
+    public function resolveRouteBinding($value, $field = null)
+    {
+        \Illuminate\Support\Facades\Log::info('Sale::resolveRouteBinding called', ['value' => $value, 'field' => $field]);
+        $model = $this->where($field ?? $this->getRouteKeyName(), $value)
+            ->withoutGlobalScopes()
+            ->first();
+        
+        if (!$model) {
+            \Illuminate\Support\Facades\Log::warning('Sale::resolveRouteBinding: Model NOT found', ['value' => $value]);
+        }
+        
+        return $model;
     }
 }

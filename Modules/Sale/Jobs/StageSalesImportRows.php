@@ -1,0 +1,135 @@
+<?php
+
+namespace Modules\Sale\Jobs;
+
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use League\Csv\Reader;
+use League\Csv\Statement;
+use Modules\Sale\Entities\SalesImportBatch;
+use Modules\Sale\Entities\SalesImportRow;
+
+/**
+ * Job to stage CSV rows into the database in chunks.
+ * This moves the heavy row insertion out of the HTTP request.
+ */
+class StageSalesImportRows implements ShouldQueue
+{
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    public int $tries = 3;
+    public int $timeout = 600; // 10 minutes for large files
+
+    protected const CHUNK_SIZE = 500;
+
+    public function __construct(
+        public int $batchId,
+        public array $normalizedHeaders,
+        public array $rawHeaders,
+        public string $delimiter = ','
+    ) {}
+
+    public function handle(): void
+    {
+        Log::info('[SalesImport] StageSalesImportRows job started', ['batch_id' => $this->batchId]);
+
+        $batch = SalesImportBatch::findOrFail($this->batchId);
+        $fullPath = Storage::path($batch->source_csv_path);
+
+        try {
+            $batch->update(['status' => 'staging']);
+
+            $csv = Reader::createFromPath($fullPath);
+            $csv->setDelimiter($this->delimiter);
+            $csv->setHeaderOffset(0);
+
+            $records = (new Statement())->process($csv);
+            $rowNo = 0;
+            $chunk = [];
+
+            $importService = app(\Modules\Sale\Services\SalesImportService::class);
+            $now = now();
+
+            foreach ($records as $record) {
+                $mapped = $importService->mapCsvRow((array) $record, $this->normalizedHeaders);
+
+                // Skip empty rows
+                if (empty($mapped['produk']) || empty($mapped['tanggal'])) {
+                    continue;
+                }
+
+                $chunk[] = [
+                    'batch_id' => $this->batchId,
+                    'row_number' => ++$rowNo,
+                    'invoice_number' => $mapped['no_faktur'] ?? null,
+                    'raw_json' => json_encode($mapped),
+                    'status' => SalesImportRow::STATUS_PENDING,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+
+                // Bulk insert when chunk is full
+                if (count($chunk) >= self::CHUNK_SIZE) {
+                    SalesImportRow::insert($chunk);
+                    $chunk = [];
+                    $now = now();
+
+                    // Log progress every 5000 rows
+                    if ($rowNo % 5000 === 0) {
+                        Log::info('[SalesImport] Staging progress', [
+                            'batch_id' => $this->batchId,
+                            'rows_staged' => $rowNo,
+                        ]);
+                    }
+                }
+            }
+
+            // Insert remaining rows
+            if (!empty($chunk)) {
+                SalesImportRow::insert($chunk);
+            }
+
+            $batch->update([
+                'total_rows' => $rowNo,
+                'status' => 'validating',
+            ]);
+
+            Log::info('[SalesImport] Rows staged successfully', [
+                'batch_id' => $this->batchId,
+                'total_rows' => $rowNo,
+            ]);
+
+            // Dispatch the processing job
+            ProcessSalesImportBatch::dispatch($this->batchId);
+
+        } catch (\Exception $e) {
+            Log::error('[SalesImport] StageSalesImportRows job failed', [
+                'batch_id' => $this->batchId,
+                'error' => $e->getMessage(),
+            ]);
+
+            $batch->update(['status' => SalesImportBatch::STATUS_FAILED]);
+            throw $e;
+        }
+    }
+
+
+
+    public function failed(\Throwable $exception): void
+    {
+        Log::error('[SalesImport] StageSalesImportRows job failed permanently', [
+            'batch_id' => $this->batchId,
+            'error' => $exception->getMessage(),
+        ]);
+
+        $batch = SalesImportBatch::find($this->batchId);
+        if ($batch) {
+            $batch->update(['status' => SalesImportBatch::STATUS_FAILED]);
+        }
+    }
+}

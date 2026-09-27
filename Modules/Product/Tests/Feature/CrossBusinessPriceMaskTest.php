@@ -1,0 +1,530 @@
+<?php
+
+namespace Modules\Product\Tests\Feature;
+
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductPrice;
+use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\Tax;
+use App\Models\User;
+use Spatie\Permission\Models\Role;
+use Spatie\Permission\Models\Permission;
+
+class CrossBusinessPriceMaskTest extends TestCase
+{
+    use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        
+        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+        $permission = Permission::firstOrCreate(['name' => 'products.manage_cross_business_prices', 'guard_name' => 'web']);
+        $role = Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']);
+        $role->givePermissionTo($permission);
+        
+        $this->user = User::factory()->create();
+        $this->user->assignRole($role);
+        $this->user->givePermissionTo('products.manage_cross_business_prices');
+        $this->user->load('roles.permissions', 'permissions');
+        
+        Setting::truncate();
+        Setting::factory()->create(['id' => 1, 'company_name' => 'Business A']);
+        
+        $unit = \Modules\Setting\Entities\Unit::firstOrCreate(['name' => 'Unit Test', 'short_name' => 'UT']);
+        $this->product = app(\Modules\Product\Services\ProductCreator::class)->create([
+            'product_name' => 'Test Product',
+            'product_code' => 'TEST-001',
+            'base_unit_id' => $unit->id,
+            'is_purchased' => 1,
+            'is_sold' => 1,
+            'product_stock_alert' => 10,
+        ]);
+        
+        ProductPrice::where('product_id', $this->product->id)->delete();
+    }
+
+    public function test_cross_business_price_fields_are_emitted_as_two_decimal_formatted_strings()
+    {
+        ProductPrice::updateOrCreate(
+            ['product_id' => $this->product->id, 'setting_id' => 1],
+            [
+                'sale_price' => 2500000.00,
+                'tier_1_price' => 2500000.49,
+                'tier_2_price' => 2500000.50,
+                'last_purchase_price' => 2500000.99,
+                'average_purchase_price' => 2500000.00,
+            ]
+        );
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+        
+        // Assert specific HTML structure for each field with two-decimal formatting
+        $response->assertSee('name="prices[0][sale_price]" value="2.500.000,00" data-original="2500000.00"', false);
+        $response->assertSee('name="prices[0][tier_1_price]" value="2.500.000,49" data-original="2500000.49"', false);
+        $response->assertSee('name="prices[0][tier_2_price]" value="2.500.000,50" data-original="2500000.50"', false);
+        $response->assertSee('name="prices[0][last_purchase_price]" value="2.500.000,99" data-original="2500000.99"', false);
+        $response->assertSee('value="2.500.000,00" readonly disabled', false); // average_purchase_price
+    }
+
+    public function test_cross_business_price_restored_old_input_preserves_two_decimals()
+    {
+        ProductPrice::updateOrCreate(
+            ['product_id' => $this->product->id, 'setting_id' => 1],
+            [
+                'sale_price' => 1000.00,
+            ]
+        );
+
+        $response = $this->actingAs($this->user)
+            ->withSession([
+                'setting_id' => 1,
+                '_old_input' => [
+                    'prices' => [
+                        0 => [
+                            'sale_price' => '2500000.75'
+                        ]
+                    ]
+                ]
+            ])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+        
+        // It should render the old input formatted with two decimals
+        $response->assertSee('name="prices[0][sale_price]" value="2.500.000,75"', false);
+    }
+
+    public function test_unchanged_cross_business_price_form_round_trips_safely()
+    {
+        $tax1 = Tax::firstOrCreate(['name' => 'Tax 1'], ['value' => 10]);
+        $tax2 = Tax::firstOrCreate(['name' => 'Tax 2'], ['value' => 11]);
+
+        $existing = ProductPrice::updateOrCreate(
+            ['product_id' => $this->product->id, 'setting_id' => 1],
+            [
+                'sale_price' => 2500000.75,
+                'tier_1_price' => 90.50,
+                'tier_2_price' => 80.25,
+                'last_purchase_price' => 50.10,
+                'average_purchase_price' => 45.33,
+                'sale_tax_id' => $tax1->id,
+                'purchase_tax_id' => $tax2->id,
+            ]
+        );
+
+        // Frontend unmasks form control values before submission to canonical dot decimals
+        $payload = [
+            'prices' => [
+                [
+                    'setting_id' => 1,
+                    'sale_price' => '2500000.75',
+                    'tier_1_price' => '90.50',
+                    'tier_2_price' => '80.25',
+                    'last_purchase_price' => '50.10',
+                    'version' => $existing->updated_at->format('Y-m-d H:i:s.u'),
+                ]
+            ]
+        ];
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update', $this->product), $payload)
+            ->assertRedirect(route('products.cross-business-prices.edit', $this->product))
+            ->assertSessionHas('success');
+
+        $updated = ProductPrice::where('product_id', $this->product->id)->where('setting_id', 1)->first();
+        
+        // Decimal values remain unchanged
+        $this->assertEquals(2500000.75, (float) $updated->sale_price);
+        $this->assertEquals(45.33, (float) $updated->average_purchase_price);
+
+        // Ensure tax preservation is actually exercised
+        $this->assertEquals($tax1->id, $updated->sale_tax_id);
+        $this->assertEquals($tax2->id, $updated->purchase_tax_id);
+    }
+
+    public function test_cross_business_price_form_renders_apply_to_all_hooks_only_for_editable_columns()
+    {
+        ProductPrice::updateOrCreate(
+            ['product_id' => $this->product->id, 'setting_id' => 1],
+            [
+                'sale_price' => 100000.25,
+                'tier_1_price' => 90000.50,
+                'tier_2_price' => 80000.75,
+                'last_purchase_price' => 70000.10,
+                'average_purchase_price' => 65000.99,
+            ]
+        );
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+
+        // Exactly 4 hidden buttons rendered per setting row (excluding JS script references)
+        $content = $response->getContent();
+        $tableHtml = substr($content, strpos($content, '<table'), strpos($content, '</table>') - strpos($content, '<table'));
+        $this->assertEquals(4, substr_count($tableHtml, 'btn-apply-all'));
+
+        // Assert exact structure per editable input: input with data-column followed by matching button with data-column
+        $response->assertSee('name="prices[0][sale_price]" value="100.000,25" data-original="100000.25" data-column="sale_price"', false);
+        $response->assertSee('button type="button" class="btn btn-sm btn-outline-primary btn-apply-all d-none ms-1" data-column="sale_price"', false);
+
+        $response->assertSee('name="prices[0][tier_1_price]" value="90.000,50" data-original="90000.50" data-column="tier_1_price"', false);
+        $response->assertSee('button type="button" class="btn btn-sm btn-outline-primary btn-apply-all d-none ms-1" data-column="tier_1_price"', false);
+
+        $response->assertSee('name="prices[0][tier_2_price]" value="80.000,75" data-original="80000.75" data-column="tier_2_price"', false);
+        $response->assertSee('button type="button" class="btn btn-sm btn-outline-primary btn-apply-all d-none ms-1" data-column="tier_2_price"', false);
+
+        $response->assertSee('name="prices[0][last_purchase_price]" value="70.000,10" data-original="70000.10" data-column="last_purchase_price"', false);
+        $response->assertSee('button type="button" class="btn btn-sm btn-outline-primary btn-apply-all d-none ms-1" data-column="last_purchase_price"', false);
+
+        // Average purchase price must NOT carry column copy hook or button
+        $response->assertDontSee('data-column="average_purchase_price"', false);
+    }
+
+    public function test_raw_canonical_input_is_persisted_correctly()
+    {
+        $existing = ProductPrice::updateOrCreate(
+            ['product_id' => $this->product->id, 'setting_id' => 1],
+            ['sale_price' => 100]
+        );
+
+        // Raw canonical integer input 6853 -> persisted as 6853.00
+        $payload1 = [
+            'prices' => [
+                [
+                    'setting_id' => 1,
+                    'sale_price' => '6853',
+                    'tier_1_price' => '1111.23',
+                    'tier_2_price' => '1000.00',
+                    'last_purchase_price' => '500.00',
+                    'version' => $existing->updated_at->format('Y-m-d H:i:s.u'),
+                ]
+            ]
+        ];
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update', $this->product), $payload1)
+            ->assertRedirect(route('products.cross-business-prices.edit', $this->product))
+            ->assertSessionHas('success');
+
+        $updated1 = ProductPrice::where('product_id', $this->product->id)->where('setting_id', 1)->first();
+        $this->assertEquals(6853.00, (float) $updated1->sale_price);
+        $this->assertEquals(1111.23, (float) $updated1->tier_1_price);
+    }
+
+    public function test_indonesian_formatted_input_is_persisted_as_canonical_decimal()
+    {
+        $existing = ProductPrice::updateOrCreate(
+            ['product_id' => $this->product->id, 'setting_id' => 1],
+            ['sale_price' => 100]
+        );
+
+        // Simulated frontend unmasked Indonesian formatted input "6.853,25" -> "6853.25"
+        $payload = [
+            'prices' => [
+                [
+                    'setting_id' => 1,
+                    'sale_price' => '6853.25',
+                    'tier_1_price' => '1000.00',
+                    'tier_2_price' => '1000.00',
+                    'last_purchase_price' => '500.00',
+                    'version' => $existing->updated_at->format('Y-m-d H:i:s.u'),
+                ]
+            ]
+        ];
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update', $this->product), $payload)
+            ->assertRedirect(route('products.cross-business-prices.edit', $this->product))
+            ->assertSessionHas('success');
+
+        $updated = ProductPrice::where('product_id', $this->product->id)->where('setting_id', 1)->first();
+        $this->assertEquals(6853.25, (float) $updated->sale_price);
+    }
+
+    public function test_empty_input_triggers_validation_error()
+    {
+        $existing = ProductPrice::updateOrCreate(
+            ['product_id' => $this->product->id, 'setting_id' => 1],
+            ['sale_price' => 100]
+        );
+
+        $payload = [
+            'prices' => [
+                [
+                    'setting_id' => 1,
+                    'sale_price' => '', // empty input
+                    'tier_1_price' => '1000.00',
+                    'tier_2_price' => '1000.00',
+                    'last_purchase_price' => '500.00',
+                    'version' => $existing->updated_at->format('Y-m-d H:i:s.u'),
+                ]
+            ]
+        ];
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update', $this->product), $payload)
+            ->assertSessionHasErrors(['prices.0.sale_price']);
+    }
+
+    public function test_malformed_input_triggers_validation_error()
+    {
+        $existing = ProductPrice::updateOrCreate(
+            ['product_id' => $this->product->id, 'setting_id' => 1],
+            ['sale_price' => 100]
+        );
+
+        $payload = [
+            'prices' => [
+                [
+                    'setting_id' => 1,
+                    'sale_price' => '12abc', // malformed input
+                    'tier_1_price' => '1000.00',
+                    'tier_2_price' => '1000.00',
+                    'last_purchase_price' => '500.00',
+                    'version' => $existing->updated_at->format('Y-m-d H:i:s.u'),
+                ]
+            ]
+        ];
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update', $this->product), $payload)
+            ->assertSessionHasErrors(['prices.0.sale_price']);
+    }
+
+    /**
+     * Verifies that the rendered HTML contains the focus/blur raw canonical logic,
+     * view-mode event handler protection, and strict decimal parsing functions.
+     */
+    public function test_rendered_html_contains_focus_blur_raw_canonical_and_view_protection_structure()
+    {
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+
+        // Verify key JS script elements exist in view
+        $response->assertSee('function parseCanonicalDecimal(val)', false);
+        $response->assertSee('function formatLocaleDisplay(val)', false);
+        $response->assertSee('function getRawCanonicalValue(val)', false);
+        $response->assertSee('idPattern', false);
+        $response->assertSee('canonicalPattern', false);
+        $response->assertSee('keydown keypress keyup input paste change', false);
+        $response->assertSee('if ($(this).prop(\'readonly\'))', false);
+        $response->assertSee('focus', false);
+        $response->assertSee('blur', false);
+        $response->assertSee('btn-apply-all-conv', false);
+        $response->assertSee('editable-conversion-price', false);
+        $response->assertSee('btn-apply-all-bundle', false);
+        $response->assertSee('editable-bundle-price', false);
+        $response->assertSee('.editable-bundle-price[data-replica-group-uuid="', false);
+    }
+
+    public function test_conversion_matrix_renders_apply_to_all_hooks_and_missing_badge()
+    {
+        $boxUnit = \Modules\Setting\Entities\Unit::firstOrCreate(['name' => 'KOTAK', 'short_name' => 'KTK']);
+        $conv = \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $this->product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $this->product->base_unit_id,
+            'conversion_factor' => 12,
+        ]);
+
+        \Modules\Product\Entities\ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $conv->id,
+            'setting_id' => 1,
+            'price' => 22500.50,
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+        $response->assertSee('name="conversions[0][price]"', false);
+        $response->assertSee('value="22.500,50"', false);
+        $response->assertSee('data-original="22500.50"', false);
+        $response->assertSee('data-conversion-id="' . $conv->id . '"', false);
+        $response->assertSee('btn-apply-all-conv', false);
+    }
+
+    public function test_conversion_prices_are_restored_by_setting_and_conversion_identity()
+    {
+        $boxUnit = \Modules\Setting\Entities\Unit::firstOrCreate(['name' => 'KOTAK', 'short_name' => 'KTK']);
+        $packUnit = \Modules\Setting\Entities\Unit::firstOrCreate(['name' => 'PACK', 'short_name' => 'PCK']);
+
+        $convBox = \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $this->product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $this->product->base_unit_id,
+            'conversion_factor' => 12,
+        ]);
+
+        $convPack = \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $this->product->id,
+            'unit_id' => $packUnit->id,
+            'base_unit_id' => $this->product->base_unit_id,
+            'conversion_factor' => 6,
+        ]);
+
+        \Modules\Product\Entities\ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $convBox->id,
+            'setting_id' => 1,
+            'price' => 12000.00,
+        ]);
+
+        \Modules\Product\Entities\ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $convPack->id,
+            'setting_id' => 1,
+            'price' => 6000.00,
+        ]);
+
+        // Simulate old input submitted where array positions do not match or a deleted conversion shifted indices:
+        // Position 0 has old input for $convPack (setting 1) with price 7500.00
+        // An old entry exists for deleted conversion ID 99999 with price 99999.00
+        // No old entry for $convBox (setting 1)
+        $oldConversions = [
+            0 => [
+                'setting_id' => 1,
+                'conversion_id' => 99999, // Deleted conversion
+                'price' => '99999.00',
+            ],
+            1 => [
+                'setting_id' => 1,
+                'conversion_id' => $convPack->id, // Specifically for Pack
+                'price' => '7500.50',
+            ],
+        ];
+
+        $response = $this->actingAs($this->user)
+            ->withSession([
+                'setting_id' => 1,
+                '_old_input' => [
+                    'conversions' => $oldConversions,
+                ],
+            ])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+
+        // 1. Deleted conversion price (99.999,00) must NOT be applied to any existing conversion
+        $response->assertDontSee('99.999,00', false);
+
+        // 2. $convPack must restore its own price (7.500,50) even though its array index in old input was 1
+        $response->assertSee('value="7.500,50"', false);
+
+        // 3. $convBox was not in old input (or structure changed), so it must fallback to its canonical DB price (12.000,00)
+        $response->assertSee('value="12.000,00"', false);
+    }
+
+    public function test_bundle_matrix_renders_apply_to_all_hooks_inactive_badge_and_unavailable_cell()
+    {
+        $groupUuid = (string) \Illuminate\Support\Str::uuid();
+
+        // Bundle in Setting 1 is inactive with price 35000
+        $bundle1 = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'setting_id' => 1,
+            'replica_group_uuid' => $groupUuid,
+            'name' => 'Paket Duo',
+            'bundle_sale_price' => 35000.50,
+            'is_active' => false,
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+        $response->assertSee('name="bundles[0][bundle_sale_price]"', false);
+        $response->assertSee('value="35.000,50"', false);
+        $response->assertSee('data-original="35000.50"', false);
+        $response->assertSee('data-replica-group-uuid="' . $groupUuid . '"', false);
+        $response->assertSee('btn-apply-all-bundle', false);
+        $response->assertSee('Tidak aktif', false);
+        $response->assertSee('btn-apply-all-bundle', false);
+    }
+
+    public function test_bundle_prices_are_restored_by_bundle_identity_from_old_input()
+    {
+        $groupUuid = (string) \Illuminate\Support\Str::uuid();
+
+        $bundle1 = \Modules\Product\Entities\ProductBundle::create([
+            'parent_product_id' => $this->product->id,
+            'setting_id' => 1,
+            'replica_group_uuid' => $groupUuid,
+            'name' => 'Paket Trio',
+            'bundle_sale_price' => 50000.00,
+            'is_active' => true,
+        ]);
+
+        $oldBundles = [
+            0 => [
+                'bundle_id' => $bundle1->id,
+                'bundle_sale_price' => '52500.75',
+            ],
+        ];
+
+        $response = $this->actingAs($this->user)
+            ->withSession([
+                'setting_id' => 1,
+                '_old_input' => [
+                    'bundles' => $oldBundles,
+                ],
+            ])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+        $response->assertSee('value="52.500,75"', false);
+    }
+
+    public function test_visible_product_context_renders_heading_name_and_code()
+    {
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+        $response->assertSee('Kelola Harga Multi-Bisnis: Test Product');
+        $response->assertSee('TEST-001');
+    }
+
+    public function test_visible_product_context_without_code_does_not_render_placeholder()
+    {
+        $productWithoutCode = Product::create([
+            'product_name' => 'Product Without Code',
+            'product_code' => null,
+            'setting_id' => 1,
+            'product_quantity' => 0,
+            'product_cost' => 0,
+            'product_price' => 0,
+            'product_order_tax' => 0,
+            'product_tax_type' => 0,
+            'profit_percentage' => 0,
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $productWithoutCode));
+
+        $response->assertOk();
+        $response->assertSee('Kelola Harga Multi-Bisnis: Product Without Code');
+        $response->assertDontSee('text-muted small text-break');
+    }
+}
+

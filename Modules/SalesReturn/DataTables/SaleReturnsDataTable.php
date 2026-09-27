@@ -15,28 +15,47 @@ class SaleReturnsDataTable extends DataTable
     public function dataTable($query) {
         return datatables()
             ->eloquent($query)
-            ->addColumn('total_amount', function ($data) {
-                return format_currency($data->total_amount);
+            ->filter(function ($query) {
+                if ($search = $this->request()->get('search')['value'] ?? null) {
+                    $query->where(function ($q) use ($search) {
+                        $q->where('reference', 'like', "%{$search}%")
+                            ->orWhere('sale_reference', 'like', "%{$search}%")
+                            ->orWhere('customer_name', 'like', "%{$search}%")
+                            ->orWhereHas('customer', function ($q2) use ($search) {
+                                $q2->where('customer_name', 'like', "%{$search}%")
+                                   ->orWhere('contact_name', 'like', "%{$search}%");
+                            })
+                            ->orWhereHas('sale', function ($q2) use ($search) {
+                                $q2->where('reference', 'like', "%{$search}%")
+                                   ->orWhere('imported_sales_reference_number', 'like', "%{$search}%")
+                                   ->orWhere('tax_ref_no', 'like', "%{$search}%");
+                            })
+                            ->orWhereHas('saleReturnDetails', function ($q2) use ($search) {
+                                $q2->where('product_name', 'like', "%{$search}%")
+                                   ->orWhere('product_code', 'like', "%{$search}%");
+                            });
+                    });
+                }
+            }, false)
+            ->editColumn('reference', function ($data) {
+                return '<a href="' . route('sale-returns.show', $data->id) . '">' . $data->reference . '</a>';
             })
-            ->addColumn('paid_amount', function ($data) {
-                return format_currency($data->paid_amount);
-            })
-            ->addColumn('due_amount', function ($data) {
-                return format_currency($data->due_amount);
-            })
-            ->addColumn('status', function ($data) {
-                return view('salesreturn::partials.status', compact('data'));
-            })
-            ->addColumn('payment_status', function ($data) {
-                return view('salesreturn::partials.payment-status', compact('data'));
-            })
-            ->addColumn('action', function ($data) {
-                return view('salesreturn::partials.actions', compact('data'));
-            });
+            ->addColumn('total_amount', fn ($data) => format_currency($data->total_amount))
+            ->addColumn('paid_amount', fn ($data) => format_currency($data->paid_amount))
+            ->addColumn('due_amount', fn ($data) => format_currency($data->due_amount))
+            ->addColumn('status', fn ($data) => view('salesreturn::partials.status', compact('data')))
+            ->addColumn('approval_status', fn ($data) => view('salesreturn::partials.approval-status', compact('data')))
+            ->addColumn('payment_status', fn ($data) => view('salesreturn::partials.payment-status', compact('data')))
+            ->addColumn('settlement_status', fn ($data) => view('salesreturn::partials.settlement-status', compact('data')))
+            ->addColumn('action', fn ($data) => view('salesreturn::partials.actions', compact('data')))
+            ->rawColumns(['reference', 'status', 'approval_status', 'payment_status', 'settlement_status', 'action']);
     }
 
     public function query(SaleReturn $model) {
-        return $model->newQuery();
+        $query = $model->newQuery()
+            ->with(['sale', 'customer', 'saleReturnDetails']);
+
+        return $query;
     }
 
     public function html() {
@@ -47,7 +66,7 @@ class SaleReturnsDataTable extends DataTable
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                 'tr' .
                                 <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(8)
+            ->orderBy(10)
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
@@ -63,28 +82,47 @@ class SaleReturnsDataTable extends DataTable
     protected function getColumns() {
         return [
             Column::make('reference')
+                ->title('Referensi')
+                ->className('text-center align-middle'),
+
+            Column::make('sale_reference')
+                ->title('Ref Penjualan')
                 ->className('text-center align-middle'),
 
             Column::make('customer_name')
-                ->title('Customer')
+                ->title('Pelanggan')
                 ->className('text-center align-middle'),
 
             Column::computed('status')
+                ->title('Status')
+                ->className('text-center align-middle'),
+
+            Column::computed('approval_status')
+                ->title('Persetujuan')
                 ->className('text-center align-middle'),
 
             Column::computed('total_amount')
+                ->title('Total')
                 ->className('text-center align-middle'),
 
             Column::computed('paid_amount')
+                ->title('Dibayar')
                 ->className('text-center align-middle'),
 
             Column::computed('due_amount')
+                ->title('Kurang')
                 ->className('text-center align-middle'),
 
             Column::computed('payment_status')
+                ->title('Status Pembayaran')
+                ->className('text-center align-middle'),
+
+            Column::computed('settlement_status')
+                ->title('Penyelesaian')
                 ->className('text-center align-middle'),
 
             Column::computed('action')
+                ->title('Aksi')
                 ->exportable(false)
                 ->printable(false)
                 ->className('text-center align-middle'),

@@ -24,14 +24,14 @@
 @section('content')
     <div class="container-fluid mb-4">
         <form action="{{ route('users.update', $user->id) }}" method="POST" enctype="multipart/form-data"
-              id="user-form">
+              id="user-edit-form">
             @csrf
             @method('patch')
             <div class="row">
                 <div class="col-lg-12">
                     @include('utils.alerts')
                     <div class="form-group">
-                        <button class="btn btn-primary" type="submit">Perbarui Akun <i class="bi bi-check"></i></button>
+                        <x-button type="submit" class="btn btn-primary" processing-text="Menyimpan..." form="user-edit-form">Perbarui Akun <i class="bi bi-check"></i></x-button>
                         <a href="{{ route('users.index') }}" class="btn btn-secondary">Kembali</a>
                     </div>
                 </div>
@@ -144,10 +144,69 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- 2FA Status Card -->
+                    <div class="card mt-3">
+                        <div class="card-header">
+                            <h6 class="mb-0">Autentikasi Dua Faktor</h6>
+                        </div>
+                        <div class="card-body">
+                            @if ($user->hasTwoFactorEnabled())
+                                <div class="alert alert-success mb-3">
+                                    <i class="bi bi-check-circle"></i> Diaktifkan pada {{ $user->two_factor_confirmed_at->format('d M Y H:i') }}
+                                </div>
+                            @else
+                                <div class="alert alert-warning mb-3">
+                                    <i class="bi bi-exclamation-triangle"></i> Tidak Diaktifkan
+                                </div>
+                            @endif
+
+                            @if ($user->hasTwoFactorEnabled())
+                                <button class="btn btn-danger btn-sm w-100" id="adminResetBtn" type="button">
+                                    <i class="bi bi-arrow-counterclockwise"></i> Reset 2FA
+                                </button>
+                            @endif
+                        </div>
+                    </div>
                 </div>
             </div>
         </form>
     </div>
+
+    <script>
+        const adminResetBtn = document.getElementById('adminResetBtn');
+        if (adminResetBtn) {
+            adminResetBtn.addEventListener('click', async function() {
+                if (!confirm('Apakah Anda yakin ingin mereset 2FA pengguna ini? Mereka akan perlu mengatur ulang autentikasi mereka.')) {
+                    return;
+                }
+
+                try {
+                    const response = await fetch('{{ route("2fa.admin-reset") }}', {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                        },
+                        body: JSON.stringify({ user_id: {{ $user->id }} }),
+                    });
+
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        alert('Gagal mereset 2FA: ' + (data.message || 'Unknown error'));
+                        return;
+                    }
+
+                    alert('2FA pengguna berhasil direset');
+                    location.reload();
+                } catch (error) {
+                    alert('Kesalahan jaringan: ' + error.message);
+                }
+            });
+        }
+    </script>
 @endsection
 
 @section('third_party_scripts')
@@ -171,6 +230,9 @@
                 }
             });
         });
+
+        // Initialize form submission lock
+        initFormSubmissionLock('user-edit-form', 'user:submit-error');
 
         // FilePond initialization
         FilePond.registerPlugin(

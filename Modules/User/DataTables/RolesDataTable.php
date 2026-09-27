@@ -2,17 +2,23 @@
 
 namespace Modules\User\DataTables;
 
+use Illuminate\Database\Eloquent\Builder;
+use LaravelIdea\Helper\Spatie\Permission\Models\_IH_Role_QB;
 use Spatie\Permission\Models\Role;
+use Yajra\DataTables\EloquentDataTable;
+use Yajra\DataTables\Exceptions\Exception;
 use Yajra\DataTables\Html\Button;
 use Yajra\DataTables\Html\Column;
-use Yajra\DataTables\Html\Editor\Editor;
-use Yajra\DataTables\Html\Editor\Fields;
 use Yajra\DataTables\Services\DataTable;
 
 class RolesDataTable extends DataTable
 {
 
-    public function dataTable($query) {
+    /**
+     * @throws Exception
+     */
+    public function dataTable($query): EloquentDataTable
+    {
         return datatables()
             ->eloquent($query)
             ->addColumn('action', function ($data) {
@@ -26,13 +32,15 @@ class RolesDataTable extends DataTable
 
     }
 
-    public function query(Role $model) {
+    public function query(Role $model): _IH_Role_QB|Builder
+    {
         return $model->newQuery()->with(['permissions' => function ($query) {
             $query->select('name')->take(10)->get();
         }])->where('name', '!=', 'Super Admin');
     }
 
-    public function html() {
+    public function html(): \Yajra\DataTables\Html\Builder
+    {
         return $this->builder()
             ->setTableId('roles-table')
             ->columns($this->getColumns())
@@ -40,7 +48,7 @@ class RolesDataTable extends DataTable
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                 'tr' .
                                 <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(4)
+            ->orderBy(3)
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
@@ -55,11 +63,6 @@ class RolesDataTable extends DataTable
 
     protected function getColumns() {
         return [
-            Column::make('id')
-                ->addClass('text-center')
-                ->addClass('align-middle')
-                ->title('No'), // Mengubah nama kolom
-
             Column::make('name')
                 ->addClass('text-center')
                 ->addClass('align-middle')

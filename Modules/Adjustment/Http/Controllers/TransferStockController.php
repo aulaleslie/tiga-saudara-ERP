@@ -2,77 +2,193 @@
 
 namespace Modules\Adjustment\Http\Controllers;
 
-use App\Http\Controllers\Controller;
+use App\Services\IdempotencyService;
+use Exception;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
+use Illuminate\Routing\Controller;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 use Modules\Adjustment\DataTables\StockTransfersDataTable;
+use Modules\Adjustment\DTOs\TransferFormLineState;
+use Modules\Adjustment\DTOs\TransferFormState;
 use Modules\Adjustment\Entities\Transfer;
 use Modules\Adjustment\Entities\TransferProduct;
 use Modules\Adjustment\Http\Requests\StockTransferRequest;
 use Modules\Adjustment\Http\Requests\UpdateStockTransferRequest;
+use Modules\Adjustment\Services\TransferDraftService;
+use Modules\Adjustment\Services\TransferFormStateMapper;
+use Modules\Adjustment\Services\TransferLifecycleService;
+use Modules\Adjustment\Services\TransferStockVisibility;
+use Modules\Adjustment\Services\TransferV3Access;
+use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\Transaction;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
+use App\Services\SerialNumberHistoryService;
+use Modules\Product\Entities\SerialNumberHistory;
+use Throwable;
 
 class TransferStockController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware('idempotency')->only('store');
+
+        // Legacy single-route actions never operate on workflow version 3
+        // documents; v3 uses its own endpoints (TransferV3Controller).
+        $this->middleware(\Modules\Adjustment\Http\Middleware\RejectWorkflowV3Transfer::class)->only([
+            'approve', 'reject', 'acknowledgeRejection', 'resubmit', 'archive',
+            'dispatchShipment', 'receive', 'dispatchReturn', 'receiveReturn',
+            'update', 'destroy',
+        ]);
+    }
+
+    /**
+     * Permission-aware browser-facing error message. Privileged users keep
+     * the existing exact operational exception detail (which may include
+     * quantities, product ids, or stock-derived context). A user without
+     * stockTransfers.view-system-stock receives a stable, neutral,
+     * non-quantitative Bahasa Indonesia message instead -- authoritative
+     * validation still ran and failed identically; only the browser-facing
+     * text differs, preventing repeated attempts from being used as a
+     * stock-enumeration channel.
+     */
+    private function neutralizedErrorMessage(Throwable $e): string
+    {
+        if (Gate::allows(TransferStockVisibility::PERMISSION)) {
+            return $e->getMessage();
+        }
+
+        return 'Terjadi kesalahan saat memproses transfer stok. Silakan periksa kembali data yang dimasukkan atau hubungi petugas yang berwenang.';
+    }
     /**
      * Display a listing of the resource.
      */
     public function index(StockTransfersDataTable $dataTable)
     {
+        abort_if(Gate::denies('stockTransfers.access'), 403);
+
         return $dataTable->render('adjustment::transfers.index');
     }
 
     /**
      * Show the form for creating a new resource.
      */
-    public function create(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    public function create(Request $request): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        $currentSettingId = session('setting_id');
-        $currentSetting = Setting::find($currentSettingId);
-        $settings = Setting::all();
-        $locations = Location::where('setting_id', $currentSettingId)->get();
-        $destinationLocations = Location::all();
+        abort_if(Gate::denies('stockTransfers.create'), 403);
 
-        return view('adjustment::transfers.create', compact('currentSetting', 'settings', 'locations', "destinationLocations"));
+        // After activation every new transfer is workflow version 3.
+        if (TransferV3Access::creationEnabled()) {
+            return view('adjustment::transfers.v3.form', ['transfer' => null]);
+        }
+
+        $currentSettingId = (int) session('setting_id');
+        $currentSetting   = Setting::find($currentSettingId);
+        $settings         = Setting::all();
+        $locations        = Location::where('setting_id', $currentSettingId)->active()->get();
+        $destinationLocations = Location::active()->get();
+
+        $idempotencyToken = IdempotencyService::tokenFromRequest($request);
+
+        return view('adjustment::transfers.create', compact('currentSetting', 'settings', 'locations', 'destinationLocations', 'idempotencyToken'));
     }
 
     /**
      * Store a newly created resource in storage.
+     * Uses TransferDraftService::createAndSubmitForApproval() to create a
+     * DRAFT and immediately submit it for approval as one atomic operation:
+     * this legacy HTTP contract always requires a destination and never
+     * supports broken-mode or serialized rows, and if submission fails no
+     * draft is left behind.
      */
     public function store(StockTransferRequest $request): RedirectResponse
     {
-        // Get validated data
-        $validated = $request->validated();
+        abort_if(Gate::denies('stockTransfers.create'), 403);
 
-        // Create the transfer record
-        $transfer = Transfer::create([
-            'origin_location_id' => $validated['origin_location'],
-            'destination_location_id' => $validated['destination_location'],
-            'created_by' => auth()->id(), // Record the creator
-            'status' => 'PENDING', // Initial status
-        ]);
+        // The legacy single-route HTTP contract cannot create version 3
+        // documents; after activation new transfers use the v3 form.
+        if (TransferV3Access::creationEnabled()) {
+            toast('Gunakan formulir Transfer Stok untuk membuat transfer baru.', 'error');
 
-        // Loop through the products and create transfer product records
-        foreach ($validated['product_ids'] as $index => $productId) {
-            $quantity = $validated['quantities'][$index];
-
-            TransferProduct::create([
-                'transfer_id' => $transfer->id,
-                'product_id' => $productId,
-                'quantity' => $quantity,
-            ]);
+            return redirect()->route('transfers.create');
         }
 
-        toast('Transfer Stok Dibuat!', 'success');
-        //
-        return redirect()->route('transfers.index');
+        $validated = $request->validated();
+        $currentSettingId = (int) session('setting_id');
+        $user = auth()->user();
+
+        try {
+            $draftService = app(TransferDraftService::class);
+
+            $formState = new TransferFormState(
+                (int) $validated['origin_location'],
+                (int) $validated['destination_location'],
+                Transfer::CONDITION_GOOD
+            );
+
+            // Add lines for each product with quantities allocated as non-tax (HTTP legacy behavior)
+            foreach ($validated['product_ids'] as $index => $productId) {
+                $quantity = (int) ($validated['quantities'][$index] ?? 0);
+                if ($quantity <= 0) continue;
+
+                $product = Product::find($productId);
+                if (!$product) {
+                    throw new InvalidArgumentException("Product {$productId} not found.");
+                }
+
+                // HTTP contract does not support serialized products or broken mode
+                if ($product->serial_number_required) {
+                    throw new InvalidArgumentException(
+                        "Product '{$product->product_name}' requires serial number selection. " .
+                        "Use the web interface to allocate serials for this product."
+                    );
+                }
+
+                $line = new TransferFormLineState(
+                    $productId,
+                    $product->product_name,
+                    $product->product_code,
+                    $product->barcode,
+                    (bool) $product->serial_number_required,
+                    false, // normal mode
+                    $quantity
+                );
+
+                $formState->addLine($line);
+            }
+
+            if (empty($formState->lines)) {
+                throw new InvalidArgumentException("At least one product with quantity > 0 is required.");
+            }
+
+            // Create and submit for approval atomically: this legacy
+            // contract always supplies a destination and expects an atomic
+            // create-and-submit outcome, so if submission fails no draft is
+            // left behind.
+            $transfer = $draftService->createAndSubmitForApproval($formState, $user, $currentSettingId);
+
+            toast('Transfer Stok Dibuat! No. Dokumen: ' . $transfer->document_number, 'success');
+            return redirect()->route('transfers.show', $transfer->id);
+        } catch (Throwable $e) {
+            Log::error('Failed to create transfer', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => auth()->id(),
+            ]);
+            toast($this->neutralizedErrorMessage($e), 'error');
+            return redirect()->back()->withInput();
+        }
     }
 
     /**
@@ -80,158 +196,388 @@ class TransferStockController extends Controller
      */
     public function show(Transfer $transfer): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        // Load related data (origin, destination, products)
-        $transfer->load([
-            'originLocation.setting', // Load the setting for origin location
-            'destinationLocation.setting', // Load the setting for destination location
-            'products.product',
-        ]);
+        abort_if(Gate::denies('stockTransfers.show'), 403);
 
-        // Return the view with the transfer data
-        return view('adjustment::transfers.show', compact('transfer'));
+        if ($transfer->isV3()) {
+            return $this->showV3($transfer);
+        }
+
+        $canViewSystemStock = TransferStockVisibility::canView();
+
+        $relations = [
+            'originLocation.setting',
+            'destinationLocation.setting',
+            'products.product',
+            'createdBy',
+            'approvedBy',
+            'rejectedBy',
+            'dispatchedBy',
+            'receivedBy',
+            'returnDispatchedBy',
+            'returnReceivedBy',
+            'movements.histories',
+        ];
+
+        if ($canViewSystemStock) {
+            $relations[] = 'products.returnObligation';
+            $relations[] = 'routePolicies';
+            $relations[] = 'movementReturnObligations.product';
+        }
+
+        $transfer->load($relations);
+
+        $currentSettingId = (int) session('setting_id');
+
+        $originSettingId      = $transfer->originLocation?->setting?->id;
+        $destinationSettingId = $transfer->destinationLocation?->setting?->id;
+
+        $isOrigin      = $originSettingId !== null && $currentSettingId === (int) $originSettingId;
+        $isDestination = $destinationSettingId !== null && $currentSettingId === (int) $destinationSettingId;
+        $requiresReturn = $canViewSystemStock ? $transfer->requiresReturn() : false;
+
+        // Authorized audit projection of the immutable v2 route-policy snapshot
+        // and outstanding full-quantity return obligations, if any. Neither
+        // grants a return-dispatch/receipt mutation route: this is read-only.
+        $routePolicy = $canViewSystemStock
+            ? $transfer->routePolicies->sortByDesc('transfer_revision')->first()
+            : null;
+        $returnObligations = $canViewSystemStock
+            ? $transfer->movementReturnObligations
+            : collect();
+
+        return view('adjustment::transfers.show', compact(
+            'transfer',
+            'isOrigin',
+            'isDestination',
+            'requiresReturn',
+            'routePolicy',
+            'returnObligations'
+        ));
+    }
+
+    /**
+     * Version 3 detail. Goods, quantities, condition and selected serial
+     * identities are shown to any document viewer; executed routes only
+     * with approval authority; the event timeline only with view-history.
+     * Protected collections are never loaded for viewers who lack them.
+     */
+    private function showV3(Transfer $transfer): View
+    {
+        $transfer->load(['products.product', 'createdBy', 'approvedBy', 'rejectedBy', 'dispatchedBy', 'receivedBy', 'cancelledBy']);
+
+        $routes = collect();
+        if (TransferV3Access::canConfigureAllocations()) {
+            $routes = $transfer->movementAllocations()
+                ->where('kind', \Modules\Adjustment\Entities\TransferMovementAllocation::KIND_DISPATCH)
+                ->with(['product', 'sourceLocation.setting', 'destinationLocation.setting'])
+                ->orderBy('id')
+                ->get();
+        }
+
+        $history = TransferV3Access::canViewHistory()
+            ? \Modules\Adjustment\Services\TransferV3HistoryProjection::forTransfer($transfer)
+            : null;
+
+        return view('adjustment::transfers.v3.show', [
+            'transfer'     => $transfer,
+            'routes'       => $routes,
+            'history'      => $history,
+            'operationKey' => (string) \Illuminate\Support\Str::uuid(),
+        ]);
     }
 
     /**
      * Approve the stock transfer.
-     *
-     * @param  Transfer  $transfer
-     * @return RedirectResponse
      */
-    public function approve(Transfer $transfer): RedirectResponse
+    public function approve(Transfer $transfer, \Modules\Adjustment\Services\TransferLifecycleService $service): RedirectResponse
     {
-        // Update the transfer status, approved, and approval time
-        $transfer->update([
-            'status' => 'APPROVED',
-            'approved_by' => auth()->id(),
-            'approved_at' => Carbon::now(),
-        ]);
+        abort_if(Gate::denies('stockTransfers.approval'), 403);
 
-        toast('Transfer Stok Disetujui!', 'success');
+        $currentSettingId = (int) session('setting_id');
+
+        try {
+            $service->approve($transfer, auth()->id(), $currentSettingId);
+            toast('Transfer Stok Disetujui! No. Dokumen: ' . $transfer->document_number, 'success');
+        } catch (Throwable $e) {
+            Log::error('Failed to approve transfer', [
+                'transfer_id' => $transfer->id,
+                'error' => $e->getMessage(),
+            ]);
+            toast($this->neutralizedErrorMessage($e), 'error');
+        }
 
         return redirect()->route('transfers.show', $transfer->id);
     }
 
     /**
      * Reject the stock transfer.
-     *
-     * @param  Transfer  $transfer
-     * @return RedirectResponse
      */
-    public function reject(Transfer $transfer): RedirectResponse
+    public function reject(Request $request, Transfer $transfer, \Modules\Adjustment\Services\TransferLifecycleService $service): RedirectResponse
     {
-        // Update the transfer status, rejected, and rejection time
-        $transfer->update([
-            'status' => 'REJECTED',
-            'rejected_by' => auth()->id(),
-            'rejected_at' => Carbon::now(),
-        ]);
+        abort_if(Gate::denies('stockTransfers.approval'), 403);
 
-        toast('Transfer Stok Ditolak!', 'warning');
+        $reason = $request->input('reason', '');
+        if (empty(trim($reason))) {
+            toast('Alasan penolakan harus diisi.', 'error');
+            return redirect()->route('transfers.show', $transfer->id);
+        }
+
+        $currentSettingId = (int) session('setting_id');
+
+        try {
+            $service->reject($transfer, auth()->id(), $currentSettingId, $reason);
+            toast('Transfer Stok Ditolak! No. Dokumen: ' . $transfer->document_number, 'warning');
+        } catch (Throwable $e) {
+            Log::error('Failed to reject transfer', [
+                'transfer_id' => $transfer->id,
+                'error' => $e->getMessage(),
+            ]);
+            toast($this->neutralizedErrorMessage($e), 'error');
+        }
 
         return redirect()->route('transfers.show', $transfer->id);
     }
 
     /**
-     * Dispatch the stock transfer.
-     *
-     * @param  Transfer  $transfer
-     * @return RedirectResponse
+     * Acknowledge rejection and transition to DRAFT for resubmission.
      */
-    public function dispatchShipment(Transfer $transfer): RedirectResponse
+    public function acknowledgeRejection(Transfer $transfer, \Modules\Adjustment\Services\TransferLifecycleService $service): RedirectResponse
     {
-        // Update the transfer status to DISPATCHED and set the dispatcher and timestamp
-        $transfer->update([
-            'status' => 'DISPATCHED',
-            'dispatched_by' => auth()->id(),
-            'dispatched_at' => Carbon::now(),
-        ]);
+        abort_if(Gate::denies('stockTransfers.edit'), 403);
 
-        // Create transactions for each product in the transfer
-        foreach ($transfer->products as $product) {
-            $currentQuantity = $product->product->product_quantity - $product->quantity;
+        $currentSettingId = (int) session('setting_id');
 
-            // Create the transaction record for the dispatch
-            Transaction::create([
-                'product_id' => $product->product->id,
-                'setting_id' => $transfer->originLocation->setting->id,
-                'type' => 'TRF',
-                'quantity' => -1 * $product->quantity, // Negative quantity for dispatch
-                'current_quantity' => $currentQuantity,
-                'broken_quantity' => 0,
-                'location_id' => $transfer->originLocation->id,
-                'user_id' => auth()->id(),
-                'reason' => 'Transfer stock to ' . $transfer->destinationLocation->setting->company_name . ' - ' . $transfer->destinationLocation->name,
+        try {
+            $service->acknowledgeRejection($transfer, auth()->id(), $currentSettingId);
+            toast('Penolakan diakui. Transfer sekarang siap untuk diajukan kembali.', 'info');
+        } catch (Throwable $e) {
+            Log::error('Failed to acknowledge rejection', [
+                'transfer_id' => $transfer->id,
+                'error' => $e->getMessage(),
             ]);
-
-            // Update the product quantity after dispatch
-            $product->product->update([
-                'product_quantity' => $currentQuantity,
-            ]);
+            toast($this->neutralizedErrorMessage($e), 'error');
         }
 
-        toast('Transfer Stok Dikirim!', 'info');
+        return redirect()->route('transfers.show', $transfer->id);
+    }
+
+    /**
+     * Resubmit a rejected transfer with a new PENDING revision.
+     */
+    public function resubmit(Transfer $transfer, \Modules\Adjustment\Services\TransferLifecycleService $service): RedirectResponse
+    {
+        abort_if(Gate::denies('stockTransfers.edit'), 403);
+
+        $currentSettingId = (int) session('setting_id');
+
+        try {
+            $service->resubmit($transfer, auth()->id(), $currentSettingId);
+            toast('Transfer berhasil diajukan kembali dengan revisi baru.', 'success');
+        } catch (Throwable $e) {
+            Log::error('Failed to resubmit transfer', [
+                'transfer_id' => $transfer->id,
+                'error' => $e->getMessage(),
+            ]);
+            toast($this->neutralizedErrorMessage($e), 'error');
+        }
+
+        return redirect()->route('transfers.show', $transfer->id);
+    }
+
+    /**
+     * Dispatch the transfer shipment.
+     */
+    public function dispatchShipment(Transfer $transfer, Request $request, \Modules\Adjustment\Services\TransferLifecycleService $service): RedirectResponse
+    {
+        abort_if(Gate::denies('stockTransfers.dispatch'), 403);
+
+        $currentSettingId = (int) session('setting_id');
+        $canViewSystemStock = Gate::allows(TransferStockVisibility::PERMISSION);
+
+        // A privileged retry submits the real hash it was shown. A blind
+        // retry can never possess that hash (it is never sent to a blind
+        // browser), so any client-submitted acknowledgment for a blind user
+        // is ignored and replaced with the neutral server-side sentinel
+        // instead -- the acting user's own permission decides which
+        // acknowledgment semantics apply, never a client-supplied flag.
+        if ($canViewSystemStock) {
+            $acknowledgedHash = $request->input('acknowledged_hash');
+        } else {
+            $acknowledgedHash = $request->boolean('retry_after_drift')
+                ? \Modules\Adjustment\Services\TransferMovementService::BLIND_ACKNOWLEDGE_TOKEN
+                : null;
+        }
+
+        try {
+            $service->dispatch($transfer, auth()->id(), $currentSettingId, $acknowledgedHash);
+            toast('Transfer Stok Dikirim! No. Dokumen: ' . $transfer->document_number, 'info');
+        } catch (\Modules\Adjustment\Exceptions\AllocationDriftException $e) {
+            // Exact allocations, differences, and a hash derived from a
+            // visible comparison are protected system information: they are
+            // only flashed to session/browser state for a user with stock
+            // visibility (spec: "Blind user encounters allocation drift").
+            // A blind user still needs a way to retry: they get a neutral
+            // acknowledgment flag with no hash and no allocation payload,
+            // and dispatchShipment() below accepts it as authorization to
+            // retry without re-deriving a client-supplied hash.
+            if (Gate::allows(TransferStockVisibility::PERMISSION)) {
+                session()->flash('drift_exception', [
+                    'message' => $e->getMessage(),
+                    'hash' => $e->hash,
+                    'allocations' => $e->allocations,
+                ]);
+                toast('Alokasi stok berubah. Harap tinjau dan konfirmasi.', 'warning');
+            } else {
+                session()->flash('drift_exception_blind', true);
+                toast('Data alokasi telah berubah sejak persetujuan. Silakan coba kirim ulang.', 'warning');
+            }
+        } catch (Throwable $e) {
+            Log::error('Failed to dispatch transfer', [
+                'transfer_id' => $transfer->id,
+                'error'       => $e->getMessage(),
+            ]);
+            toast($this->neutralizedErrorMessage($e), 'error');
+        }
 
         return redirect()->route('transfers.show', $transfer->id);
     }
 
     /**
      * Receive the stock transfer.
-     *
-     * @param  Transfer  $transfer
-     * @return RedirectResponse
      */
-    public function receive(Transfer $transfer): RedirectResponse
+    public function receive(Transfer $transfer, Request $request, \Modules\Adjustment\Services\TransferLifecycleService $service): RedirectResponse
     {
-        // Update the transfer status to RECEIVED and set the received by and timestamp
-        $transfer->update([
-            'status' => 'RECEIVED',
-            'received_by' => auth()->id(),
-            'received_at' => Carbon::now(),
-        ]);
+        abort_if(Gate::denies('stockTransfers.receive'), 403);
 
-        // Create transactions for each product in the transfer
-        foreach ($transfer->products as $product) {
-            $currentQuantity = $product->product->product_quantity + $product->quantity;
+        $currentSettingId = (int) session('setting_id');
 
-            // Create the transaction record for the receive
-            Transaction::create([
-                'product_id' => $product->product->id,
-                'setting_id' => $transfer->destinationLocation->setting->id,
-                'type' => 'TRF',
-                'quantity' => $product->quantity, // Positive quantity for receiving
-                'current_quantity' => $currentQuantity,
-                'broken_quantity' => 0,
-                'location_id' => $transfer->destinationLocation->id,
-                'user_id' => auth()->id(),
-                'reason' => 'Received stock from ' . $transfer->originLocation->setting->company_name . ' - ' . $transfer->originLocation->name,
+        try {
+            $service->receive($transfer, auth()->id(), $currentSettingId);
+            toast('Transfer Stok Diterima! No. Dokumen: ' . $transfer->document_number, 'info');
+        } catch (Throwable $e) {
+            Log::error('Failed to receive transfer', [
+                'transfer_id' => $transfer->id,
+                'error'       => $e->getMessage(),
             ]);
-
-            // Update the product quantity after receiving
-            $product->product->update([
-                'product_quantity' => $currentQuantity,
-            ]);
+            toast($this->neutralizedErrorMessage($e), 'error');
         }
 
-        toast('Transfer Stok Diterima!', 'info');
+        return redirect()->route('transfers.show', $transfer->id);
+    }
+
+    /**
+     * Dispatch back the stock for cross-tenant transfers.
+     */
+    public function dispatchReturn(Transfer $transfer, \Modules\Adjustment\Services\TransferLifecycleService $service): RedirectResponse
+    {
+        abort_if(Gate::denies('stockTransfers.dispatch'), 403);
+
+        $currentSettingId = (int) session('setting_id');
+
+        try {
+            $service->dispatchReturn($transfer, auth()->id(), $currentSettingId);
+            toast('Retur Stok Dikirim! No. Dokumen: ' . $transfer->document_number, 'info');
+        } catch (Throwable $e) {
+            Log::error('Failed to dispatch return for transfer', [
+                'transfer_id' => $transfer->id,
+                'error'       => $e->getMessage(),
+            ]);
+            toast($this->neutralizedErrorMessage($e), 'error');
+        }
+
+        return redirect()->route('transfers.show', $transfer->id);
+    }
+
+    /**
+     * Receive back the returned stock at the origin location.
+     */
+    public function receiveReturn(Transfer $transfer, \Modules\Adjustment\Services\TransferLifecycleService $service): RedirectResponse
+    {
+        abort_if(Gate::denies('stockTransfers.receive'), 403);
+
+        $currentSettingId = (int) session('setting_id');
+
+        try {
+            $service->receiveReturn($transfer, auth()->id(), $currentSettingId);
+            toast('Retur Stok Diterima! No. Dokumen: ' . $transfer->document_number, 'info');
+        } catch (Throwable $e) {
+            Log::error('Failed to receive return for transfer', [
+                'transfer_id' => $transfer->id,
+                'error'       => $e->getMessage(),
+            ]);
+            toast($this->neutralizedErrorMessage($e), 'error');
+        }
+
+        return redirect()->route('transfers.show', $transfer->id);
+    }
+    
+    /**
+     * Archive the stock transfer.
+     */
+    public function archive(Request $request, Transfer $transfer, \Modules\Adjustment\Services\TransferLifecycleService $service): RedirectResponse
+    {
+        abort_if(Gate::denies('stockTransfers.archive'), 403);
+
+        $currentSettingId = (int) session('setting_id');
+        $reason = $request->input('reason');
+
+        try {
+            $service->archive($transfer, auth()->id(), $currentSettingId, $reason);
+            toast('Transfer Stok Diarsipkan! No. Dokumen: ' . $transfer->document_number, 'info');
+        } catch (Throwable $e) {
+            Log::error('Failed to archive transfer', [
+                'transfer_id' => $transfer->id,
+                'error'       => $e->getMessage(),
+            ]);
+            toast($this->neutralizedErrorMessage($e), 'error');
+        }
 
         return redirect()->route('transfers.show', $transfer->id);
     }
 
     /**
      * Show the form for editing the specified transfer.
-     *
-     * @param  Transfer  $transfer
-     * @return View|Factory|Application|\Illuminate\Contracts\Foundation\Application
      */
     public function edit(Transfer $transfer): View|Application|Factory|\Illuminate\Contracts\Foundation\Application
     {
-        // Load the necessary data for the form
-        $currentSetting = $transfer->originLocation->setting;
-        $settings = Setting::all();
-        $locations = Location::where('setting_id', $currentSetting->id)->get();
+        abort_if(Gate::denies('stockTransfers.edit'), 403);
+
+        if ($transfer->isV3()) {
+            if (! in_array($transfer->status, [Transfer::STATUS_PENDING, Transfer::STATUS_DRAFT], true)) {
+                abort(403, 'This transfer cannot be edited in its current status.');
+            }
+
+            return view('adjustment::transfers.v3.form', ['transfer' => $transfer]);
+        }
+
+        $transfer->loadMissing('originLocation.setting');
+
+        // Verify active tenant owns the origin location
+        $currentSettingId = (int) session('setting_id');
+        $originSettingId = $transfer->originLocation?->setting?->id;
+        
+        if ($originSettingId === null || $currentSettingId !== (int) $originSettingId) {
+            abort(403, 'You can only edit transfers from your origin location.');
+        }
+
+        // Only PENDING and acknowledged DRAFT transfers can be edited
+        if (!in_array($transfer->status, [Transfer::STATUS_PENDING, Transfer::STATUS_DRAFT])) {
+            abort(403, 'This transfer cannot be edited in its current status.');
+        }
+
+        // Historical transfers whose lines mix good and broken stock (no
+        // explicit persisted condition) predate the single-condition
+        // constraint and cannot be safely rewritten through ordinary
+        // editing: their contents are preserved as view-only.
+        if (app(TransferFormStateMapper::class)->isMixedConditionHistory($transfer)) {
+            abort(403, 'This transfer contains a historical mix of good and broken stock and cannot be edited.');
+        }
+
+        $currentSetting       = $transfer->originLocation->setting;
+        $settings             = Setting::all();
+        $locations            = Location::where('setting_id', $currentSetting->id)->get();
         $destinationLocations = Location::all();
 
-        // Load the transfer products and other details
         $transfer->load('products.product');
 
         return view('adjustment::transfers.edit', compact('transfer', 'currentSetting', 'settings', 'locations', 'destinationLocations'));
@@ -239,32 +585,102 @@ class TransferStockController extends Controller
 
     /**
      * Update the specified transfer in storage.
-     *
-     * @param  UpdateStockTransferRequest  $request
-     * @param  Transfer  $transfer
-     * @return RedirectResponse
+     * Routes through TransferDraftService to preserve bucket and serial data.
+     * Does NOT auto-submit: editing remains DRAFT, explicit resubmit required.
      */
     public function update(UpdateStockTransferRequest $request, Transfer $transfer): RedirectResponse
     {
-        // Get validated data
-        $validated = $request->validated();
+        abort_if(Gate::denies('stockTransfers.edit'), 403);
 
-        // Delete existing products and add the updated ones
-        $transfer->products()->delete();
+        $transfer->loadMissing('originLocation.setting');
 
-        // Loop through the updated products and recreate the transfer product records
-        foreach ($validated['product_ids'] as $index => $productId) {
-            $quantity = $validated['quantities'][$index];
-
-            TransferProduct::create([
-                'transfer_id' => $transfer->id,
-                'product_id' => $productId,
-                'quantity' => $quantity,
-            ]);
+        // Verify active tenant owns the origin location
+        $currentSettingId = (int) session('setting_id');
+        $originSettingId = $transfer->originLocation?->setting?->id;
+        
+        if ($originSettingId === null || $currentSettingId !== (int) $originSettingId) {
+            toast('You can only edit transfers from your origin location.', 'error');
+            return redirect()->route('transfers.show', $transfer->id);
         }
 
-        toast('Stock Transfer Updated!', 'success');
-        return redirect()->route('transfers.show', $transfer->id);
+        // Only PENDING and acknowledged DRAFT transfers can be edited
+        if (!in_array($transfer->status, [Transfer::STATUS_PENDING, Transfer::STATUS_DRAFT])) {
+            toast('This transfer cannot be edited in its current status.', 'error');
+            return redirect()->route('transfers.show', $transfer->id);
+        }
+
+        // Historical mixed-condition transfers remain view-only; ordinary
+        // editing must never rewrite their contents or assign a condition.
+        if (app(TransferFormStateMapper::class)->isMixedConditionHistory($transfer)) {
+            toast('This transfer contains a historical mix of good and broken stock and cannot be edited.', 'error');
+            return redirect()->route('transfers.show', $transfer->id);
+        }
+
+        $validated = $request->validated();
+        $user = auth()->user();
+
+        try {
+            // Build TransferFormState from request data
+            $draftService = app(TransferDraftService::class);
+
+            $formState = new TransferFormState(
+                (int) $transfer->origin_location_id,
+                (int) $transfer->destination_location_id,
+                $transfer->stock_condition ?? Transfer::CONDITION_GOOD
+            );
+
+            // Add lines for each product with quantities allocated as non-tax (HTTP legacy behavior)
+            foreach ($validated['product_ids'] as $index => $productId) {
+                $quantity = (int) ($validated['quantities'][$index] ?? 0);
+                if ($quantity <= 0) continue;
+
+                $product = Product::find($productId);
+                if (!$product) {
+                    throw new InvalidArgumentException("Product {$productId} not found.");
+                }
+
+                // HTTP contract does not support serialized products or broken mode
+                if ($product->serial_number_required) {
+                    throw new InvalidArgumentException(
+                        "Product '{$product->product_name}' requires serial number selection. " .
+                        "Use the web interface to allocate serials for this product."
+                    );
+                }
+
+                $line = new TransferFormLineState(
+                    $productId,
+                    $product->product_name,
+                    $product->product_code,
+                    $product->barcode,
+                    (bool) $product->serial_number_required,
+                    false, // normal mode
+                    $quantity
+                );
+
+                $formState->addLine($line);
+            }
+
+            // Use the same draft-save command the Livewire form uses; editing
+            // never auto-submits, matching the explicit save/submit split.
+            $wasPending = $transfer->status === Transfer::STATUS_PENDING;
+
+            $transfer = $draftService->saveDraft($formState, $user, $currentSettingId, $transfer);
+
+            if ($wasPending && $transfer->status === Transfer::STATUS_DRAFT) {
+                toast('Transfer diperbarui dan dikembalikan ke Draf karena perubahan material. Ajukan kembali untuk persetujuan. No. Dokumen: ' . $transfer->document_number, 'info');
+            } else {
+                toast('Transfer Stok Diperbarui! No. Dokumen: ' . $transfer->document_number, 'success');
+            }
+
+            return redirect()->route('transfers.show', $transfer->id);
+        } catch (Throwable $e) {
+            Log::error('Failed to update transfer', [
+                'transfer_id' => $transfer->id,
+                'error' => $e->getMessage(),
+            ]);
+            toast($this->neutralizedErrorMessage($e), 'error');
+            return redirect()->back()->withInput();
+        }
     }
 
     /**
@@ -272,17 +688,17 @@ class TransferStockController extends Controller
      */
     public function destroy(Transfer $transfer): RedirectResponse
     {
-        // Check if the transfer can be deleted (optional logic to check if the status is allowed for deletion)
-        if ($transfer->status !== 'PENDING') {
+        abort_if(Gate::denies('stockTransfers.delete'), 403);
+
+        if ($transfer->status !== Transfer::STATUS_PENDING) {
             return redirect()->route('transfers.index')->with('error', 'Only pending transfers can be deleted.');
         }
 
-        // Delete the transfer and its associated products
         $transfer->delete();
 
-        toast('Transfer Stok Dihapus!', 'warning');
+        toast('Transfer Stok Dihapus! No. Dokumen: ' . $transfer->document_number, 'warning');
 
-        // Redirect to transfers index with a success message
         return redirect()->route('transfers.index');
     }
+
 }

@@ -2,6 +2,7 @@
 
 namespace Modules\Purchase\Http\Controllers;
 
+use Illuminate\Support\Facades\Storage;
 use Modules\Purchase\DataTables\PurchasePaymentsDataTable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -9,138 +10,222 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchasePayment;
+use Modules\Purchase\Services\PurchasePaymentStoreService;
+use Modules\Setting\Entities\PaymentMethod;
 
 class PurchasePaymentsController extends Controller
 {
+    public function __construct(
+        protected PurchasePaymentStoreService $paymentStoreService
+    ) {}
 
     public function index($purchase_id, PurchasePaymentsDataTable $dataTable) {
-        abort_if(Gate::denies('access_purchase_payments'), 403);
+        abort_if(Gate::denies('purchasePayments.access'), 403);
 
-        $purchase = Purchase::findOrFail($purchase_id);
+        $purchase = Purchase::withArchived()
+            ->with(['tenantSetting', 'supplier', 'consignmentBillingConfirmation'])
+            ->findOrFail($purchase_id);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         return $dataTable->render('purchase::payments.index', compact('purchase'));
     }
 
 
     public function create($purchase_id) {
-        abort_if(Gate::denies('access_purchase_payments'), 403);
+        abort_if(Gate::denies('purchasePayments.create'), 403);
 
-        $purchase = Purchase::findOrFail($purchase_id);
+        $purchase = Purchase::withArchived()
+            ->with(['tenantSetting', 'supplier', 'consignmentBillingConfirmation'])
+            ->findOrFail($purchase_id);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
-        return view('purchase::payments.create', compact('purchase'));
+        $payment_methods = PaymentMethod::active()->get();
+        return view('purchase::payments.create', compact('purchase', 'payment_methods'));
     }
 
 
     public function store(Request $request) {
-        abort_if(Gate::denies('access_purchase_payments'), 403);
+        abort_if(Gate::denies('purchasePayments.create'), 403);
 
-        $request->validate([
+        $purchase = Purchase::withArchived()
+            ->with(['tenantSetting', 'supplier', 'consignmentBillingConfirmation'])
+            ->findOrFail($request->purchase_id);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        $validated = $request->validate([
             'date' => 'required|date',
             'reference' => 'required|string|max:255',
-            'amount' => 'required|numeric',
+            'amount' => 'required|numeric|min:0.01|max:' . $purchase->live_due_amount,
             'note' => 'nullable|string|max:1000',
-            'purchase_id' => 'required',
-            'payment_method' => 'required|string|max:255'
+            'purchase_id' => 'required|integer|exists:purchases,id',
+            'payment_method_id' => 'required|integer|exists:payment_methods,id,is_active,1',
+            'attachment' => 'nullable|string', // Validation for file upload
+        ], [
+            'amount.min' => 'Jumlah pembayaran harus minimal 0.01.',
+            'amount.max' => 'The payment amount cannot be greater than the due amount.'
         ]);
 
-        DB::transaction(function () use ($request) {
-            PurchasePayment::create([
-                'date' => $request->date,
-                'reference' => $request->reference,
-                'amount' => $request->amount,
-                'note' => $request->note,
-                'purchase_id' => $request->purchase_id,
-                'payment_method' => $request->payment_method
-            ]);
+        $this->paymentStoreService->store(
+            purchase: $purchase,
+            actor: auth()->user(),
+            data: $validated,
+            attachment: $validated['attachment'] ?? null
+        );
 
-            $purchase = Purchase::findOrFail($request->purchase_id);
-
-            $due_amount = $purchase->due_amount - $request->amount;
-
-            if ($due_amount == $purchase->total_amount) {
-                $payment_status = 'Unpaid';
-            } elseif ($due_amount > 0) {
-                $payment_status = 'Partial';
-            } else {
-                $payment_status = 'Paid';
-            }
-
-            $purchase->update([
-                'paid_amount' => ($purchase->paid_amount + $request->amount) * 100,
-                'due_amount' => $due_amount * 100,
-                'payment_status' => $payment_status
-            ]);
-        });
-
-        toast('Purchase Payment Created!', 'success');
-
+        toast('Pembayaran berhasil dibuat!', 'success');
         return redirect()->route('purchases.index');
     }
 
 
     public function edit($purchase_id, PurchasePayment $purchasePayment) {
-        abort_if(Gate::denies('access_purchase_payments'), 403);
+        abort_if(Gate::denies('purchasePayments.access'), 403);
 
-        $purchase = Purchase::findOrFail($purchase_id);
+        $purchase = Purchase::withArchived()->findOrFail($purchase_id);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchasePayment->purchase);
+
+        if ((int) $purchasePayment->purchase_id !== (int) $purchase->id) {
+            abort(404);
+        }
 
         return view('purchase::payments.edit', compact('purchasePayment', 'purchase'));
     }
 
 
     public function update(Request $request, PurchasePayment $purchasePayment) {
-        abort_if(Gate::denies('access_purchase_payments'), 403);
+        abort_if(Gate::denies('purchasePayments.edit'), 403);
 
-        $request->validate([
-            'date' => 'required|date',
-            'reference' => 'required|string|max:255',
-            'amount' => 'required|numeric',
+        $purchase = $purchasePayment->purchase;
+        if (! $purchase) {
+            abort(404);
+        }
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        if ($purchase->isArchived()) {
+            abort(403, 'Tidak dapat memperbarui catatan pembayaran untuk pembelian yang diarsipkan.');
+        }
+
+        if (! $purchasePayment->isActive()) {
+            abort(403, 'Hanya pembayaran aktif yang catatannya dapat diperbarui.');
+        }
+
+        $validated = $request->validate([
             'note' => 'nullable|string|max:1000',
-            'purchase_id' => 'required',
-            'payment_method' => 'required|string|max:255'
         ]);
 
-        DB::transaction(function () use ($request, $purchasePayment) {
-            $purchase = $purchasePayment->purchase;
+        $normalizedNote = isset($validated['note']) && trim($validated['note']) !== ''
+            ? trim($validated['note'])
+            : null;
 
-            $due_amount = ($purchase->due_amount + $purchasePayment->amount) - $request->amount;
+        $purchasePayment->update([
+            'note' => $normalizedNote,
+        ]);
 
-            if ($due_amount == $purchase->total_amount) {
-                $payment_status = 'Unpaid';
-            } elseif ($due_amount > 0) {
-                $payment_status = 'Partial';
-            } else {
-                $payment_status = 'Paid';
-            }
+        toast('Catatan pembayaran pembelian berhasil diperbarui!', 'info');
 
-            $purchase->update([
-                'paid_amount' => (($purchase->paid_amount - $purchasePayment->amount) + $request->amount) * 100,
-                'due_amount' => $due_amount * 100,
-                'payment_status' => $payment_status
-            ]);
-
-            $purchasePayment->update([
-                'date' => $request->date,
-                'reference' => $request->reference,
-                'amount' => $request->amount,
-                'note' => $request->note,
-                'purchase_id' => $request->purchase_id,
-                'payment_method' => $request->payment_method
-            ]);
-        });
-
-        toast('Purchase Payment Updated!', 'info');
-
-        return redirect()->route('purchases.index');
+        return redirect()->route('purchases.show', $purchase);
     }
 
 
     public function destroy(PurchasePayment $purchasePayment) {
-        abort_if(Gate::denies('access_purchase_payments'), 403);
+        abort_if(Gate::denies('purchasePayments.delete'), 403);
 
-        $purchasePayment->delete();
+        $purchase = $purchasePayment->purchase;
+        if (! $purchase) {
+            abort(404);
+        }
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
-        toast('Purchase Payment Deleted!', 'warning');
+        if ($purchase->isArchived()) {
+            abort(403, 'Tidak dapat menghapus pembayaran untuk pembelian yang diarsipkan.');
+        }
+
+        if (! $purchasePayment->isEligibleForDeletion()) {
+            abort(403, 'Pembayaran dengan riwayat sistem tidak dapat dihapus.');
+        }
+
+        DB::transaction(function () use ($purchasePayment, $purchase) {
+            // Lock parent purchase row
+            $lockedPurchase = Purchase::where('id', $purchase->id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedPurchase->isArchived()) {
+                abort(403, 'Tidak dapat menghapus pembayaran untuk pembelian yang diarsipkan.');
+            }
+
+            // Lock and reload payment row
+            $lockedPayment = PurchasePayment::where('id', $purchasePayment->id)->lockForUpdate()->firstOrFail();
+
+            if (! $lockedPayment->isEligibleForDeletion()) {
+                abort(403, 'Pembayaran dengan riwayat sistem tidak dapat dihapus.');
+            }
+
+            $lockedPayment->delete();
+
+            // Reconcile parent purchase totals atomically
+            $lockedPurchase->reconcileFromActivePayments();
+        });
+
+        toast('Pembayaran Pembelian Berhasil Dihapus!', 'warning');
 
         return redirect()->route('purchases.index');
+    }
+
+    public function invalidate(PurchasePayment $purchasePayment) {
+        abort_if(Gate::denies('purchasePayments.delete'), 403);
+
+        $purchase = $purchasePayment->purchase;
+        if (! $purchase) {
+            abort(404);
+        }
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        if ($purchasePayment->status !== PurchasePayment::STATUS_ACTIVE) {
+            abort(403, 'Hanya pembayaran aktif yang dapat dibatalkan.');
+        }
+
+        DB::transaction(function () use ($purchasePayment, $purchase) {
+            $lockedPurchase = Purchase::where('id', $purchase->id)->lockForUpdate()->firstOrFail();
+
+            /** @var PurchasePayment|null $lockedPayment */
+            $lockedPayment = PurchasePayment::where('id', $purchasePayment->id)
+                ->where('purchase_id', $lockedPurchase->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$lockedPayment || $lockedPayment->status !== PurchasePayment::STATUS_ACTIVE) {
+                abort(403, 'Hanya pembayaran aktif yang dapat dibatalkan.');
+            }
+
+            $lockedPayment->update([
+                'status' => PurchasePayment::STATUS_INVALIDATED,
+                'invalidated_at' => now(),
+                'invalidated_by' => auth()->id(),
+            ]);
+
+            $lockedPurchase->reconcileFromActivePayments();
+        });
+
+        toast('Pembayaran Pembelian Berhasil Dibatalkan!', 'info');
+
+        return redirect()->back();
+    }
+
+    public function datatable($purchase_id, PurchasePaymentsDataTable $dataTable)
+    {
+        abort_if(Gate::denies('purchasePayments.access'), 403);
+
+        $purchase = Purchase::withArchived()->findOrFail($purchase_id);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        return $dataTable->with(['purchase_id' => $purchase_id])->render('purchase::payments.index', compact('purchase'));
+    }
+
+    private function ensurePurchaseBelongsToCurrentSetting(Purchase $purchase): void
+    {
+        $currentSettingId = session('setting_id');
+
+        if (! is_null($currentSettingId) && (int) $purchase->setting_id !== (int) $currentSettingId) {
+            abort(404);
+        }
     }
 }

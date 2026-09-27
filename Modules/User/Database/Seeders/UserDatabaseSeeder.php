@@ -14,6 +14,5 @@ class UserDatabaseSeeder extends Seeder
      */
     public function run()
     {
-        $this->call(PermissionsTableSeeder::class);
     }
 }

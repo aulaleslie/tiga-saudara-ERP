@@ -2,14 +2,14 @@
 
 namespace Modules\Purchase\Entities;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Modules\Setting\Entities\Setting;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Modules\People\Entities\Customer;
+use Modules\People\Entities\Supplier;
 
-class PaymentTerm extends Model
+class PaymentTerm extends BaseModel
 {
-    use HasFactory;
 
     /**
      * The table associated with the model.
@@ -25,16 +25,74 @@ class PaymentTerm extends Model
      */
     protected $fillable = [
         'id',
-        'setting_id',
         'name',
         'longevity',
+        'is_active',
     ];
 
-    /**
-     * Get the setting associated with the payment term.
-     */
-    public function setting(): BelongsTo
+    protected $casts = [
+        'is_active' => 'boolean',
+    ];
+
+    public function scopeActive($query)
     {
-        return $this->belongsTo(Setting::class, 'setting_id', 'id');
+        return $query->where('is_active', true);
+    }
+
+    public function scopeEligible($query)
+    {
+        return $query->where('is_active', true);
+    }
+
+    public function scopeInactive($query)
+    {
+        return $query->where('is_active', false);
+    }
+    public function customers(): HasMany
+    {
+        return $this->hasMany(Customer::class, 'payment_term_id', 'id');
+    }
+
+    public function suppliers(): HasMany
+    {
+        return $this->hasMany(Supplier::class, 'payment_term_id', 'id');
+    }
+
+    public static function defaultCodTerm(): ?self
+    {
+        $directMatch = static::query()
+            ->where(function ($query) {
+                $query->whereRaw('LOWER(name) LIKE ?', ['%cod%'])
+                    ->orWhereRaw('LOWER(name) LIKE ?', ['%cash%on%delivery%']);
+            })
+            ->orderBy('id')
+            ->first();
+
+        if ($directMatch) {
+            return $directMatch;
+        }
+
+        return static::query()
+            ->where('longevity', 0)
+            ->orderBy('id')
+            ->first();
+    }
+
+    public static function defaultCodTermId(): ?int
+    {
+        return static::defaultCodTerm()?->id;
+    }
+
+    public static function customTerm(): ?self
+    {
+        return static::query()
+            ->whereRaw('LOWER(name) LIKE ?', ['%custom%'])
+            ->orderBy('id')
+            ->first();
+    }
+
+    public static function customTermId(): ?int
+    {
+        return static::customTerm()?->id;
     }
 }

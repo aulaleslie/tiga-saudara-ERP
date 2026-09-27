@@ -2,33 +2,31 @@
 
 namespace Modules\PurchasesReturn\Entities;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Support\Carbon;
+use App\Models\BaseModel;
 
-class PurchaseReturnPayment extends Model
+class PurchaseReturnPayment extends BaseModel
 {
-    use HasFactory;
-
     protected $guarded = [];
 
-    public function purchaseReturn() {
+    // ✅ Casts replace old cents mutators
+    protected $casts = [
+        'amount' => 'decimal:2',
+        'date'   => 'date',
+    ];
+
+    public function purchaseReturn()
+    {
         return $this->belongsTo(PurchaseReturn::class, 'purchase_return_id', 'id');
     }
 
-    public function setAmountAttribute($value) {
-        $this->attributes['amount'] = $value * 100;
+    // ✅ New: relational payment method (after migration adds payment_method_id)
+    public function paymentMethod()
+    {
+        return $this->belongsTo(\App\Models\PaymentMethod::class, 'payment_method_id', 'id');
     }
 
-    public function getAmountAttribute($value) {
-        return $value / 100;
-    }
-
-    public function getDateAttribute($value) {
-        return Carbon::parse($value)->format('d M, Y');
-    }
-
-    public function scopeByPurchaseReturn($query) {
+    public function scopeByPurchaseReturn($query)
+    {
         return $query->where('purchase_return_id', request()->route('purchase_return_id'));
     }
 }

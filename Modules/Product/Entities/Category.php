@@ -2,18 +2,16 @@
 
 namespace Modules\Product\Entities;
 
+use App\Models\BaseModel;
 use App\Models\User;
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Setting\Entities\Setting;
 use OwenIt\Auditing\Contracts\Auditable;
 
-class Category extends Model implements Auditable
+class Category extends BaseModel implements Auditable
 {
     use \OwenIt\Auditing\Auditable;
-    use HasFactory;
 
     protected $guarded = [];
 

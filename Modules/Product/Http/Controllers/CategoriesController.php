@@ -15,8 +15,12 @@ use Modules\Product\DataTables\ProductCategoriesDataTable;
 class CategoriesController extends Controller
 {
 
-    public function index(ProductCategoriesDataTable $dataTable) {
-        abort_if(Gate::denies('access_product_categories'), 403);
+    public function index(Request $request, ProductCategoriesDataTable $dataTable) {
+        abort_if(Gate::denies('categories.access'), 403);
+
+        if ($request->ajax()) {
+            return $dataTable->ajax();
+        }
 
         return $dataTable->render('product::categories.index');
     }
@@ -24,11 +28,11 @@ class CategoriesController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        abort_if(Gate::denies('access_product_categories'), 403);
+        abort_if(Gate::denies('categories.create'), 403);
 
         $validatedData = $request->validate([
             'category_code' => 'required|unique:categories',
-            'category_name' => 'required',
+            'category_name' => 'required|unique:categories,category_name,NULL,id,setting_id,' . session('setting_id'),
             'parent_id' => 'nullable|exists:categories,id',
         ]);
 
@@ -50,7 +54,7 @@ class CategoriesController extends Controller
 
     public function edit($id): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
     {
-        abort_if(Gate::denies('access_product_categories'), 403);
+        abort_if(Gate::denies('categories.edit'), 403);
 
         $currentSettingId = session('setting_id');
 
@@ -63,11 +67,11 @@ class CategoriesController extends Controller
 
     public function update(Request $request, $id): RedirectResponse
     {
-        abort_if(Gate::denies('access_product_categories'), 403);
+        abort_if(Gate::denies('categories.edit'), 403);
 
         $request->validate([
             'category_code' => 'required|unique:categories,category_code,' . $id,
-            'category_name' => 'required',
+            'category_name' => 'required|unique:categories,category_name,' . $id . ',id,setting_id,' . session('setting_id'),
             'parent_id' => 'nullable|exists:categories,id' // Ensure parent_id is a valid category ID or null
         ]);
 
@@ -86,7 +90,7 @@ class CategoriesController extends Controller
 
     public function destroy($id): RedirectResponse
     {
-        abort_if(Gate::denies('access_product_categories'), 403);
+        abort_if(Gate::denies('categories.delete'), 403);
 
         $category = Category::findOrFail($id);
 

@@ -2,18 +2,17 @@
 
 namespace Modules\Product\Entities;
 
+use App\Models\BaseModel;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Modules\Purchase\Entities\ReceivedNoteDetail;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 
-class Transaction extends Model
+class Transaction extends BaseModel
 {
-    use HasFactory;
-
     /**
      * The attributes that are mass assignable.
      *
@@ -36,7 +35,9 @@ class Transaction extends Model
         'quantity_tax',
         'quantity_non_tax',
         'broken_quantity_tax',
-        'broken_quantity_non_tax'
+        'broken_quantity_non_tax',
+        'received_note_detail_id',
+        'consignment_receiving_detail_id',
     ];
 
     /**
@@ -45,9 +46,18 @@ class Transaction extends Model
      * @var array<string, string>
      */
     protected $casts = [
-        'quantity' => 'integer',
-        'current_quantity' => 'integer',
-        'broken_quantity' => 'integer',
+        // Quantities are decimal to support fractional, weight-based units (e.g. 23.7 KG).
+        'quantity' => 'decimal:3',
+        'current_quantity' => 'decimal:3',
+        'broken_quantity' => 'decimal:3',
+        'previous_quantity' => 'decimal:3',
+        'after_quantity' => 'decimal:3',
+        'previous_quantity_at_location' => 'decimal:3',
+        'after_quantity_at_location' => 'decimal:3',
+        'quantity_tax' => 'decimal:3',
+        'quantity_non_tax' => 'decimal:3',
+        'broken_quantity_tax' => 'decimal:3',
+        'broken_quantity_non_tax' => 'decimal:3',
     ];
 
     /**
@@ -80,6 +90,23 @@ class Transaction extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * The receiving detail that created this BUY transaction.
+     * Nullable for legacy transactions created before provenance tracking.
+     */
+    public function receivedNoteDetail(): BelongsTo
+    {
+        return $this->belongsTo(ReceivedNoteDetail::class);
+    }
+
+    /**
+     * The consignment receiving detail that created this CONSIGNMENT_RECEIPT transaction.
+     */
+    public function consignmentReceivingDetail(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Consignment\Entities\ConsignmentReceivingDetail::class);
     }
 
     /**

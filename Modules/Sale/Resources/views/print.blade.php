@@ -42,10 +42,10 @@
                             <div>Invoice: <strong>INV/{{ $sale->reference }}</strong></div>
                             <div>Date: {{ \Carbon\Carbon::parse($sale->date)->format('d M, Y') }}</div>
                             <div>
-                                Status: <strong>{{ $sale->status }}</strong>
+                                Status: <strong>{{ \Modules\Sale\Entities\Sale::STATUS_LABELS[$sale->status] ?? $sale->status }}</strong>
                             </div>
                             <div>
-                                Payment Status: <strong>{{ $sale->payment_status }}</strong>
+                                Status Pembayaran: <strong>{{ \App\Constants\PaymentStatus::label($sale->payment_status) }}</strong>
                             </div>
                         </div>
 
@@ -67,7 +67,7 @@
                             @foreach($sale->saleDetails as $item)
                                 <tr>
                                     <td class="align-middle">
-                                        {{ $item->product_name }} <br>
+                                        {{ $item->display_product_name ?? $item->product_name }} <br>
                                         <span class="badge badge-success">
                                                 {{ $item->product_code }}
                                             </span>

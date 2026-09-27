@@ -23,7 +23,7 @@
                 <div class="card">
                     <div class="card-body">
                         @include('utils.alerts')
-                        <form id="quotation-form" action="{{ route('quotations.update', $quotation) }}" method="POST">
+                        <form id="quotation-edit-form" action="{{ route('quotations.update', $quotation) }}" method="POST">
                             @csrf
                             @method('patch')
                             <div class="form-row">
@@ -38,7 +38,7 @@
                                         <div class="form-group">
                                             <label for="customer_id">Customer <span class="text-danger">*</span></label>
                                             <select class="form-control" name="customer_id" id="customer_id" required>
-                                                @foreach(\Modules\People\Entities\Customer::all() as $customer)
+                                                @foreach(\Modules\People\Entities\Customer::active()->orWhere('id', $quotation->customer_id)->get() as $customer)
                                                     <option {{ $quotation->customer_id == $customer->id ? 'selected' : '' }} value="{{ $customer->id }}">{{ $customer->customer_name }}</option>
                                                 @endforeach
                                             </select>
@@ -75,9 +75,9 @@
                             </div>
 
                             <div class="mt-3">
-                                <button type="submit" class="btn btn-primary">
+                                <x-button type="submit" class="btn btn-primary" processing-text="Menyimpan..." form="quotation-edit-form">
                                     Update Quotation <i class="bi bi-check"></i>
-                                </button>
+                                </x-button>
                             </div>
                         </form>
                     </div>
@@ -88,5 +88,8 @@
 @endsection
 
 @push('page_scripts')
-
+    <script>
+        // Initialize form submission lock
+        initFormSubmissionLock('quotation-edit-form', 'quotation:submit-error');
+    </script>
 @endpush

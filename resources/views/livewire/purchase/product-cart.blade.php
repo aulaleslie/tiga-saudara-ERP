@@ -10,7 +10,7 @@
                 </div>
             </div>
         @endif
-        <div class="table-responsive position-relative">
+        <div class="table position-relative">
             <div wire:loading.flex class="col-12 position-absolute justify-content-center align-items-center"
                  style="top:0;right:0;left:0;bottom:0;background-color: rgba(255,255,255,0.5);z-index: 99;">
                 <div class="spinner-border text-primary" role="status">
@@ -20,88 +20,185 @@
             <table class="table table-bordered">
                 <thead class="thead-dark">
                 <tr>
-                    <th class="align-middle">Produk</th>
-                    <th class="align-middle text-center">Harga Beli Rata Rata</th>
-                    <th class="align-middle text-center">Harga Beli Terakhir</th>
+                    <th class="align-middle" style="width: 15%;">Produk</th>
                     <th class="align-middle text-center">Harga Beli</th>
                     <th class="align-middle text-center">Stok</th>
                     <th class="align-middle text-center">Jumlah</th>
-                    <th class="align-middle text-center">Diskon</th>
-                    <th class="align-middle text-center">Pajak</th>
+                    <th class="align-middle text-center" style="width: 18%;">Diskon</th>
+                    @if($isPkp)
+                    <th class="align-middle text-center" style="width: 18%;">Pajak</th>
                     <th class="align-middle text-center">Sub Total Sebelum Pajak</th>
-                    <th class="align-middle text-center">Sub Total</th>
+                    @endif
+                    <th class="align-middle text-center" style="width: 15%;">
+                        Total Baris
+                        <span class="d-inline-block"
+                              data-toggle="tooltip"
+                              data-placement="top"
+                              title="Total setelah diskon baris, termasuk pajak, sebelum diskon global dan ongkos kirim.">
+                            <i class="bi bi-info-circle text-primary" style="cursor: pointer; font-size: 0.8rem;"></i>
+                        </span>
+                    </th>
                     <th class="align-middle text-center">Aksi</th>
                 </tr>
                 </thead>
                 <tbody>
                 @if($cart_items->isNotEmpty())
                     @foreach($cart_items as $cart_item)
-                        <tr>
+                        <tr wire:key="purchase-cart-item-{{ $cart_item->rowId }}">
                             <td class="align-middle">
-                                {{ $cart_item->name }} <br>
-                                <span class="badge badge-success">
-                                        {{ $cart_item->options->code }}
-                                    </span>
+                                @can('products.manage_cross_business_prices')
+                                    <a href="{{ route('products.cross-business-prices.edit', $cart_item->id) }}" target="_blank" class="text-primary font-weight-bold" title="Manage Cross-Business Prices">
+                                        {{ $cart_item->name }}
+                                    </a> <br>
+                                @else
+                                    <strong>{{ $cart_item->name }}</strong> <br>
+                                @endcan
+                                <span class="badge badge-success">{{ $cart_item->options->code }}</span>
+
+                                <!-- Tooltip Container -->
+                                <span class="d-inline-block"
+                                      data-toggle="tooltip"
+                                      data-placement="top"
+                                      title="Harga Beli Rata-Rata: {{ format_currency($cart_item->options->average_purchase_price) }} | Harga Beli Terakhir: {{ format_currency($cart_item->options->last_purchase_price) }}">
+                                    <i class="bi bi-info-circle text-primary" style="cursor: pointer;"></i>
+                                </span>
                             </td>
 
-                            <!-- Harga Beli Rata-Rata -->
-                            <td class="align-middle text-center">
-                                {{ format_currency($cart_item->options->average_purchase_price) }}
-                            </td>
-
-                            <!-- Last Purchase Price -->
-                            <td class="align-middle text-center">
-                                {{ format_currency($cart_item->options->last_purchase_price) }}
-                            </td>
-
-                            <td x-data="{ open: false }" class="align-middle text-center">
-                                <!-- Display formatted price when not editing -->
+                            <td x-data="{ open: false }" class="align-middle text-right">
                                 <span x-show="!open"
                                       @click="open = true">{{ format_currency($cart_item->price) }}</span>
 
                                 <!-- Editable input field -->
                                 <div x-show="open" @click.away="open = false">
                                     <input
-                                        wire:model.defer="unit_price.{{ $cart_item->id }}"
+                                        wire:model.defer="unit_price.{{ $cart_item->rowId }}"
                                         style="min-width: 40px; max-width: 90px;"
                                         type="text"
-                                        class="form-control text-center"
+                                        class="form-control text-right"
                                         @keydown.enter="open = false"
                                         wire:blur="updatePrice('{{ $cart_item->rowId }}', {{ $cart_item->id }})"
                                     >
                                 </div>
                             </td>
 
-                            <td class="align-middle text-center text-center">
-                                <span
-                                    class="badge badge-info">{{ $cart_item->options->stock . ' ' . $cart_item->options->unit }}</span>
+                            <td class="align-middle text-right">
+                                <span class="badge badge-info">
+                                    {{ $cart_item->options->stock . ' ' . $cart_item->options->unit }}
+                                </span>
                             </td>
 
-                            <td class="align-middle text-center">
-                                @include('livewire.includes.product-cart-quantity')
+                            <td class="align-middle text-right">
+                                <div class="d-flex align-items-center justify-content-end">
+                                    @if($monetaryOnly)
+                                        <div class="input-group d-flex justify-content-center">
+                                            <input type="number" style="min-width: 40px; max-width: 90px;" class="form-control text-right" value="{{ $cart_item->qty }}" disabled>
+                                        </div>
+                                        <span class="badge badge-secondary ml-1">
+                                            {{ $cart_item->options->unit_name ?? $cart_item->options->unit ?? 'PCS' }}
+                                        </span>
+                                    @else
+                                        @include('livewire.includes.product-cart-quantity')
+                                        @if(!empty($available_units[$cart_item->rowId]) && count($available_units[$cart_item->rowId]) > 1)
+                                            <select wire:model.defer="selected_unit.{{ $cart_item->rowId }}"
+                                                    wire:change="updateUnit('{{ $cart_item->rowId }}', $event.target.value)"
+                                                    class="form-control form-control-sm ml-1"
+                                                    style="max-width: 90px; font-weight: 600;">
+                                                @foreach($available_units[$cart_item->rowId] as $unitOpt)
+                                                    <option value="{{ $unitOpt['id'] }}">{{ $unitOpt['name'] }}</option>
+                                                @endforeach
+                                            </select>
+                                        @else
+                                            <span class="badge badge-secondary ml-1">
+                                                {{ $cart_item->options->unit_name ?? $cart_item->options->unit ?? 'PCS' }}
+                                            </span>
+                                        @endif
+                                    @endif
+                                </div>
+                                @if((float) ($cart_item->options->conversion_factor ?? 1) > 1)
+                                    <div class="text-muted small mt-1">
+                                        = {{ \App\Support\QuantityFormatter::formatCanonicalQuantity((float) $cart_item->qty * (float) $cart_item->options->conversion_factor) }} {{ $cart_item->options->base_unit_name ?? 'PCS' }}
+                                    </div>
+                                @elseif(!empty($quantityBreakdowns[$cart_item->rowId]))
+                                    <div class="text-muted small mt-1">
+                                        {{ $quantityBreakdowns[$cart_item->rowId] }}
+                                    </div>
+                                @endif
                             </td>
 
-                            <td class="align-middle text-center">
-                                {{ format_currency($cart_item->options->product_discount) }}
-                                @include('livewire.includes.product-cart-modal')
+                            <td class="align-middle text-center position-relative">
+                                <div class="input-group input-group-sm" style="max-width: 100%;">
+                                    <!-- Discount Type Dropdown Inside Input Box -->
+                                    <button class="btn btn-outline-secondary btn-sm dropdown-toggle px-2" type="button"
+                                            data-toggle="dropdown" data-display="static" aria-expanded="false"
+                                            style="font-size: 0.875rem; min-width: 35px;">
+                                        {{ ($discount_type[$cart_item->rowId] ?? 'fixed') == 'percentage' ? '%' : 'Rp' }}
+                                    </button>
+
+                                    <!-- The dropdown menu is now positioned outside the table -->
+                                    <ul class="dropdown-menu"
+                                        style="color: black; font-size: 0.9rem; position: absolute; left: 0; top: 100%; z-index: 1050;">
+                                        <li>
+                                            <a class="dropdown-item text-center text-dark" href="#"
+                                               wire:click.prevent="setDiscountType('{{ $cart_item->rowId }}', '{{ $cart_item->id }}', 'fixed')">
+                                                Rp
+                                            </a>
+                                        </li>
+                                        <li>
+                                            <a class="dropdown-item text-center text-dark" href="#"
+                                               wire:click.prevent="setDiscountType('{{ $cart_item->rowId }}', '{{ $cart_item->id }}', 'percentage')">
+                                                %
+                                            </a>
+                                        </li>
+                                    </ul>
+
+                                    <!-- Discount Input -->
+                                    <input type="number"
+                                           wire:model.defer="item_discount.{{ $cart_item->rowId }}"
+                                           wire:change="setProductDiscount('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
+                                           class="form-control form-control-sm text-right"
+                                           style="font-size: 0.875rem; min-width: 70px;"
+                                           min="0"
+                                           @if(($discount_type[$cart_item->rowId] ?? 'fixed') == 'percentage') max="100" @endif
+                                           placeholder="0">
+                                </div>
+
+                                <!-- Display Calculated Discount if Percentage -->
+                                @if(($discount_type[$cart_item->rowId] ?? 'fixed') == 'percentage' && !empty($item_discount[$cart_item->rowId]))
+                                    <div class="text-muted small mt-1">
+                                        = {{ format_currency($cart_item->price * ($item_discount[$cart_item->rowId] / 100) * $cart_item->qty) }}
+                                    </div>
+                                @endif
                             </td>
 
+                            @if($isPkp)
                             <td class="align-middle text-center">
-                                <select
-                                    wire:model.defer="product_tax.{{ $cart_item->id }}"
-                                    class="form-control"
-                                    wire:change="updateTax('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
-                                >
-                                    <option value="">Pilih Pajak</option>
-                                    @foreach($taxes as $tax)
-                                        <option
-                                            value="{{ $tax->id }}"
-                                            {{ $tax->id == $cart_item->options->product_tax ? 'selected' : '' }}>
-                                            {{ $tax->name }} ({{ $tax->value }}%)
+                                <div class="input-group input-group-sm">
+                                    <select
+                                        wire:model.defer="product_tax.{{ $cart_item->rowId }}"
+                                        class="form-control form-control-sm"
+                                        wire:change="updateTax('{{ $cart_item->rowId }}', '{{ $cart_item->id }}', $event.target.value)"
+                                    >
+                                        <option value="" disabled {{ blank($cart_item->options->get('product_tax')) ? 'selected' : '' }}>
+                                            Wajib Pilih Pajak
                                         </option>
-                                    @endforeach
-                                </select>
-                                @error('product_tax.' . $cart_item->id)
+                                        @foreach($taxes as $tax)
+                                            <option
+                                                value="{{ $tax->id }}"
+                                                {{ $tax->id == $cart_item->options->product_tax ? 'selected' : '' }}>
+                                                {{ $tax->name }} ({{ $tax->value }}%)
+                                            </option>
+                                        @endforeach
+                                    </select>
+                                    <x-quick-add-button
+                                        entity="pajak"
+                                        permission="settings.access"
+                                        modal-event="openTaxModal"
+                                        :modal-params="[$cart_item->rowId]"
+                                        size="sm"
+                                        tooltip="Tambah pajak baru"
+                                    />
+                                </div>
+                                @error('product_tax.' . $cart_item->rowId)
                                 <span class="text-danger">{{ $message }}</span>
                                 @enderror
                             </td>
@@ -109,24 +206,40 @@
                             <td class="align-middle text-center">
                                 {{ format_currency($cart_item->options->sub_total_before_tax ?? ($cart_item->price * $cart_item->qty - $cart_item->options->product_discount)) }}
                             </td>
+                            @endif
 
-                            <td class="align-middle text-center">
-                                {{ format_currency($cart_item->options->sub_total) }}
+                            <td x-data="{ open: false }" class="align-middle text-right">
+                                <span x-show="!open"
+                                      @click="open = true; $nextTick(() => { const input = $el.nextElementSibling.querySelector('input'); input.value = '{{ $cart_item->options->sub_total }}'; input.dispatchEvent(new Event('input')); })"
+                                      style="cursor: pointer;">{{ format_currency($cart_item->options->sub_total) }}</span>
+
+                                <div x-show="open" @click.away="open = false">
+                                    <input
+                                        wire:key="purchase-line-total-input-{{ $cart_item->rowId }}"
+                                        wire:model.defer="line_total.{{ $cart_item->rowId }}"
+                                        :value="open ? '{{ $cart_item->options->sub_total }}' : ''"
+                                        style="min-width: 60px; max-width: 110px;"
+                                        type="text"
+                                        class="form-control text-right"
+                                        @keydown.enter="open = false"
+                                        wire:blur="updateLineTotal('{{ $cart_item->rowId }}', '{{ $cart_item->id }}')"
+                                    >
+                                </div>
                             </td>
 
                             <td class="align-middle text-center">
+                                @unless($monetaryOnly)
                                 <a href="#" wire:click.prevent="removeItem('{{ $cart_item->rowId }}')">
                                     <i class="bi bi-x-circle font-2xl text-danger"></i>
                                 </a>
+                                @endunless
                             </td>
                         </tr>
                     @endforeach
                 @else
                     <tr>
-                        <td colspan="11" class="text-center">
-                        <span class="text-danger">
-                            Please search & select products!
-                        </span>
+                        <td colspan="{{ $isPkp ? 9 : 7 }}" class="text-center">
+                            <span class="text-danger">Silahkan cari dan pilih produk!</span>
                         </td>
                     </tr>
                 @endif
@@ -139,6 +252,7 @@
         <div class="col-md-4">
             <div class="table-responsive">
                 <table class="table table-striped">
+                    @if($isPkp)
                     <tr>
                         <th>Termasuk Pajak</th>
                         <td>
@@ -168,14 +282,22 @@
                         <th>Total Setelah Pajak</th>
                         <td>{{ format_currency($total_sub_total) }}</td>
                     </tr>
+                    @else
+                    <tr>
+                        <th>Sub Total</th>
+                        <td>{{ format_currency($total_sub_total) }}</td>
+                    </tr>
+                    @endif
                     <tr>
                         <th>Diskon Global</th>
                         <td>(-) {{ format_currency($global_discount_amount) }}</td>
                     </tr>
                     <tr>
                         <th>Biaya Ongkir</th>
-                        <input type="hidden" value="{{ $shipping }}" name="shipping_amount">
-                        <td>(+) {{ format_currency($shipping) }}</td>
+                        <td>
+                            <input type="hidden" value="{{ $shipping }}" name="shipping_amount">
+                            (+) {{ format_currency($shipping) }}
+                        </td>
                     </tr>
                     <tr>
                         <th>Grand Total</th>
@@ -187,21 +309,68 @@
     </div>
 
     <input type="hidden" name="total_amount" value="{{ $grand_total }}">
-    <input type="hidden" name="discount_amount" value="{{ $global_discount_amount }}">
+    @if($global_discount_type == 'percentage')
+        <input type="hidden" name="discount_percentage" value="{{ $global_discount }}">
+    @else
+        <input type="hidden" name="discount_amount" value="{{ $global_discount }}">
+    @endif
 
     <div class="form-row">
         <div class="col-lg-4">
             <div class="form-group">
-                <label for="discount_percentage">Diskon (%)</label>
-                <input wire:model.blur="global_discount" type="number" class="form-control" name="discount_percentage"
-                       min="0" max="100" value="{{ $global_discount }}" required>
+                <label for="discount_percentage">Diskon Global</label>
+                <div class="input-group input-group-sm">
+                    <button class="btn btn-outline-secondary dropdown-toggle px-3 h-100"
+                            type="button"
+                            data-toggle="dropdown" data-display="static" aria-expanded="false"
+                            style="font-size: 0.875rem; min-width: 50px; min-height: 31px; padding-top: 0.25rem; padding-bottom: 0.25rem;">
+                        {{ $global_discount_type == 'percentage' ? '%' : 'Rp' }}
+                    </button>
+
+                    <ul class="dropdown-menu" style="color: black; font-size: 0.9rem; position: absolute; left: 0; top: 100%; z-index: 1050;">
+                        <li>
+                            <a class="dropdown-item text-left text-dark" href="#"
+                               wire:click.prevent="setGlobalDiscountType('fixed')">
+                                Rp
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item text-left text-dark" href="#"
+                               wire:click.prevent="setGlobalDiscountType('percentage')">
+                                %
+                            </a>
+                        </li>
+                    </ul>
+
+                    <input type="number"
+                           wire:model.defer="global_discount"
+                           wire:change="updateGlobalDiscount"
+                           class="form-control form-control-sm text-right"
+                           style="font-size: 0.875rem; min-width: 70px; min-height: 31px;"
+                           min="0"
+                           @if($global_discount_type == 'percentage') max="100" @endif
+                           placeholder="0">
+                </div>
             </div>
         </div>
         <div class="col-lg-4">
             <div class="form-group">
                 <label for="shipping_amount">Ongkos Kirim</label>
-                <input wire:model.blur="shipping" type="number" class="form-control" name="shipping_amount" min="0"
-                       value="0" required step="0.01">
+                <div class="input-group input-group-sm">
+                    <button class="btn btn-outline-secondary px-3 h-100"
+                            type="button"
+                            style="font-size: 0.875rem; min-width: 50px; min-height: 31px; padding-top: 0.25rem; padding-bottom: 0.25rem;">
+                        Rp
+                    </button>
+                    <input wire:model.blur="shipping"
+                           type="number"
+                           class="form-control form-control-sm text-right"
+                           style="font-size: 0.875rem; min-width: 70px; min-height: 31px;"
+                           name="shipping_amount"
+                           min="0"
+                           value="0"
+                           required step="0.01">
+                </div>
             </div>
         </div>
     </div>

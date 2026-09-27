@@ -1,18 +1,18 @@
 @extends('layouts.app')
 
-@section('title', 'Create Chart of Account')
+@section('title', 'Buat Akun Jurnal')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item"><a href="{{ route('chart-of-account.index') }}">Chart of Accounts</a></li>
+        <li class="breadcrumb-item"><a href="{{ route('chart-of-account.index') }}">Akun Jurnal</a></li>
         <li class="breadcrumb-item active">Add</li>
     </ol>
 @endsection
 
 @section('content')
     <div class="container-fluid">
-        <form action="{{ route('chart-of-account.store') }}" method="POST">
+        <form id="chart-of-account-create-form" action="{{ route('chart-of-account.store') }}" method="POST">
             @csrf
             <div class="row">
                 <div class="col-lg-12">
@@ -90,8 +90,8 @@
                                         <a href="{{ route('chart-of-account.index') }}" class="btn btn-secondary mr-2">
                                             Kembali
                                         </a>
-                                        @can("create_account")
-                                        <button class="btn btn-primary">Tambah Akun <i class="bi bi-check"></i></button>
+                                        @can("chartOfAccounts.create")
+                                        <x-button label="Tambah Akun" icon="bi-check" processing-text="Memproses…" />
                                         @endcan
                                     </div>
                                 </div>
@@ -103,3 +103,14 @@
         </form>
     </div>
 @endsection
+
+@push('page_scripts')
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initFormSubmissionLock('chart-of-account-create-form', {
+                errorEventName: 'chart-of-account:submit-error'
+            });
+        });
+    </script>
+@endpush

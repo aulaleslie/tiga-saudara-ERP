@@ -1,3 +1,8 @@
+@php
+    $approvalStatus = strtolower($sale_return->approval_status ?? '');
+    $status = strtolower($sale_return->status ?? '');
+@endphp
+@php use Illuminate\Support\Facades\Storage; @endphp
 @extends('layouts.app')
 
 @section('title', 'Sales Details')
@@ -10,55 +15,175 @@
     </ol>
 @endsection
 
+@can('saleReturns.approve')
+    @if($approvalStatus === 'pending')
+        @push('page_scripts')
+            <script>
+                function saleReturnReject{{ $sale_return->id }}() {
+                    const reason = prompt('Masukkan alasan penolakan (opsional):');
+                    if (reason !== null) {
+                        const form = document.getElementById('sale-return-reject-form-{{ $sale_return->id }}');
+                        form.querySelector('input[name="reason"]').value = reason;
+                        form.submit();
+                    }
+                }
+            </script>
+        @endpush
+    @endif
+@endcan
+
 @section('content')
+    @include('utils.alerts')
+    @php $customer = optional($sale_return->sale)->customer; @endphp
     <div class="container-fluid">
         <div class="row">
             <div class="col-lg-12">
                 <div class="card">
-                    <div class="card-header d-flex flex-wrap align-items-center">
+                    <div class="card-header d-flex flex-wrap align-items-center bg-white border-0">
                         <div>
-                            Reference: <strong>{{ $sale_return->reference }}</strong>
+                            <h4 class="mb-0">Retur Penjualan #{{ $sale_return->reference }}</h4>
+                            <div class="small text-muted">Dibuat pada {{ \Carbon\Carbon::parse($sale_return->date)->translatedFormat('d F Y') }}</div>
                         </div>
-                        <a target="_blank" class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none" href="{{ route('sale-returns.pdf', $sale_return->id) }}">
-                            <i class="bi bi-printer"></i> Print
-                        </a>
-                        <a target="_blank" class="btn btn-sm btn-info mfe-1 d-print-none" href="{{ route('sale-returns.pdf', $sale_return->id) }}">
-                            <i class="bi bi-save"></i> Save
-                        </a>
+                        <div class="ms-auto d-flex flex-wrap align-items-center">
+                            <span class="me-2 mb-1">
+                                @include('salesreturn::partials.status', ['data' => $sale_return])
+                            </span>
+                            <span class="me-2 mb-1">
+                                @include('salesreturn::partials.approval-status', ['data' => $sale_return])
+                            </span>
+                            <span class="me-2 mb-1">
+                                @include('salesreturn::partials.settlement-status', ['data' => $sale_return])
+                            </span>
+
+                            @can('saleReturns.edit')
+                                @if(in_array($approvalStatus, ['pending', 'draft']))
+                                    <a class="btn btn-primary btn-sm d-print-none me-2 mb-1" href="{{ route('sale-returns.edit', $sale_return) }}">
+                                        <i class="bi bi-pencil"></i> Edit
+                                    </a>
+                                @elseif($status === 'awaiting settlement' && ! $sale_return->settled_at)
+                                    <a class="btn btn-success btn-sm d-print-none me-2 mb-1" href="{{ route('sale-returns.settlement', $sale_return) }}">
+                                        <i class="bi bi-clipboard-check"></i> Penyelesaian
+                                    </a>
+                                @endif
+                            @endcan
+
+                            @can('saleReturns.approve')
+                                @if($approvalStatus === 'pending')
+                                    <form method="POST" action="{{ route('sale-returns.approve', $sale_return) }}" class="me-2 mb-1 d-inline">
+                                        @csrf
+                                        <button type="submit" class="btn btn-success btn-sm d-print-none" onclick="return confirm('Setujui retur penjualan ini?')">
+                                            <i class="bi bi-check2-circle"></i> Setujui
+                                        </button>
+                                    </form>
+                                    <form id="sale-return-reject-form-{{ $sale_return->id }}" method="POST" action="{{ route('sale-returns.reject', $sale_return) }}" class="d-none">
+                                        @csrf
+                                        <input type="hidden" name="reason" value="">
+                                    </form>
+                                    <button type="button" class="btn btn-outline-danger btn-sm d-print-none me-2 mb-1" onclick="saleReturnReject{{ $sale_return->id }}()">
+                                        <i class="bi bi-x-circle"></i> Tolak
+                                    </button>
+                                @endif
+                            @endcan
+
+                            @can('saleReturns.receive')
+                                @if($status === 'awaiting receiving')
+                                    <form method="POST" action="{{ route('sale-returns.receive', $sale_return) }}" class="me-2 mb-1 d-inline">
+                                        @csrf
+                                        <button type="submit" class="btn btn-outline-primary btn-sm d-print-none" onclick="return confirm('Terima barang retur ini ke stok?')">
+                                            <i class="bi bi-box-arrow-in-down"></i> Terima Barang
+                                        </button>
+                                    </form>
+                                @endif
+                            @endcan
+
+                            <a target="_blank" class="btn btn-outline-primary btn-sm d-print-none me-2 mb-1" href="{{ route('sale-returns.pdf', $sale_return->id) }}">
+                                <i class="bi bi-printer"></i> Cetak
+                            </a>
+                            <a target="_blank" class="btn btn-outline-secondary btn-sm d-print-none mb-1" href="{{ route('sale-returns.pdf', $sale_return->id) }}">
+                                <i class="bi bi-download"></i> Unduh PDF
+                            </a>
+                        </div>
                     </div>
                     <div class="card-body">
-                        <div class="row mb-4">
-                            <div class="col-sm-4 mb-3 mb-md-0">
-                                <h5 class="mb-2 border-bottom pb-2">Company Info:</h5>
-                                <div><strong>{{ settings()->company_name }}</strong></div>
-                                <div>{{ settings()->company_address }}</div>
-                                <div>Email: {{ settings()->company_email }}</div>
-                                <div>Phone: {{ settings()->company_phone }}</div>
-                            </div>
-
-                            <div class="col-sm-4 mb-3 mb-md-0">
-                                <h5 class="mb-2 border-bottom pb-2">Customer Info:</h5>
-                                <div><strong>{{ $customer->customer_name }}</strong></div>
-                                <div>{{ $customer->address }}</div>
-                                <div>Email: {{ $customer->customer_email }}</div>
-                                <div>Phone: {{ $customer->customer_phone }}</div>
-                            </div>
-
-                            <div class="col-sm-4 mb-3 mb-md-0">
-                                <h5 class="mb-2 border-bottom pb-2">Invoice Info:</h5>
-                                <div>Invoice: <strong>INV/{{ $sale_return->reference }}</strong></div>
-                                <div>Date: {{ \Carbon\Carbon::parse($sale_return->date)->format('d M, Y') }}</div>
-                                <div>
-                                    Status: <strong>{{ $sale_return->status }}</strong>
-                                </div>
-                                <div>
-                                    Payment Status: <strong>{{ $sale_return->payment_status }}</strong>
+                        <div class="row g-4 mb-4">
+                            <div class="col-lg-4">
+                                <div class="h-100 border rounded p-3">
+                                    <h6 class="text-uppercase text-muted small mb-3">Perusahaan</h6>
+                                    <p class="mb-1 fw-semibold">{{ settings()->company_name }}</p>
+                                    <p class="mb-1">{{ settings()->company_address }}</p>
+                                    <p class="mb-1">Email: {{ settings()->company_email }}</p>
+                                    <p class="mb-0">Telepon: {{ settings()->company_phone }}</p>
                                 </div>
                             </div>
 
+                            <div class="col-lg-4">
+                                <div class="h-100 border rounded p-3">
+                                    <h6 class="text-uppercase text-muted small mb-3">Pelanggan</h6>
+                                    <p class="mb-1 fw-semibold">{{ $sale_return->customer_name }}</p>
+                                    <p class="mb-1">{{ $customer->address ?? '-' }}</p>
+                                    <p class="mb-1">Email: {{ $customer->customer_email ?? '-' }}</p>
+                                    <p class="mb-0">Telepon: {{ $customer->customer_phone ?? '-' }}</p>
+                                </div>
+                            </div>
+
+                            <div class="col-lg-4">
+                                <div class="h-100 border rounded p-3">
+                                    <h6 class="text-uppercase text-muted small mb-3">Ringkasan Dokumen</h6>
+                                    <dl class="row mb-0 small">
+                                        <dt class="col-5 text-muted">Invoice</dt>
+                                        <dd class="col-7 fw-semibold">INV/{{ $sale_return->reference }}</dd>
+                                        <dt class="col-5 text-muted">Referensi Penjualan</dt>
+                                        <dd class="col-7 fw-semibold">{{ $sale_return->sale_reference ?? '-' }}</dd>
+                                        <dt class="col-5 text-muted">Lokasi</dt>
+                                        <dd class="col-7 fw-semibold">{{ optional($sale_return->location)->name ?? '-' }}</dd>
+                                        <dt class="col-5 text-muted">Status Pembayaran</dt>
+                                        <dd class="col-7 fw-semibold">{{ \App\Constants\PaymentStatus::label($sale_return->payment_status) }}</dd>
+                                        @if($sale_return->received_at)
+                                            <dt class="col-5 text-muted">Diterima</dt>
+                                            <dd class="col-7 fw-semibold">{{ $sale_return->received_at->translatedFormat('d F Y H:i') }} oleh {{ optional($sale_return->receivedBy)->name ?? '-' }}</dd>
+                                        @endif
+                                        @if($sale_return->settled_at)
+                                            <dt class="col-5 text-muted">Penyelesaian</dt>
+                                            <dd class="col-7 fw-semibold">{{ $sale_return->settled_at->translatedFormat('d F Y H:i') }} oleh {{ optional($sale_return->settledBy)->name ?? '-' }}</dd>
+                                            <dt class="col-5 text-muted">Metode</dt>
+                                            <dd class="col-7">
+                                                @php
+                                                    $methodMap = [
+                                                        'cash_refund' => 'Pengembalian Tunai',
+                                                        'repair' => 'Perbaikan',
+                                                        'unprocessed' => 'Tidak Dapat Diproses',
+                                                        'Cash Refund' => 'Pengembalian Tunai',
+                                                        'Repair' => 'Perbaikan',
+                                                        'Unprocessed' => 'Tidak Dapat Diproses',
+                                                        'Cash' => 'Pengembalian Tunai',
+                                                        'Replacement' => 'Penggantian Produk',
+                                                        'Customer Credit' => 'Kredit Pelanggan',
+                                                    ];
+                                                    $methodKey = $sale_return->return_type ?: $sale_return->payment_method;
+                                                    echo $methodMap[$methodKey] ?? $methodKey ?: '-';
+                                                @endphp
+                                            </dd>
+                                            @if($sale_return->customerCredit)
+                                                <dt class="col-5 text-muted">Kredit Pelanggan</dt>
+                                                <dd class="col-7">{{ format_currency($sale_return->customerCredit->remaining_amount) }} tersisa dari {{ format_currency($sale_return->customerCredit->amount) }}</dd>
+                                            @endif
+                                            @if($sale_return->cash_proof_path)
+                                                <dt class="col-5 text-muted">Bukti Pembayaran</dt>
+                                                <dd class="col-7"><a href="{{ Storage::url($sale_return->cash_proof_path) }}" target="_blank" class="text-decoration-none"><i class="bi bi-paperclip"></i> Lihat Bukti</a></dd>
+                                            @endif
+                                        @endif
+                                        @if($sale_return->rejection_reason)
+                                            <dt class="col-5 text-muted">Alasan Penolakan</dt>
+                                            <dd class="col-7">{{ $sale_return->rejection_reason }}</dd>
+                                        @endif
+                                    </dl>
+                                </div>
+                            </div>
                         </div>
 
-                        <div class="table-responsive-sm">
+                        @include('salesreturn::partials.settlement-items-table')
+
+                        <div class="table-responsive-sm mt-4">
                             <table class="table table-striped">
                                 <thead>
                                 <tr>
@@ -78,6 +203,13 @@
                                             <span class="badge badge-success">
                                                 {{ $item->product_code }}
                                             </span>
+                                            @if($item->getSerialNumbers()->isNotEmpty())
+                                                <div class="mt-1">
+                                                    @foreach($item->getSerialNumbers() as $serial)
+                                                        <span class="badge bg-secondary">{{ $serial }}</span>
+                                                    @endforeach
+                                                </div>
+                                            @endif
                                         </td>
 
                                         <td class="align-middle">{{ format_currency($item->unit_price) }}</td>
@@ -115,7 +247,7 @@
                                         <td class="right">{{ format_currency($sale_return->tax_amount) }}</td>
                                     </tr>
                                     <tr>
-                                        <td class="left"><strong>Shipping)</strong></td>
+                                        <td class="left"><strong>Shipping</strong></td>
                                         <td class="right">{{ format_currency($sale_return->shipping_amount) }}</td>
                                     </tr>
                                     <tr>
@@ -127,9 +259,8 @@
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
-        </div>
-    </div>
+
+    </div> <!-- /.container-fluid -->
+
 @endsection
 

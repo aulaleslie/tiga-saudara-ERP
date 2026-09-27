@@ -1,0 +1,241 @@
+<?php
+
+namespace Modules\Product\Http\Controllers;
+
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Routing\Controller;
+use Modules\Product\Entities\ProductSerialNumber;
+
+class SerialNumberController extends Controller
+{
+    /**
+     * Validate a serial number against the database.
+     * Checks if the serial number already exists (committed) or is pending in a receiving.
+     */
+    public function validateSerial(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'product_id' => 'required|integer|exists:products,id',
+            'serial_number' => 'required|string|max:255',
+        ]);
+
+        $service = app(\Modules\Product\Services\ReceivingSerialNumberValidationService::class);
+        $result = $service->validateForReceiving((int) $validated['product_id'], (string) $validated['serial_number']);
+
+        return response()->json($result, 200);
+    }
+
+    /**
+     * Validate a serial number for dispatch.
+     * Checks if the serial number exists and is not already dispatched.
+     * returns location info and tax_id for auto-loading.
+     */
+    public function validateDispatchSerial(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'product_id' => 'required|integer|exists:products,id',
+            'serial_number' => 'required|string|max:255',
+            'location_id' => 'nullable|integer|exists:locations,id',
+            'expected_tax_id' => 'nullable|integer|exists:taxes,id',
+        ]);
+
+        $serial = ProductSerialNumber::where('product_id', $validated['product_id'])
+            ->where('serial_number', $validated['serial_number'])
+            ->with('location')
+            ->first();
+
+        if (!$serial) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number tidak ditemukan.',
+            ], 200);
+        }
+
+        $currentSettingId = (int) session('setting_id');
+
+        if (empty($serial->location_id) || !$serial->location) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number tidak memiliki lokasi yang valid.',
+            ], 200);
+        }
+
+        if ($currentSettingId > 0 && (int) $serial->location->setting_id !== $currentSettingId) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number berada di lokasi yang tidak valid untuk bisnis ini.',
+            ], 200);
+        }
+
+        // Check tax mismatch if expected_tax_id is provided
+        if (isset($validated['expected_tax_id'])) {
+            $isExpectedTaxed = $validated['expected_tax_id'] && (int)$validated['expected_tax_id'] > 0;
+            $isSerialTaxed = !is_null($serial->tax_id);
+
+            if ($isExpectedTaxed !== $isSerialTaxed) {
+                $taxMismatchMsg = $isExpectedTaxed
+                    ? 'Serial number ini Non-PPN, tidak bisa digunakan untuk produk PPN.'
+                    : 'Serial number ini PPN, tidak bisa digunakan untuk produk Non-PPN.';
+                return response()->json([
+                    'valid' => false,
+                    'message' => $taxMismatchMsg,
+                ], 200);
+            }
+        }
+
+        // Check if already dispatched (assuming dispatch_detail_id is not null implies dispatched)
+        if ($serial->dispatch_detail_id) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number sudah dikirim/terpakai.',
+            ], 200);
+        }
+
+        if ($serial->hasActiveTransferCustody()) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number sedang dalam proses transfer stok (in transit).',
+            ], 200);
+        }
+
+        if ($serial->status !== ProductSerialNumber::STATUS_ACTIVE) {
+            return response()->json([
+                'valid' => false,
+                'message' => "Serial number tidak aktif ({$serial->status}).",
+            ], 200);
+        }
+
+        if ($serial->is_broken) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number rusak (broken).',
+            ], 200);
+        }
+
+        if ($serial->is_in_return_process) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number sedang dalam proses retur.',
+            ], 200);
+        }
+
+        return response()->json([
+            'valid' => true,
+            'location_id' => $serial->location_id,
+            'location_name' => $serial->location->name ?? null,
+            'tax_id' => $serial->tax_id,
+        ], 200);
+    }
+
+    /**
+     * Update a serial number.
+     */
+    public function updateSerial(Request $request, ProductSerialNumber $serialNumber): JsonResponse
+    {
+        $validated = $request->validate([
+            'serial_number' => 'required|string|max:255',
+        ]);
+
+        // Check if the new serial number already exists (excluding current) scoped to product
+        $exists = ProductSerialNumber::where('serial_number', $validated['serial_number'])
+            ->where('product_id', $serialNumber->product_id)
+            ->where('id', '!=', $serialNumber->id)
+            ->exists();
+
+        if ($exists) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Serial number sudah digunakan untuk produk ini.',
+            ], 422);
+        }
+
+        // Check if it's pending in a receiving
+        $existsPending = ReceivedNoteDetail::whereHas('receivedNote', function ($q) {
+            $q->where('status', ReceivedNote::STATUS_PENDING);
+        })
+            ->whereNotNull('pending_serial_numbers')
+            ->get()
+            ->contains(function ($detail) use ($validated) {
+                $pendingSerials = $detail->pending_serial_numbers ?? [];
+                return in_array($validated['serial_number'], $pendingSerials);
+            });
+
+        if ($existsPending) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Serial number sedang dalam proses penerimaan yang menunggu persetujuan.',
+            ], 422);
+        }
+
+        $serialNumber->update([
+            'serial_number' => $validated['serial_number'],
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Serial number berhasil diperbarui.',
+            'serial_number' => $serialNumber->fresh(),
+        ]);
+    }
+
+    /**
+     * Validate a serial number for purchase return.
+     * Checks if the serial number exists at the specified location and is available (not dispatched).
+     */
+    public function validatePurchaseReturnSerial(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'product_id' => 'required|integer|exists:products,id',
+            'serial_number' => 'required|string|max:255',
+        ]);
+
+        $serial = ProductSerialNumber::where('product_id', $validated['product_id'])
+            ->where('serial_number', $validated['serial_number'])
+            ->with(['location.setting'])
+            ->first();
+
+        if (!$serial) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number tidak ditemukan.',
+            ], 200);
+        }
+
+        if ($serial->dispatch_detail_id) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number sudah terjual/keluar.',
+            ], 200);
+        }
+
+        if ($serial->status !== ProductSerialNumber::STATUS_ACTIVE) {
+            return response()->json([
+                'valid' => false,
+                'message' => "Serial number tidak aktif ({$serial->status}).",
+            ], 200);
+        }
+
+        if ($serial->hasActiveTransferCustody()) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number sedang dalam proses transfer stok (in transit).',
+            ], 200);
+        }
+
+        if ($serial->is_in_return_process) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Serial number sedang dalam proses retur.',
+            ], 200);
+        }
+        
+        return response()->json([
+            'valid' => true,
+            'serial_number_object' => $serial,
+            'location_id' => $serial->location_id,
+            'location_name' => $serial->location->name ?? null,
+            'location_label' => ($serial->location->setting->company_name ?? 'N/A') . ' - ' . ($serial->location->name ?? 'N/A'),
+        ], 200);
+    }
+}

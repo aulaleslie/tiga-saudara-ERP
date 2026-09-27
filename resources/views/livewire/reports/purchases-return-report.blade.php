@@ -37,26 +37,26 @@
                         </div>
                         <div class="form-row">
                             <div class="col-lg-6">
-                                <div class="form-group">
-                                    <label>Status</label>
-                                    <select wire:model="purchase_return_status" class="form-control" name="purchase_return_status">
-                                        <option value="">Select Status</option>
-                                        <option value="Pending">Pending</option>
-                                        <option value="Shipped">Shipped</option>
-                                        <option value="Completed">Completed</option>
-                                    </select>
-                                </div>
+                                 <div class="form-group">
+                                     <label>Status</label>
+                                     <select wire:model="purchase_return_status" class="form-control" name="purchase_return_status">
+                                         <option value="">Pilih Status</option>
+                                         <option value="Pending">Menunggu</option>
+                                         <option value="Shipped">Dikirim</option>
+                                         <option value="Completed">Selesai</option>
+                                     </select>
+                                 </div>
                             </div>
                             <div class="col-lg-6">
-                                <div class="form-group">
-                                    <label>Payment Status</label>
-                                    <select wire:model="payment_status" class="form-control" name="payment_status">
-                                        <option value="">Select Payment Status</option>
-                                        <option value="Paid">Paid</option>
-                                        <option value="Unpaid">Unpaid</option>
-                                        <option value="Partial">Partial</option>
-                                    </select>
-                                </div>
+                                 <div class="form-group">
+                                     <label>Status Pembayaran</label>
+                                     <select wire:model="payment_status" class="form-control" name="payment_status">
+                                         <option value="">Pilih Status Pembayaran</option>
+                                         <option value="Paid">Lunas</option>
+                                         <option value="Unpaid">Belum Dibayar</option>
+                                         <option value="Partial">Dibayar Sebagian</option>
+                                     </select>
+                                 </div>
                             </div>
                         </div>
                         <div class="form-group mb-0">
@@ -84,14 +84,14 @@
                         </div>
                         <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>Reference</th>
-                            <th>Supplier</th>
+                            <th>Tanggal</th>
+                            <th>Referensi</th>
+                            <th>Pemasok</th>
                             <th>Status</th>
                             <th>Total</th>
-                            <th>Paid</th>
-                            <th>Due</th>
-                            <th>Payment Status</th>
+                            <th>Dibayar</th>
+                            <th>Sisa Tagihan</th>
+                            <th>Status Pembayaran</th>
                         </tr>
                         </thead>
                         <tbody>
@@ -101,17 +101,27 @@
                                 <td>{{ $purchase_return->reference }}</td>
                                 <td>{{ $purchase_return->supplier_name }}</td>
                                 <td>
+                                    @php
+                                        $prStatusLabel = $purchase_return->status;
+                                        if ($purchase_return->status === 'Pending') {
+                                            $prStatusLabel = 'Menunggu';
+                                        } elseif ($purchase_return->status === 'Shipped') {
+                                            $prStatusLabel = 'Dikirim';
+                                        } elseif ($purchase_return->status === 'Completed') {
+                                            $prStatusLabel = 'Selesai';
+                                        }
+                                    @endphp
                                     @if ($purchase_return->status == 'Pending')
                                         <span class="badge badge-info">
-                                            {{ $purchase_return->status }}
+                                            {{ $prStatusLabel }}
                                         </span>
-                                            @elseif ($purchase_return->status == 'Shipped')
-                                                <span class="badge badge-primary">
-                                            {{ $purchase_return->status }}
+                                    @elseif ($purchase_return->status == 'Shipped')
+                                        <span class="badge badge-primary">
+                                            {{ $prStatusLabel }}
                                         </span>
-                                            @else
-                                                <span class="badge badge-success">
-                                            {{ $purchase_return->status }}
+                                    @else
+                                        <span class="badge badge-success">
+                                            {{ $prStatusLabel }}
                                         </span>
                                     @endif
                                 </td>
@@ -119,20 +129,19 @@
                                 <td>{{ format_currency($purchase_return->paid_amount) }}</td>
                                 <td>{{ format_currency($purchase_return->due_amount) }}</td>
                                 <td>
-                                    @if ($purchase_return->payment_status == 'Partial')
+                                    @if (\App\Constants\PaymentStatus::matches($purchase_return->payment_status, \App\Constants\PaymentStatus::PARTIAL))
                                         <span class="badge badge-warning">
-                                    {{ $purchase_return->payment_status }}
-                                </span>
-                                    @elseif ($purchase_return->payment_status == 'Paid')
+                                            {{ \App\Constants\PaymentStatus::label($purchase_return->payment_status) }}
+                                        </span>
+                                    @elseif (\App\Constants\PaymentStatus::matches($purchase_return->payment_status, \App\Constants\PaymentStatus::PAID))
                                         <span class="badge badge-success">
-                                    {{ $purchase_return->payment_status }}
-                                </span>
+                                            {{ \App\Constants\PaymentStatus::label($purchase_return->payment_status) }}
+                                        </span>
                                     @else
                                         <span class="badge badge-danger">
-                                    {{ $purchase_return->payment_status }}
-                                </span>
+                                            {{ \App\Constants\PaymentStatus::label($purchase_return->payment_status) }}
+                                        </span>
                                     @endif
-
                                 </td>
                             </tr>
                         @empty

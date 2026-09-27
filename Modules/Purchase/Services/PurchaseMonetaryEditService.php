@@ -1,0 +1,211 @@
+<?php
+
+namespace Modules\Purchase\Services;
+
+use App\Services\MonetaryEdit\AbstractMonetaryEditService;
+use App\Services\MonetaryEdit\MonetaryEditException;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
+use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\PurchaseDetail;
+
+/**
+ * In-place monetary edit for a received (or partially received) Purchase.
+ *
+ * Never deletes or recreates purchase_details, because received_note_details
+ * cascade off those primary keys. Never touches stock, receiving records,
+ * ProductPrice, purchase-cost recalculation, or historical replay: a corrected
+ * supplier invoice changes the document's commercial value, not the executed
+ * inventory facts or the current purchase-price indicators.
+ */
+class PurchaseMonetaryEditService extends AbstractMonetaryEditService
+{
+    /** Cart metadata key carrying the persisted purchase_details.id. */
+    public const DETAIL_ID_OPTION = 'purchase_detail_id';
+
+    protected function lockDetails(Model $document): Collection
+    {
+        return PurchaseDetail::query()
+            ->where('purchase_id', $document->getKey())
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+    }
+
+    protected function assertMonetaryOnlyMode(Model $document): void
+    {
+        if ($document->resolveEditMode() !== Purchase::EDIT_MODE_MONETARY_ONLY) {
+            throw new MonetaryEditException(
+                'Pembelian ini tidak dapat diubah secara moneter pada status saat ini.'
+            );
+        }
+    }
+
+    protected function assertBelongsToActiveSetting(Model $document): void
+    {
+        $currentSettingId = session('setting_id');
+
+        if (! is_null($currentSettingId) && (int) $document->setting_id !== (int) $currentSettingId) {
+            throw new MonetaryEditException('Pembelian ini bukan milik bisnis yang sedang aktif.');
+        }
+    }
+
+    protected function assertGlobalAuthorizationAndEligibility(Model $document, mixed $user): void
+    {
+        if (! $user->can('purchasePayments.global.access')
+            || ! $user->can('purchases.update')
+            || ! $user->can('purchases.received.monetary.edit')) {
+            throw new MonetaryEditException('Anda tidak memiliki hak akses untuk mengubah pembelian ini secara global.');
+        }
+
+        $eligible = Purchase::globalPaymentEligible()
+            ->whereNull('archived_at')
+            ->whereKey($document->getKey())
+            ->exists();
+
+        if (! $eligible) {
+            throw new MonetaryEditException('Pembelian ini tidak memenuhi syarat untuk penyesuaian pembayaran global.');
+        }
+    }
+
+    protected function assertNormalAuthorization(Model $document, mixed $user): void
+    {
+        if (! $user->can('purchases.update') || ! $user->can('purchases.received.monetary.edit')) {
+            throw new MonetaryEditException('Anda tidak memiliki hak akses untuk mengubah nilai moneter pembelian ini.');
+        }
+    }
+
+    protected function resolveSubmittedDetailId(mixed $cartItem): ?int
+    {
+        $detailId = data_get($cartItem, 'options.' . self::DETAIL_ID_OPTION);
+
+        return is_numeric($detailId) ? (int) $detailId : null;
+    }
+
+    protected function assertProtectedRowValues(object $detail, mixed $cartItem): void
+    {
+        $submittedProductId = data_get($cartItem, 'options.product_id') ?? data_get($cartItem, 'id');
+
+        if ((int) $submittedProductId !== (int) $detail->product_id) {
+            throw new MonetaryEditException(
+                "Produk pada baris '{$detail->product_name}' tidak boleh diubah setelah barang diterima."
+            );
+        }
+
+        $submittedUnitId = data_get($cartItem, 'options.purchase_unit_id') ?? data_get($cartItem, 'purchase_unit_id');
+        $submittedConvId = data_get($cartItem, 'options.product_unit_conversion_id') ?? data_get($cartItem, 'product_unit_conversion_id');
+        $submittedEnteredQty = data_get($cartItem, 'options.entered_quantity') ?? data_get($cartItem, 'entered_quantity');
+        $submittedFactor = data_get($cartItem, 'options.conversion_factor') ?? data_get($cartItem, 'conversion_factor');
+
+        // 1. Check unit ID identity
+        $normSubmittedUnitId = ($submittedUnitId !== null && $submittedUnitId !== '') ? (int) $submittedUnitId : null;
+        $normStoredUnitId = ($detail->purchase_unit_id !== null) ? (int) $detail->purchase_unit_id : null;
+        if ($normSubmittedUnitId !== $normStoredUnitId) {
+            throw new MonetaryEditException(
+                "Satuan pembelian pada baris '{$detail->product_name}' tidak boleh diubah setelah barang diterima."
+            );
+        }
+
+        // 2. Check conversion ID identity
+        $normSubmittedConvId = ($submittedConvId !== null && $submittedConvId !== '') ? (int) $submittedConvId : null;
+        $normStoredConvId = ($detail->product_unit_conversion_id !== null) ? (int) $detail->product_unit_conversion_id : null;
+        if ($normSubmittedConvId !== $normStoredConvId) {
+            throw new MonetaryEditException(
+                "Konversi satuan pada baris '{$detail->product_name}' tidak boleh diubah setelah barang diterima."
+            );
+        }
+
+        // 3. Check quantity: qty could be submitted as canonical quantity or entered quantity
+        $submittedQty = (float) data_get($cartItem, 'qty');
+        $storedCanonicalQty = (float) $detail->quantity;
+        $storedEnteredQty = (float) $detail->effective_entered_quantity;
+
+        $qtyMatchesCanonical = round($submittedQty, 3) === round($storedCanonicalQty, 3);
+        $qtyMatchesEntered = round($submittedQty, 3) === round($storedEnteredQty, 3);
+
+        if (! $qtyMatchesCanonical && ! $qtyMatchesEntered) {
+            throw new MonetaryEditException(
+                "Kuantitas produk '{$detail->product_name}' tidak boleh diubah setelah barang diterima."
+            );
+        }
+
+        // 4. Check entered_quantity explicitly if provided
+        if ($submittedEnteredQty !== null && $submittedEnteredQty !== '') {
+            if (round((float) $submittedEnteredQty, 3) !== round($storedEnteredQty, 3)) {
+                throw new MonetaryEditException(
+                    "Kuantitas yang dimasukkan pada baris '{$detail->product_name}' tidak boleh diubah setelah barang diterima."
+                );
+            }
+        }
+
+        // 5. Check conversion_factor explicitly if provided
+        if ($submittedFactor !== null && $submittedFactor !== '') {
+            $storedFactor = (float) $detail->effective_conversion_factor;
+            if (round((float) $submittedFactor, 6) !== round($storedFactor, 6)) {
+                throw new MonetaryEditException(
+                    "Faktor konversi pada baris '{$detail->product_name}' tidak boleh diubah setelah barang diterima."
+                );
+            }
+        }
+    }
+
+    protected function normalize(Model $document, array $rows, array $input): array
+    {
+        $globalDiscount = is_numeric($input['global_discount'] ?? null) ? (float) $input['global_discount'] : 0.0;
+        $discountType = $input['global_discount_type'] ?? 'percentage';
+
+        return app(PurchaseNormalizer::class)->normalize([
+            'discount_percentage' => $discountType === 'percentage' ? $globalDiscount : 0,
+            'discount_amount' => $discountType === 'fixed' ? $globalDiscount : 0,
+            'shipping_amount' => $input['shipping'] ?? 0,
+            // Paid amount comes from persisted state; this workflow never edits payments.
+            'paid_amount' => $document->paid_amount,
+            // Header tax identity is protected, so it is carried through unchanged.
+            'tax_id' => $document->tax_id,
+            'tax_percentage' => $document->tax_percentage,
+        ], collect($rows)->map(fn ($row) => $row->cartItem), $this->resolveIsPkp($document), (int) $document->setting_id, $document);
+    }
+
+    protected function persistHeader(Model $document, array $header, array $input): void
+    {
+        $isPkp = $this->resolveIsPkp($document);
+        $total = (float) $header['total_amount'];
+
+        // Reconcile the payment summary from the existing active payment rows,
+        // mirroring the correction workflow's arithmetic — but without creating,
+        // editing, invalidating, or deleting any payment row. apply() has already
+        // rejected a total below this figure.
+        $paid = round($this->effectivePaidAmount($document), 2);
+
+        $document->forceFill([
+            'discount_percentage' => $header['discount_percentage'],
+            'discount_amount' => $header['discount_amount'],
+            'shipping_amount' => $header['shipping_amount'],
+            'tax_amount' => $header['tax_amount'],
+            'total_amount' => $total,
+            'paid_amount' => $paid,
+            'due_amount' => max(0, round($total - $paid, 2)),
+            'payment_status' => $this->resolvePaymentStatus($paid, $total),
+            'is_tax_included' => $this->resolveIsTaxIncluded($document, $isPkp),
+        ])->save();
+    }
+
+    /**
+     * Payment status in the application's existing Purchase vocabulary
+     * (uppercase PAID / PARTIAL / UNPAID), derived from persisted active
+     * payments and the corrected total.
+     */
+    private function resolvePaymentStatus(float $paid, float $totalAmount): string
+    {
+        if ($paid <= 0.0) {
+            return \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_UNPAID;
+        }
+
+        return $paid >= round($totalAmount, 2) ? \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_PAID : \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_PARTIAL;
+    }
+
+    protected function effectivePaidAmount(Model $document): float
+    {
+        return $document->getEffectivePaidAmount();
+    }
+}

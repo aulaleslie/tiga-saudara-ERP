@@ -11,41 +11,74 @@
 |
 */
 
+use Illuminate\Support\Facades\Route;
+use Modules\Sale\Http\Controllers\SaleController;
+use Modules\Sale\Http\Controllers\SalesUploadController;
+use Modules\Sale\Http\Controllers\GlobalSalePaymentController;
+use Modules\Sale\Http\Controllers\SaleDateAdjustmentController;
+use Modules\Sale\Http\Controllers\SaleReportingDateController;
+
 Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
-    //POS
-    Route::get('/app/pos', 'PosController@index')->name('app.pos.index');
-    Route::post('/app/pos', 'PosController@store')->name('app.pos.store');
+    // Global Payments - Cross-setting multi-invoice payment (MUST be before resource route)
+    Route::get('/sales/global-payments', [GlobalSalePaymentController::class, 'index'])
+        ->name('sales.global-payments.index')
+        ->middleware('permission:salePayments.global.access');
+    Route::get('/sales/{sale_id}/global-payments/show', [GlobalSalePaymentController::class, 'show'])
+        ->name('sales.global-payments.show')
+        ->middleware('permission:salePayments.global.access');
+    Route::get('/sales/{sale_id}/global-payments/edit-monetary', [GlobalSalePaymentController::class, 'editMonetary'])
+        ->name('sales.global-payments.edit-monetary')
+        ->middleware('permission:salePayments.global.access');
+    Route::put('/sales/{sale_id}/global-payments/date-adjustment', [GlobalSalePaymentController::class, 'updateDateAdjustment'])
+        ->name('sales.global-payments.date-adjustment.update')
+        ->middleware('permission:salePayments.global.access');
+    Route::get('/sales/{sale_id}/global-payments/history', [GlobalSalePaymentController::class, 'history'])
+        ->name('sales.global-payments.history')
+        ->middleware('permission:salePayments.global.access');
+    Route::get('/sales/{sale_id}/global-payments/create', [GlobalSalePaymentController::class, 'create'])
+        ->name('sales.global-payments.create')
+        ->middleware(['permission:salePayments.global.access', 'permission:salePayments.create']);
+    Route::post('/sales/{sale_id}/global-payments/store', [GlobalSalePaymentController::class, 'store'])
+        ->name('sales.global-payments.store')
+        ->middleware(['permission:salePayments.global.access', 'permission:salePayments.create', 'idempotency']);
+
+    // Sales Upload/Import Routes
+    Route::get('/sales/imports', [SalesUploadController::class, 'index'])->name('sales.imports.index');
+    Route::get('/sales/upload', [SalesUploadController::class, 'uploadPage'])->name('sales.upload.form');
+    Route::post('/sales/upload', [SalesUploadController::class, 'upload'])->name('sales.upload.store');
+    Route::get('/sales/upload/template', [SalesUploadController::class, 'downloadTemplate'])->name('sales.upload.template');
+    Route::get('/sales/imports/{batch}', [SalesUploadController::class, 'show'])->name('sales.imports.show');
 
     //Generate PDF
-    Route::get('/sales/pdf/{id}', function ($id) {
-        $sale = \Modules\Sale\Entities\Sale::findOrFail($id);
-        $customer = \Modules\People\Entities\Customer::findOrFail($sale->customer_id);
+    Route::get('/sales/{sale}/delivery-slip', [SaleController::class, 'deliverySlip'])
+        ->name('sales.deliverySlip');
 
-        $pdf = \PDF::loadView('sale::print', [
-            'sale' => $sale,
-            'customer' => $customer,
-        ])->setPaper('a4');
-
-        return $pdf->stream('sale-'. $sale->reference .'.pdf');
-    })->name('sales.pdf');
-
-    Route::get('/sales/pos/pdf/{id}', function ($id) {
-        $sale = \Modules\Sale\Entities\Sale::findOrFail($id);
-
-        $pdf = \PDF::loadView('sale::print-pos', [
-            'sale' => $sale,
-        ])->setPaper('a7')
-            ->setOption('margin-top', 8)
-            ->setOption('margin-bottom', 8)
-            ->setOption('margin-left', 5)
-            ->setOption('margin-right', 5);
-
-        return $pdf->stream('sale-'. $sale->reference .'.pdf');
-    })->name('sales.pos.pdf');
+    Route::get('/sales/{sale}/invoice', [SaleController::class, 'invoicePdf'])
+        ->name('sales.invoicePdf');
 
     //Sales
-    Route::resource('sales', 'SaleController');
+    Route::get('/sales/dispatches', [SaleController::class, 'dispatchIndex'])
+        ->name('sales.dispatches.index');
+
+    //Sales
+    Route::post('/sales/{sale}/dispatch', [SaleController::class, 'storeDispatch'])->name('sales.storeDispatch');
+    Route::get('/sales/{sale}/dispatch', [SaleController::class, 'dispatch'])->name('sales.dispatch');
+    Route::post('/dispatches/{dispatch}/approve', [SaleController::class, 'approveDispatch'])->name('dispatches.approve');
+    Route::post('/dispatches/{dispatch}/reject', [SaleController::class, 'rejectDispatch'])->name('dispatches.reject');
+    Route::patch('sales/{sale}/status', [SaleController::class, 'updateStatus'])->name('sales.updateStatus');
+    Route::put('sales/{sale}/archive', [SaleController::class, 'archive'])->name('sales.archive');
+
+    // Sale Reporting Date Overrides & Combined Date Adjustments
+    Route::put('/sales/{sale}/date-adjustment', [SaleDateAdjustmentController::class, 'update'])->name('sales.date-adjustment.update');
+    Route::post('/sales/{sale}/reporting-date', [SaleReportingDateController::class, 'store'])->name('sales.reporting-date.store');
+    Route::delete('/sales/{sale}/reporting-date', [SaleReportingDateController::class, 'destroy'])->name('sales.reporting-date.destroy');
+
+    // Sale Attachments
+    Route::post('sales/{sale}/attachments', [SaleController::class, 'storeAttachment'])->name('sales.attachments.store');
+    Route::delete('sales/{sale}/attachments/{media}', [SaleController::class, 'destroyAttachment'])->name('sales.attachments.destroy');
+
+    Route::resource('sales', 'SaleController')->middleware('idempotency');
 
     //Payments
     Route::get('/sale-payments/{sale_id}', 'SalePaymentsController@index')->name('sale-payments.index');
@@ -54,4 +87,9 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('/sale-payments/{sale_id}/edit/{salePayment}', 'SalePaymentsController@edit')->name('sale-payments.edit');
     Route::patch('/sale-payments/update/{salePayment}', 'SalePaymentsController@update')->name('sale-payments.update');
     Route::delete('/sale-payments/destroy/{salePayment}', 'SalePaymentsController@destroy')->name('sale-payments.destroy');
+
+    // Global Menu - Track Sales by Serial Number
+    Route::get('/global-sales-search', 'GlobalSalesSearchController@index')->name('global-sales-search.index')->middleware('auth');
+    Route::get('/global-sales-search/search', 'GlobalSalesSearchController@ajaxSearch')->name('global-sales-search.search')->middleware('auth');
+
 });

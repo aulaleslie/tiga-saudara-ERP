@@ -1,0 +1,1945 @@
+<?php
+
+namespace App\Livewire\Sale;
+
+use Gloudemans\Shoppingcart\Facades\Cart;
+use Illuminate\Contracts\View\Factory;
+use Illuminate\Contracts\View\View;
+use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Livewire\Component;
+use Modules\People\Entities\Customer;
+use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductPrice;
+use Modules\Product\Entities\ProductBundle;
+use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\ProductUnitConversion;
+use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\Tax;
+use Modules\Setting\Entities\Unit;
+
+class ProductCart extends Component
+{
+    public $listeners = ['productSelected', 'discountModalRefresh', 'customerSelected', 'taxCreated' => 'handleTaxCreated', 'document-business-context-changed' => 'handleBusinessContextChanged'];
+
+    public $cart_instance;
+    public $global_discount;
+    public $customerId;
+    public $global_tax;
+    public $global_tax_id;
+    public $shipping;
+    public $quantity;
+    public $check_quantity;
+    public $discount_type;
+    public $item_discount;
+    public $unit_price;
+    public $data;
+    /** True once the document is dispatched: quantity and row membership are locked. */
+    public bool $monetaryOnly = false;
+
+    public $taxes;
+    public $product_tax = []; // Array to store selected tax IDs for each product
+
+    public $is_tax_included = true;
+    public $customer;
+
+    public $global_discount_type = 'percentage';
+
+    public $pendingProduct = null;
+    public $bundleOptions = [];
+    public $selectedBundle = [
+        'name' => '',
+        'price' => 0,
+        'items' => []
+    ];
+
+    public $quantityBreakdowns = [];
+    public $priceBreakdowns = [];
+    public $line_total = []; // Editable total for each line
+
+    public ?int $settingId = null;
+    public ?int $selectedSettingId = null;
+    public bool $isPkp = false;
+
+    protected $rules = [
+        'unit_price.*' => 'required|numeric|min:0', // Unit price per row.
+        'quantity.*' => 'required|integer|min:1', // Quantity must be at least 1.
+        'item_discount.*' => 'nullable|numeric|min:0', // Discounts are optional and non-negative.
+        'global_discount' => 'nullable|numeric|min:0|max:100',
+        'shipping' => 'nullable|numeric|min:0', // Shipping is optional and non-negative.
+        'product_tax_id.*' => 'nullable|integer|exists:taxes,id', // Validate selected tax ID.
+        'is_tax_included' => 'nullable|boolean', // Boolean flag for tax inclusion.
+    ];
+
+    public function mount($cartInstance, $data = null, ?int $selectedSettingId = null): void
+    {
+        $this->cart_instance = $cartInstance;
+        $this->selectedSettingId = $selectedSettingId ?? (int) session('setting_id');
+        $this->settingId = $this->selectedSettingId;
+        $this->isPkp = (bool) (Setting::query()->whereKey((int) $this->settingId)->value('is_pkp') ?? false);
+        $this->taxes = $this->loadTaxes();
+
+        if ($data) {
+            $this->data = $data;
+            $this->monetaryOnly = $data instanceof \Modules\Sale\Entities\Sale
+                && $data->resolveEditMode() === \Modules\Sale\Entities\Sale::EDIT_MODE_MONETARY_ONLY;
+
+            if ($data->discount_percentage > 0) {
+                $this->global_discount_type = 'percentage';
+                $this->global_discount = $data->discount_percentage;
+            } else if ($data->discount_amount > 0) {
+                $this->global_discount_type = 'fixed';
+                $this->global_discount = $data->discount_amount;
+            } else {
+                $this->global_discount = 0;
+            }
+            $this->shipping = $data->shipping_amount;
+            $this->is_tax_included = $data->is_tax_included;
+        } else {
+            $this->global_discount = 0;
+            $this->shipping = 0.00;
+            $this->is_tax_included = $this->isPkp;
+            $this->check_quantity = [];
+            $this->quantity = [];
+            $this->unit_price = [];
+            $this->discount_type = [];
+            $this->item_discount = [];
+            $this->product_tax = [];
+            $this->line_total = [];
+        }
+
+        $cart_items = Cart::instance($this->cart_instance)->content();
+
+        foreach ($cart_items as $cart_item) {
+            $this->initializeCartItemAttributes($cart_item);
+
+            $this->quantityBreakdowns[$cart_item->id] = $this->calculateConversionBreakdown(
+                $cart_item->options->product_id,
+                $this->quantity[$cart_item->id] ?? $cart_item->qty
+            );
+        }
+
+        $this->reconcileNonPkpSaleCartState();
+        $this->reconcileMissingPkpTaxesInCart();
+
+        $this->dispatch('taxIncludedUpdated', (bool) $this->is_tax_included);
+
+        if ($data) {
+            $this->dispatch('globalDiscountTypeUpdated', $this->global_discount_type);
+            $this->dispatch('globalDiscountUpdated', (float) $this->global_discount);
+            $this->dispatch('shippingUpdated', (float) $this->shipping);
+        }
+    }
+
+    private function initializeCartItemAttributes($cart_item): void
+    {
+        $this->check_quantity[$cart_item->id] = $cart_item->options->stock ?? 0;
+        $this->quantity[$cart_item->id] = $cart_item->qty ?? 0;
+        $this->unit_price[$cart_item->id] = $cart_item->price ?? 0;
+        $this->discount_type[$cart_item->id] = $cart_item->options->product_discount_type ?? 'fixed';
+        $this->item_discount[$cart_item->id] = $cart_item->options->product_discount ?? 0;
+        $this->product_tax[$cart_item->id] = $cart_item->options->product_tax ?? null;
+        $this->line_total[$cart_item->id] = $cart_item->options->sub_total ?? 0;
+    }
+
+    private function loadTaxes()
+    {
+        return Tax::query()
+            ->active()
+            ->orderByDesc('is_default')
+            ->orderBy('name')
+            ->get();
+    }
+
+    private function normalizeTaxId(mixed $taxId): ?int
+    {
+        if ($taxId === null || $taxId === '' || blank($taxId)) {
+            return null;
+        }
+
+        return is_numeric($taxId) ? (int) $taxId : null;
+    }
+
+    private function resolvePersistedProductTax($cartItem): ?int
+    {
+        $storedTaxId = $this->normalizeTaxId($cartItem->options->get('product_tax'));
+        if ($storedTaxId !== null) {
+            return $storedTaxId;
+        }
+
+        return $this->normalizeTaxId($this->product_tax[$cartItem->id] ?? null);
+    }
+
+    private function syncProductTaxState($cartItem, mixed $taxId = null): ?int
+    {
+        $resolvedTaxId = $this->normalizeTaxId($taxId);
+        if ($resolvedTaxId === null) {
+            $resolvedTaxId = $this->resolvePersistedProductTax($cartItem);
+        }
+
+        $this->product_tax[$cartItem->id] = $resolvedTaxId;
+
+        return $resolvedTaxId;
+    }
+
+    private function reconcileMissingPkpTaxesInCart(): void
+    {
+        if ($this->cart_instance !== 'sale' || ! $this->isPkp) {
+            return;
+        }
+
+        $cart = Cart::instance($this->cart_instance);
+        $cartItems = $cart->content();
+
+        foreach ($cartItems as $cartItem) {
+            $existingTaxId = $cartItem->options->get('product_tax');
+            if ($existingTaxId !== null && $existingTaxId !== '') {
+                continue;
+            }
+
+            $rowKey = (string) $cartItem->id;
+            $productId = (int) ($cartItem->options->get('product_id') ?? 0);
+            $resolvedTaxId = $this->resolvePreferredPkpAutoTaxId($productId);
+            if (! $resolvedTaxId) {
+                continue;
+            }
+
+            $this->product_tax[$rowKey] = $resolvedTaxId;
+
+            $discountAmount = (float) ($cartItem->options->product_discount ?? 0);
+            $calculated = $this->calculateSubtotalAndTax(
+                $cartItem->price,
+                $cartItem->qty,
+                $discountAmount,
+                $resolvedTaxId
+            );
+
+            [$updatedBundleItems, $bundleTotal] = $this->recalculateBundleItems(
+                $cartItem->options->bundle_items ?? [],
+                (int) $cartItem->qty,
+                (int) $cartItem->qty
+            );
+
+            $newSubTotal = $calculated['sub_total'] + $bundleTotal;
+            $newSubTotalBeforeTax = $calculated['subtotal_before_tax'] + $bundleTotal;
+
+            $cart->update($cartItem->rowId, [
+                'options' => array_merge($cartItem->options->toArray(), [
+                    'product_tax' => $resolvedTaxId,
+                    'sub_total' => $newSubTotal,
+                    \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
+                    'sub_total_before_tax' => $newSubTotalBeforeTax,
+                    'bundle_items' => $updatedBundleItems,
+                    'bundle_price' => $bundleTotal,
+                ]),
+            ]);
+        }
+    }
+
+    private function reconcileNonPkpSaleCartState(): void
+    {
+        if ($this->cart_instance !== 'sale' || $this->isPkp) {
+            return;
+        }
+
+        $cart = Cart::instance($this->cart_instance);
+
+        foreach ($cart->content() as $cartItem) {
+            $normalizedUnitPrice = $this->resolveNonPkpUnitPrice($cartItem);
+            $discountAmount = (float) ($cartItem->options->product_discount ?? 0);
+            $calculated = $this->calculateSubtotalAndTax(
+                $normalizedUnitPrice,
+                $cartItem->qty,
+                $discountAmount,
+                null
+            );
+
+            [$updatedBundleItems, $bundleTotal] = $this->recalculateBundleItems(
+                $cartItem->options->bundle_items ?? [],
+                (int) $cartItem->qty,
+                (int) $cartItem->qty
+            );
+
+            $newSubTotal = $calculated['sub_total'] + $bundleTotal;
+            $newSubTotalBeforeTax = $calculated['subtotal_before_tax'] + $bundleTotal;
+
+            // This runs on mount, not as a user edit. A row hydrated from a stored
+            // document already carries an authoritative total; recomputing it from a
+            // rounded unit price would drift it (1460000 -> 1216.67 * 1200 = 1460004).
+            // Only strip tax and normalize the display price for such rows.
+            $storedTotal = $this->resolveAuthoritativeNonPkpTotal($cartItem);
+            if ($storedTotal !== null) {
+                $newSubTotal = $storedTotal;
+                $newSubTotalBeforeTax = $storedTotal;
+            }
+
+            $cart->update($cartItem->rowId, [
+                'price' => $normalizedUnitPrice,
+                'options' => array_merge($cartItem->options->toArray(), [
+                    'unit_price' => $normalizedUnitPrice,
+                    'product_tax' => null,
+                    'sub_total' => $newSubTotal,
+                    \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
+                    'sub_total_before_tax' => $newSubTotalBeforeTax,
+                    'product_tax_amount' => 0,
+                    'bundle_items' => $updatedBundleItems,
+                    'bundle_price' => $bundleTotal,
+                ]),
+            ]);
+
+            $this->line_total[$cartItem->id] = $newSubTotal;
+            $this->product_tax[$cartItem->id] = null;
+        }
+    }
+
+    /**
+     * Return the row's already-authoritative non-PKP total, or null when the row has
+     * no consistent stored total and should be recalculated normally.
+     */
+    private function resolveAuthoritativeNonPkpTotal($cartItem): ?float
+    {
+        $subTotal = $cartItem->options->sub_total ?? null;
+        $subTotalBeforeTax = $cartItem->options->sub_total_before_tax ?? null;
+
+        if (! is_numeric($subTotal) || ! is_numeric($subTotalBeforeTax)) {
+            return null;
+        }
+
+        // Non-PKP invariant: sub_total == sub_total_before_tax and tax == 0.
+        if (round((float) $subTotal, 2) !== round((float) $subTotalBeforeTax, 2)) {
+            return null;
+        }
+
+        return round((float) $subTotal, 2);
+    }
+
+    private function resolveNonPkpUnitPrice($cartItem): float
+    {
+        // Task 2.4: Bypassing reverse-recalculation for bundled rows to preserve authority.
+        if ($cartItem->options->is_bundled_row ?? false) {
+            return (float) $cartItem->price;
+        }
+
+        $quantity = max(1, (int) $cartItem->qty);
+        $bundlePrice = (float) ($cartItem->options->bundle_price ?? 0);
+        $subTotalBeforeTax = (float) ($cartItem->options->sub_total_before_tax ?? $cartItem->options->sub_total ?? ($cartItem->price * $quantity));
+        $discountAmount = (float) ($cartItem->options->product_discount ?? 0);
+        $parentSubTotalBeforeTax = max(0, $subTotalBeforeTax - $bundlePrice);
+
+        return round(($parentSubTotalBeforeTax / $quantity) + $discountAmount, 2);
+    }
+
+    private function resolveDefaultTaxId(): ?int
+    {
+        $defaultTax = $this->taxes->firstWhere('is_default', true);
+
+        if ($defaultTax) {
+            return (int) $defaultTax->id;
+        }
+
+        if ($this->isPkp) {
+            $firstTax = $this->taxes->first();
+
+            return $firstTax ? (int) $firstTax->id : null;
+        }
+
+        return null;
+    }
+
+    private function resolveLatestTaxId(): ?int
+    {
+        $latestTaxId = Tax::query()->latest('id')->value('id');
+
+        return $latestTaxId ? (int) $latestTaxId : null;
+    }
+
+    private function resolveProductSaleTaxIdForProduct(int $productId, ?array $productPayload = null): ?int
+    {
+        if ($productId <= 0) {
+            return null;
+        }
+
+        $settingId = $this->settingId ?: (int) session('setting_id');
+        if (! $this->settingId && $settingId) {
+            $this->settingId = $settingId;
+        }
+
+        $productPriceTaxId = null;
+        if ($settingId) {
+            $productPriceTaxId = ProductPrice::query()
+                ->forProduct($productId)
+                ->forSetting((int) $settingId)
+                ->value('sale_tax_id');
+        }
+
+        if ($productPriceTaxId) {
+            return (int) $productPriceTaxId;
+        }
+
+        $payloadTaxId = $productPayload['sale_tax_id'] ?? $productPayload['product_tax'] ?? null;
+
+        return $payloadTaxId ? (int) $payloadTaxId : null;
+    }
+
+    private function resolvePreferredPkpAutoTaxId(?int $productId = null, ?array $productPayload = null): ?int
+    {
+        if ($this->cart_instance !== 'sale' || ! $this->isPkp) {
+            return null;
+        }
+
+        if ($productId) {
+            $taxId = $this->resolveProductSaleTaxIdForProduct($productId, $productPayload);
+            if ($taxId) {
+                return $taxId;
+            }
+        }
+
+        return $this->resolveDefaultTaxId();
+    }
+
+    public function render(): Factory|Application|View|\Illuminate\Contracts\Foundation\Application
+    {
+        $cart_items = Cart::instance($this->cart_instance)->content();
+
+        Log::info('render', [
+            'cart' => $cart_items->toArray(),
+        ]);
+        // Initialize totals
+        $grand_total_before_tax = 0;
+        $product_tax_amount = 0;
+        $total_sub_total = 0;
+
+        foreach ($cart_items as $item) {
+            $grand_total_before_tax += $item->options->sub_total_before_tax ?? 0;
+            $sub_total = $item->options->sub_total ?? 0;
+            $sub_total_before_tax = $item->options->sub_total_before_tax ?? 0;
+
+            // Calculate the tax amount for the item
+            $product_tax_amount += ($sub_total - $sub_total_before_tax);
+            $total_sub_total += $sub_total;
+        }
+
+        $raw = $this->global_discount;
+        $this->global_discount = is_numeric($raw) ? (float) $raw : 0;
+
+        // Calculate global discount amount
+        if ($this->global_discount_type == 'percentage') {
+            $global_discount_amount = $total_sub_total * ($this->global_discount / 100);
+        } else {
+            $global_discount_amount = $this->global_discount;
+        }
+
+        // Apply discount and shipping to calculate grand total
+        $grand_total = ($total_sub_total - $global_discount_amount) + (float)$this->shipping;
+
+        // Log the final totals for debugging
+        Log::info('Final totals calculated', [
+            'product_tax_amount' => $product_tax_amount,
+            'grand_total' => $grand_total,
+            'total_sub_total' => $total_sub_total,
+            'global_discount' => $this->global_discount,
+            'global_discount_amount' => $global_discount_amount,
+            'shipping' => $this->shipping,
+            'discountType' => $this->discount_type,
+            'quantity' => $this->quantity,
+            'customer_id' => $this->customerId,
+        ]);
+
+        return view('livewire.sale.product-cart', [
+            'cart_items' => $cart_items,
+            'grand_total' => $grand_total,
+            'taxes' => $this->taxes,
+            'product_tax_total' => $product_tax_amount,
+            'grand_total_before_tax' => $grand_total_before_tax,
+            'total_sub_total' => $total_sub_total,
+            'global_discount_amount' => $global_discount_amount,
+            'customer_id' => $this->customerId,
+        ]);
+    }
+
+    public function customerSelected($customer): void
+    {
+        if (is_object($customer) && method_exists($customer, 'toArray')) {
+            $customer = $customer->toArray();
+        } elseif (!is_array($customer)) {
+            $customerModel = Customer::find(is_numeric($customer) ? (int) $customer : null);
+
+            if (! $customerModel) {
+                Log::warning('customerSelected received invalid payload', ['customer' => $customer]);
+                return;
+            }
+
+            $customer = [
+                'id' => $customerModel->id,
+                'tier' => $customerModel->tier,
+                'payment_term_id' => $customerModel->payment_term_id,
+                'contact_name' => $customerModel->contact_name,
+                'customer_name' => $customerModel->customer_name,
+            ];
+        }
+
+        if (! isset($customer['id'])) {
+            Log::warning('customerSelected payload missing id', ['customer' => $customer]);
+            return;
+        }
+
+        $this->customer = $customer;
+        $this->customerId = $customer['id'];
+
+        $cart = Cart::instance($this->cart_instance);
+        $cart_items = $cart->content();
+
+        if ($cart_items->isNotEmpty()) {
+            $this->repriceAutomaticLinesForCustomer();
+            $this->recalculateCart();
+        }
+    }
+
+    public function productSelected($product): void
+    {
+        Log::info('Product Selected:', $product);
+
+        $settingId = (int) ($this->settingId ?? $this->selectedSettingId ?? session('setting_id'));
+        $bundles = \App\Support\ProductBundleResolver::forProduct((int) $product['id'], $settingId);
+
+        if ($bundles->isNotEmpty()) {
+            $this->pendingProduct = $product;
+            $this->bundleOptions = $bundles;
+            // Dispatch event to open the bundle selection modal.
+            $this->dispatch('showBundleSelectionModal', $this->pendingProduct, $this->bundleOptions);
+            return;
+        }
+
+        $this->addProduct($product);
+    }
+
+    public function addProduct($product): string {
+
+        $cart = Cart::instance($this->cart_instance);
+
+        $stockData = ProductStock::where('product_id', $product['id'])
+            ->selectRaw('SUM(quantity_non_tax) as quantity_non_tax, SUM(quantity_tax) as quantity_tax')
+            ->first();
+
+        [$unitPrice, $resolvedPrices, $breakdown, $priceRowExists] = $this->resolveAutomaticLinePrice((int) $product['id'], 1);
+
+        if (!$priceRowExists) {
+            $settingName = Setting::whereKey($this->settingId)->value('company_name') ?? "Business #{$this->settingId}";
+            $productName = $product['product_name'] ?? "Product #{$product['id']}";
+            session()->flash('message', "Produk '{$productName}' tidak memiliki harga yang dikonfigurasi untuk {$settingName}. Unit price diatur ke 0.");
+        }
+
+        $defaultTaxId = $this->resolvePreferredPkpAutoTaxId((int) ($product['id'] ?? 0), $product);
+        $taxCalculation = $this->calculateSubtotalAndTax(
+            $unitPrice,
+            1,
+            0,
+            $defaultTaxId
+        );
+
+        $cartItem = $cart->add([
+            'id' => Str::uuid()->toString(),
+            'name' => $product['product_name'],
+            'qty' => 1,
+            'price' => $unitPrice,
+            'weight' => 1,
+            'options' => [
+                'product_id' => $product['id'],
+                'product_discount' => 0.00,
+                'product_discount_type' => 'fixed',
+                'sub_total' => $taxCalculation['sub_total'],
+                \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
+                'sub_total_before_tax' => $taxCalculation['subtotal_before_tax'],
+                'product_tax_amount' => $taxCalculation['tax_amount'],
+                'code' => $product['product_code'],
+                'stock' => $product['product_quantity'],
+                'unit' => $product['product_unit'],
+                'product_tax' => $defaultTaxId,
+                'unit_price' => $unitPrice,
+                'sale_price' => $resolvedPrices['sale_price'] ?? 0,
+                'tier_1_price' => $resolvedPrices['tier_1_price'] ?? 0,
+                'tier_2_price' => $resolvedPrices['tier_2_price'] ?? 0,
+                'quantity_non_tax' => $stockData->quantity_non_tax ?? 0,
+                'quantity_tax' => $stockData->quantity_tax ?? 0,
+                'pricing_source' => 'automatic',
+            ]
+        ]);
+
+        $this->initializeCartItemAttributes($cartItem);
+        $this->quantityBreakdowns[$cartItem->id] = $this->calculateConversionBreakdown(
+            $product['id'],
+            $this->quantity[$cartItem->id] ?? $cartItem->qty
+        );
+
+        return $cartItem->rowId;
+    }
+
+    private function calculateCascadingPrice(int $productId, int $quantity, float $defaultUnitPrice): array
+    {
+        if ($quantity < 1) {
+            return ['price' => $defaultUnitPrice, 'breakdown' => ''];
+        }
+
+        $settingId = $this->settingId;
+        if (!$settingId) {
+            $settingId = (int) session('setting_id');
+            if ($settingId) {
+                $this->settingId = $settingId;
+            }
+        }
+
+        $conversions = ProductUnitConversion::query()
+            ->where('product_id', $productId)
+            ->with(['prices', 'unit'])
+            ->orderByDesc('conversion_factor')
+            ->get();
+
+        $totalCost = 0;
+        $remainingQty = $quantity;
+        $usedQty = 0;
+        $breakdownParts = [];
+
+        foreach ($conversions as $conv) {
+            $factor = (float) $conv->conversion_factor;
+
+            if ($factor < 1) {
+                continue;
+            }
+
+            $conversionPrice = $settingId ? $conv->priceForSetting($settingId) : null;
+            $price = $conversionPrice ? (float) $conversionPrice->price : null;
+
+            if ($price === null) {
+                continue;
+            }
+
+            if ($settingId && !$conv->isSalesEnabledForSetting($settingId)) {
+                continue;
+            }
+
+            $unitCount = floor($remainingQty / $factor);
+            if ($unitCount > 0) {
+                $totalCost += $unitCount * $price;
+                $usedQty += $unitCount * $factor;
+                $remainingQty -= $unitCount * $factor;
+
+                $unitLabel = optional($conv->unit)->name ?? 'unit';
+                $breakdownParts[] = "{$unitCount} {$unitLabel}(s) @ " . number_format($price, 0);
+            }
+        }
+
+        if ($remainingQty > 0) {
+            $totalCost += $remainingQty * $defaultUnitPrice;
+            $usedQty += $remainingQty;
+            $breakdownParts[] = "{$remainingQty} pcs @ " . number_format($defaultUnitPrice, 0);
+        }
+
+        $avgPrice = $usedQty > 0 ? round($totalCost / $usedQty, 2) : $defaultUnitPrice;
+
+        return [
+            'price' => $avgPrice,
+            'breakdown' => implode(' + ', $breakdownParts),
+        ];
+    }
+
+    /**
+     * Resolve a cart item by rowId, falling back to stable ID (UUID).
+     * This ensures synchronization if rowId has changed due to options updates.
+     */
+    private function resolveCartItem(string $rowId, ?string $stableId = null)
+    {
+        $cart = Cart::instance($this->cart_instance);
+        $item = $cart->content()->get($rowId);
+
+        if (!$item && $stableId) {
+            $item = $cart->content()->firstWhere('id', $stableId);
+        }
+
+        return $item;
+    }
+
+    public function viewBundleDetails($rowId, $id = null): void
+    {
+        $cartItem = $this->resolveCartItem($rowId, $id);
+
+        if ($cartItem && $cartItem->options->bundle_items) {
+            $this->selectedBundle = [
+                'name' => $cartItem->options->bundle_name ?? 'Packaged Items',
+                'price' => $cartItem->options->bundle_price ?? 0,
+                'items' => $cartItem->options->bundle_items
+            ];
+
+            $this->dispatch('open-bundle-modal');
+        }
+    }
+
+    public function confirmBundleSelection($bundleId): void
+    {
+        $cart = Cart::instance($this->cart_instance);
+        $settingId = (int) ($this->settingId ?? $this->selectedSettingId ?? session('setting_id'));
+        $parentProductId = $this->pendingProduct ? (int) ($this->pendingProduct['id'] ?? 0) : null;
+
+        $bundle = ProductBundle::with('items.product')->find($bundleId);
+
+        if (!$bundle) {
+            session()->flash('message', 'Invalid bundle selected.');
+            return;
+        }
+
+        if ($settingId <= 0 && $bundle->setting_id) {
+            $settingId = (int) $bundle->setting_id;
+        }
+
+        $evaluator = app(\Modules\Product\Services\BundleLifecycle\ProductBundleLifecycleEvaluator::class);
+        $evalResult = $evaluator->evaluateForSelection($bundle, $settingId, $parentProductId);
+        if (! $evalResult->isEligible) {
+            session()->flash('message', $evalResult->primaryMessage() ?? 'Paket tidak memenuhi syarat operasional.');
+            return;
+        }
+
+        $selectedBundleItems = [];
+
+        // Task 1.1 & 1.2: Use bundle_sale_price as the authoritative bundle price.
+        // Legacy add-on pricing (bundle->price) is no longer used for Sales totals.
+        $bundleTotal = 0.0;
+
+        foreach ($bundle->items as $bundleItem) {
+            // For create flow we do not use individual bundle item prices for
+            // the cart row. We still keep item records (name, qty) but set
+            // their displayed/used price to 0 so the bundle price alone
+            // represents the package value.
+            $initialQuantity = (int) $bundleItem->quantity;
+
+            // Task 1.4: Bundle components are non-billable (price/subtotal 0).
+            // Task 4.2: We include informational_item_price for UI context.
+            $selectedBundleItems[] = [
+                'bundle_id'                => $bundle->id,
+                'bundle_item_id'           => $bundleItem->id,
+                'product_id'               => $bundleItem->product->id,
+                'name'                     => $bundleItem->product->product_name,
+                // price intentionally 0 to avoid double-counting
+                'price'                    => 0.0,
+                'quantity'                 => $initialQuantity,
+                'quantity_per_bundle'      => $initialQuantity,
+                'sub_total'                => 0.0,
+                'informational_item_price' => (float) ($bundleItem->informational_item_price ?? 0),
+            ];
+        }
+
+        $bundleTotal = round($bundleTotal, 2);
+
+        if ($this->pendingProduct) {
+            $stockData = ProductStock::where('product_id', $this->pendingProduct['id'])
+                ->selectRaw('SUM(quantity_non_tax) as quantity_non_tax, SUM(quantity_tax) as quantity_tax')
+                ->first();
+
+            // Use the parent product's display/unit price for the cart row so
+            // the Harga Jual column shows the product price (e.g., 5,500,000).
+            // Keep the bundle price stored in options (bundle_price) and keep
+            // the combined subtotal (parent + bundle) in options->sub_total.
+            $parentCalculated = $this->calculate($this->pendingProduct);
+            $parentResolved = $parentCalculated['resolved_prices'] ?? $this->resolveProductPricing($this->pendingProduct);
+
+            // Task 1.1: Initialize parent row price from bundle_sale_price if set.
+            $parentUnitPrice = $bundle->bundle_sale_price !== null
+                ? (float) $bundle->bundle_sale_price
+                : ($parentCalculated['unit_price'] ?? $parentCalculated['price'] ?? 0.0);
+
+            $defaultTaxId = $this->resolvePreferredPkpAutoTaxId((int) ($this->pendingProduct['id'] ?? 0), $this->pendingProduct);
+            $parentTaxCalculation = $this->calculateSubtotalAndTax(
+                $parentUnitPrice,
+                1,
+                0,
+                $defaultTaxId
+            );
+            $combinedSubTotal = $parentTaxCalculation['sub_total'] + $bundleTotal;
+            $combinedSubTotalBeforeTax = $parentTaxCalculation['subtotal_before_tax'] + $bundleTotal;
+
+            $cartItem = $cart->add([
+                'id' => Str::uuid()->toString(),
+                'name' => $this->pendingProduct['product_name'],
+                'qty' => 1,
+                'price' => $parentUnitPrice,
+                'weight' => 1,
+                'options' => [
+                    'product_id' => $this->pendingProduct['id'],
+                    'product_discount' => 0.00,
+                    'product_discount_type' => 'fixed',
+                    'sub_total' => $combinedSubTotal,
+                    \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
+                    'sub_total_before_tax' => $combinedSubTotalBeforeTax,
+                    'product_tax_amount' => $parentTaxCalculation['tax_amount'],
+                    'code' => $this->pendingProduct['product_code'],
+                    'stock' => $this->pendingProduct['product_quantity'],
+                    'unit' => $this->pendingProduct['product_unit'],
+                    'product_tax' => $defaultTaxId,
+                    'unit_price' => $parentUnitPrice,
+                    'sale_price' => $parentResolved['sale_price'] ?? 0,
+                    'tier_1_price' => $parentResolved['tier_1_price'] ?? 0,
+                    'tier_2_price' => $parentResolved['tier_2_price'] ?? 0,
+                    'quantity_non_tax' => $stockData->quantity_non_tax ?? 0,
+                    'quantity_tax' => $stockData->quantity_tax ?? 0,
+                    'bundle_price' => $bundleTotal,
+                    'bundle_items' => $selectedBundleItems,
+                    'bundle_name' => $bundle->name,
+                    // Task 1.3: Add metadata to detect bundled rows in recalculation paths.
+                    'is_bundled_row' => true,
+                    'bundle_id' => $bundle->id,
+                    'pricing_source' => 'automatic',
+                ]
+            ]);
+
+            $this->initializeCartItemAttributes($cartItem);
+
+            session()->flash('message', 'Bundle items added successfully.');
+            $this->pendingProduct = null;
+            $this->bundleOptions = [];
+        }
+
+        Log::info('Cart content after confirmBundleSelection:', [
+            'cart' => $cart->content()->toArray()
+        ]);
+    }
+
+    public function proceedWithoutBundle(): void
+    {
+        if ($this->pendingProduct) {
+            $this->addProduct($this->pendingProduct);
+            $this->pendingProduct = null;
+            $this->bundleOptions = [];
+            session()->flash('message', 'Produk diproses tanpa bundle.');
+        }
+    }
+
+    private function calculateConversionBreakdown(int $productId, int $quantity): string
+    {
+        if ($quantity < 1) {
+            return '';
+        }
+
+        $conversions = ProductUnitConversion::with(['unit', 'baseUnit'])
+            ->where('product_id', $productId)
+            ->orderByDesc('conversion_factor')
+            ->get();
+
+        $parts = [];
+        $remaining = $quantity;
+
+        foreach ($conversions as $conv) {
+            $factor = (int) $conv->conversion_factor;
+            if ($factor < 1) {
+                continue;
+            }
+            $count = intdiv($remaining, $factor);
+            if ($count > 0) {
+                $unitName = optional($conv->unit)->name ?? "unit";
+                $parts[] = "{$count} {$unitName}";
+                $remaining -= $count * $factor;
+            }
+        }
+
+        if ($remaining > 0) {
+            $baseUnitId = $conversions->first()->base_unit_id ?? null;
+            $baseName   = optional(Unit::find($baseUnitId))->name ?? "pc";
+            $parts[]    = "{$remaining} {$baseName}";
+        }
+
+        return implode(', ', $parts);
+    }
+
+    public function removeItem($row_id, $id = null)
+    {
+        $cart_item = $this->resolveCartItem($row_id, $id);
+        if (!$cart_item) return;
+
+        Cart::instance($this->cart_instance)->remove($cart_item->rowId);
+        unset($this->quantity[$cart_item->id]);
+        unset($this->unit_price[$cart_item->id]);
+        unset($this->item_discount[$cart_item->id]);
+        unset($this->product_tax[$cart_item->id]);
+    }
+
+    public function updatedGlobalTax()
+    {
+        // Recalculate when global tax changes
+        // Ensure that the new global tax is applied
+        $this->render();
+    }
+
+    public function updatedGlobalDiscount()
+    {
+        $this->render();
+    }
+
+    public function updateQuantity($row_id, $id)
+    {
+        Log::info('called', [
+            'row_id' => $row_id,
+            'id' => $id
+        ]);
+
+        if (($this->quantity[$id] ?? 0) <= 0) {
+            $this->quantity[$id] = 1;
+            session()->flash('message', 'Jumlah barang dipesan minimal 1!');
+            return;
+        }
+
+        $cart_item = $this->resolveCartItem($row_id, $id);
+        if (!$cart_item) return;
+
+        $row_id = $cart_item->rowId; // Sync to current rowId
+
+        // Task 2.2: Bypassing cascading quantity repricing for bundled rows.
+        if (!($cart_item->options->is_bundled_row ?? false) && !in_array($this->customer['tier'] ?? '', ['WHOLESALER', 'RESELLER'])) {
+            $productId = $cart_item->options->product_id;
+            $qty = $this->quantity[$id] ?? $cart_item->qty;
+
+            // 🚨 Get the true base price, not from $this->unit_price!
+            $defaultUnitPrice = $cart_item->options->sale_price
+                ?? $cart_item->options->unit_price
+                ?? $cart_item->price
+                ?? 0;
+
+            $cascadedResult = $this->calculateCascadingPrice($productId, $qty, $defaultUnitPrice);
+            $this->unit_price[$cart_item->id] = $cascadedResult['price'];
+            $this->priceBreakdowns[$cart_item->id] = $cascadedResult['breakdown'];
+            $cart_item->price = $this->unit_price[$id];
+        } else {
+            $this->priceBreakdowns[$cart_item->id] = ''; // Clear if not cascading
+        }
+
+        // Recalculate subtotal and tax
+        $calculated = $this->calculateSubtotalAndTax(
+            $this->unit_price[$id] ?? $cart_item->price,
+            $this->quantity[$id] ?? 0,
+            $cart_item->options->product_discount ?? 0,
+            $this->syncProductTaxState($cart_item),
+            (string) ($cart_item->options->pricing_source ?? 'automatic')
+        );
+
+        [$updatedBundleItems, $bundleTotal] = $this->recalculateBundleItems(
+            $cart_item->options->bundle_items ?? [],
+            (int) ($this->quantity[$id] ?? 0),
+            (int) $cart_item->qty
+        );
+
+        // Update cart item totals
+        $newSubTotal = $calculated['sub_total'] + $bundleTotal;
+        $newSubTotalBeforeTax = $calculated['subtotal_before_tax'] + $bundleTotal;
+
+        $updatedOptions = array_merge($cart_item->options->toArray(), [
+            'sub_total' => $newSubTotal,
+            \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
+            'sub_total_before_tax' => $newSubTotalBeforeTax,
+            'product_tax_amount' => $calculated['tax_amount'],
+            'bundle_items' => $updatedBundleItems,
+            'bundle_price' => $bundleTotal,
+        ]);
+
+        if (!isset($updatedOptions['pricing_source'])) {
+            $updatedOptions['pricing_source'] = 'automatic';
+        }
+
+        Cart::instance($this->cart_instance)->update($row_id, [
+            'qty' => $this->quantity[$id],
+            'options' => $updatedOptions,
+        ]);
+
+        $this->quantityBreakdowns[$id] = $this->calculateConversionBreakdown(
+            $cart_item->options->product_id,
+            $this->quantity[$id]
+        );
+
+        $this->recalculateCart();
+    }
+
+
+    /**
+     * Calculate subtotal and tax for a cart item.
+     *
+     * @param float $price Per unit price
+     * @param int $qty Quantity
+     * @param float $discount Per unit discount
+     * @param int|null $tax_id Tax ID
+     * @return array
+     */
+    private function calculateSubtotalAndTax($price, $qty, $discount = 0, $tax_id = null, string $pricingSource = 'automatic')
+    {
+        // Validate inputs
+        $price = max(0, (float) $price);
+        $qty = max(1, (int) $qty);
+        $discount = max(0.0, (float) $discount);
+        $tax_id = ($this->cart_instance === 'sale' && ! $this->isPkp) ? null : $tax_id;
+
+        $effective_price = max(0.0, $price - $discount);
+
+        // Initialize variables
+        $tax_amount = 0;
+
+        if ($this->is_tax_included) {
+            // Case: Tax is included in the price
+            if ($tax_id) {
+                $tax = Tax::find($tax_id);
+                if ($tax) {
+                    // Calculate price excluding tax
+                    $price_ex_tax = $effective_price / (1 + $tax->value / 100);
+                    $tax_amount_per_unit = $effective_price - $price_ex_tax;
+                    $tax_amount = $tax_amount_per_unit * $qty;
+                    $subtotal_before_tax = $price_ex_tax * $qty;
+                    Log::info('Tax included - Price ex tax and tax amount per unit calculated', [
+                        'price_ex_tax' => $price_ex_tax,
+                        'tax_amount_per_unit' => $tax_amount_per_unit,
+                    ]);
+                } else {
+                    Log::warning("Invalid tax ID provided", ['tax_id' => $tax_id]);
+                    // No tax applied, discount only
+                    $subtotal_before_tax = $effective_price * $qty;
+                }
+            } else {
+                // No tax applied
+                $subtotal_before_tax = $effective_price * $qty;
+            }
+        } else {
+            // Case: Tax is not included in the price
+            $subtotal_before_tax = $effective_price * $qty;
+
+            if ($tax_id) {
+                $tax = Tax::find($tax_id);
+                if ($tax) {
+                    // Calculate tax on subtotal before tax
+                    $tax_amount = $subtotal_before_tax * ($tax->value / 100);
+                } else {
+                    Log::warning("Invalid tax ID provided", ['tax_id' => $tax_id]);
+                }
+            }
+        }
+
+        $raw_subtotal = round($subtotal_before_tax + $tax_amount, 2);
+
+        // Apply automatic row-total rounding ONLY if pricing source is automatic
+        $isManuallyPriced = in_array($pricingSource, ['manual_unit_price', 'manual_line_total']);
+        if (!$isManuallyPriced) {
+            $settingIncrement = (float) (Setting::query()->whereKey((int) ($this->settingId ?: session('setting_id')))->value('row_total_rounding_increment') ?? 100.00);
+            $rounded_subtotal = \App\Support\RowTotalRoundingCalculator::round($raw_subtotal, $settingIncrement);
+        } else {
+            $rounded_subtotal = $raw_subtotal;
+        }
+
+        if ($this->is_tax_included && $tax_id && isset($tax)) {
+            // Reallocate pre-tax subtotal and tax from rounded tax-inclusive total
+            $price_ex_tax = $rounded_subtotal / (1 + $tax->value / 100);
+            $subtotal_before_tax = round($price_ex_tax, 2);
+            $tax_amount = round($rounded_subtotal - $subtotal_before_tax, 2);
+        } elseif (!$this->is_tax_included && $tax_id && isset($tax)) {
+            // Tax-exclusive mode: rounded tax-inclusive total is authoritative
+            $subtotal_before_tax = round($rounded_subtotal / (1 + $tax->value / 100), 2);
+            $tax_amount = round($rounded_subtotal - $subtotal_before_tax, 2);
+        } else {
+            $subtotal_before_tax = $rounded_subtotal;
+            $tax_amount = 0;
+        }
+
+        // Return recalculated values
+        return [
+            'sub_total' => $rounded_subtotal, // Total with tax (rounded if automatic)
+            'tax_amount' => $tax_amount,       // Tax amount
+            'subtotal_before_tax' => $subtotal_before_tax,    // Total without tax
+        ];
+    }
+
+    private function allocateTaxFromAuthoritativeTotal(float $committedTotal, ?int $taxId): array
+    {
+        if ($this->cart_instance === 'sale' && !$this->isPkp) {
+            $taxId = null;
+        }
+
+        $taxRate = 0;
+        if ($taxId) {
+            $tax = Tax::find($taxId);
+            if ($tax) {
+                $taxRate = $tax->value / 100;
+            }
+        }
+
+        $committedTotal = round($committedTotal, 2);
+
+        if (!$taxId || $taxRate == 0) {
+            return [
+                'sub_total' => $committedTotal,
+                'subtotal_before_tax' => $committedTotal,
+                'tax_amount' => 0.0,
+            ];
+        }
+
+        if ($this->is_tax_included) {
+            $subtotal_before_tax = round($committedTotal / (1 + $taxRate), 2);
+            $tax_amount = $committedTotal - $subtotal_before_tax;
+        } else {
+            $subtotal_before_tax = round($committedTotal / (1 + $taxRate), 2);
+            $tax_amount = $committedTotal - $subtotal_before_tax;
+        }
+
+        return [
+            'sub_total' => $committedTotal,
+            'subtotal_before_tax' => $subtotal_before_tax,
+            'tax_amount' => $tax_amount,
+        ];
+    }
+
+    /**
+     * Recalculate bundle item quantities and totals based on the parent quantity.
+     *
+     * @param  iterable<int, array<string, mixed>>|array<string, mixed>|null  $bundleItems
+     * @param  int  $newParentQuantity
+     * @param  int|null  $previousParentQuantity
+     * @return array{0: array<int, array<string, mixed>>, 1: float}
+     */
+    private function recalculateBundleItems($bundleItems, int $newParentQuantity, ?int $previousParentQuantity = null): array
+    {
+        if ($bundleItems instanceof \Illuminate\Support\Collection) {
+            $bundleItems = $bundleItems->toArray();
+        } elseif ($bundleItems === null) {
+            $bundleItems = [];
+        } elseif (! is_array($bundleItems)) {
+            $bundleItems = (array) $bundleItems;
+        }
+
+        $updatedItems = [];
+        $bundleTotal = 0.0;
+        $newParentQuantity = max(0, $newParentQuantity);
+        $previousParentQuantity = max(1, $previousParentQuantity ?? $newParentQuantity ?: 1);
+
+        foreach ($bundleItems as $bundleItem) {
+            $bundleItem = is_array($bundleItem) ? $bundleItem : (array) $bundleItem;
+
+            $baseQuantity = $bundleItem['quantity_per_bundle'] ?? null;
+            if ($baseQuantity === null) {
+                $existingQuantity = isset($bundleItem['quantity']) ? (float) $bundleItem['quantity'] : 0.0;
+                $baseQuantity = $previousParentQuantity > 0
+                    ? $existingQuantity / $previousParentQuantity
+                    : $existingQuantity;
+            }
+
+            $baseQuantity = max(0.0, (float) $baseQuantity);
+            $price = isset($bundleItem['price']) ? (float) $bundleItem['price'] : 0.0;
+
+            $computedQuantity = $baseQuantity * $newParentQuantity;
+            $computedQuantity = (int) round($computedQuantity);
+            $subTotal = round($price * $computedQuantity, 2);
+
+            $bundleItem['price'] = $price;
+            $bundleItem['quantity_per_bundle'] = round($baseQuantity, 4);
+            $bundleItem['quantity'] = $computedQuantity;
+            $bundleItem['sub_total'] = $subTotal;
+
+            $updatedItems[] = $bundleItem;
+            $bundleTotal += $subTotal;
+        }
+
+        return [$updatedItems, round($bundleTotal, 2)];
+    }
+
+    public function updatedDiscountType($value, $name)
+    {
+        $this->item_discount[$name] = 0;
+    }
+
+    public function discountModalRefresh($id, $row_id)
+    {
+        $this->updateQuantity($row_id, $id);
+    }
+
+    public function setDiscountType($row_id, $id, $discount_type): void
+    {
+        $this->discount_type[$id] = $discount_type;
+        $this->setProductDiscount($row_id, $id);
+    }
+
+    public function setProductDiscount($row_id, $product_id): void
+    {
+        $cart_item = $this->resolveCartItem($row_id, $product_id);
+        if (!$cart_item) return;
+
+        $row_id = $cart_item->rowId; // Sync to current rowId
+
+        $unit_price = $this->unit_price[$product_id] ?? $cart_item->price;
+        $quantity = $cart_item->qty;
+
+        $raw_input = $this->item_discount[$product_id] ?? 0;
+        $input = is_numeric($raw_input) ? (float) $raw_input : 0;
+
+        $discount_amount = 0;
+
+        if ($this->discount_type[$product_id] === 'percentage') {
+            if ($input > 100) {
+                $input = 100;
+                $this->item_discount[$product_id] = 100;
+                session()->flash('message', 'Diskon tidak boleh lebih dari 100%');
+            } elseif ($input < 0) {
+                $input = 0;
+                $this->item_discount[$product_id] = 0;
+                session()->flash('message', 'Diskon tidak boleh kurang dari 0%');
+            }
+
+            $discount_amount = $unit_price * ($input / 100);
+        } else { // fixed
+            if ($input > $unit_price) {
+                $input = $unit_price;
+                $this->item_discount[$product_id] = $unit_price;
+                session()->flash('message', 'Diskon tidak boleh lebih besar dari harga satuan!');
+            } elseif ($input < 0) {
+                $input = 0;
+                $this->item_discount[$product_id] = 0;
+                session()->flash('message', 'Diskon tidak boleh kurang dari 0!');
+            }
+
+            $discount_amount = $input;
+        }
+
+        $calculated = $this->calculateSubtotalAndTax(
+            $unit_price,
+            $quantity,
+            $discount_amount,
+            $this->syncProductTaxState($cart_item),
+            (string) ($cart_item->options->pricing_source ?? 'automatic')
+        );
+
+        [$updatedBundleItems, $bundleTotal] = $this->recalculateBundleItems(
+            $cart_item->options->bundle_items ?? [],
+            (int) $quantity,
+            (int) $quantity
+        );
+
+        $updatedOptions = array_merge($cart_item->options->toArray(), [
+            'sub_total' => $calculated['sub_total'] + $bundleTotal,
+            \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
+            'sub_total_before_tax' => $calculated['subtotal_before_tax'] + $bundleTotal,
+            'product_tax_amount' => $calculated['tax_amount'],
+            'product_discount' => $discount_amount,
+            'product_discount_type' => $this->discount_type[$product_id],
+            'bundle_items' => $updatedBundleItems,
+            'bundle_price' => $bundleTotal,
+        ]);
+
+        if (!isset($updatedOptions['pricing_source'])) {
+            $updatedOptions['pricing_source'] = 'automatic';
+        }
+
+        Cart::instance($this->cart_instance)->update($row_id, [
+            'unit_price' => $unit_price,
+            'options' => $updatedOptions,
+        ]);
+
+        $this->recalculateCart();
+        session()->flash('discount_message' . $product_id, 'Diskon berhasil diterapkan!');
+    }
+
+    public function updatePrice($row_id, $id)
+    {
+        $cart_item = $this->resolveCartItem($row_id, $id);
+        if (!$cart_item) return;
+
+        $row_id = $cart_item->rowId; // Sync to current rowId
+
+        // Get the new price (unit price)
+        $new_price = $this->unit_price[$id] ?? $cart_item->price;
+
+        // Determine discount amount
+        $discount_amount = $cart_item->options->product_discount;
+        $raw_discount_input = $this->item_discount[$id] ?? 0;
+        $sanitized_discount_input = is_numeric($raw_discount_input) ? (float)$raw_discount_input : 0;
+
+        if ($this->discount_type[$id] == 'percentage') {
+            $discount_amount = $new_price * ($sanitized_discount_input / 100);
+        }
+
+        // Recalculate totals
+        $calculated = $this->calculateSubtotalAndTax(
+            $new_price,
+            $cart_item->qty,
+            $discount_amount,
+            $this->syncProductTaxState($cart_item),
+            'manual_unit_price'
+        );
+
+        [$updatedBundleItems, $bundleTotal] = $this->recalculateBundleItems(
+            $cart_item->options->bundle_items ?? [],
+            (int) $cart_item->qty,
+            (int) $cart_item->qty
+        );
+
+        $newSubTotal = $calculated['sub_total'] + $bundleTotal;
+        $newSubTotalBeforeTax = $calculated['subtotal_before_tax'] + $bundleTotal;
+
+        Cart::instance($this->cart_instance)->update($row_id, [
+            'price' => $new_price,
+            'unit_price' => $new_price,
+            'options' => array_merge($cart_item->options->toArray(), [
+                'unit_price' => $new_price,
+                'sub_total' => $newSubTotal,
+                'sub_total_before_tax' => $newSubTotalBeforeTax,
+                'product_tax_amount' => $calculated['tax_amount'],
+                'product_discount' => $discount_amount,
+                'pricing_source' => 'manual_unit_price',
+                // Committed manual result: authoritative, never reconstructed.
+                \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => false,
+                'bundle_items' => $updatedBundleItems,
+                'bundle_price' => $bundleTotal,
+            ]),
+        ]);
+
+        // Update breakdown display if applicable
+        if (!empty($this->priceBreakdowns[$id])) {
+            $qty = $cart_item->qty;
+            $unitName = $cart_item->options->unit ?? 'unit';
+
+            $this->priceBreakdowns[$id] = "{$qty} {$unitName} @ " . number_format($new_price, 0);
+        }
+
+        $this->recalculateCart();
+    }
+
+    private function resolveProductPricing($product): array
+    {
+        $productId = 0;
+
+        if ($product instanceof Product) {
+            $productId = (int) $product->getKey();
+        } else {
+            $productId = (int) data_get($product, 'id', data_get($product, 'product_id', 0));
+        }
+
+        $saleFallback = (float) data_get($product, 'sale_price', data_get($product, 'product_price', 0)) ?: 0.0;
+        $tier1Fallback = (float) data_get($product, 'tier_1_price', $saleFallback);
+        $tier2Fallback = (float) data_get($product, 'tier_2_price', $saleFallback);
+
+        $priceRow = null;
+        $settingId = $this->settingId ?: (int) session('setting_id');
+
+        if (!$this->settingId && $settingId) {
+            $this->settingId = $settingId;
+        }
+
+        if ($productId > 0 && $settingId) {
+            $priceRow = ProductPrice::query()
+                ->forProduct($productId)
+                ->forSetting((int) $settingId)
+                ->first();
+        }
+
+        return [
+            'product_id' => $productId,
+            'sale_price' => (float) ($priceRow?->sale_price ?? $saleFallback ?? 0),
+            'tier_1_price' => (float) ($priceRow?->tier_1_price ?? $tier1Fallback ?? $saleFallback ?? 0),
+            'tier_2_price' => (float) ($priceRow?->tier_2_price ?? $tier2Fallback ?? $saleFallback ?? 0),
+        ];
+    }
+
+    private function repriceAutomaticLinesForCustomer(): void
+    {
+        $cart = Cart::instance($this->cart_instance);
+        $cart_items = $cart->content();
+
+        foreach ($cart_items as $cart_item) {
+            $pricingSource = $cart_item->options->pricing_source ?? 'automatic';
+            $isManuallyPriced = in_array($pricingSource, ['manual_unit_price', 'manual_line_total']);
+            $isBundledRow = $cart_item->options->is_bundled_row ?? false;
+
+            if ($isManuallyPriced || $isBundledRow) {
+                continue;
+            }
+
+            $this->repriceAutomaticLine($cart_item);
+        }
+    }
+
+    private function repriceAutomaticLine($cart_item): void
+    {
+        $cart = Cart::instance($this->cart_instance);
+        $productId = (int) ($cart_item->options->product_id ?? 0);
+        $qty = $this->quantity[$cart_item->id] ?? $cart_item->qty;
+
+        [$unitPrice, $resolvedPrices, $breakdown, $priceRowExists] = $this->resolveAutomaticLinePrice($productId, $qty);
+
+        $this->unit_price[$cart_item->id] = $unitPrice;
+        $this->priceBreakdowns[$cart_item->id] = $breakdown;
+
+        $calculated = $this->calculateSubtotalAndTax(
+            $unitPrice,
+            $cart_item->qty,
+            $cart_item->options->product_discount ?? 0,
+            $this->syncProductTaxState($cart_item),
+            (string) ($cart_item->options->pricing_source ?? 'automatic')
+        );
+
+        [$updatedBundleItems, $bundleTotal] = $this->recalculateBundleItems(
+            $cart_item->options->bundle_items ?? [],
+            (int) $cart_item->qty,
+            (int) $cart_item->qty
+        );
+
+        $newSubTotal = $calculated['sub_total'] + $bundleTotal;
+        $newSubTotalBeforeTax = $calculated['subtotal_before_tax'] + $bundleTotal;
+
+        $cart->update($cart_item->rowId, [
+            'price' => $unitPrice,
+            'unit_price' => $unitPrice,
+            'options' => array_merge($cart_item->options->toArray(), [
+                'unit_price' => $unitPrice,
+                'sub_total' => $newSubTotal,
+                \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
+                'sub_total_before_tax' => $newSubTotalBeforeTax,
+                'product_tax_amount' => $calculated['tax_amount'],
+                'sale_price' => $resolvedPrices['sale_price'],
+                'tier_1_price' => $resolvedPrices['tier_1_price'],
+                'tier_2_price' => $resolvedPrices['tier_2_price'],
+                'bundle_items' => $updatedBundleItems,
+                'bundle_price' => $bundleTotal,
+            ]),
+        ]);
+    }
+
+    /**
+     * Resolve automatic line price for a product.
+     * Returns: [unitPrice, resolvedPrices, breakdown, priceRowExists]
+     * where priceRowExists is boolean indicating if ProductPrice row was found.
+     */
+    private function resolveAutomaticLinePrice(int $productId, int $quantity): array
+    {
+        $settingId = $this->settingId ?: (int) session('setting_id');
+        if (!$this->settingId && $settingId) {
+            $this->settingId = $settingId;
+        }
+
+        $priceRow = null;
+        if ($productId > 0 && $settingId) {
+            $priceRow = ProductPrice::query()
+                ->forProduct($productId)
+                ->forSetting((int) $settingId)
+                ->first();
+        }
+
+        if (!$priceRow) {
+            return [0.0, ['sale_price' => 0.0, 'tier_1_price' => 0.0, 'tier_2_price' => 0.0], '', false];
+        }
+
+        $resolvedPrices = [
+            'sale_price' => (float) $priceRow->sale_price,
+            'tier_1_price' => (float) $priceRow->tier_1_price,
+            'tier_2_price' => (float) $priceRow->tier_2_price,
+        ];
+
+        $tier = $this->customer['tier'] ?? null;
+        $unitPrice = $this->determineTierPrice($resolvedPrices, $tier);
+
+        if (!in_array($tier, ['WHOLESALER', 'RESELLER'])) {
+            $cascadedResult = $this->calculateCascadingPrice($productId, $quantity, $unitPrice);
+            $unitPrice = $cascadedResult['price'];
+            $breakdown = $cascadedResult['breakdown'];
+        } else {
+            $breakdown = '';
+        }
+
+        return [$unitPrice, $resolvedPrices, $breakdown, true];
+    }
+
+    private function determineTierPrice(array $pricing, ?string $tier = null): float
+    {
+        $baseSalePrice = (float) ($pricing['sale_price'] ?? 0);
+        $tier = $tier ?? ($this->customer['tier'] ?? null);
+
+        if ($tier === 'WHOLESALER') {
+            $tierPrice = (float) ($pricing['tier_1_price'] ?? 0);
+            return $tierPrice > 0 ? $tierPrice : $baseSalePrice;
+        }
+
+        if ($tier === 'RESELLER') {
+            $tierPrice = (float) ($pricing['tier_2_price'] ?? 0);
+            return $tierPrice > 0 ? $tierPrice : $baseSalePrice;
+        }
+
+        return $baseSalePrice;
+    }
+
+    public function calculate($product, $new_price = null)
+    {
+        // Determine the base price
+        Log::info('from calculate:', [
+            'customer' => $this->customer,
+            'product' => $product,
+        ]);
+
+        $pricing = $this->resolveProductPricing($product);
+        $product_price = $new_price ?? $this->determineTierPrice($pricing);
+
+        $product_tax = 0;
+        $sub_total = (float) $product_price; // Start with base price as subtotal
+
+        return [
+            'price' => (float) $product_price,
+            'unit_price' => (float) $product_price,
+            'product_tax' => $product_tax,
+            'sub_total' => $sub_total,
+            'resolved_prices' => $pricing,
+        ];
+    }
+
+    public function updateCartOptions($row_id, $id, $cart_item, $discount_amount)
+    {
+        [$updatedBundleItems, $bundleTotal] = $this->recalculateBundleItems(
+            $cart_item->options->bundle_items ?? [],
+            (int) $cart_item->qty,
+            (int) $cart_item->qty
+        );
+
+        $parentSubTotal = $cart_item->price * $cart_item->qty;
+        $parentSubTotalBeforeTax = $cart_item->options->sub_total_before_tax
+            ?? $parentSubTotal;
+
+        Cart::instance($this->cart_instance)->update($row_id, ['options' => [
+            'sub_total' => $parentSubTotal + $bundleTotal,
+            \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
+            'sub_total_before_tax' => $parentSubTotalBeforeTax + $bundleTotal,
+            'code' => $cart_item->options->code,
+            'stock' => $cart_item->options->stock,
+            'unit' => $cart_item->options->unit,
+            'product_tax' => $cart_item->options->product_tax,
+            'unit_price' => $cart_item->options->unit_price,
+            'product_discount' => $discount_amount,
+            'product_discount_type' => $this->discount_type[$id],
+            'bundle_items' => $updatedBundleItems,
+            'bundle_price' => $bundleTotal,
+        ]]);
+    }
+
+    public function recalculateCart()
+    {
+        // Trigger a re-render to update totals
+        $this->render();
+    }
+
+    public function updateTax($row_id, $id, $selectedTaxId = null)
+    {
+        $cart_item = $this->resolveCartItem($row_id, $id);
+        if (! $cart_item) {
+            return;
+        }
+
+        $row_id = $cart_item->rowId; // Sync to current rowId
+
+        $tax_id = $this->normalizeTaxId($selectedTaxId);
+        $this->product_tax[$id] = $tax_id;
+        $tax_amount = 0;
+
+        if ($tax_id) {
+            $tax = Tax::find($tax_id);
+            if ($tax) {
+                Log::info('Tax applied', [
+                    'id' => $id,
+                    'tax_id' => $tax_id,
+                    'tax_value' => $tax->value,
+                ]);
+
+                $pricingSource = $cart_item->options->pricing_source ?? 'automatic';
+                $updated_cart_data = $this->calculateSubtotalAndTax(
+                    $cart_item->price,
+                    $cart_item->qty,
+                    $cart_item->options->product_discount ?? 0,
+                    $tax_id,
+                    $pricingSource
+                );
+
+                [$updatedBundleItems, $bundleTotal] = $this->recalculateBundleItems(
+                    $cart_item->options->bundle_items ?? [],
+                    (int) $cart_item->qty,
+                    (int) $cart_item->qty
+                );
+
+                $newSubTotal = $updated_cart_data['sub_total'] + $bundleTotal;
+                $newSubTotalBeforeTax = $updated_cart_data['subtotal_before_tax'] + $bundleTotal;
+
+                $updatedOptions = array_merge($cart_item->options->toArray(), [
+                    'product_tax' => $tax_id,
+                    'sub_total' => $newSubTotal,
+                    \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
+                    'sub_total_before_tax' => $newSubTotalBeforeTax,
+                    'product_tax_amount' => $updated_cart_data['tax_amount'],
+                    'bundle_items' => $updatedBundleItems,
+                    'bundle_price' => $bundleTotal,
+                ]);
+
+                if (!isset($updatedOptions['pricing_source'])) {
+                    $updatedOptions['pricing_source'] = 'automatic';
+                }
+
+                Cart::instance($this->cart_instance)->update($row_id, [
+                    'options' => $updatedOptions,
+                ]);
+
+                $this->recalculateCart();
+                Log::info('Tax updated successfully', [
+                    'row_id' => $row_id,
+                    'updated_cart_data' => $updated_cart_data,
+                ]);
+            } else {
+                Log::warning('Invalid tax ID provided', ['tax_id' => $tax_id]);
+                session()->flash('message', 'Invalid tax selected.');
+            }
+        } else {
+            $pricingSource = $cart_item->options->pricing_source ?? 'automatic';
+            $updated_cart_data = $this->calculateSubtotalAndTax(
+                $cart_item->price,
+                $cart_item->qty,
+                $cart_item->options->product_discount ?? 0,
+                $tax_id,
+                $pricingSource
+            );
+
+            [$updatedBundleItems, $bundleTotal] = $this->recalculateBundleItems(
+                $cart_item->options->bundle_items ?? [],
+                (int) $cart_item->qty,
+                (int) $cart_item->qty
+            );
+
+            $newSubTotal = $updated_cart_data['sub_total'] + $bundleTotal;
+            $newSubTotalBeforeTax = $updated_cart_data['subtotal_before_tax'] + $bundleTotal;
+
+            $updatedOptions = array_merge($cart_item->options->toArray(), [
+                'product_tax' => $tax_id,
+                'sub_total' => $newSubTotal,
+                \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
+                'sub_total_before_tax' => $newSubTotalBeforeTax,
+                'product_tax_amount' => $updated_cart_data['tax_amount'],
+                'bundle_items' => $updatedBundleItems,
+                'bundle_price' => $bundleTotal,
+            ]);
+
+            if (!isset($updatedOptions['pricing_source'])) {
+                $updatedOptions['pricing_source'] = 'automatic';
+            }
+
+            Cart::instance($this->cart_instance)->update($row_id, [
+                'options' => $updatedOptions,
+            ]);
+
+            $this->recalculateCart();
+            Log::warning('No tax ID provided for product', ['id' => $id]);
+        }
+    }
+
+    public function handleTaxIncluded()
+    {
+        $cart_items = Cart::instance($this->cart_instance)->content();
+
+        $this->dispatch('taxIncludedUpdated', (bool) $this->is_tax_included);
+
+        foreach ($cart_items as $cart_item) {
+            $row_id = $cart_item->rowId;
+
+            // Retrieve required data for calculations
+            $price = $cart_item->price;
+            $quantity = $cart_item->qty;
+            $discount = $cart_item->options->product_discount ?? 0;
+            $tax_id = $this->syncProductTaxState($cart_item);
+            $pricingSource = $cart_item->options->pricing_source ?? 'automatic';
+
+            // Calculate subtotal and tax for the parent product
+            $calculated = $this->calculateSubtotalAndTax($price, $quantity, $discount, $tax_id, $pricingSource);
+
+            [$updatedBundleItems, $bundleTotal] = $this->recalculateBundleItems(
+                $cart_item->options->bundle_items ?? [],
+                (int) $quantity,
+                (int) $quantity
+            );
+
+            $newSubTotal = $calculated['sub_total'] + $bundleTotal;
+            $newSubTotalBeforeTax = $calculated['subtotal_before_tax'] + $bundleTotal;
+
+            $updatedOptions = array_merge($cart_item->options->toArray(), [
+                'product_tax' => $tax_id,
+                'sub_total' => $newSubTotal,
+                \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
+                'sub_total_before_tax' => $newSubTotalBeforeTax,
+                'product_tax_amount' => $calculated['tax_amount'],
+                'bundle_items' => $updatedBundleItems,
+                'bundle_price' => $bundleTotal,
+            ]);
+
+            if (!isset($updatedOptions['pricing_source'])) {
+                $updatedOptions['pricing_source'] = 'automatic';
+            }
+
+            // Update the cart item with the new totals and bundle details
+            Cart::instance($this->cart_instance)->update($row_id, [
+                'options' => $updatedOptions,
+            ]);
+
+            Log::info('Updated cart item for tax inclusion', [
+                'row_id' => $row_id,
+                'sub_total' => $newSubTotal,
+                \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
+                'sub_total_before_tax' => $newSubTotalBeforeTax,
+                'tax_amount' => $calculated['tax_amount'],
+            ]);
+        }
+
+        // Recalculate cart totals
+        $this->recalculateCart();
+    }
+
+    public function setGlobalDiscountType($type): void
+    {
+        $this->global_discount_type = $type;
+        $this->dispatch('globalDiscountTypeUpdated', $this->global_discount_type);
+        $this->updateGlobalDiscount(); // Ensure recalculation happens
+    }
+
+    public function updateGlobalDiscount(): void
+    {
+        $raw = $this->global_discount;
+        $this->global_discount = is_numeric($raw) ? (float) $raw : 0;
+
+        $cart_items = Cart::instance($this->cart_instance)->content();
+        $total_sub_total = 0;
+
+        foreach ($cart_items as $item) {
+            $total_sub_total += $item->options->sub_total ?? 0;
+        }
+
+        if ($this->global_discount_type === 'percentage') {
+            if ($this->global_discount > 100) {
+                $this->global_discount = 100;
+                session()->flash('message', 'Diskon global tidak boleh lebih dari 100%');
+            } elseif ($this->global_discount < 0) {
+                $this->global_discount = 0;
+                session()->flash('message', 'Diskon global tidak boleh kurang dari 0%');
+            }
+        } else {
+            if ($this->global_discount > $total_sub_total) {
+                $this->global_discount = $total_sub_total;
+                session()->flash('message', 'Diskon global tidak boleh melebihi total!');
+            } elseif ($this->global_discount < 0) {
+                $this->global_discount = 0;
+                session()->flash('message', 'Diskon global tidak boleh kurang dari 0!');
+            }
+        }
+
+        $this->dispatch('globalDiscountUpdated', (float) $this->global_discount);
+        $this->recalculateCart();
+    }
+
+    public function updatedShipping(): void
+    {
+        $raw = $this->shipping;
+        $this->shipping = is_numeric($raw) ? (float) $raw : 0;
+        $this->dispatch('shippingUpdated', (float) $this->shipping);
+    }
+
+    public function handleTaxCreated($id, $name, $value, $product_id = null): void
+    {
+        $this->taxes = $this->loadTaxes(); // Refresh the taxes list
+
+        if ($product_id) {
+            $cartItem = $this->resolveCartItem('', $product_id);
+            if ($cartItem) {
+                $this->updateTax($cartItem->rowId, $cartItem->id, $id);
+            }
+        }
+    }
+
+    public function handleBusinessContextChanged(?int $settingId): void
+    {
+        if ($settingId === null) {
+            $this->selectedSettingId = (int) session('setting_id');
+        } else {
+            $this->selectedSettingId = $settingId;
+        }
+        $this->rehydrateTaxContextForBusinessChange();
+    }
+
+    public function updatedSelectedSettingId(): void
+    {
+        $this->rehydrateTaxContextForBusinessChange();
+    }
+
+    private function rehydrateTaxContextForBusinessChange(): void
+    {
+        $previousPkpState = $this->isPkp;
+        $this->settingId = $this->selectedSettingId;
+        $this->isPkp = (bool) (Setting::query()->whereKey((int) $this->settingId)->value('is_pkp') ?? false);
+        $this->taxes = $this->loadTaxes();
+
+        $cart = Cart::instance($this->cart_instance);
+        $cartItems = $cart->content();
+        if ($cartItems->isEmpty()) {
+            return;
+        }
+
+        $missingPriceProducts = [];
+
+        foreach ($cartItems as $item) {
+            $pricingSource = $item->options->pricing_source ?? 'automatic';
+            $isManuallyPriced = in_array($pricingSource, ['manual_unit_price', 'manual_line_total']);
+            $isBundledRow = $item->options->is_bundled_row ?? false;
+
+            if (!$isManuallyPriced && !$isBundledRow) {
+                $productId = (int) ($item->options->product_id ?? 0);
+                $qty = $this->quantity[$item->id] ?? $item->qty;
+                [$unitPrice, $resolvedPrices, $breakdown, $priceRowExists] = $this->resolveAutomaticLinePrice($productId, $qty);
+
+                if (!$priceRowExists) {
+                    $product = Product::find($productId);
+                    $missingPriceProducts[] = $product?->product_name ?? "Product #{$productId}";
+                }
+
+                $this->unit_price[$item->id] = $unitPrice;
+                $this->priceBreakdowns[$item->id] = $breakdown;
+
+                $calculated = $this->calculateSubtotalAndTax(
+                    $unitPrice,
+                    $item->qty,
+                    $item->options->product_discount ?? 0,
+                    null
+                );
+
+                [$updatedBundleItems, $bundleTotal] = $this->recalculateBundleItems(
+                    $item->options->bundle_items ?? [],
+                    (int) $item->qty,
+                    (int) $item->qty
+                );
+
+                $newSubTotal = $calculated['sub_total'] + $bundleTotal;
+                $newSubTotalBeforeTax = $calculated['subtotal_before_tax'] + $bundleTotal;
+
+                $newOptions = $item->options->toArray();
+                $newOptions['unit_price'] = $unitPrice;
+                $newOptions['sub_total'] = $newSubTotal;
+                $newOptions['sub_total_before_tax'] = $newSubTotalBeforeTax;
+                $newOptions['product_tax_amount'] = $calculated['tax_amount'];
+                $newOptions['sale_price'] = $resolvedPrices['sale_price'];
+                $newOptions['tier_1_price'] = $resolvedPrices['tier_1_price'];
+                $newOptions['tier_2_price'] = $resolvedPrices['tier_2_price'];
+                $newOptions['bundle_items'] = $updatedBundleItems;
+                $newOptions['bundle_price'] = $bundleTotal;
+                $newOptions['product_tax'] = null;
+                $newOptions['product_tax_amount'] = 0.0;
+
+                $cart->update($item->rowId, [
+                    'price' => $unitPrice,
+                    'options' => $newOptions,
+                ]);
+
+                $this->product_tax[$item->id] = null;
+            } else {
+                $newOptions = $item->options->toArray();
+                $newOptions['product_tax'] = null;
+                $newOptions['product_tax_amount'] = 0.0;
+                $newOptions['sub_total'] = $newOptions['sub_total_before_tax'] ?? $newOptions['sub_total'];
+                $this->product_tax[$item->id] = null;
+                $cart->update($item->rowId, ['options' => $newOptions]);
+            }
+        }
+
+        if (!empty($missingPriceProducts)) {
+            $settingName = Setting::whereKey($this->settingId)->value('company_name') ?? "Business #{$this->settingId}";
+            $productList = implode(', ', $missingPriceProducts);
+            session()->flash('message', "Produk berikut tidak memiliki harga yang dikonfigurasi untuk {$settingName}: {$productList}. Unit price diatur ke 0.");
+        }
+    }
+
+    public function updateLineTotal($row_id, $id)
+    {
+        $cart_item = $this->resolveCartItem($row_id, $id);
+        if (!$cart_item) return;
+
+        $row_id = $cart_item->rowId;
+        $requestedLineTotal = $this->line_total[$id] ?? $cart_item->options->sub_total;
+
+        if (!is_numeric($requestedLineTotal) || (float) $requestedLineTotal < 0) {
+            $this->line_total[$id] = $cart_item->options->sub_total;
+            session()->flash('message', 'Total baris tidak valid.');
+            return;
+        }
+
+        $requestedLineTotal = (float) $requestedLineTotal;
+        $qty = max(1, (int) $cart_item->qty);
+        $bundleTotal = (float) ($cart_item->options->bundle_price ?? 0);
+        $tax_id = $this->syncProductTaxState($cart_item);
+
+        // 1. Deduct bundle total to get parent line total
+        $parentLineTotal = max(0, $requestedLineTotal - $bundleTotal);
+
+        // 2. Find tax rate. Mirror calculateSubtotalAndTax(): a non-PKP sale line
+        // carries no tax, so it must not be reversed out of the requested total.
+        if ($this->cart_instance === 'sale' && ! $this->isPkp) {
+            $tax_id = null;
+        }
+
+        $taxRate = 0;
+        if ($tax_id) {
+            $tax = Tax::find($tax_id);
+            if ($tax) {
+                $taxRate = $tax->value / 100;
+            }
+        }
+
+        // 3. Find effective price (per unit, before line tax but after discount)
+        if ($this->is_tax_included) {
+            $effective_price = $parentLineTotal / $qty;
+        } else {
+            $effective_price = ($parentLineTotal / $qty) / (1 + $taxRate);
+        }
+
+        // 4. Reverse discount to find base unit price
+        $discount_type = $this->discount_type[$id] ?? 'fixed';
+        $discount_input = $this->item_discount[$id] ?? 0;
+
+        if ($discount_type === 'percentage') {
+            $pct = min(100, max(0, (float) $discount_input)) / 100;
+            if ($pct >= 1.0) {
+                // 100% or more discount: only allow zero total
+                if ($requestedLineTotal > 0.01) {
+                    $this->line_total[$id] = $cart_item->options->sub_total;
+                    session()->flash('message', 'Total baris lebih dari 0 tidak dimungkinkan dengan diskon 100%.');
+                    return;
+                }
+                $base_price = 0;
+            } else {
+                $base_price = $effective_price / (1 - $pct);
+            }
+        } else {
+            $base_price = $effective_price + (float) $discount_input;
+        }
+
+        $this->unit_price[$id] = round($base_price, 2);
+
+        $allocated = $this->allocateTaxFromAuthoritativeTotal($requestedLineTotal, $tax_id);
+
+        $discount_amount = $cart_item->options->product_discount ?? 0;
+        if ($discount_type === 'percentage') {
+            $discount_pct = min(100, max(0, (float) $discount_input)) / 100;
+            $discount_amount = round($this->unit_price[$id] * $discount_pct, 2);
+        }
+
+        Cart::instance($this->cart_instance)->update($row_id, [
+            'price' => $this->unit_price[$id],
+            'unit_price' => $this->unit_price[$id],
+            'options' => array_merge($cart_item->options->toArray(), [
+                'unit_price' => $this->unit_price[$id],
+                'sub_total' => $allocated['sub_total'],
+                'sub_total_before_tax' => $allocated['subtotal_before_tax'],
+                'product_tax_amount' => $allocated['tax_amount'],
+                'product_discount' => $discount_amount,
+                'product_discount_input' => $discount_input,
+                'product_discount_type' => $discount_type,
+                'pricing_source' => 'manual_line_total',
+                // Committed manual result: authoritative, never reconstructed.
+                \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => false,
+            ]),
+        ]);
+
+        $this->line_total[$id] = $allocated['sub_total'];
+        $this->recalculateCart();
+    }
+}

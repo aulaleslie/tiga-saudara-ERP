@@ -1,0 +1,44 @@
+Tanggal,Transaksi,Nomor,Kategori,Deskripsi,Supplier,Jumlah,Tax,Status,Sisa Tagihan
+04/07/2023	,Expense,10267	,PLN,"",PLN,252500.0,0.0,Paid,0.0
+04/07/2023	,Expense,10268	,telkom,"",telkom,674050.0,0.0,Paid,0.0
+12/07/2023	,Expense,10269	,Beban Pajak - Kini,"",PAJAK AGUS,1847940.0,0.0,Paid,0.0
+12/07/2023	,Expense,10273	,Beban Pajak - Kini,"",PAJAK ARIES,882700.0,0.0,Paid,0.0
+12/07/2023	,Expense,10272	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,8495475.0,0.0,Paid,0.0
+12/07/2023	,Expense,10271	,Beban Pajak - Kini,"",PAJAK RAHMAT,3196845.0,0.0,Paid,0.0
+12/07/2023	,Expense,10270	,Beban Pajak - Kini,"",PAJAK AKIU INGSENG,2011000.0,0.0,Paid,0.0
+05/08/2023	,Expense,10275	,telkom,"",telkom,674050.0,0.0,Paid,0.0
+05/08/2023	,Expense,10274	,PLN,"",PLN,335136.0,0.0,Paid,0.0
+10/08/2023	,Expense,10280	,Beban Pajak - Kini,"",PAJAK RAHMAT,2251115.0,0.0,Paid,0.0
+10/08/2023	,Expense,10279	,Beban Pajak - Kini,"",PAJAK AGUS,1237275.0,0.0,Paid,0.0
+10/08/2023	,Expense,10277	,Beban Pajak - Kini,"",PAJAK AKIU INGSENG,1092000.0,0.0,Paid,0.0
+10/08/2023	,Expense,10276	,Beban Pajak - Kini,"",PAJAK ARIES,3650760.0,0.0,Paid,0.0
+10/08/2023	,Expense,10278	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,8495475.0,0.0,Paid,0.0
+07/09/2023	,Expense,10281	,KONSULTAN PAJAK,"",KONSULTAN PAJAK,3200000.0,0.0,Paid,0.0
+10/09/2023	,Expense,10285	,Beban Pajak - Kini,"",PAJAK ARIES,1918500.0,0.0,Paid,0.0
+10/09/2023	,Expense,10283	,Beban Pajak - Kini,"",PAJAK AKIU INGSENG,1711000.0,0.0,Paid,0.0
+10/09/2023	,Expense,10286	,Beban Pajak - Kini,"",PAJAK AGUS,3843130.0,0.0,Paid,0.0
+10/09/2023	,Expense,10282	,Beban Pajak - Kini,"",PAJAK RAHMAT,3851435.0,0.0,Paid,0.0
+10/09/2023	,Expense,10284	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,8495475.0,0.0,Paid,0.0
+04/10/2023	,Expense,10289	,PLN,"",PLN,287461.0,0.0,Paid,0.0
+04/10/2023	,Expense,10290	,telkom,"",telkom,674050.0,0.0,Paid,0.0
+06/10/2023	,Expense,10291	,KONSULTAN PAJAK,"",KONSULTAN PAJAK,3200000.0,0.0,Paid,0.0
+11/10/2023	,Expense,10292	,Beban Pajak - Kini,"",PAJAK AGUS,3151320.0,0.0,Paid,0.0
+11/10/2023	,Expense,10295	,Beban Pajak - Kini,"",PAJAK RAHMAT,2603025.0,0.0,Paid,0.0
+11/10/2023	,Expense,10293	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,500000.0,0.0,Paid,0.0
+11/10/2023	,Expense,10294	,Beban Pajak - Kini,"",PAJAK AKIU INGSENG,1811000.0,0.0,Paid,0.0
+11/10/2023	,Expense,10296	,Beban Pajak - Kini,"",PAJAK ARIES,1000000.0,0.0,Paid,0.0
+04/11/2023	,Expense,10297	,PLN,"",PLN,298585.0,0.0,Paid,0.0
+04/11/2023	,Expense,10298	,telkom,"",telkom,674050.0,0.0,Paid,0.0
+07/11/2023	,Expense,10302	,Beban Pajak - Kini,"",PAJAK RAHMAT,852180.0,0.0,Paid,0.0
+07/11/2023	,Expense,10303	,Beban Pajak - Kini,"",PAJAK ARIES,803750.0,0.0,Paid,0.0
+07/11/2023	,Expense,10301	,Beban Pajak - Kini,"",PAJAK AGUS,2210185.0,0.0,Paid,0.0
+07/11/2023	,Expense,10299	,Beban Pajak - Kini,"",PAJAK AKIU INGSENG,1971000.0,0.0,Paid,0.0
+07/11/2023	,Expense,10300	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,500000.0,0.0,Paid,0.0
+03/12/2023	,Expense,10304	,KONSULTAN PAJAK,"",KONSULTAN PAJAK,3200000.0,0.0,Paid,0.0
+04/12/2023	,Expense,10305	,PLN,"",PLN,298585.0,0.0,Paid,0.0
+04/12/2023	,Expense,10306	,telkom,"",telkom,674050.0,0.0,Paid,0.0
+07/12/2023	,Expense,10308	,Beban Pajak - Kini,"",PAJAK ARIES,771000.0,0.0,Paid,0.0
+07/12/2023	,Expense,10307	,Beban Pajak - Kini,"",PAJAK AKIU INGSENG,2071000.0,0.0,Paid,0.0
+07/12/2023	,Expense,10311	,Beban Pajak - Kini,"",PAJAK CV TIGA NUSA,500000.0,0.0,Paid,0.0
+07/12/2023	,Expense,10309	,Beban Pajak - Kini,"",PAJAK RAHMAT,389375.0,0.0,Paid,0.0
+07/12/2023	,Expense,10310	,Beban Pajak - Kini,"",PAJAK AGUS,210900.0,0.0,Paid,0.0

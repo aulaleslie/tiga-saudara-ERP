@@ -1,0 +1,52 @@
+## Why
+
+A POS checkout fans out to one or more Sale documents, but the only trace of that linkage in the Sales list is the free-text note `POS checkout #<id>`, which exposes an internal primary key rather than the human-facing POS transaction number. Staff cannot search Sales by POS transaction number, cannot navigate from a POS transaction to the Sales it generated, and are confronted with two unrelated identifiers — the printed receipt number and the POS transaction code — for the same event.
+
+The linkage data already exists in the `pos_checkout_sales` pivot; it is simply neither written into the note correctly nor surfaced in any UI.
+
+## What Changes
+
+- **Sale note carries the POS transaction code.** Posting writes `POS <transaction code>` followed by the cashier note, replacing `POS checkout #<checkout id>`. This requires the transaction code to be generated *before* posting rather than after, since today `PosTransaction` is created ~180 lines downstream of Sale creation within the same DB transaction.
+- **Sales list shows and searches the POS transaction number.** A POS column resolves the code through the `pos_checkout_sales` pivot, and search matches POS transaction code and receipt number.
+- **POS transaction detail displays its generated Sales.** Each generated Sale reference is clickable and opens a read-only modal in place, without redirecting to the Sales module.
+- **The Sale modal is not scoped by the current setting.** Split posting deliberately creates Sales across settings, so a setting-scoped read would 404 on exactly the rows this feature exists to show. Access is instead gated by *reachability from the checkout*: a Sale is viewable only if it is present in that checkout's pivot rows.
+- **POS transaction detail renders its note.** The note is persisted on `PosTransaction` but no view displays it; it is shown raw, with no provenance prefix.
+- **Receipt promotes the transaction code and demotes the receipt number.** `No. Transaksi` takes the prominent meta row; the receipt number moves to a small, muted, bottom-corner footer.
+- **Return lookup accepts the POS transaction code** in addition to the receipt number, so demoting the receipt number visually does not strand staff processing a return.
+
+## Capabilities
+
+### New Capabilities
+
+- `pos-sale-document-linkage`: Bidirectional navigation between a POS checkout and the Sale documents it generated — the POS column and search in the Sales list, the linked Sale references on POS transaction detail, and the read-only cross-setting Sale modal gated by pivot reachability.
+
+### Modified Capabilities
+
+- `pos-checkout-note`: The requirement "Every generated Sale receives the POS transaction note" currently specifies the Sale note as POS checkout provenance plus the cashier note. It changes to the POS **transaction code** plus the cashier note, and adds the ordering guarantee that the code is available at posting time.
+- `pos-receipt`: The receipt gains a `No. Transaksi` row carrying the POS transaction code, and the receipt number is demoted to a small bottom-corner footer element.
+
+Note: the POS transaction detail note display, the linked-Sale list and the return-lookup change are specified under the new `pos-sale-document-linkage` capability rather than as deltas, because no existing spec currently states requirements for those behaviours.
+
+## Impact
+
+**Checkout posting (ordering-sensitive)**
+- `Modules/Pos/Services/FinalizePosCheckoutService.php` — pre-generate the transaction code before `postingAdapter->post()` (L957) and reuse it at `completeFromCartSnapshot` (L1137) instead of generating there.
+- `Modules/Pos/Services/PosTransactionService.php` — accept a pre-generated code rather than always calling the generator.
+- `Modules/Pos/Services/Adapters/InlinePosCheckoutPostingAdapter.php` (L121-125) — compose the note from the transaction code. The split adapter inherits this, as it delegates per group.
+
+**Sales list**
+- `app/Livewire/Sale/SaleTable.php` — pivot-backed POS column and extended `searchSubmit()`.
+- `resources/views/livewire/sale/sale-table.blade.php` — POS column; the note no longer doubles as a POS identifier.
+
+**POS detail + modal**
+- `Modules/Pos/Resources/views/transactions/show.blade.php` — note section and linked Sale references.
+- New controller endpoint + read-only modal view under `Modules/Pos`, reading `PosCheckoutSale` for authorization.
+
+**Receipt and returns**
+- `Modules/Pos/Resources/views/receipt.blade.php` — meta table row swap, new footer element and CSS class.
+- `Modules/Pos/Services/PosReturnLookupService.php` (L36) — match transaction code as well as receipt number.
+
+**Notable constraints**
+- `pos_checkouts.pos_transaction_id` is nullable and historical rows predate this change; the POS column and note must degrade gracefully for Sales with no linked transaction.
+- `pos_checkouts.receipt_number` has an index but **no unique constraint**, and is generated by string sort without a lock — a pre-existing collision risk that this change does not introduce but that becomes more consequential if the receipt number is the fallback lookup key.
+- Existing Sale notes retain the old `POS checkout #<id>` text; no backfill is proposed, so the Sales list must resolve the code through the pivot rather than by parsing the note.

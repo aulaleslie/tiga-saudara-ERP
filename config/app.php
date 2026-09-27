@@ -39,7 +39,7 @@ return [
     |
     */
 
-    'debug' => (bool) env('APP_DEBUG', false),
+    'debug' => (bool)env('APP_DEBUG', false),
 
     /*
     |--------------------------------------------------------------------------
@@ -56,6 +56,23 @@ return [
 
     'asset_url' => env('ASSET_URL', null),
 
+    'sequence_purchase_enabled' => env('SEQUENCE_PURCHASE_ENABLED', false),
+    'sequence_sale_enabled' => env('SEQUENCE_SALE_ENABLED', false),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Deployment Identity
+    |--------------------------------------------------------------------------
+    |
+    | Optional identifiers used only for session/CSRF incident diagnostics.
+    | Both fall back to safe "unknown" values when not configured, since not
+    | every environment exposes a release version or a stable node identity.
+    |
+    */
+
+    'deployment_version' => env('APP_DEPLOYMENT_VERSION', env('APP_VERSION', 'unknown')),
+    'node_id' => env('APP_NODE_ID', gethostname() ?: 'unknown'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Timezone
@@ -67,7 +84,7 @@ return [
     |
     */
 
-    'timezone' => 'Asia/Dhaka',
+    'timezone' => env('APP_TIMEZONE', 'Asia/Makassar'),
 
     /*
     |--------------------------------------------------------------------------
@@ -174,7 +191,7 @@ return [
          */
         App\Providers\AppServiceProvider::class,
         App\Providers\AuthServiceProvider::class,
-        // App\Providers\BroadcastServiceProvider::class,
+//        App\Providers\BroadcastServiceProvider::class,
         App\Providers\EventServiceProvider::class,
         App\Providers\RouteServiceProvider::class,
         // audit-log

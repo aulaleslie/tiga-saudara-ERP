@@ -2,42 +2,155 @@
 
 namespace Modules\Setting\Http\Controllers;
 
-use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
+use Modules\People\Entities\Customer;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Http\Requests\StoreSettingsRequest;
 use Modules\Setting\Http\Requests\StoreSmtpSettingsRequest;
+
+use Modules\Pos\Services\PosCustomerSearchService;
 
 class SettingController extends Controller
 {
 
     public function index() {
-        abort_if(Gate::denies('access_settings'), 403);
+        abort_if(Gate::denies('settings.access'), 403);
 
         $currentSettingId = session('setting_id');
         $settings = Setting::findOrFail($currentSettingId);
+        $walkInCustomer = $settings->pos_walk_in_customer_id
+            ? Customer::query()
+                ->where('id', $settings->pos_walk_in_customer_id)
+                ->first(['id', 'customer_name', 'contact_name', 'customer_phone'])
+            : null;
 
-        return view('setting::index', compact('settings'));
+        return view('setting::index', compact('settings', 'walkInCustomer'));
+    }
+
+    public function customerSearch(Request $request, PosCustomerSearchService $searchService)
+    {
+        abort_if(Gate::denies('settings.access'), 403);
+
+        $validated = $request->validate([
+            'q' => ['required', 'string', 'max:255'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:20'],
+        ]);
+
+        $payload = $searchService->search(
+            (string) $validated['q'],
+            (int) ($validated['limit'] ?? 10)
+        );
+
+        return response()->json($payload);
     }
 
 
-    public function update(StoreSettingsRequest $request) {
-        Setting::firstOrFail()->update([
-            'company_name' => $request->company_name,
-            'company_email' => $request->company_email,
-            'company_phone' => $request->company_phone,
-            'notification_email' => $request->notification_email,
-            'company_address' => $request->company_address,
-            'default_currency_id' => $request->default_currency_id,
-            'default_currency_position' => $request->default_currency_position,
-        ]);
+    public function update(StoreSettingsRequest $request)
+    {
+        abort_if(Gate::denies('settings.edit'), 403);
 
-        cache()->forget('settings');
+        $settingId = session('setting_id');
+        $setting   = Setting::findOrFail($settingId);
 
+        $data = [
+            'company_name'             => $request->company_name,
+            'company_email'            => $request->company_email,
+            'company_phone'            => $request->company_phone,
+            'company_address'          => $request->company_address,
+            'is_pkp'                   => $request->boolean('is_pkp'),
+            'document_prefix'          => $request->document_prefix,
+            'purchase_prefix_document' => $request->purchase_prefix_document,
+            'sale_prefix_document'     => $request->sale_prefix_document,
+            'purchase_return_prefix_document' => $request->purchase_return_prefix_document,
+            'sale_return_prefix_document' => $request->sale_return_prefix_document,
+            'pos_enabled'              => $request->boolean('pos_enabled'),
+            'pos_transactions_enabled' => $request->boolean('pos_enabled') && $request->boolean('pos_transactions_enabled'),
+            'pos_walk_in_customer_id'  => $request->input('pos_walk_in_customer_id') !== null
+                ? (int) $request->input('pos_walk_in_customer_id')
+                : null,
+            'row_total_rounding_increment' => (float) $request->input('row_total_rounding_increment', 100.00),
+        ];
+
+        // Uppercase text-type columns
+        foreach ([
+                     'company_name',
+                     'company_address',
+                     'document_prefix',
+                     'purchase_prefix_document',
+                     'sale_prefix_document',
+                     'purchase_return_prefix_document',
+                     'sale_return_prefix_document',
+                 ] as $key) {
+            if (isset($data[$key])) {
+                $data[$key] = mb_strtoupper(trim((string) $data[$key]), 'UTF-8');
+            }
+        }
+
+        // Normalize email (lowercase) & trim phone
+        if (isset($data['company_email'])) {
+            $data['company_email'] = trim(mb_strtolower($data['company_email'], 'UTF-8'));
+        }
+        if (isset($data['company_phone'])) {
+            $data['company_phone'] = trim((string) $data['company_phone']);
+        }
+
+        // Persist
+        $setting->update($data);
+        $setting = $setting->fresh();
+
+        // --- Sync the in-session "user_settings" list (if present)
+        if (session()->has('user_settings')) {
+            $fieldsToSync = [
+                'id',
+                'company_name',
+                'company_email',
+                'company_phone',
+                'company_address',
+                'is_pkp',
+                'document_prefix',
+                'purchase_prefix_document',
+                'sale_prefix_document',
+                'purchase_return_prefix_document',
+                'sale_return_prefix_document',
+                'pos_enabled',
+                'pos_transactions_enabled',
+                'pos_walk_in_customer_id',
+                'row_total_rounding_increment',
+            ];
+
+            $current = session('user_settings');
+            $coll    = $current instanceof \Illuminate\Support\Collection ? $current : collect($current);
+
+            $updated = $coll->map(function ($item) use ($setting, $fieldsToSync) {
+                if ((string) data_get($item, 'id') !== (string) $setting->id) {
+                    return $item;
+                }
+
+                // Preserve original shape
+                if ($item instanceof \Illuminate\Database\Eloquent\Model) {
+                    return $setting; // replace with the freshly updated model
+                }
+
+                if (is_array($item)) {
+                    return array_replace($item, $setting->only($fieldsToSync));
+                }
+
+                // stdClass / other objects
+                foreach ($setting->only($fieldsToSync) as $k => $v) {
+                    $item->{$k} = $v;
+                }
+                return $item;
+            });
+
+            session(['user_settings' => $updated]);
+        }
+
+        // Bust cache and finish
+        cache()->forget('settings_' . $setting->id);
         toast('Settings Updated!', 'info');
 
         return redirect()->route('settings.index');
@@ -45,6 +158,7 @@ class SettingController extends Controller
 
 
     public function updateSmtp(StoreSmtpSettingsRequest $request) {
+        abort_if(Gate::denies('settings.edit'), 403);
         $toReplace = array(
             'MAIL_MAILER='.env('MAIL_HOST'),
             'MAIL_HOST="'.env('MAIL_HOST').'"',

@@ -1,5 +1,9 @@
 <?php
 
+$pdfBinary = PHP_OS_FAMILY === 'Windows'
+    ? base_path('vendor/wemersonjanuario/wkhtmltopdf-windows/bin/64bit/wkhtmltopdf.exe')
+    : base_path('vendor/bin/wkhtmltopdf-amd64');
+
 return [
 
     /*
@@ -35,8 +39,7 @@ return [
 
     'pdf' => [
         'enabled' => true,
-        //'binary'  => env('WKHTML_PDF_BINARY', base_path('vendor/h4cc/wkhtmltopdf-amd64/bin/wkhtmltopdf-amd64'),),
-        'binary'  => env('WKHTML_PDF_BINARY', 'C:\\wkhtmltopdf\\bin\\wkhtmltopdf.exe'),
+        'binary'  => $pdfBinary,
         'timeout' => false,
         'options' => [
             'enable-local-file-access' => true,

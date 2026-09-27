@@ -1,0 +1,24 @@
+## ADDED Requirements
+
+### Requirement: Robust Customer Identity Display
+The POS receipt SHALL display the customer's identity by intelligently combining `contact_name` and `company_name` (or `customer_name`) to provide maximum context. It MUST safely ignore empty strings (`""`) to ensure a blank name is not printed when one of the fields is empty but the other is present.
+
+#### Scenario: Customer has both contact and company name
+- **WHEN** a POS receipt is rendered
+- **AND** the customer has both `contact_name` and `company_name` (or `customer_name`) defined as non-empty strings
+- **THEN** the receipt SHALL display the customer as "Contact Name - Company Name"
+
+#### Scenario: Customer has only company name
+- **WHEN** a POS receipt is rendered
+- **AND** the customer has an empty `contact_name` but a defined `company_name` (or `customer_name`)
+- **THEN** the receipt SHALL display the customer as just "Company Name"
+
+#### Scenario: Customer has only contact name
+- **WHEN** a POS receipt is rendered
+- **AND** the customer has a defined `contact_name` but empty `company_name` and `customer_name`
+- **THEN** the receipt SHALL display the customer as just "Contact Name"
+
+#### Scenario: Customer has no defined names
+- **WHEN** a POS receipt is rendered
+- **AND** the customer has empty strings for `contact_name`, `company_name`, and `customer_name`
+- **THEN** the receipt SHALL display the customer as "-"

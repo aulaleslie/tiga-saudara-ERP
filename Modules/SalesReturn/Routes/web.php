@@ -25,20 +25,43 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         return $pdf->stream('sale-return-'. $saleReturn->reference .'.pdf');
     })->name('sale-returns.pdf');
 
+    Route::post('sale-returns/{sale_return}/approve', 'SalesReturnController@approve')
+        ->name('sale-returns.approve');
+    Route::post('sale-returns/{sale_return}/reject', 'SalesReturnController@reject')
+        ->name('sale-returns.reject');
+    Route::post('sale-returns/{sale_return}/receive', 'SalesReturnController@receive')
+        ->name('sale-returns.receive');
+    Route::get('sale-returns/{sale_return}/settlement', 'SalesReturnController@settlement')
+        ->name('sale-returns.settlement');
+
+    Route::put('sale-returns/{sale_return}/archive', 'SalesReturnController@archive')
+        ->name('sale-returns.archive');
     //Sale Returns
     Route::resource('sale-returns', 'SalesReturnController');
 
     //Payments
     Route::get('/sale-return-payments/{sale_return_id}', 'SaleReturnPaymentsController@index')
         ->name('sale-return-payments.index');
-    Route::get('/sale-return-payments/{sale_return_id}/create', 'SaleReturnPaymentsController@create')
-        ->name('sale-return-payments.create');
-    Route::post('/sale-return-payments/store', 'SaleReturnPaymentsController@store')
-        ->name('sale-return-payments.store');
-    Route::get('/sale-return-payments/{sale_return_id}/edit/{saleReturnPayment}', 'SaleReturnPaymentsController@edit')
-        ->name('sale-return-payments.edit');
-    Route::patch('/sale-return-payments/update/{saleReturnPayment}', 'SaleReturnPaymentsController@update')
-        ->name('sale-return-payments.update');
-    Route::delete('/sale-return-payments/destroy/{saleReturnPayment}', 'SaleReturnPaymentsController@destroy')
-        ->name('sale-return-payments.destroy');
+
+    //Settlements
+    Route::group(['prefix' => 'sale-returns/settlements', 'as' => 'sale-return-settlements.'], function () {
+        Route::post('/item/{itemSettlement}/approve', 'SalesReturnSettlementController@approveItemSettlement')
+            ->name('item.approve');
+        Route::post('/item/{itemSettlement}/reject', 'SalesReturnSettlementController@rejectItemSettlement')
+            ->name('item.reject');
+        Route::post('/item/{itemSettlement}/dispatch', 'SaleReturnDispatchController@dispatchItem')
+            ->name('item.dispatch');
+
+        // Dispatch approve/reject per settlement item
+        Route::post('/item/{itemSettlement}/dispatch-approve', 'SaleReturnDispatchController@approveDispatch')
+            ->name('item.dispatch.approve');
+        Route::post('/item/{itemSettlement}/dispatch-reject', 'SaleReturnDispatchController@rejectDispatch')
+            ->name('item.dispatch.reject');
+    });
+
+    // Dispatch request & form (two-step: submit -> approve)
+    Route::get('sale-returns/{sale_return}/dispatch', 'SaleReturnDispatchController@showDispatchForm')
+        ->name('sale-returns.dispatch');
+    Route::post('sale-returns/{sale_return}/dispatch-request', 'SaleReturnDispatchController@requestDispatch')
+        ->name('sale-returns.dispatch.request');
 });

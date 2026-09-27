@@ -1,12 +1,12 @@
 @php use Modules\Currency\Entities\Currency; @endphp
 @extends('layouts.app')
 
-@section('title', 'Edit Settings')
+@section('title', 'Tambah Bisnis')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
-        <li class="breadcrumb-item active">Settings</li>
+        <li class="breadcrumb-item active">Tambah Bisnis</li>
     </ol>
 @endsection
 
@@ -20,7 +20,7 @@
                         <h5 class="mb-0">Tambah Bisnis</h5>
                     </div>
                     <div class="card-body">
-                        <form action="{{ route('businesses.store') }}" method="POST">
+                        <form id="business-create-form" action="{{ route('businesses.store') }}" method="POST">
                             @csrf
                             @method('post')
                             <div class="form-row">
@@ -34,14 +34,14 @@
                                     <div class="form-group">
                                         <label for="company_email">Email Bisnis <span
                                                 class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="company_email" required>
+                                        <input type="email" class="form-control" name="company_email" required>
                                     </div>
                                 </div>
                                 <div class="col-lg-4">
                                     <div class="form-group">
                                         <label for="company_phone">Telepon Bisnis <span
                                                 class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="company_phone" required>
+                                        <input type="number" class="form-control" name="company_phone" required>
                                     </div>
                                 </div>
                             </div>
@@ -49,31 +49,54 @@
                             <div class="form-row">
                                 <div class="col-lg-4">
                                     <div class="form-group">
-                                        <label for="default_currency_id">Pengaturan Mata Uang <span
+                                        <label for="document_prefix">Prefix Dokumen <span
                                                 class="text-danger">*</span></label>
-                                        <select name="default_currency_id" id="default_currency_id" class="form-control"
-                                                required>
-                                            @foreach(Currency::all() as $currency)
-                                                <option
-                                                    value="{{ $currency->id }}">{{ $currency->currency_name }}</option>
-                                            @endforeach
-                                        </select>
+                                        <input type="text" class="form-control" name="document_prefix" required>
                                     </div>
                                 </div>
                                 <div class="col-lg-4">
                                     <div class="form-group">
-                                        <label for="default_currency_position">Pengaturan Posisi Mata Uang <span
+                                        <label for="purchase_prefix_document">Prefix Dokumen Pembelian <span
                                                 class="text-danger">*</span></label>
-                                        <select name="default_currency_position" id="default_currency_position"
-                                                class="form-control" required>
-                                            <option value="prefix">Prefix</option>
-                                            <option value="suffix">Suffix</option>
-                                        </select>
+                                        <input type="text" class="form-control" name="purchase_prefix_document" required>
+                                    </div>
+                                </div>
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="sale_prefix_document">Prefix Dokumen Penjualan <span
+                                                class="text-danger">*</span></label>
+                                        <input type="text" class="form-control" name="sale_prefix_document" required>
+                                    </div>
+                                </div>
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="purchase_return_prefix_document">Prefix Dokumen Retur Pembelian</label>
+                                        <input type="text" class="form-control" name="purchase_return_prefix_document">
+                                        <small class="form-text text-muted">Contoh: PRRN</small>
+                                    </div>
+                                </div>
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="sale_return_prefix_document">Prefix Dokumen Retur Penjualan</label>
+                                        <input type="text" class="form-control" name="sale_return_prefix_document">
+                                        <small class="form-text text-muted">Contoh: SLRN</small>
                                     </div>
                                 </div>
                             </div>
 
                             <div class="form-row">
+                                <div class="col-lg-4">
+                                    <div class="form-group">
+                                        <label for="is_pkp">Status PKP</label>
+                                        <div class="form-check mt-2">
+                                            <input class="form-check-input" type="checkbox" id="is_pkp" name="is_pkp" value="1"
+                                                   {{ old('is_pkp') ? 'checked' : '' }}>
+                                            <label class="form-check-label" for="is_pkp">
+                                                Bisnis ini PKP
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
                                 <div class="col-lg-12">
                                     <div class="form-group">
                                         <label for="company_address">Alamat <span class="text-danger">*</span></label>
@@ -86,7 +109,7 @@
                                 <a href="{{ route('businesses.index') }}" class="btn btn-secondary mr-2">
                                     Kembali
                                 </a>
-                                <button type="submit" class="btn btn-primary"><i class="bi bi-check"></i> Buat</button>
+                                <x-button label="Buat" icon="bi-check" processing-text="Memproses…" />
                             </div>
                         </form>
                     </div>
@@ -96,3 +119,13 @@
     </div>
 @endsection
 
+@push('page_scripts')
+    <script src="{{ asset('js/form-submission-lock.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            initFormSubmissionLock('business-create-form', {
+                errorEventName: 'business:submit-error'
+            });
+        });
+    </script>
+@endpush

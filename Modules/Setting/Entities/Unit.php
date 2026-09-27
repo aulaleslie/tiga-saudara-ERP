@@ -2,18 +2,34 @@
 
 namespace Modules\Setting\Entities;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
+use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductUnitConversion;
 
-class Unit extends Model
+class Unit extends BaseModel
 {
-    use HasFactory;
-
     protected $guarded = [];
+
+    protected $casts = [
+        'is_active' => 'boolean',
+    ];
+
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
+    }
+
+    public function scopeEligible($query)
+    {
+        return $query->where('is_active', true);
+    }
+
+    public function scopeInactive($query)
+    {
+        return $query->where('is_active', false);
+    }
 
     /**
      * Relationship with the Product model as the primary unit.

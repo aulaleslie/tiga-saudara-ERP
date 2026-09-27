@@ -2,231 +2,457 @@
 
 namespace Modules\SalesReturn\Http\Controllers;
 
-use Modules\SalesReturn\DataTables\SaleReturnsDataTable;
-use Gloudemans\Shoppingcart\Facades\Cart;
+use App\Support\SalesReturn\SaleReturnLifecycleSyncService;
+use App\Services\SerialNumberHistoryService;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Modules\People\Entities\Customer;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\SerialNumberHistory;
+use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\Transaction;
+use Modules\Sale\Entities\DispatchDetail;
+use Modules\Sale\Entities\SalesOrderSerialTracking;
+use Modules\SalesReturn\DataTables\SaleReturnsDataTable;
 use Modules\SalesReturn\Entities\SaleReturn;
 use Modules\SalesReturn\Entities\SaleReturnDetail;
-use Modules\SalesReturn\Entities\SaleReturnPayment;
-use Modules\SalesReturn\Http\Requests\StoreSaleReturnRequest;
-use Modules\SalesReturn\Http\Requests\UpdateSaleReturnRequest;
+use Throwable;
 
 class SalesReturnController extends Controller
 {
 
     public function index(SaleReturnsDataTable $dataTable) {
-        abort_if(Gate::denies('access_sale_returns'), 403);
+        abort_if(Gate::denies('saleReturns.access'), 403);
 
         return $dataTable->render('salesreturn::index');
     }
 
 
     public function create() {
-        abort_if(Gate::denies('create_sale_returns'), 403);
-
-        Cart::instance('sale_return')->destroy();
+        abort_if(Gate::denies('saleReturns.create'), 403);
 
         return view('salesreturn::create');
     }
 
 
-    public function store(StoreSaleReturnRequest $request) {
-        DB::transaction(function () use ($request) {
-            $due_amount = $request->total_amount - $request->paid_amount;
-
-            if ($due_amount == $request->total_amount) {
-                $payment_status = 'Unpaid';
-            } elseif ($due_amount > 0) {
-                $payment_status = 'Partial';
-            } else {
-                $payment_status = 'Paid';
-            }
-
-            $sale_return = SaleReturn::create([
-                'date' => $request->date,
-                'customer_id' => $request->customer_id,
-                'customer_name' => Customer::findOrFail($request->customer_id)->customer_name,
-                'tax_percentage' => $request->tax_percentage,
-                'discount_percentage' => $request->discount_percentage,
-                'shipping_amount' => $request->shipping_amount * 100,
-                'paid_amount' => $request->paid_amount * 100,
-                'total_amount' => $request->total_amount * 100,
-                'due_amount' => $due_amount * 100,
-                'status' => $request->status,
-                'payment_status' => $payment_status,
-                'payment_method' => $request->payment_method,
-                'note' => $request->note,
-                'tax_amount' => Cart::instance('sale_return')->tax() * 100,
-                'discount_amount' => Cart::instance('sale_return')->discount() * 100,
-            ]);
-
-            foreach (Cart::instance('sale_return')->content() as $cart_item) {
-                SaleReturnDetail::create([
-                    'sale_return_id' => $sale_return->id,
-                    'product_id' => $cart_item->id,
-                    'product_name' => $cart_item->name,
-                    'product_code' => $cart_item->options->code,
-                    'quantity' => $cart_item->qty,
-                    'price' => $cart_item->price * 100,
-                    'unit_price' => $cart_item->options->unit_price * 100,
-                    'sub_total' => $cart_item->options->sub_total * 100,
-                    'product_discount_amount' => $cart_item->options->product_discount * 100,
-                    'product_discount_type' => $cart_item->options->product_discount_type,
-                    'product_tax_amount' => $cart_item->options->product_tax * 100,
-                ]);
-
-                if ($request->status == 'Completed') {
-                    $product = Product::findOrFail($cart_item->id);
-                    $product->update([
-                        'product_quantity' => $product->product_quantity + $cart_item->qty
-                    ]);
-                }
-            }
-
-            Cart::instance('sale_return')->destroy();
-
-            if ($sale_return->paid_amount > 0) {
-                SaleReturnPayment::create([
-                    'date' => $request->date,
-                    'reference' => 'INV/'.$sale_return->reference,
-                    'amount' => $sale_return->paid_amount,
-                    'sale_return_id' => $sale_return->id,
-                    'payment_method' => $request->payment_method
-                ]);
-            }
-        });
-
-        toast('Sale Return Created!', 'success');
-
-        return redirect()->route('sale-returns.index');
+    public function store() {
+        abort(404, 'Gunakan formulir Livewire untuk membuat retur penjualan.');
     }
 
 
     public function show(SaleReturn $sale_return) {
-        abort_if(Gate::denies('show_sale_returns'), 403);
+        abort_if(Gate::denies('saleReturns.show'), 403);
+        $this->authorizeLinkedPosReturnPermission($sale_return, 'pos.returns.view');
 
-        $customer = Customer::findOrFail($sale_return->customer_id);
+        $sale_return->load([
+            'saleReturnDetails',
+            'saleReturnGoods',
+            'saleReturnPayments',
+            'customerCredit',
+            'sale',
+            'location',
+            'settledBy',
+            // Eager-load nested relations used in view to avoid lazy-loading violations
+            'settlementItems.location',
+            'settlementItems.detail',
+            'settlementItems.serialNumber',
+        ]);
 
-        return view('salesreturn::show', compact('sale_return', 'customer'));
+        return view('salesreturn::show', compact('sale_return'));
     }
 
 
     public function edit(SaleReturn $sale_return) {
-        abort_if(Gate::denies('edit_sale_returns'), 403);
+        abort_if(Gate::denies('saleReturnSettlements.submit'), 403);
+        $this->authorizeLinkedPosReturnPermission($sale_return, 'pos.returns.edit');
 
-        $sale_return_details = $sale_return->saleReturnDetails;
+        // Rule: Received -> Hard Block
+        if (!is_null($sale_return->received_at)) {
+            abort(403, 'Tidak dapat mengubah retur penjualan yang sudah diterima barangnya.');
+        }
 
-        Cart::instance('sale_return')->destroy();
-
-        $cart = Cart::instance('sale_return');
-
-        foreach ($sale_return_details as $sale_return_detail) {
-            $cart->add([
-                'id'      => $sale_return_detail->product_id,
-                'name'    => $sale_return_detail->product_name,
-                'qty'     => $sale_return_detail->quantity,
-                'price'   => $sale_return_detail->price,
-                'weight'  => 1,
-                'options' => [
-                    'product_discount' => $sale_return_detail->product_discount_amount,
-                    'product_discount_type' => $sale_return_detail->product_discount_type,
-                    'sub_total'   => $sale_return_detail->sub_total,
-                    'code'        => $sale_return_detail->product_code,
-                    'stock'       => Product::findOrFail($sale_return_detail->product_id)->product_quantity,
-                    'product_tax' => $sale_return_detail->product_tax_amount,
-                    'unit_price'  => $sale_return_detail->unit_price
-                ]
-            ]);
+        if ($sale_return->settled_at) {
+            toast('Retur penjualan sudah diselesaikan dan tidak dapat diedit.', 'info');
+            return redirect()->route('sale-returns.show', $sale_return);
         }
 
         return view('salesreturn::edit', compact('sale_return'));
     }
 
 
-    public function update(UpdateSaleReturnRequest $request, SaleReturn $sale_return) {
-        DB::transaction(function () use ($request, $sale_return) {
-            $due_amount = $request->total_amount - $request->paid_amount;
+    public function update(SaleReturn $sale_return) {
+        abort(404, 'Gunakan formulir Livewire untuk memperbarui retur penjualan.');
+    }
 
-            if ($due_amount == $request->total_amount) {
-                $payment_status = 'Unpaid';
-            } elseif ($due_amount > 0) {
-                $payment_status = 'Partial';
-            } else {
-                $payment_status = 'Paid';
-            }
 
-            foreach ($sale_return->saleReturnDetails as $sale_return_detail) {
-                if ($sale_return->status == 'Completed') {
-                    $product = Product::findOrFail($sale_return_detail->product_id);
-                    $product->update([
-                        'product_quantity' => $product->product_quantity - $sale_return_detail->quantity
-                    ]);
-                }
-                $sale_return_detail->delete();
-            }
+    public function settlement(SaleReturn $sale_return)
+    {
+        abort_if(Gate::denies('saleReturns.edit'), 403);
 
-            $sale_return->update([
-                'date' => $request->date,
-                'reference' => $request->reference,
-                'customer_id' => $request->customer_id,
-                'customer_name' => Customer::findOrFail($request->customer_id)->customer_name,
-                'tax_percentage' => $request->tax_percentage,
-                'discount_percentage' => $request->discount_percentage,
-                'shipping_amount' => $request->shipping_amount * 100,
-                'paid_amount' => $request->paid_amount * 100,
-                'total_amount' => $request->total_amount * 100,
-                'due_amount' => $due_amount * 100,
-                'status' => $request->status,
-                'payment_status' => $payment_status,
-                'payment_method' => $request->payment_method,
-                'note' => $request->note,
-                'tax_amount' => Cart::instance('sale_return')->tax() * 100,
-                'discount_amount' => Cart::instance('sale_return')->discount() * 100,
-            ]);
+        $status = Str::lower($sale_return->status ?? '');
 
-            foreach (Cart::instance('sale_return')->content() as $cart_item) {
-                SaleReturnDetail::create([
-                    'sale_return_id' => $sale_return->id,
-                    'product_id' => $cart_item->id,
-                    'product_name' => $cart_item->name,
-                    'product_code' => $cart_item->options->code,
-                    'quantity' => $cart_item->qty,
-                    'price' => $cart_item->price * 100,
-                    'unit_price' => $cart_item->options->unit_price * 100,
-                    'sub_total' => $cart_item->options->sub_total * 100,
-                    'product_discount_amount' => $cart_item->options->product_discount * 100,
-                    'product_discount_type' => $cart_item->options->product_discount_type,
-                    'product_tax_amount' => $cart_item->options->product_tax * 100,
-                ]);
+        if ($status !== 'awaiting settlement') {
+            toast('Penyelesaian hanya dapat diproses setelah barang retur diterima (Awaiting Settlement).', 'error');
+            return redirect()->route('sale-returns.show', $sale_return);
+        }
 
-                if ($request->status == 'Completed') {
-                    $product = Product::findOrFail($cart_item->id);
-                    $product->update([
-                        'product_quantity' => $product->product_quantity + $cart_item->qty
-                    ]);
-                }
-            }
+        $sale_return->load([
+            'saleReturnDetails',
+            'saleReturnGoods',
+            'customerCredit',
+        ]);
 
-            Cart::instance('sale_return')->destroy();
-        });
+        return view('salesreturn::settlement', compact('sale_return'));
+    }
 
-        toast('Sale Return Updated!', 'info');
+
+    public function archive(SaleReturn $sale_return)
+    {
+        abort_if(Gate::denies('saleReturns.archive'), 403);
+        $this->authorizeLinkedPosReturnPermission($sale_return, 'pos.returns.delete');
+
+        // Block if processed
+        if (!is_null($sale_return->received_at)) {
+            abort(403, 'Tidak dapat mengarsipkan retur penjualan yang sudah diterima barangnya.');
+        }
+
+        $sale_return->update([
+            'archived_at' => now(),
+            'archived_by' => auth()->id(),
+        ]);
+
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return, 'dispatch');
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return, 'dispatch');
+
+        toast('Retur Penjualan Diarsipkan!', 'info');
 
         return redirect()->route('sale-returns.index');
     }
 
-
     public function destroy(SaleReturn $sale_return) {
-        abort_if(Gate::denies('delete_sale_returns'), 403);
+        abort_if(Gate::denies('saleReturns.delete'), 403);
+        $this->authorizeLinkedPosReturnPermission($sale_return, 'pos.returns.delete');
+
+        // Rule: Received -> Hard Block
+        if (!is_null($sale_return->received_at)) {
+            abort(403, 'Tidak dapat menghapus retur penjualan yang sudah diterima barangnya.');
+        }
+
+        // Rule: Approved -> Require explicit archive permission
+        if (Str::lower($sale_return->approval_status) === 'approved') {
+            if (!auth()->user()->can('saleReturns.archive')) {
+                abort(403, 'Anda tidak memiliki akses untuk mengarsipkan retur penjualan yang sudah disetujui.');
+            }
+        }
 
         $sale_return->delete();
 
-        toast('Sale Return Deleted!', 'warning');
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return, 'dispatch');
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return, 'dispatch');
+
+        toast('Retur Penjualan Dihapus!', 'warning');
 
         return redirect()->route('sale-returns.index');
+    }
+
+    public function approve(SaleReturn $sale_return)
+    {
+        abort_if(Gate::denies('saleReturns.approve'), 403);
+        $this->authorizeLinkedPosReturnPermission($sale_return, 'pos.returns.approve');
+
+        $status = Str::lower($sale_return->approval_status ?? '');
+
+        if ($status === 'approved') {
+            toast('Retur penjualan sudah disetujui.', 'info');
+            return back();
+        }
+
+        if ($status === 'rejected') {
+            toast('Retur penjualan yang ditolak tidak dapat disetujui.', 'error');
+            return back();
+        }
+
+        $sale_return->update([
+            'approval_status' => 'approved',
+            'status' => 'Awaiting Receiving',
+            'approved_by' => auth()->id(),
+            'approved_at' => now(),
+            'rejected_by' => null,
+            'rejected_at' => null,
+            'rejection_reason' => null,
+            'received_by' => null,
+            'received_at' => null,
+            'settled_at' => null,
+            'settled_by' => null,
+        ]);
+
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return);
+
+        toast('Retur penjualan disetujui.', 'success');
+
+        return back();
+    }
+
+    public function reject(Request $request, SaleReturn $sale_return)
+    {
+        abort_if(Gate::denies('saleReturns.approve'), 403);
+        $this->authorizeLinkedPosReturnPermission($sale_return, 'pos.returns.approve');
+
+        $status = Str::lower($sale_return->approval_status ?? '');
+
+        if ($status === 'approved') {
+            toast('Retur penjualan yang sudah disetujui tidak dapat ditolak.', 'error');
+            return back();
+        }
+
+        $data = $request->validate([
+            'reason' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $sale_return->update([
+            'approval_status' => 'rejected',
+            'status' => 'Rejected',
+            'rejected_by' => auth()->id(),
+            'rejected_at' => now(),
+            'rejection_reason' => $data['reason'] ?? null,
+            'approved_by' => null,
+            'approved_at' => null,
+            'received_by' => null,
+            'received_at' => null,
+            'settled_at' => null,
+            'settled_by' => null,
+        ]);
+
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return);
+        app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded($sale_return, $sale_return->reference, $sale_return->setting_id, $data['reason'] ?? '');
+
+        toast('Retur penjualan ditolak.', 'warning');
+
+        return back();
+    }
+
+    public function receive(SaleReturn $sale_return)
+    {
+        abort_if(Gate::denies('saleReturns.receive'), 403);
+        $this->authorizeLinkedPosReturnPermission($sale_return, 'pos.returns.receive');
+
+        $approvalStatus = Str::lower($sale_return->approval_status ?? '');
+        $status = Str::lower($sale_return->status ?? '');
+
+        if ($approvalStatus !== 'approved') {
+            toast('Retur penjualan harus disetujui sebelum diterima.', 'error');
+            return back();
+        }
+
+        if ($status === 'awaiting settlement' || $status === 'completed') {
+            toast('Retur penjualan sudah diterima.', 'info');
+            return back();
+        }
+
+        if ($status !== 'awaiting receiving') {
+            toast('Retur penjualan belum siap untuk diterima.', 'error');
+            return back();
+        }
+
+        try {
+            DB::transaction(function () use ($sale_return) {
+                $receivedAt = now();
+
+                $lockedSaleReturn = SaleReturn::query()
+                    ->whereKey($sale_return->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                $details = SaleReturnDetail::query()
+                    ->with('dispatchDetail')
+                    ->where('sale_return_id', $lockedSaleReturn->id)
+                    ->lockForUpdate()
+                    ->get();
+
+                $dispatchDetails = DispatchDetail::query()
+                    ->whereIn('id', $details->pluck('dispatch_detail_id')->filter()->unique()->all())
+                    ->lockForUpdate()
+                    ->get()
+                    ->keyBy('id');
+
+                foreach ($details as $detail) {
+                    $quantity = (int) ($detail->quantity ?? 0);
+                    if ($quantity <= 0) {
+                        continue;
+                    }
+
+                    $dispatchDetail = $dispatchDetails->get($detail->dispatch_detail_id);
+                    if (! $dispatchDetail) {
+                        throw new \RuntimeException('Detail pengiriman tidak ditemukan untuk retur penjualan.');
+                    }
+
+                    $locationId = $detail->location_id
+                        ?? $lockedSaleReturn->location_id
+                        ?? $dispatchDetail->location_id;
+
+                    if (! $locationId) {
+                        throw new \RuntimeException('Lokasi penerimaan retur tidak dapat ditentukan.');
+                    }
+
+                    $product = Product::query()
+                        ->where('id', $detail->product_id)
+                        ->lockForUpdate()
+                        ->firstOrFail();
+
+                    $productStock = ProductStock::query()
+                        ->where('product_id', $detail->product_id)
+                        ->where('location_id', $locationId)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (! $productStock) {
+                        $productStock = ProductStock::create([
+                            'product_id' => $detail->product_id,
+                            'location_id' => $locationId,
+                            'quantity' => 0,
+                            'quantity_tax' => 0,
+                            'quantity_non_tax' => 0,
+                            'broken_quantity_non_tax' => 0,
+                            'broken_quantity_tax' => 0,
+                            'broken_quantity' => 0,
+                            'tax_id' => $dispatchDetail->tax_id,
+                        ]);
+                    }
+
+                    $previousProductQuantity = (int) ($product->product_quantity ?? 0);
+                    $previousQuantityAtLocation = (int) ($productStock->quantity ?? 0);
+                    $taxId = $dispatchDetail->tax_id;
+
+                    if ($taxId) {
+                        $productStock->quantity_tax = (int) ($productStock->quantity_tax ?? 0) + $quantity;
+                    } else {
+                        $productStock->quantity_non_tax = (int) ($productStock->quantity_non_tax ?? 0) + $quantity;
+                    }
+
+                    $productStock->quantity = (int) ($productStock->quantity_non_tax ?? 0)
+                        + (int) ($productStock->quantity_tax ?? 0)
+                        + (int) ($productStock->broken_quantity_non_tax ?? 0)
+                        + (int) ($productStock->broken_quantity_tax ?? 0);
+                    $productStock->broken_quantity = (int) ($productStock->broken_quantity_non_tax ?? 0)
+                        + (int) ($productStock->broken_quantity_tax ?? 0);
+                    $productStock->tax_id = $taxId;
+                    $productStock->save();
+
+                    $product->product_quantity = (int) $product->product_quantity + $quantity;
+                    $product->save();
+
+                    Transaction::create([
+                        'product_id' => $product->id,
+                        'setting_id' => (int) ($lockedSaleReturn->setting_id ?? session('setting_id')),
+                        'type' => $taxId ? 'SALE_RETURN_GOOD_TAX' : 'SALE_RETURN_GOOD_NON_TAX',
+                        'quantity' => $quantity,
+                        'current_quantity' => (int) $product->product_quantity,
+                        'broken_quantity' => (int) ($productStock->broken_quantity ?? 0),
+                        'location_id' => $locationId,
+                        'user_id' => auth()->id(),
+                        'reason' => 'PENERIMAAN RETUR PENJUALAN: ' . $lockedSaleReturn->reference,
+                        'previous_quantity' => $previousProductQuantity,
+                        'after_quantity' => (int) $product->product_quantity,
+                        'previous_quantity_at_location' => $previousQuantityAtLocation,
+                        'after_quantity_at_location' => (int) ($productStock->quantity ?? 0),
+                        'quantity_tax' => $taxId ? $quantity : 0,
+                        'quantity_non_tax' => $taxId ? 0 : $quantity,
+                        'broken_quantity_tax' => 0,
+                        'broken_quantity_non_tax' => 0,
+                    ]);
+
+                    $serialIds = collect($detail->serial_number_ids ?? [])
+                        ->map(fn ($id) => (int) $id)
+                        ->filter()
+                        ->values()
+                        ->all();
+
+                    if (! empty($serialIds)) {
+                        $serials = ProductSerialNumber::query()
+                            ->whereIn('id', $serialIds)
+                            ->lockForUpdate()
+                            ->get();
+
+                        if ($serials->count() !== count($serialIds)) {
+                            throw new \RuntimeException('Sebagian nomor seri tidak ditemukan.');
+                        }
+
+                        foreach ($serials as $serial) {
+                            if ((int) $serial->dispatch_detail_id !== (int) $dispatchDetail->id) {
+                                throw new \RuntimeException('Nomor seri tidak berasal dari pengiriman penjualan ini.');
+                            }
+                        }
+
+                        ProductSerialNumber::query()
+                            ->whereIn('id', $serialIds)
+                            ->update([
+                                'dispatch_detail_id' => null,
+                                'location_id' => $locationId,
+                                'tax_id' => $taxId,
+                                'status' => ProductSerialNumber::STATUS_ACTIVE,
+                            ]);
+
+                        SalesOrderSerialTracking::query()
+                            ->where('sale_id', $lockedSaleReturn->sale_id)
+                            ->whereIn('product_serial_number_id', $serialIds)
+                            ->update([
+                                'return_date' => $receivedAt,
+                                'updated_at' => $receivedAt,
+                            ]);
+
+                        foreach ($serials as $serial) {
+                            SerialNumberHistoryService::record(
+                                $serial->id,
+                                SerialNumberHistory::EVENT_SALE_RETURNED,
+                                $locationId,
+                                $detail
+                            );
+                        }
+                    }
+                }
+
+                $lockedSaleReturn->forceFill([
+                    'status' => 'Awaiting Settlement',
+                    'received_by' => auth()->id(),
+                    'received_at' => $receivedAt,
+                    'settled_at' => null,
+                    'settled_by' => null,
+                ])->save();
+
+                app(SaleReturnLifecycleSyncService::class)
+                    ->syncSourceSaleReturnStatusFromReceivedReturns($lockedSaleReturn);
+            });
+        } catch (Throwable $e) {
+            Log::error('Gagal menerima retur penjualan', [
+                'sale_return_id' => $sale_return->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            toast('Gagal memproses penerimaan retur penjualan.', 'error');
+
+            return back();
+        }
+
+        toast('Retur penjualan berhasil diterima.', 'success');
+
+        return back();
+    }
+
+    private function authorizeLinkedPosReturnPermission(SaleReturn $saleReturn, string $permission): void
+    {
+        if (! $saleReturn->pos_return_id) {
+            return;
+        }
+
+        abort_if(Gate::denies($permission), 403);
     }
 }
