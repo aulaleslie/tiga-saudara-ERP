@@ -16,6 +16,7 @@ use Modules\Pos\Http\Requests\StorePosTransactionLoadRequest;
 use Modules\Pos\Http\Requests\StorePosTransactionSaveRequest;
 use Modules\Pos\Services\Exceptions\PosTransactionConflictException;
 use Modules\Pos\Services\Exceptions\PosTransactionValidationException;
+use Modules\Pos\Services\PosCartService;
 use Modules\Pos\Services\PosReceiptService;
 use Modules\Pos\Services\PosTransactionService;
 use Modules\Setting\Entities\Setting;
@@ -23,7 +24,8 @@ use Modules\Setting\Entities\Setting;
 class PosTransactionController extends Controller
 {
     public function __construct(
-        private readonly PosTransactionService $transactionService
+        private readonly PosTransactionService $transactionService,
+        private readonly PosCartService $cartService
     ) {}
 
     /**
@@ -51,6 +53,8 @@ class PosTransactionController extends Controller
                 $request->user()
             );
 
+            $cartSnapshot = $this->cartService->getSnapshot($settingId, $posSession->id);
+
             return response()->json([
                 'message' => 'Transaksi disimpan berhasil.',
                 'transaction' => [
@@ -58,6 +62,7 @@ class PosTransactionController extends Controller
                     'code' => $transaction->code,
                     'status' => $transaction->status,
                 ],
+                'cart_snapshot' => $cartSnapshot,
             ], 201);
         } catch (PosTransactionValidationException $e) {
             return response()->json([

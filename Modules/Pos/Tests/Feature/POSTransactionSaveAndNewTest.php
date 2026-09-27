@@ -37,8 +37,19 @@ class POSTransactionSaveAndNewTest extends PosTransactionFeatureTestCase
             ->assertJsonStructure([
                 'message',
                 'transaction' => ['id', 'code', 'status'],
+                'cart_snapshot' => [
+                    'lines',
+                    'totals',
+                    'meta',
+                    'customer',
+                ],
             ])
-            ->assertJsonPath('transaction.status', PosTransaction::STATUS_DRAFT);
+            ->assertJsonPath('transaction.status', PosTransaction::STATUS_DRAFT)
+            ->assertJsonPath('cart_snapshot.lines', [])
+            ->assertJsonPath('cart_snapshot.meta.line_count', 0)
+            ->assertJsonPath('cart_snapshot.active_transaction_id', null)
+            ->assertJsonPath('cart_snapshot.note', null)
+            ->assertJsonPath('cart_snapshot.customer.selected_customer', null);
 
         $transactionId = (int) $response->json('transaction.id');
         $this->assertDatabaseHas('pos_transactions', [

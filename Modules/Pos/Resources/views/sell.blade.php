@@ -346,6 +346,9 @@
 
             let noteDebounceHandle = null;
             let latestNoteRequestId = 0;
+            let activeNotePromise = null;
+            let desiredNoteValue = null;
+            let lastSavedNoteValue = null;
             let currentSnapshot = null;
             let cachedPaymentMethods = [];
 
@@ -1052,31 +1055,58 @@
             }
 
             async function submitNoteUpdate() {
-                if (!transactionNote) return;
-                const note = transactionNote.value;
-                const reqId = ++latestNoteRequestId;
-                
-                setNoteStatus('Menyimpan...', 'text-muted');
+                if (!transactionNote) return true;
 
-                try {
-                    const response = await jsonRequest(cartNoteEndpoint, 'PATCH', { note });
-                    if (reqId === latestNoteRequestId) {
-                        setNoteStatus('Tersimpan', 'text-success');
-                        setTimeout(() => {
+                if (desiredNoteValue === null) {
+                    desiredNoteValue = transactionNote.value;
+                }
+
+                if (activeNotePromise) {
+                    const saved = await activeNotePromise;
+                    if (!saved) {
+                        return false;
+                    }
+                    return submitNoteUpdate();
+                }
+
+                const promise = (async () => {
+                    while (desiredNoteValue !== null && desiredNoteValue !== lastSavedNoteValue) {
+                        const note = desiredNoteValue;
+                        const reqId = ++latestNoteRequestId;
+                        
+                        setNoteStatus('Menyimpan...', 'text-muted');
+
+                        try {
+                            const response = await jsonRequest(cartNoteEndpoint, 'PATCH', { note });
+                            lastSavedNoteValue = note;
                             if (reqId === latestNoteRequestId) {
-                                setNoteStatus('', 'text-muted');
+                                setNoteStatus('Tersimpan', 'text-success');
+                                setTimeout(() => {
+                                    if (reqId === latestNoteRequestId) {
+                                        setNoteStatus('', 'text-muted');
+                                    }
+                                }, 2000);
+                                if (response.cart_snapshot) {
+                                    renderCart(response.cart_snapshot);
+                                }
                             }
-                        }, 2000);
-                        if (response.cart_snapshot) {
-                            renderCart(response.cart_snapshot);
+                        } catch (err) {
+                            if (reqId === latestNoteRequestId) {
+                                setNoteStatus('Gagal menyimpan.', 'text-danger');
+                            }
+                            return false;
                         }
                     }
                     return true;
-                } catch (err) {
-                    if (reqId === latestNoteRequestId) {
-                        setNoteStatus('Gagal menyimpan.', 'text-danger');
+                })();
+
+                activeNotePromise = promise;
+                try {
+                    return await promise;
+                } finally {
+                    if (activeNotePromise === promise) {
+                        activeNotePromise = null;
                     }
-                    return false;
                 }
             }
 
@@ -1084,8 +1114,15 @@
                 if (!transactionNote) return;
                 const note = snapshot && snapshot.note ? snapshot.note : '';
                 
-                if (document.activeElement !== transactionNote) {
+                const hasUnsavedNote =
+                    desiredNoteValue !== null &&
+                    desiredNoteValue !== lastSavedNoteValue;
+
+                // Do not overwrite if currently focused, or if there is an unsaved local edit
+                if (document.activeElement !== transactionNote && !hasUnsavedNote) {
                     transactionNote.value = note;
+                    desiredNoteValue = note;
+                    lastSavedNoteValue = note;
                     if (transactionNoteCount) {
                         transactionNoteCount.textContent = note.length;
                     }
@@ -1661,6 +1698,21 @@
                      }
                  }
 
+                 updateCartControlStates(snapshot);
+             }
+
+             function updateCartControlStates(snapshot) {
+                 if (saveDraftButton) {
+                     const hasItems = snapshot && Array.isArray(snapshot.lines) && snapshot.lines.length > 0;
+                     const grandTotal = snapshot && snapshot.totals ? Number(snapshot.totals.grand_total || 0) : 0;
+                     const customer = snapshot && snapshot.customer ? snapshot.customer : {};
+                     const hasCustomer = customer.resolution_source === 'selected' || customer.resolution_source === 'walk_in' || customer.resolution_source === 'default';
+                     const allPricesValid = !snapshot || !Array.isArray(snapshot.lines) ||
+                         snapshot.lines.every(line => line.price_valid !== false);
+
+                     const canSaveDraft = hasItems && grandTotal > 0 && hasCustomer && allPricesValid;
+                     saveDraftButton.disabled = !canSaveDraft;
+                 }
              }
  
              async function refreshCart() {
@@ -3047,6 +3099,7 @@
 
             if (transactionNote) {
                 transactionNote.addEventListener('input', function () {
+                    desiredNoteValue = this.value;
                     if (transactionNoteCount) {
                         transactionNoteCount.textContent = this.value.length;
                     }
@@ -3056,7 +3109,9 @@
                 });
 
                 transactionNote.addEventListener('blur', function () {
+                    desiredNoteValue = this.value;
                     clearTimeout(noteDebounceHandle);
+                    noteDebounceHandle = null;
                     submitNoteUpdate();
                 });
             }
@@ -3137,8 +3192,29 @@
                     saveDraftButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Menyimpan...';
 
                     try {
+                        // Ensure any pending or in-flight note update completes before saving
+                        if (noteDebounceHandle) {
+                            clearTimeout(noteDebounceHandle);
+                            noteDebounceHandle = null;
+                        }
+                        const noteSaved = await submitNoteUpdate();
+                        if (!noteSaved) {
+                            setCartStatus('Gagal menyimpan catatan, penyimpanan transaksi dibatalkan.', 'text-danger');
+                            updateCartControlStates(currentSnapshot);
+                            return;
+                        }
+
                         const response = await jsonRequest(saveAndNewEndpoint, 'POST');
-                        await refreshCart();
+
+                        if (noteDebounceHandle) {
+                            clearTimeout(noteDebounceHandle);
+                            noteDebounceHandle = null;
+                        }
+                        latestNoteRequestId += 1;
+
+                        if (response && response.cart_snapshot) {
+                            renderCart(response.cart_snapshot);
+                        }
 
                         const code = response && response.transaction ? response.transaction.code : '-';
                         const trxId = response && response.transaction ? response.transaction.id : null;
@@ -3160,8 +3236,8 @@
                         setCartStatus('Transaksi ' + code + ' disimpan.', 'text-success');
                     } catch (error) {
                         setCartStatus(error.message || 'Gagal menyimpan transaksi.', 'text-danger', true);
+                        updateCartControlStates(currentSnapshot);
                     } finally {
-                        saveDraftButton.disabled = false;
                         saveDraftButton.textContent = originalText;
                     }
                 });
@@ -4444,11 +4520,12 @@
 
                     if (noteDebounceHandle) {
                         clearTimeout(noteDebounceHandle);
-                        const saved = await submitNoteUpdate();
-                        if (!saved) {
-                            setCartStatus('Gagal menyimpan catatan, pembayaran dibatalkan.', 'text-danger');
-                            return;
-                        }
+                        noteDebounceHandle = null;
+                    }
+                    const saved = await submitNoteUpdate();
+                    if (!saved) {
+                        setCartStatus('Gagal menyimpan catatan, pembayaran dibatalkan.', 'text-danger');
+                        return;
                     }
 
                     console.log('[CHECKOUT] Preflight check initiated');

@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+Save-and-new draft workflow allows cashiers and floor staff to quickly park an active POS cart as a saved draft and clear the cart to immediately serve the next customer.
+
+## Requirements
 
 ### Requirement: Synchronized POS Save & Open New Activation
 The "Simpan dan Buka Baru" button on the POS sell page SHALL be enabled only when all transaction validation rules are met, matching the behavior of the "Pilih Pembayaran" button, and SHALL only be actionable by users with POS shell access and draft-save permission for handoff flow. The supported `cashier` and `floor staff` bundles SHALL both satisfy this handoff requirement, while payment authority SHALL remain a separate capability.
