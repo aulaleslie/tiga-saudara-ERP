@@ -36,7 +36,7 @@ class UnitConversionTable extends Component
         $this->rowKeys       = [];
     }
 
-    public function mount(array $conversions = [], array $locations = []): void
+    public function mount(array $conversions = []): void
     {
         $this->conversions = !empty($conversions)
             ? $conversions
@@ -111,43 +111,6 @@ class UnitConversionTable extends Component
     {
         return view('livewire.product.unit-conversion-table', [
             'units' => $this->units,
-            'locations' => $this->locations,
         ]);
-    }
-
-    private function normalizeConversions(array $conversions): array
-    {
-        if (empty($conversions)) {
-            return [];
-        }
-
-        return array_map(function (array $conversion) {
-            return [
-                'unit_id' => $conversion['unit_id'] ?? '',
-                'conversion_factor' => $conversion['conversion_factor'] ?? '',
-                'barcode' => $conversion['barcode'] ?? '',
-                'locations' => $this->normalizeLocationPrices($conversion['locations'] ?? []),
-            ];
-        }, $conversions);
-    }
-
-    private function normalizeLocationPrices(array $locationPrices): array
-    {
-        if (empty($this->locations)) {
-            return [];
-        }
-
-        $normalized = [];
-
-        foreach ($this->locations as $location) {
-            $existing = collect($locationPrices)->firstWhere('location_id', $location['id'] ?? null);
-
-            $normalized[] = [
-                'location_id' => $location['id'] ?? null,
-                'price' => $existing['price'] ?? '',
-            ];
-        }
-
-        return $normalized;
     }
 }

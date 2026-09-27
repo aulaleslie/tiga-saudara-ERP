@@ -12,15 +12,7 @@ use Modules\Setting\Entities\Unit;
  */
 class ProductUnitConversion extends BaseModel
 {
-    protected $fillable = [
-        'product_id',
-        'unit_id',
-        'base_unit_id',
-        'location_id',
-        'conversion_factor',
-        'barcode',
-        'price',
-    ];
+    protected $fillable = ['product_id', 'unit_id', 'base_unit_id', 'conversion_factor', 'barcode'];
 
     public function product(): BelongsTo
     {
