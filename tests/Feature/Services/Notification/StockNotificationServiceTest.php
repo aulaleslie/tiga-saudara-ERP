@@ -79,6 +79,13 @@ class StockNotificationServiceTest extends TestCase
             'source_id' => $product->id,
         ]);
 
+        $notification = Notification::where('user_id', $this->manager1->id)->first();
+        $this->assertNotNull($notification->action_url);
+        $this->assertStringStartsWith('/', $notification->action_url);
+        $this->assertFalse(str_starts_with($notification->action_url, 'http://'));
+        $this->assertFalse(str_starts_with($notification->action_url, 'https://'));
+        $this->assertFalse(str_starts_with($notification->action_url, '//'));
+
         $this->assertDatabaseMissing('notifications', [
             'user_id' => $this->manager2->id, // Wrong setting
         ]);

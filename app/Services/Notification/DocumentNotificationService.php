@@ -130,9 +130,9 @@ class DocumentNotificationService
         // Attempt generic route, fallback to empty
         $actionUrl = '#';
         if (\Illuminate\Support\Facades\Route::has("{$config['route_prefix']}.show")) {
-            $actionUrl = route("{$config['route_prefix']}.show", $sourceId);
+            $actionUrl = route("{$config['route_prefix']}.show", $sourceId, false);
         } elseif (\Illuminate\Support\Facades\Route::has("{$config['route_prefix']}.index")) {
-            $actionUrl = route("{$config['route_prefix']}.index");
+            $actionUrl = route("{$config['route_prefix']}.index", [], false);
         }
 
         foreach ($userIds as $userId) {
@@ -181,9 +181,9 @@ class DocumentNotificationService
         // Attempt generic route, fallback to empty
         $actionUrl = '#';
         if (\Illuminate\Support\Facades\Route::has("{$config['route_prefix']}.edit")) {
-            $actionUrl = route("{$config['route_prefix']}.edit", $sourceId);
+            $actionUrl = route("{$config['route_prefix']}.edit", $sourceId, false);
         } elseif (\Illuminate\Support\Facades\Route::has("{$config['route_prefix']}.index")) {
-            $actionUrl = route("{$config['route_prefix']}.index");
+            $actionUrl = route("{$config['route_prefix']}.index", [], false);
         }
 
         foreach ($userIds as $userId) {

@@ -75,7 +75,7 @@
                         <div class="small">
                             @if($item->method === SaleReturnDetail::METHOD_CASH_REFUND)
                                 @if($item->proof_path)
-                                    <a href="{{ Storage::url($item->proof_path) }}" target="_blank" class="text-primary text-decoration-none d-flex align-items-center">
+                                    <a href="{{ Storage::disk('public')->url($item->proof_path) }}" target="_blank" class="text-primary text-decoration-none d-flex align-items-center">
                                         <i class="bi bi-file-earmark-image me-1"></i> Lihat Bukti
                                     </a>
                                 @else

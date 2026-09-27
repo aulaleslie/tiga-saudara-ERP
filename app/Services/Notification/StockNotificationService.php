@@ -70,7 +70,7 @@ class StockNotificationService
                 'source_type' => Product::class,
                 'source_id' => $product->id,
                 'fingerprint' => "stock:global:{$product->id}:user:{$user->id}",
-                'action_url' => route('products.show', $product->id),
+                'action_url' => route('products.show', $product->id, false),
                 'metadata' => [
                     'current_quantity' => $product->product_quantity,
                     'threshold' => $product->product_stock_alert,
@@ -115,7 +115,7 @@ class StockNotificationService
                 'source_type' => ProductStock::class,
                 'source_id' => $stock->id,
                 'fingerprint' => "stock:location:{$stock->id}:user:{$user->id}",
-                'action_url' => route('products.show', $product->id),
+                'action_url' => route('products.show', $product->id, false),
                 'metadata' => [
                     'current_quantity' => $displayQuantity,
                     'threshold' => $product->product_stock_alert,

@@ -13,6 +13,10 @@ class NotificationService
      */
     public function write(array $data): Notification
     {
+        if (array_key_exists('action_url', $data)) {
+            $data['action_url'] = NotificationActionUrlNormalizer::normalize($data['action_url']);
+        }
+
         try {
             // Unresolved means resolved_at is null.
             // We look for an existing unresolved notification with the same fingerprint.
@@ -26,7 +30,7 @@ class NotificationService
                 $existing->update([
                     'title' => $data['title'] ?? $existing->title,
                     'message' => $data['message'] ?? $existing->message,
-                    'action_url' => $data['action_url'] ?? $existing->action_url,
+                    'action_url' => array_key_exists('action_url', $data) ? $data['action_url'] : $existing->action_url,
                     'metadata' => isset($data['metadata']) ? array_merge($existing->metadata ?? [], $data['metadata']) : $existing->metadata,
                     'read_at' => null, // Bring it back to unread to alert the user again
                 ]);
@@ -61,7 +65,7 @@ class NotificationService
                     $existing->update([
                         'title' => $data['title'] ?? $existing->title,
                         'message' => $data['message'] ?? $existing->message,
-                        'action_url' => $data['action_url'] ?? $existing->action_url,
+                        'action_url' => array_key_exists('action_url', $data) ? $data['action_url'] : $existing->action_url,
                         'metadata' => isset($data['metadata']) ? array_merge($existing->metadata ?? [], $data['metadata']) : $existing->metadata,
                         'read_at' => null,
                     ]);

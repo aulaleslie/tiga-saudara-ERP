@@ -30,7 +30,7 @@ class TestDocumentNotificationService extends DocumentNotificationService
             'approval_permission' => 'test.approval',
             'edit_permission' => 'test.edit',
             'title_prefix' => 'Test Document',
-            'route_prefix' => 'test-documents',
+            'route_prefix' => 'purchases',
         ];
     }
 }
@@ -86,6 +86,13 @@ class DocumentNotificationServiceTest extends TestCase
             'source_id' => $this->document->id,
             'title' => 'Persetujuan Test Document Dibutuhkan',
         ]);
+
+        $notification = Notification::where('user_id', $this->manager1->id)->first();
+        $this->assertNotNull($notification->action_url);
+        $this->assertStringStartsWith('/', $notification->action_url);
+        $this->assertFalse(str_starts_with($notification->action_url, 'http://'));
+        $this->assertFalse(str_starts_with($notification->action_url, 'https://'));
+        $this->assertFalse(str_starts_with($notification->action_url, '//'));
 
         $this->assertDatabaseMissing('notifications', [
             'user_id' => $this->manager2->id,
@@ -146,5 +153,72 @@ class DocumentNotificationServiceTest extends TestCase
             'category' => 'approval:dispatch',
             'title' => 'Persetujuan Test Dispatch Dibutuhkan',
         ]);
+    }
+
+    public function test_write_sets_unsafe_or_external_action_url_to_null()
+    {
+        $service = app(NotificationService::class);
+
+        $notification = $service->write([
+            'user_id' => $this->manager1->id,
+            'setting_id' => $this->setting1->id,
+            'category' => 'approval',
+            'type' => 'document_approval',
+            'title' => 'Security Alert',
+            'message' => 'Check external link',
+            'fingerprint' => 'fp-unsafe-url-test',
+            'action_url' => 'https://malicious.evil.com/phish',
+        ]);
+
+        $this->assertNull($notification->action_url);
+        $this->assertDatabaseHas('notifications', [
+            'id' => $notification->id,
+            'action_url' => null,
+        ]);
+    }
+
+    public function test_update_existing_notification_handles_unsafe_and_omitted_action_url()
+    {
+        $service = app(NotificationService::class);
+
+        // 1. Create with a valid relative action_url
+        $notification = $service->write([
+            'user_id' => $this->manager1->id,
+            'setting_id' => $this->setting1->id,
+            'category' => 'approval',
+            'type' => 'document_approval',
+            'title' => 'Initial Title',
+            'message' => 'Initial Message',
+            'fingerprint' => 'fp-update-action-url',
+            'action_url' => '/purchases/123',
+        ]);
+        $this->assertEquals('/purchases/123', $notification->action_url);
+
+        // 2. Update without action_url in payload -> retains existing '/purchases/123'
+        $updatedWithoutUrl = $service->write([
+            'user_id' => $this->manager1->id,
+            'setting_id' => $this->setting1->id,
+            'category' => 'approval',
+            'type' => 'document_approval',
+            'title' => 'Updated Title',
+            'message' => 'Updated Message',
+            'fingerprint' => 'fp-update-action-url',
+        ]);
+        $this->assertEquals($notification->id, $updatedWithoutUrl->id);
+        $this->assertEquals('/purchases/123', $updatedWithoutUrl->fresh()->action_url);
+
+        // 3. Update with unsafe/external action_url -> explicitly set to null
+        $updatedWithUnsafeUrl = $service->write([
+            'user_id' => $this->manager1->id,
+            'setting_id' => $this->setting1->id,
+            'category' => 'approval',
+            'type' => 'document_approval',
+            'title' => 'Updated Title 2',
+            'message' => 'Updated Message 2',
+            'fingerprint' => 'fp-update-action-url',
+            'action_url' => 'https://malicious.evil.com/phish',
+        ]);
+        $this->assertEquals($notification->id, $updatedWithUnsafeUrl->id);
+        $this->assertNull($updatedWithUnsafeUrl->fresh()->action_url);
     }
 }

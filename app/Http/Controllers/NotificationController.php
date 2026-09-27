@@ -63,11 +63,13 @@ class NotificationController extends Controller
 
         $this->notificationService->markAsRead($notification->id, $user->id);
 
-        if ($notification->action_url) {
-            return redirect($notification->action_url);
+        $normalizedUrl = \App\Services\Notification\NotificationActionUrlNormalizer::normalize($notification->action_url);
+
+        if ($normalizedUrl && $normalizedUrl !== '#') {
+            return redirect($normalizedUrl);
         }
 
-        return redirect()->back();
+        return redirect()->route('notifications.index');
     }
 
     /**

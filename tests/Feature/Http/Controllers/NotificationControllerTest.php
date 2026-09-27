@@ -135,4 +135,80 @@ class NotificationControllerTest extends TestCase
         
         $this->assertEquals(0, Notification::unread()->count());
     }
+
+    public function test_read_redirects_on_lan_host()
+    {
+        $notification = Notification::create([
+            'user_id' => $this->user->id,
+            'setting_id' => $this->setting->id,
+            'category' => 'test',
+            'type' => 'test',
+            'title' => 'LAN Test',
+            'message' => 'LAN Msg',
+            'fingerprint' => 'lan-fp',
+            'action_url' => '/purchases/42?tab=items',
+        ]);
+
+        $response = $this->get("http://192.168.1.50:8000/notifications/{$notification->id}/read");
+
+        $response->assertRedirect('http://192.168.1.50:8000/purchases/42?tab=items');
+        $this->assertNotNull($notification->fresh()->read_at);
+    }
+
+    public function test_read_redirects_on_cloudflare_host()
+    {
+        $notification = Notification::create([
+            'user_id' => $this->user->id,
+            'setting_id' => $this->setting->id,
+            'category' => 'test',
+            'type' => 'test',
+            'title' => 'CF Test',
+            'message' => 'CF Msg',
+            'fingerprint' => 'cf-fp',
+            'action_url' => '/sale-returns/7',
+        ]);
+
+        $response = $this->get("https://erp.tigasaudara.com/notifications/{$notification->id}/read");
+
+        $response->assertRedirect('https://erp.tigasaudara.com/sale-returns/7');
+        $this->assertNotNull($notification->fresh()->read_at);
+    }
+
+    public function test_read_falls_back_to_notification_index_on_unsafe_stored_destination()
+    {
+        $notification = Notification::create([
+            'user_id' => $this->user->id,
+            'setting_id' => $this->setting->id,
+            'category' => 'test',
+            'type' => 'test',
+            'title' => 'Evil Test',
+            'message' => 'Evil Msg',
+            'fingerprint' => 'evil-fp',
+            'action_url' => 'https://evil-phishing.com/steal-creds',
+        ]);
+
+        $response = $this->get(route('notifications.read', $notification->id));
+
+        $response->assertRedirect(route('notifications.index'));
+        $this->assertNotNull($notification->fresh()->read_at);
+    }
+
+    public function test_read_falls_back_to_notification_index_on_protocol_relative_url()
+    {
+        $notification = Notification::create([
+            'user_id' => $this->user->id,
+            'setting_id' => $this->setting->id,
+            'category' => 'test',
+            'type' => 'test',
+            'title' => 'Proto Rel Test',
+            'message' => 'Proto Rel Msg',
+            'fingerprint' => 'proto-fp',
+            'action_url' => '//evil.com/hack',
+        ]);
+
+        $response = $this->get(route('notifications.read', $notification->id));
+
+        $response->assertRedirect(route('notifications.index'));
+        $this->assertNotNull($notification->fresh()->read_at);
+    }
 }

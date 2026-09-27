@@ -169,7 +169,7 @@
                                             @endif
                                             @if($sale_return->cash_proof_path)
                                                 <dt class="col-5 text-muted">Bukti Pembayaran</dt>
-                                                <dd class="col-7"><a href="{{ Storage::url($sale_return->cash_proof_path) }}" target="_blank" class="text-decoration-none"><i class="bi bi-paperclip"></i> Lihat Bukti</a></dd>
+                                                <dd class="col-7"><a href="{{ Storage::disk('public')->url($sale_return->cash_proof_path) }}" target="_blank" class="text-decoration-none"><i class="bi bi-paperclip"></i> Lihat Bukti</a></dd>
                                             @endif
                                         @endif
                                         @if($sale_return->rejection_reason)
