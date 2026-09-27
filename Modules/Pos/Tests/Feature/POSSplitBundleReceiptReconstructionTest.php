@@ -762,6 +762,205 @@ class POSSplitBundleReceiptReconstructionTest extends TestCase
         $this->assertEquals(['SN-COMP-LIVEDEF-1'], $componentEntry['serials']);
     }
 
+    public function test_snapshot_fallback_composition_scales_one_per_bundle_component_by_parent_qty(): void
+    {
+        $receiptService = app(PosReceiptService::class);
+        $method = new \ReflectionMethod($receiptService, 'compositionFromLineMeta');
+
+        $meta = [
+            'bundle_items' => [
+                ['name' => 'COMP-A', 'quantity' => 1],
+            ],
+        ];
+
+        $composition = $method->invoke($receiptService, $meta, 2.0);
+
+        $this->assertSame(2.0, $composition[0]['qty']);
+    }
+
+    public function test_snapshot_fallback_composition_scales_multi_per_bundle_component_by_parent_qty(): void
+    {
+        $receiptService = app(PosReceiptService::class);
+        $method = new \ReflectionMethod($receiptService, 'compositionFromLineMeta');
+
+        $meta = [
+            'bundle_items' => [
+                ['name' => 'COMP-A', 'quantity' => 2],
+            ],
+        ];
+
+        $composition = $method->invoke($receiptService, $meta, 2.0);
+
+        $this->assertSame(4.0, $composition[0]['qty']);
+    }
+
+    public function test_snapshot_fallback_composition_scales_legacy_qty_field_by_parent_qty(): void
+    {
+        $receiptService = app(PosReceiptService::class);
+        $method = new \ReflectionMethod($receiptService, 'compositionFromLineMeta');
+
+        // Legacy snapshots use 'qty' instead of 'quantity'.
+        $meta = [
+            'bundle_items' => [
+                ['name' => 'COMP-A', 'qty' => 1],
+            ],
+        ];
+
+        $composition = $method->invoke($receiptService, $meta, 2.0);
+
+        $this->assertSame(2.0, $composition[0]['qty']);
+    }
+
+    public function test_bundle_composition_by_transaction_line_scales_snapshot_fallback_by_parent_qty(): void
+    {
+        $terminalSetting = $this->createSetting('SNAPSHOT FALLBACK BIZ', 'SF-DOC', 'SF-SO');
+        $cashier = $this->createUserForSetting($terminalSetting, 'cashier', ['pos.access']);
+        $locTerminal = Location::create(['name' => 'SF TERMINAL LOC', 'setting_id' => $terminalSetting->id]);
+        $this->createTerminalAndSaleLocations($terminalSetting, [$locTerminal]);
+        $this->seedPaymentMethods($terminalSetting, true);
+        $session = $this->openSession($terminalSetting, PosTerminal::where('setting_id', $terminalSetting->id)->first(), $cashier);
+        $tax = Tax::query()->create(['name' => 'VAT 11', 'value' => 11, 'is_default' => true]);
+        $parent = $this->createStockedProduct($terminalSetting, $locTerminal, 'SF-PARENT', 100000, 1, $tax);
+
+        // No completedCheckout / persisted Sale composition: forces the
+        // snapshot fallback branch of bundleCompositionByTransactionLine().
+        $transaction = \Modules\Pos\Entities\PosTransaction::create([
+            'setting_id' => $terminalSetting->id,
+            'code' => 'SF-TX-' . uniqid(),
+            'status' => \Modules\Pos\Entities\PosTransaction::STATUS_DRAFT,
+            'created_by' => $cashier->id,
+            'owner_user_id' => $cashier->id,
+            'last_saved_by' => $cashier->id,
+            'source_pos_session_id' => $session->id,
+        ]);
+
+        $line = \Modules\Pos\Entities\PosTransactionLine::create([
+            'pos_transaction_id' => $transaction->id,
+            'line_no' => 1,
+            'product_id' => $parent->id,
+            'product_name_snapshot' => $parent->product_name,
+            'qty' => 2,
+            'unit_price' => 100000,
+            'line_meta' => [
+                'price_source' => 'BUNDLE',
+                'bundle_items' => [
+                    ['name' => 'SF-COMP-A', 'quantity' => 1],
+                ],
+            ],
+        ]);
+
+        $receiptService = app(PosReceiptService::class);
+        $compositionByLine = $receiptService->bundleCompositionByTransactionLine($transaction->fresh(['lines']));
+
+        $composition = $compositionByLine[$line->id] ?? [];
+        $componentEntry = collect($composition)->firstWhere('name', 'SF-COMP-A');
+
+        $this->assertNotNull($componentEntry);
+        $this->assertSame(2.0, $componentEntry['qty']);
+    }
+
+    public function test_draft_transaction_receipt_data_scales_snapshot_bundle_composition_by_parent_qty(): void
+    {
+        $terminalSetting = $this->createSetting('DRAFT RECEIPT BIZ', 'DR-DOC', 'DR-SO');
+        $cashier = $this->createUserForSetting($terminalSetting, 'cashier', ['pos.access']);
+        $locTerminal = Location::create(['name' => 'DR TERMINAL LOC', 'setting_id' => $terminalSetting->id]);
+        $this->createTerminalAndSaleLocations($terminalSetting, [$locTerminal]);
+        $this->seedPaymentMethods($terminalSetting, true);
+        $session = $this->openSession($terminalSetting, PosTerminal::where('setting_id', $terminalSetting->id)->first(), $cashier);
+        $tax = Tax::query()->create(['name' => 'VAT 11', 'value' => 11, 'is_default' => true]);
+        $parent = $this->createStockedProduct($terminalSetting, $locTerminal, 'DR-PARENT', 100000, 1, $tax);
+
+        $transaction = \Modules\Pos\Entities\PosTransaction::create([
+            'setting_id' => $terminalSetting->id,
+            'code' => 'DR-TX-' . uniqid(),
+            'status' => \Modules\Pos\Entities\PosTransaction::STATUS_DRAFT,
+            'created_by' => $cashier->id,
+            'owner_user_id' => $cashier->id,
+            'last_saved_by' => $cashier->id,
+            'source_pos_session_id' => $session->id,
+        ]);
+
+        \Modules\Pos\Entities\PosTransactionLine::create([
+            'pos_transaction_id' => $transaction->id,
+            'line_no' => 1,
+            'product_id' => $parent->id,
+            'product_name_snapshot' => $parent->product_name,
+            'qty' => 2,
+            'unit_price' => 100000,
+            'line_meta' => [
+                'price_source' => 'BUNDLE',
+                'bundle_items' => [
+                    ['name' => 'DR-COMP-A', 'quantity' => 2],
+                ],
+            ],
+        ]);
+
+        $receiptService = app(PosReceiptService::class);
+        $receiptData = $receiptService->getTransactionReceiptData($transaction->fresh());
+
+        $bundleLine = $receiptData['lines'][0];
+        $componentEntry = collect($bundleLine['bundle_composition'])->firstWhere('name', 'DR-COMP-A');
+
+        $this->assertNotNull($componentEntry);
+        $this->assertSame(4.0, $componentEntry['qty']);
+    }
+
+    public function test_persisted_composition_quantity_is_not_multiplied_by_parent_qty_again(): void
+    {
+        // 1. Setup Context — parent line quantity 2, so a naive re-multiplication
+        // of the already-total persisted composition would double-count.
+        $terminalSetting = $this->createSetting('TERMINAL BIZ', 'T-DOC', 'T-SO');
+
+        $cashier = $this->createUserForSetting($terminalSetting, 'cashier', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment',
+        ]);
+
+        $locTerminal = Location::create(['name' => 'TERMINAL LOC', 'setting_id' => $terminalSetting->id]);
+        $this->createTerminalAndSaleLocations($terminalSetting, [$locTerminal]);
+        $methods = $this->seedPaymentMethods($terminalSetting, true);
+        $this->openSession($terminalSetting, PosTerminal::where('setting_id', $terminalSetting->id)->first(), $cashier);
+        $customer = $this->assignDefaultWalkInCustomer($terminalSetting);
+
+        $tax = Tax::query()->create(['name' => 'VAT 11', 'value' => 11, 'is_default' => true]);
+
+        $parent = $this->createStockedProduct($terminalSetting, $locTerminal, 'PQTY-PARENT', 100000, 10, $tax);
+        $compA = $this->createStockedProduct($terminalSetting, $locTerminal, 'PQTY-COMP-A', 0, 10, $tax);
+
+        $bundle = ProductBundle::create([
+            'parent_product_id' => $parent->id,
+            'setting_id' => $terminalSetting->id,
+            'name' => 'Parent Qty Bundle',
+            'bundle_sale_price' => 125000,
+            'price' => 25000,
+        ]);
+
+        ProductBundleItem::create(['bundle_id' => $bundle->id, 'product_id' => $compA->id, 'quantity' => 1, 'informational_item_price' => 25000]);
+
+        $this->addCartLine($cashier, $terminalSetting, $parent->id, 2, $bundle->id);
+        $this->selectCustomerInCart($cashier, $terminalSetting, $customer);
+
+        $response = $this->finalize($cashier, $terminalSetting, [
+            'idempotency_key' => 'K-BUNDLE-PARENT-QTY-' . uniqid(),
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 250000,
+            ],
+        ]);
+
+        $response->assertStatus(201);
+        $checkoutId = $response->json('pos_checkout_id');
+        $checkout = PosCheckout::with(['transactions.lines', 'checkoutSales.sale.saleDetails.bundleItems.product'])->findOrFail($checkoutId);
+
+        $receiptService = app(PosReceiptService::class);
+        $receiptData = $receiptService->getReceiptData($checkout);
+
+        $bundleLine = $receiptData['lines'][0];
+        $componentEntry = collect($bundleLine['bundle_composition'])->firstWhere('name', 'PQTY-COMP-A NAME');
+
+        // Persisted composition already totals to parent_qty (2) x component_qty (1) = 2.
+        $this->assertSame(2.0, $componentEntry['qty']);
+    }
+
     // ==== HELPER METHODS ====
 
     private function createSetting(string $name, string $docPrefix, string $salePrefix): Setting

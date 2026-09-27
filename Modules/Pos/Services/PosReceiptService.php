@@ -290,7 +290,7 @@ class PosReceiptService
             );
 
             if (empty($composition)) {
-                $composition = $this->compositionFromLineMeta($line->line_meta ?? []);
+                $composition = $this->compositionFromLineMeta($line->line_meta ?? [], (float) $line->qty);
             }
 
             $compositionByLine[$lineId] = $composition;
@@ -477,14 +477,14 @@ class PosReceiptService
      * @param  array<string, mixed>  $meta
      * @return array<int, array{name: string, qty: float, serials: array<int, string>}>
      */
-    private function compositionFromLineMeta(array $meta): array
+    private function compositionFromLineMeta(array $meta, float $parentQty = 1.0): array
     {
         $composition = [];
 
         foreach (($meta['bundle_items'] ?? []) as $item) {
             $composition[] = [
                 'name' => $item['name'] ?? $item['product_name'] ?? 'Unknown Component',
-                'qty' => (float) ($item['quantity'] ?? $item['qty'] ?? 0),
+                'qty' => $parentQty * (float) ($item['quantity'] ?? $item['qty'] ?? 0),
                 'serials' => [],
             ];
         }
@@ -574,15 +574,7 @@ class PosReceiptService
             $roundingAdjustment = $resolvedAmounts['rounding_adjustment'];
 
             // Task 1.3: Draft/loaded transaction bundle context
-            $composition = [];
-            if (!empty($line->line_meta['bundle_items'])) {
-                foreach ($line->line_meta['bundle_items'] as $item) {
-                    $composition[] = [
-                        'name' => $item['name'] ?? $item['product_name'] ?? 'Unknown Component',
-                        'qty' => (float)($item['quantity'] ?? $item['qty'] ?? 0),
-                    ];
-                }
-            }
+            $composition = $this->compositionFromLineMeta($line->line_meta ?? [], (float) $line->qty);
 
             $lines[] = [
                 'product_name' => $line->product_name_snapshot,
