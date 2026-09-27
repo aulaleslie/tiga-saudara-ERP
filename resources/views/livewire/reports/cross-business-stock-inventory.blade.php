@@ -39,7 +39,7 @@
                 </div>
 
                 {{-- Business Multi-Select (Reusing business-source-selector) --}}
-                <div class="col-md-4">
+                <div class="col-md-3">
                     @include('livewire.reports.business-source-selector', [
                         'label' => 'Pilih Bisnis / Cabang',
                         'availableSettings' => $availableSettings,
@@ -60,10 +60,19 @@
                     </select>
                 </div>
 
+                {{-- Quantity Display Mode Selector --}}
+                <div class="col-md-2">
+                    <label class="form-label small text-muted">Format Kuantitas</label>
+                    <select wire:model.live="displayMode" class="form-select form-control">
+                        <option value="decimal">Hanya Angka</option>
+                        <option value="conversion">Dengan Satuan</option>
+                    </select>
+                </div>
+
                 {{-- Actions: Filter Lainnya, Reset, Excel Export --}}
-                <div class="col-md-3 d-flex gap-2 justify-content-end">
+                <div class="col-md-2 d-flex gap-2 justify-content-end">
                     <button type="button" @click="showDrawer = true" class="btn btn-outline-secondary position-relative">
-                        <i class="bi bi-funnel"></i> Filter Lainnya
+                        <i class="bi bi-funnel"></i> Filter
                         @if(count($categoryIds) > 0 || count($brandIds) > 0)
                             <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-primary">
                                 {{ count($categoryIds) + count($brandIds) }}
@@ -75,7 +84,7 @@
                     </button>
                     <button type="button" wire:click="exportExcel" wire:loading.attr="disabled" class="btn btn-outline-success">
                         <span wire:loading wire:target="exportExcel" class="spinner-border spinner-border-sm me-1" role="status"></span>
-                        <i wire:loading.remove wire:target="exportExcel" class="bi bi-file-earmark-excel"></i> Ekspor Excel
+                        <i wire:loading.remove wire:target="exportExcel" class="bi bi-file-earmark-excel"></i> Ekspor
                     </button>
                 </div>
             </div>
@@ -111,13 +120,15 @@
                             <th rowspan="2" class="align-middle text-center" style="min-width: 120px;">Kategori</th>
                             <th rowspan="2" class="align-middle text-center" style="min-width: 120px;">Merek</th>
                             <th rowspan="2" class="align-middle text-center bg-light border-start" style="min-width: 95px;">Total Bagus</th>
-                            <th rowspan="2" class="align-middle text-center bg-light border-end" style="min-width: 95px;">Total Rusak</th>
+                            <th rowspan="2" class="align-middle text-center bg-light" style="min-width: 95px;">Total Rusak</th>
+                            <th rowspan="2" class="align-middle text-center bg-light border-end" style="min-width: 125px;">Dalam Pengiriman</th>
 
                             @forelse($businesses as $b)
                                 @php
                                     $isExpanded = $expandedBusinesses[$b['setting_id']] ?? false;
                                     $locCount = count($b['locations']);
-                                    $colspan = $isExpanded ? max(1, $locCount) * 2 : 2;
+                                    // Collapsed: Good, Bad, In Delivery = 3 cols. Expanded: (locations * 2) + 1 In Delivery col.
+                                    $colspan = $isExpanded ? (max(1, $locCount) * 2) + 1 : 3;
                                 @endphp
                                 <th colspan="{{ $colspan }}" class="text-center border-start border-end business-header-th">
                                     <div class="d-flex align-items-center justify-content-center gap-2 py-1">
@@ -139,7 +150,7 @@
                                     </div>
                                 </th>
                             @empty
-                                <th colspan="2" class="text-center text-muted">Pilih minimal satu bisnis</th>
+                                <th colspan="3" class="text-center text-muted">Pilih minimal satu bisnis</th>
                             @endforelse
                         </tr>
 
@@ -152,7 +163,8 @@
                                 @endphp
                                 @if(!$isExpanded || empty($locs))
                                     <th class="text-center border-start" style="min-width: 90px;">Bagus</th>
-                                    <th class="text-center border-end" style="min-width: 90px;">Rusak</th>
+                                    <th class="text-center" style="min-width: 90px;">Rusak</th>
+                                    <th class="text-center border-end text-info" style="min-width: 125px;">Dalam Pengiriman</th>
                                 @else
                                     @foreach($locs as $loc)
                                         <th class="text-center border-start" style="min-width: 90px;" title="{{ $loc['name'] }}">
@@ -164,12 +176,31 @@
                                             <span class="text-danger small">Rusak</span>
                                         </th>
                                     @endforeach
+                                    <th class="text-center border-end text-info" style="min-width: 125px;" title="Dalam Pengiriman (Bisnis)">
+                                        <div class="small text-truncate" style="max-width: 125px;">{{ $b['company_name'] }}</div>
+                                        <span class="small">Dalam Pengiriman</span>
+                                    </th>
                                 @endif
                             @endforeach
                         </tr>
                     </thead>
                     <tbody>
                         @forelse($rows as $product)
+                            @php
+                                $baseUnitName = $product['base_unit_name'] ?? null;
+                                $convUnitName = $product['conversion_unit_name'] ?? null;
+                                $convFactor = $product['conversion_factor'] ?? null;
+
+                                $formatQty = function ($qty) use ($displayMode, $baseUnitName, $convUnitName, $convFactor) {
+                                    return \App\Services\Reports\CrossBusinessQuantityPresenter::format(
+                                        $qty,
+                                        $displayMode,
+                                        $baseUnitName,
+                                        $convUnitName,
+                                        $convFactor
+                                    );
+                                };
+                            @endphp
                             <tr>
                                 {{-- Sticky First Column --}}
                                 <td class="sticky-col bg-white text-start" style="left: 0; z-index: 10;">
@@ -190,12 +221,18 @@
                                 {{-- Total Stock Across Selected Businesses --}}
                                 <td class="text-center border-start bg-light-subtle">
                                     <span class="{{ ($product['total_good'] ?? 0) > 0 ? 'fw-bold text-dark' : 'text-muted' }}">
-                                        {{ (float) ($product['total_good'] ?? 0) }}
+                                        {{ $formatQty($product['total_good'] ?? 0) }}
                                     </span>
                                 </td>
-                                <td class="text-center border-end bg-light-subtle">
+                                <td class="text-center bg-light-subtle">
                                     <span class="{{ ($product['total_bad'] ?? 0) > 0 ? 'fw-bold text-danger' : 'text-muted' }}">
-                                        {{ (float) ($product['total_bad'] ?? 0) }}
+                                        {{ $formatQty($product['total_bad'] ?? 0) }}
+                                    </span>
+                                </td>
+                                {{-- Total In-Delivery Across Selected Businesses --}}
+                                <td class="text-center border-end bg-light-subtle" data-stock-cell="global-in-delivery">
+                                    <span class="{{ ($product['total_in_delivery'] ?? 0) > 0 ? 'fw-bold text-info' : 'text-muted' }}">
+                                        {{ $formatQty($product['total_in_delivery'] ?? 0) }}
                                     </span>
                                 </td>
 
@@ -206,6 +243,7 @@
                                         $isExpanded = $expandedBusinesses[$settingId] ?? false;
                                         $bStock = $product['businesses'][$settingId] ?? null;
                                         $locs = $b['locations'];
+                                        $bInDelivery = $bStock['in_delivery'] ?? 0.0;
                                     @endphp
 
                                     @if(!$isExpanded || empty($locs))
@@ -213,7 +251,7 @@
                                         <td class="text-center border-start{{ ($bStock['marker_good'] ?? false) ? ' serial-marker' : '' }}" data-stock-cell="business-{{ $settingId }}-good">
                                             <div class="d-flex align-items-center justify-content-center gap-1">
                                                 <span class="{{ ($bStock['good'] ?? 0) > 0 ? 'fw-bold text-dark' : 'text-muted' }}">
-                                                    {{ (float) ($bStock['good'] ?? 0) }}
+                                                    {{ $formatQty($bStock['good'] ?? 0) }}
                                                 </span>
                                                 @if(!empty($bStock['good_tooltip']))
                                                     <i class="bi bi-info-circle text-warning mismatch-tooltip-icon"
@@ -234,10 +272,10 @@
                                         </td>
 
                                         {{-- Collapsed Bad Cell --}}
-                                        <td class="text-center border-end{{ ($bStock['marker_bad'] ?? false) ? ' serial-marker' : '' }}" data-stock-cell="business-{{ $settingId }}-bad">
+                                        <td class="text-center{{ ($bStock['marker_bad'] ?? false) ? ' serial-marker' : '' }}" data-stock-cell="business-{{ $settingId }}-bad">
                                             <div class="d-flex align-items-center justify-content-center gap-1">
                                                 <span class="{{ ($bStock['bad'] ?? 0) > 0 ? 'fw-bold text-danger' : 'text-muted' }}">
-                                                    {{ (float) ($bStock['bad'] ?? 0) }}
+                                                    {{ $formatQty($bStock['bad'] ?? 0) }}
                                                 </span>
                                                 @if(!empty($bStock['bad_tooltip']))
                                                     <i class="bi bi-info-circle text-warning mismatch-tooltip-icon"
@@ -256,6 +294,13 @@
                                                 @endif
                                             </div>
                                         </td>
+
+                                        {{-- Collapsed Business In-Delivery Cell --}}
+                                        <td class="text-center border-end" data-stock-cell="business-{{ $settingId }}-in-delivery">
+                                            <span class="{{ $bInDelivery > 0 ? 'fw-bold text-info' : 'text-muted' }}">
+                                                {{ $formatQty($bInDelivery) }}
+                                            </span>
+                                        </td>
                                     @else
                                         {{-- Expanded Per-Location Cells --}}
                                         @foreach($locs as $loc)
@@ -267,7 +312,7 @@
                                             <td class="text-center border-start{{ ($lData['marker_good'] ?? false) ? ' serial-marker' : '' }}" data-stock-cell="location-{{ $locId }}-good">
                                                 <div class="d-flex align-items-center justify-content-center gap-1">
                                                     <span class="{{ ($lData['good'] ?? 0) > 0 ? 'fw-bold text-dark' : 'text-muted' }}">
-                                                        {{ (float) ($lData['good'] ?? 0) }}
+                                                        {{ $formatQty($lData['good'] ?? 0) }}
                                                     </span>
                                                     @if(!empty($lData['good_tooltip']))
                                                         <i class="bi bi-info-circle text-warning mismatch-tooltip-icon"
@@ -291,7 +336,7 @@
                                             <td class="text-center border-end{{ ($lData['marker_bad'] ?? false) ? ' serial-marker' : '' }}" data-stock-cell="location-{{ $locId }}-bad">
                                                 <div class="d-flex align-items-center justify-content-center gap-1">
                                                     <span class="{{ ($lData['bad'] ?? 0) > 0 ? 'fw-bold text-danger' : 'text-muted' }}">
-                                                        {{ (float) ($lData['bad'] ?? 0) }}
+                                                        {{ $formatQty($lData['bad'] ?? 0) }}
                                                     </span>
                                                     @if(!empty($lData['bad_tooltip']))
                                                         <i class="bi bi-info-circle text-warning mismatch-tooltip-icon"
@@ -311,12 +356,19 @@
                                                 </div>
                                             </td>
                                         @endforeach
+
+                                        {{-- Expanded Business In-Delivery Cell (Retained once per business) --}}
+                                        <td class="text-center border-end" data-stock-cell="business-{{ $settingId }}-in-delivery">
+                                            <span class="{{ $bInDelivery > 0 ? 'fw-bold text-info' : 'text-muted' }}">
+                                                {{ $formatQty($bInDelivery) }}
+                                            </span>
+                                        </td>
                                     @endif
                                 @endforeach
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="{{ 5 + max(1, count($businesses) * 2) }}" class="text-center py-4 text-muted">
+                                <td colspan="{{ 6 + max(1, count($businesses) * 3) }}" class="text-center py-4 text-muted">
                                     <i class="bi bi-inbox fs-3 d-block mb-2"></i>
                                     Tidak ada produk yang cocok dengan kriteria pencarian dan filter.
                                 </td>

@@ -578,6 +578,7 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
             $this->assertEquals('Merek', $businessRow[2]);
             $this->assertEquals('Total Bagus', $businessRow[3]);
             $this->assertEquals('Total Rusak', $businessRow[4]);
+            $this->assertEquals('Total Dalam Pengiriman', $businessRow[5]);
 
             $businessString = implode(' ', $businessRow);
             $this->assertStringContainsString('BISNIS ALPHA PKP', $businessString);
@@ -587,15 +588,18 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
             $locationString = implode(' ', $locationRow);
             $this->assertStringContainsString('GUDANG ALPHA 1', $locationString);
             $this->assertStringContainsString('GUDANG ALPHA 2', $locationString);
+            $this->assertStringContainsString('Dalam Pengiriman', $locationString);
 
-            // Sub-headers must be Bagus and Rusak
+            // Sub-headers must be Bagus, Rusak, and Dalam Pengiriman
             $this->assertContains('Bagus', $conditionRow);
             $this->assertContains('Rusak', $conditionRow);
+            $this->assertContains('Dalam Pengiriman', $conditionRow);
 
-            // Data row columns: Produk, Kategori, Merek, Total Bagus, Total Rusak
+            // Data row columns: Produk, Kategori, Merek, Total Bagus, Total Rusak, Total Dalam Pengiriman
             $this->assertStringContainsString('Export Product', $firstDataRow[0]);
             $this->assertEquals(5.0, (float) $firstDataRow[3]); // Total Bagus
             $this->assertEquals(0.0, (float) $firstDataRow[4]); // Total Rusak
+            $this->assertEquals(0.0, (float) $firstDataRow[5]); // Total Dalam Pengiriman
 
             return true;
         });
@@ -1343,6 +1347,333 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
             $this->assertStringNotContainsString('serial-marker', $combined);
             $this->assertStringNotContainsString('marker_good', $combined);
             $this->assertStringNotContainsString('marker_bad', $combined);
+            return true;
+        });
+    }
+
+    /** @test */
+    public function test_display_mode_selector_defaults_to_decimal_and_does_not_alter_canonical_quantities(): void
+    {
+        $this->actingAs($this->superAdmin);
+
+        $boxUnit = \Modules\Setting\Entities\Unit::create(['name' => 'Karton', 'short_name' => 'Karton', 'is_active' => true, 'setting_id' => $this->setting1->id]);
+        $pcsUnit = \Modules\Setting\Entities\Unit::create(['name' => 'Pcs', 'short_name' => 'Pcs', 'is_active' => true, 'setting_id' => $this->setting1->id]);
+
+        $product = Product::create([
+            'setting_id' => $this->setting1->id,
+            'category_id' => $this->category->id,
+            'product_name' => 'Mode Test Item',
+            'product_code' => 'MOD-001',
+            'product_unit' => 'Pcs',
+            'base_unit_id' => $pcsUnit->id,
+            'product_quantity' => 150,
+            'product_price' => 1000,
+            'product_cost' => 500,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $pcsUnit->id,
+            'conversion_factor' => 144,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location1A->id,
+            'quantity' => 150,
+            'quantity_tax' => 150,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        $component = Livewire::test(CrossBusinessStockInventory::class, ['search' => 'Mode Test Item']);
+
+        // Default displayMode is decimal
+        $this->assertEquals('decimal', $component->get('displayMode'));
+        $component->assertSee('150');
+
+        // Invalid mode falls back to decimal
+        $component->set('displayMode', 'invalid_mode');
+        $this->assertEquals('decimal', $component->get('displayMode'));
+
+        // Switching to conversion mode formats as "1 KARTON 6 PCS" (BaseModel uppercases unit names)
+        $component->set('displayMode', 'conversion');
+        $this->assertEquals('conversion', $component->get('displayMode'));
+        $component->assertSee('1 KARTON 6 PCS');
+
+        // Verify underlying canonical row model quantities are not altered
+        $rows = $component->viewData('rows');
+        $firstRow = $rows->firstWhere('id', $product->id);
+        $this->assertEquals(150.0, $firstRow['total_good']);
+    }
+
+    /** @test */
+    public function test_in_delivery_columns_render_globally_and_per_business_in_collapsed_and_expanded_views(): void
+    {
+        $this->actingAs($this->superAdmin);
+
+        $product = Product::create([
+            'setting_id' => $this->setting1->id,
+            'category_id' => $this->category->id,
+            'product_name' => 'In Delivery Layout Item',
+            'product_code' => 'DEL-001',
+            'product_unit' => 'pc',
+            'product_cost' => 500,
+            'product_price' => 1000,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location1A->id,
+            'quantity' => 20,
+            'quantity_tax' => 20,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        // Purchase in setting 1: 15 ordered, 5 received -> 10 in delivery
+        $po1 = \Modules\Purchase\Entities\Purchase::create([
+            'date' => now()->format('Y-m-d'),
+            'due_date' => now()->addDays(7)->format('Y-m-d'),
+            'reference' => 'PO-DEL-1',
+            'status' => \Modules\Purchase\Entities\Purchase::STATUS_RECEIVED_PARTIALLY,
+            'setting_id' => $this->setting1->id,
+            'total_amount' => 15000,
+            'paid_amount' => 0,
+            'due_amount' => 15000,
+            'payment_method' => 'Cash',
+            'payment_status' => \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_UNPAID,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'is_tax_included' => false,
+        ]);
+
+        $detail1 = \Modules\Purchase\Entities\PurchaseDetail::create([
+            'purchase_id' => $po1->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 15,
+            'unit_price' => 1000,
+            'price' => 1000,
+            'sub_total' => 15000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $rn1 = \Modules\Purchase\Entities\ReceivedNote::create([
+            'po_id' => $po1->id,
+            'location_id' => $this->location1A->id,
+            'external_delivery_number' => 'RN-DEL-1',
+            'date' => now()->format('Y-m-d'),
+            'status' => \Modules\Purchase\Entities\ReceivedNote::STATUS_APPROVED,
+        ]);
+
+        \Modules\Purchase\Entities\ReceivedNoteDetail::create([
+            'received_note_id' => $rn1->id,
+            'po_detail_id' => $detail1->id,
+            'quantity_received' => 5,
+        ]);
+
+        // In collapsed view: check global in-delivery is 10, biz1 in-delivery is 10
+        $component = Livewire::test(CrossBusinessStockInventory::class);
+        $component->assertSeeHtml('data-stock-cell="global-in-delivery"')
+            ->assertSeeHtml('data-stock-cell="business-' . $this->setting1->id . '-in-delivery"');
+
+        $rows = $component->viewData('rows');
+        $firstRow = $rows->firstWhere('id', $product->id);
+        $this->assertEquals(10.0, $firstRow['total_in_delivery']);
+        $this->assertEquals(10.0, $firstRow['businesses'][$this->setting1->id]['in_delivery']);
+
+        // In expanded view: location columns have Good and Bad, but NO location in-delivery
+        $component->call('toggleBusinessExpand', $this->setting1->id);
+        $component->assertSeeHtml('data-stock-cell="business-' . $this->setting1->id . '-in-delivery"')
+            ->assertDontSeeHtml('data-stock-cell="location-' . $this->location1A->id . '-in-delivery"');
+    }
+
+    /** @test */
+    public function test_in_delivery_quantity_does_not_affect_stock_availability_filtering(): void
+    {
+        $this->actingAs($this->superAdmin);
+
+        // Product with 0 Good and 0 Bad stock, but positive in-delivery (10 units)
+        $zeroStockProduct = Product::create([
+            'setting_id' => $this->setting1->id,
+            'category_id' => $this->category->id,
+            'product_name' => 'Zero Stock Incoming Product',
+            'product_code' => 'ZRO-001',
+            'product_unit' => 'pc',
+            'product_cost' => 500,
+            'product_price' => 1000,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        $po = \Modules\Purchase\Entities\Purchase::create([
+            'date' => now()->format('Y-m-d'),
+            'due_date' => now()->addDays(7)->format('Y-m-d'),
+            'reference' => 'PO-ZRO-1',
+            'status' => \Modules\Purchase\Entities\Purchase::STATUS_APPROVED,
+            'setting_id' => $this->setting1->id,
+            'total_amount' => 10000,
+            'paid_amount' => 0,
+            'due_amount' => 10000,
+            'payment_method' => 'Cash',
+            'payment_status' => \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_UNPAID,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'is_tax_included' => false,
+        ]);
+
+        \Modules\Purchase\Entities\PurchaseDetail::create([
+            'purchase_id' => $po->id,
+            'product_id' => $zeroStockProduct->id,
+            'product_name' => $zeroStockProduct->product_name,
+            'product_code' => $zeroStockProduct->product_code,
+            'quantity' => 10,
+            'unit_price' => 1000,
+            'price' => 1000,
+            'sub_total' => 10000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        // When availability is 'available', the product must NOT appear even though it has in-delivery = 10
+        Livewire::test(CrossBusinessStockInventory::class)
+            ->set('availability', 'available')
+            ->assertDontSee('Zero Stock Incoming Product');
+
+        // When availability is 'non_available', the product MUST appear
+        Livewire::test(CrossBusinessStockInventory::class)
+            ->set('availability', 'non_available')
+            ->assertSee('Zero Stock Incoming Product');
+    }
+
+    /** @test */
+    public function test_excel_export_respects_display_mode_and_includes_in_delivery_columns(): void
+    {
+        Excel::fake();
+        $this->actingAs($this->superAdmin);
+
+        $boxUnit = \Modules\Setting\Entities\Unit::create(['name' => 'Karton', 'short_name' => 'Karton', 'is_active' => true, 'setting_id' => $this->setting1->id]);
+        $pcsUnit = \Modules\Setting\Entities\Unit::create(['name' => 'Pcs', 'short_name' => 'Pcs', 'is_active' => true, 'setting_id' => $this->setting1->id]);
+
+        $product = Product::create([
+            'setting_id' => $this->setting1->id,
+            'category_id' => $this->category->id,
+            'product_name' => 'Export Mode Item',
+            'product_code' => 'EXP-MOD-1',
+            'product_unit' => 'Pcs',
+            'base_unit_id' => $pcsUnit->id,
+            'product_quantity' => 150,
+            'product_price' => 1000,
+            'product_cost' => 500,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        \Modules\Product\Entities\ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $pcsUnit->id,
+            'conversion_factor' => 144,
+        ]);
+
+        ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location1A->id,
+            'quantity' => 150,
+            'quantity_tax' => 150,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+
+        // Purchase in setting 1: 20 ordered -> in delivery 20
+        $po = \Modules\Purchase\Entities\Purchase::create([
+            'date' => now()->format('Y-m-d'),
+            'due_date' => now()->addDays(7)->format('Y-m-d'),
+            'reference' => 'PO-EXP-1',
+            'status' => \Modules\Purchase\Entities\Purchase::STATUS_APPROVED,
+            'setting_id' => $this->setting1->id,
+            'total_amount' => 20000,
+            'paid_amount' => 0,
+            'due_amount' => 20000,
+            'payment_method' => 'Cash',
+            'payment_status' => \Modules\Purchase\Entities\Purchase::PAYMENT_STATUS_UNPAID,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'is_tax_included' => false,
+        ]);
+
+        \Modules\Purchase\Entities\PurchaseDetail::create([
+            'purchase_id' => $po->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 20,
+            'unit_price' => 1000,
+            'price' => 1000,
+            'sub_total' => 20000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        \Carbon\Carbon::setTestNow(now());
+
+        // 1. Export in conversion mode
+        Livewire::test(CrossBusinessStockInventory::class, ['search' => 'Export Mode Item'])
+            ->set('displayMode', 'conversion')
+            ->call('exportExcel');
+
+        Excel::assertDownloaded('stok-persediaan-lintas-bisnis_' . now()->format('Y-m-d_His') . '.xlsx', function (CrossBusinessStockInventoryExport $export) {
+            \Carbon\Carbon::setTestNow();
+            $array = $export->array();
+            $dataRow = $array[4];
+
+            // In conversion mode: 150 = 1 KARTON 6 PCS
+            $this->assertEquals('1 KARTON 6 PCS', $dataRow[3]); // Total Bagus
+            $this->assertEquals('0 KARTON 0 PCS', $dataRow[4]); // Total Rusak
+            $this->assertEquals('0 KARTON 20 PCS', $dataRow[5]); // Total Dalam Pengiriman
+            return true;
+        });
+
+        // 2. Export in decimal mode
+        Livewire::test(CrossBusinessStockInventory::class, ['search' => 'Export Mode Item'])
+            ->set('displayMode', 'decimal')
+            ->call('exportExcel');
+
+        Excel::assertDownloaded('stok-persediaan-lintas-bisnis_' . now()->format('Y-m-d_His') . '.xlsx', function (CrossBusinessStockInventoryExport $export) {
+            \Carbon\Carbon::setTestNow();
+            $array = $export->array();
+            $dataRow = $array[4];
+
+            // In decimal mode: numeric quantities
+            $this->assertEquals(150, $dataRow[3]); // Total Bagus
+            $this->assertEquals(0, $dataRow[4]); // Total Rusak
+            $this->assertEquals(20, $dataRow[5]); // Total Dalam Pengiriman
             return true;
         });
     }

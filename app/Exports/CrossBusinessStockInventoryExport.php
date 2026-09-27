@@ -2,72 +2,180 @@
 
 namespace App\Exports;
 
+use App\Services\Reports\CrossBusinessQuantityPresenter;
 use App\Services\Reports\CrossBusinessStockInventoryFilterData;
-use App\Services\Reports\CrossBusinessStockInventoryQueryService;
 use Illuminate\Support\Collection;
-use Maatwebsite\Excel\Concerns\FromArray;
-use Maatwebsite\Excel\Concerns\WithStyles;
+use Maatwebsite\Excel\Concerns\FromGenerator;
+use Maatwebsite\Excel\Concerns\ShouldAutoSize;
+use Maatwebsite\Excel\Concerns\WithEvents;
+use Maatwebsite\Excel\Concerns\WithHeadings;
+use Maatwebsite\Excel\Events\AfterSheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
-use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
-class CrossBusinessStockInventoryExport implements FromArray, WithStyles
+class CrossBusinessStockInventoryExport implements FromGenerator, WithHeadings, WithEvents, ShouldAutoSize
 {
-    private Collection $rows;
+    /** @var iterable<int, array> */
+    private iterable $rows;
     private Collection $businesses;
     private CrossBusinessStockInventoryFilterData $filterData;
-    private int $lastRowIndex = 0;
+    private string $displayMode;
+
+    private ?array $headerRows = null;
     private string $lastColumnLetter = 'C';
-    private array $columnMaxWidths = [];
+    private array $numericColumnIndexes = [];
     private int $row2MaxLines = 1;
     private int $row3MaxLines = 1;
 
+    /**
+     * @param iterable<int, array> $rows Row view models; pass a Generator (as the Livewire
+     *                                   component does for real downloads) so the export never
+     *                                   holds a second full in-memory copy of the report data
+     *                                   alongside the rows PhpSpreadsheet is writing out.
+     */
     public function __construct(
-        Collection $rows,
+        iterable $rows,
         Collection $businesses,
-        CrossBusinessStockInventoryFilterData $filterData
+        CrossBusinessStockInventoryFilterData $filterData,
+        string $displayMode = 'decimal'
     ) {
         $this->rows = $rows;
         $this->businesses = $businesses;
         $this->filterData = $filterData;
+        $this->displayMode = in_array($displayMode, ['decimal', 'conversion'], true) ? $displayMode : 'decimal';
     }
 
+    /**
+     * The 4-tier header only depends on business/location structure, not on report rows,
+     * so it can be computed once up front without buffering any data rows.
+     *
+     * @return array<int, array>
+     */
+    public function headings(): array
+    {
+        return $this->buildHeaderRows();
+    }
+
+    /**
+     * Streams one formatted spreadsheet row per report row, so memory stays bounded by a
+     * single row at a time rather than by the full result set.
+     */
+    public function generator(): \Generator
+    {
+        // Ensure header/column metadata (numeric columns, column count) is resolved even
+        // if generator() were ever consumed before headings().
+        $this->buildHeaderRows();
+
+        $isConversion = ($this->displayMode === 'conversion');
+
+        foreach ($this->rows as $product) {
+            yield $this->buildDataRow($product, $isConversion);
+        }
+    }
+
+    /**
+     * Convenience for tests that want to assert on the full sheet content as a plain array
+     * (headers + all data rows). Not used by the real download path, which streams rows via
+     * generator() instead so memory stays bounded to one row at a time.
+     */
     public function array(): array
     {
-        $exportRows = [];
+        return array_merge($this->headings(), iterator_to_array($this->generator()));
+    }
 
-        // Track max content length per column index (1-based)
-        $this->columnMaxWidths = [
-            1 => 15, // Produk
-            2 => 12, // Kategori
-            3 => 10, // Merek
-            4 => 11, // Total Bagus
-            5 => 11, // Total Rusak
+    private function buildDataRow(array $product, bool $isConversion): array
+    {
+        $productStr = $product['product_name'] . ' (' . $product['product_code'] . ')';
+        $catStr = (string) ($product['category_name'] ?? '');
+        $brandStr = (string) ($product['brand_name'] ?? '');
+
+        $baseUnitName = $product['base_unit_name'] ?? null;
+        $convUnitName = $product['conversion_unit_name'] ?? null;
+        $convFactor = $product['conversion_factor'] ?? null;
+
+        $formatVal = function ($val) use ($isConversion, $baseUnitName, $convUnitName, $convFactor) {
+            if ($isConversion) {
+                return CrossBusinessQuantityPresenter::format(
+                    $val,
+                    'conversion',
+                    $baseUnitName,
+                    $convUnitName,
+                    $convFactor
+                );
+            }
+            $v = (float) ($val ?? 0.0);
+            $rounded = round($v, 2);
+            return (abs($rounded - round($rounded)) < 0.000001) ? (int) round($rounded) : $rounded;
+        };
+
+        $row = [
+            $productStr,
+            $catStr,
+            $brandStr,
+            $formatVal($product['total_good'] ?? 0),
+            $formatVal($product['total_bad'] ?? 0),
+            $formatVal($product['total_in_delivery'] ?? 0),
         ];
 
+        foreach ($this->businesses as $b) {
+            $bData = $product['businesses'][$b['setting_id']] ?? null;
+            $locs = $b['locations'];
+            $bInDelivery = $bData['in_delivery'] ?? 0;
+
+            if (empty($locs)) {
+                $row[] = $formatVal($bData['good'] ?? 0);
+                $row[] = $formatVal($bData['bad'] ?? 0);
+            } else {
+                foreach ($locs as $loc) {
+                    $locData = $bData['locations'][$loc['id']] ?? null;
+                    $row[] = $formatVal($locData['good'] ?? 0);
+                    $row[] = $formatVal($locData['bad'] ?? 0);
+                }
+            }
+
+            $row[] = $formatVal($bInDelivery);
+        }
+
+        return $row;
+    }
+
+    /**
+     * Build the 4 header rows and, as a side effect, resolve column count / numeric column
+     * indexes needed by registerEvents() for merges and number formatting. Memoized so
+     * headings() and generator() share one computation.
+     */
+    private function buildHeaderRows(): array
+    {
+        if ($this->headerRows !== null) {
+            return $this->headerRows;
+        }
+
+        $isConversion = ($this->displayMode === 'conversion');
+
         // Header Row 1: Title
-        // Header Row 2: Business Names (merged across all locations of that business)
-        // Header Row 3: Location Names (merged across Good / Bad for each location)
-        // Header Row 4: Good / Bad subheaders ('Bagus' / 'Rusak')
+        // Header Row 2: Business Names (merged across all locations of that business + in-delivery)
+        // Header Row 3: Location Names (merged across Good / Bad for each location) & Business in-delivery
+        // Header Row 4: Good / Bad subheaders ('Bagus' / 'Rusak' / 'Dalam Pengiriman')
 
-        $headerRow2 = ['Produk', 'Kategori', 'Merek', 'Total Bagus', 'Total Rusak'];
-        $headerRow3 = ['', '', '', '', ''];
-        $headerRow4 = ['', '', '', '', ''];
+        $headerRow2 = ['Produk', 'Kategori', 'Merek', 'Total Bagus', 'Total Rusak', 'Total Dalam Pengiriman'];
+        $headerRow3 = ['', '', '', '', '', ''];
+        $headerRow4 = ['', '', '', '', '', ''];
 
-        $colIdx = 6;
+        $this->numericColumnIndexes = $isConversion ? [] : [4, 5, 6];
+
+        $colIdx = 7;
         foreach ($this->businesses as $b) {
             $locs = $b['locations'];
             $locCount = max(1, count($locs));
+            $bizSpan = ($locCount * 2) + 1; // Good/Bad pairs per location + 1 business in-delivery
 
-            // Populate Row 2 with business name and empty cells for merge
             $headerRow2[] = $b['company_name'];
-            for ($i = 1; $i < $locCount * 2; $i++) {
+            for ($i = 1; $i < $bizSpan; $i++) {
                 $headerRow2[] = '';
             }
 
-            // Estimate business name line wrapping across its merged columns span (each pair is ~20+ width)
-            $totalSpanWidth = $locCount * 22;
+            $totalSpanWidth = $bizSpan * 15;
             $bLines = max(1, (int) ceil(mb_strlen($b['company_name']) / max(1, $totalSpanWidth)));
             $this->row2MaxLines = max($this->row2MaxLines, $bLines);
 
@@ -76,8 +184,10 @@ class CrossBusinessStockInventoryExport implements FromArray, WithStyles
                 $headerRow3[] = '';
                 $headerRow4[] = 'Bagus';
                 $headerRow4[] = 'Rusak';
-                $this->columnMaxWidths[$colIdx] = max($this->columnMaxWidths[$colIdx] ?? 0, 10);
-                $this->columnMaxWidths[$colIdx + 1] = max($this->columnMaxWidths[$colIdx + 1] ?? 0, 10);
+                if (!$isConversion) {
+                    $this->numericColumnIndexes[] = $colIdx;
+                    $this->numericColumnIndexes[] = $colIdx + 1;
+                }
                 $colIdx += 2;
             } else {
                 foreach ($locs as $loc) {
@@ -86,91 +196,50 @@ class CrossBusinessStockInventoryExport implements FromArray, WithStyles
                     $headerRow4[] = 'Bagus';
                     $headerRow4[] = 'Rusak';
 
-                    // Ensure minimum width of at least half the location name or 10
                     $locMin = max(10, (int) ceil(mb_strlen($loc['name']) / 2) + 2);
-                    $this->columnMaxWidths[$colIdx] = max($this->columnMaxWidths[$colIdx] ?? 0, $locMin);
-                    $this->columnMaxWidths[$colIdx + 1] = max($this->columnMaxWidths[$colIdx + 1] ?? 0, $locMin);
-
-                    // Estimate location name line wrapping across 2 columns (~2 * locMin width)
                     $locSpanWidth = $locMin * 2;
                     $lLines = max(1, (int) ceil(mb_strlen($loc['name']) / max(1, $locSpanWidth)));
                     $this->row3MaxLines = max($this->row3MaxLines, $lLines);
 
+                    if (!$isConversion) {
+                        $this->numericColumnIndexes[] = $colIdx;
+                        $this->numericColumnIndexes[] = $colIdx + 1;
+                    }
                     $colIdx += 2;
                 }
             }
+
+            $headerRow3[] = 'Dalam Pengiriman';
+            $headerRow4[] = 'Dalam Pengiriman';
+            if (!$isConversion) {
+                $this->numericColumnIndexes[] = $colIdx;
+            }
+            $colIdx++;
         }
 
-        $totalColumns = max(5, $colIdx - 1);
+        $totalColumns = max(6, $colIdx - 1);
         $this->lastColumnLetter = $this->getColumnLetter($totalColumns);
 
-        // Row 1: Title Row
         $headerRow1 = array_fill(0, $totalColumns, '');
         $headerRow1[0] = 'Stok Persediaan Lintas Bisnis';
 
-        $exportRows[] = $headerRow1;
-        $exportRows[] = $headerRow2;
-        $exportRows[] = $headerRow3;
-        $exportRows[] = $headerRow4;
-
-        foreach ($this->rows as $product) {
-            $productStr = $product['product_name'] . ' (' . $product['product_code'] . ')';
-            $catStr = (string) ($product['category_name'] ?? '');
-            $brandStr = (string) ($product['brand_name'] ?? '');
-            $totalGood = $product['total_good'] ?? 0;
-            $totalBad = $product['total_bad'] ?? 0;
-
-            $this->columnMaxWidths[1] = max($this->columnMaxWidths[1], mb_strlen($productStr));
-            $this->columnMaxWidths[2] = max($this->columnMaxWidths[2], mb_strlen($catStr));
-            $this->columnMaxWidths[3] = max($this->columnMaxWidths[3], mb_strlen($brandStr));
-            $this->columnMaxWidths[4] = max($this->columnMaxWidths[4], mb_strlen((string) $totalGood));
-            $this->columnMaxWidths[5] = max($this->columnMaxWidths[5], mb_strlen((string) $totalBad));
-
-            $row = [
-                $productStr,
-                $catStr,
-                $brandStr,
-                $totalGood,
-                $totalBad,
-            ];
-
-            $cIdx = 6;
-            foreach ($this->businesses as $b) {
-                $bData = $product['businesses'][$b['setting_id']] ?? null;
-                $locs = $b['locations'];
-
-                if (empty($locs)) {
-                    $good = $bData['good'] ?? 0;
-                    $bad = $bData['bad'] ?? 0;
-                    $row[] = $good;
-                    $row[] = $bad;
-                    $this->columnMaxWidths[$cIdx] = max($this->columnMaxWidths[$cIdx] ?? 0, mb_strlen((string) $good));
-                    $this->columnMaxWidths[$cIdx + 1] = max($this->columnMaxWidths[$cIdx + 1] ?? 0, mb_strlen((string) $bad));
-                    $cIdx += 2;
-                } else {
-                    foreach ($locs as $loc) {
-                        $locData = $bData['locations'][$loc['id']] ?? null;
-                        $good = $locData['good'] ?? 0;
-                        $bad = $locData['bad'] ?? 0;
-                        $row[] = $good;
-                        $row[] = $bad;
-                        $this->columnMaxWidths[$cIdx] = max($this->columnMaxWidths[$cIdx] ?? 0, mb_strlen((string) $good));
-                        $this->columnMaxWidths[$cIdx + 1] = max($this->columnMaxWidths[$cIdx + 1] ?? 0, mb_strlen((string) $bad));
-                        $cIdx += 2;
-                    }
-                }
-            }
-
-            $exportRows[] = $row;
-        }
-
-        $this->lastRowIndex = count($exportRows);
-
-        return $exportRows;
+        return $this->headerRows = [$headerRow1, $headerRow2, $headerRow3, $headerRow4];
     }
 
-    public function styles(Worksheet $sheet)
+    public function registerEvents(): array
     {
+        return [
+            AfterSheet::class => function (AfterSheet $event) {
+                $this->applyStyles($event->sheet->getDelegate());
+            },
+        ];
+    }
+
+    private function applyStyles(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet): void
+    {
+        $this->buildHeaderRows();
+        $lastRowIndex = $sheet->getHighestRow();
+
         // 1. Merge Title Row 1 across all columns
         $sheet->mergeCells("A1:{$this->lastColumnLetter}1");
 
@@ -180,16 +249,17 @@ class CrossBusinessStockInventoryExport implements FromArray, WithStyles
         $sheet->mergeCells('C2:C4');
         $sheet->mergeCells('D2:D4');
         $sheet->mergeCells('E2:E4');
+        $sheet->mergeCells('F2:F4');
 
         // 3. Merge Business headers (Row 2) and Location headers (Row 3)
-        $colIndex = 6;
+        $colIndex = 7;
         foreach ($this->businesses as $b) {
             $locs = $b['locations'];
             $locCount = max(1, count($locs));
+            $bizSpan = ($locCount * 2) + 1;
 
-            // Merge Business Name horizontally across all location Good/Bad columns
             $businessStartCol = $this->getColumnLetter($colIndex);
-            $businessEndCol = $this->getColumnLetter($colIndex + ($locCount * 2) - 1);
+            $businessEndCol = $this->getColumnLetter($colIndex + $bizSpan - 1);
             $sheet->mergeCells("{$businessStartCol}2:{$businessEndCol}2");
 
             for ($i = 0; $i < $locCount; $i++) {
@@ -198,17 +268,10 @@ class CrossBusinessStockInventoryExport implements FromArray, WithStyles
                 $sheet->mergeCells("{$locStartCol}3:{$locEndCol}3");
                 $colIndex += 2;
             }
-        }
 
-        // Apply explicit column widths with padding so content is not truncated
-        foreach ($this->columnMaxWidths as $cIndex => $maxWidth) {
-            $colLetter = $this->getColumnLetter($cIndex);
-            $width = max(10, $maxWidth + 3);
-            // Produk column has longer text, give ample space
-            if ($cIndex === 1) {
-                $width = max(25, $width);
-            }
-            $sheet->getColumnDimension($colLetter)->setWidth($width);
+            $inDeliveryCol = $this->getColumnLetter($colIndex);
+            $sheet->mergeCells("{$inDeliveryCol}3:{$inDeliveryCol}4");
+            $colIndex++;
         }
 
         $sheet->getRowDimension(1)->setRowHeight(32);
@@ -216,8 +279,9 @@ class CrossBusinessStockInventoryExport implements FromArray, WithStyles
         $sheet->getRowDimension(3)->setRowHeight(max(22, $this->row3MaxLines * 17));
         $sheet->getRowDimension(4)->setRowHeight(20);
 
-        $styles = [
-            // Row 1: Title styling
+        $sheet->getColumnDimension('A')->setWidth(max(25, $sheet->getColumnDimension('A')->getWidth()));
+
+        $headerStyles = [
             1 => [
                 'font' => [
                     'bold' => true,
@@ -233,7 +297,6 @@ class CrossBusinessStockInventoryExport implements FromArray, WithStyles
                     'startColor' => ['argb' => 'FFF3F4F6'],
                 ],
             ],
-            // Row 2: Business Header Tier 1 (Dark slate)
             2 => [
                 'font' => ['bold' => true, 'color' => ['argb' => 'FFFFFFFF'], 'size' => 11],
                 'alignment' => [
@@ -246,7 +309,6 @@ class CrossBusinessStockInventoryExport implements FromArray, WithStyles
                     'startColor' => ['argb' => 'FF1F2937'],
                 ],
             ],
-            // Row 3: Location Header Tier 2 (Medium slate)
             3 => [
                 'font' => ['bold' => true, 'color' => ['argb' => 'FFFFFFFF'], 'size' => 10],
                 'alignment' => [
@@ -259,7 +321,6 @@ class CrossBusinessStockInventoryExport implements FromArray, WithStyles
                     'startColor' => ['argb' => 'FF374151'],
                 ],
             ],
-            // Row 4: Good / Bad Header Tier 3 (Light slate)
             4 => [
                 'font' => ['bold' => true, 'color' => ['argb' => 'FFFFFFFF'], 'size' => 9],
                 'alignment' => [
@@ -273,9 +334,12 @@ class CrossBusinessStockInventoryExport implements FromArray, WithStyles
             ],
         ];
 
-        // Apply borders across the whole table (headers + data rows)
-        if ($this->lastRowIndex >= 4) {
-            $sheet->getStyle("A1:{$this->lastColumnLetter}{$this->lastRowIndex}")->applyFromArray([
+        foreach ($headerStyles as $rowIndex => $style) {
+            $sheet->getStyle("A{$rowIndex}:{$this->lastColumnLetter}{$rowIndex}")->applyFromArray($style);
+        }
+
+        if ($lastRowIndex >= 4) {
+            $sheet->getStyle("A1:{$this->lastColumnLetter}{$lastRowIndex}")->applyFromArray([
                 'borders' => [
                     'allBorders' => [
                         'borderStyle' => Border::BORDER_THIN,
@@ -283,9 +347,25 @@ class CrossBusinessStockInventoryExport implements FromArray, WithStyles
                     ],
                 ],
             ]);
-        }
 
-        return $styles;
+            if (!empty($this->numericColumnIndexes)) {
+                foreach ($this->numericColumnIndexes as $colIdx) {
+                    $colLetter = $this->getColumnLetter($colIdx);
+                    $sheet->getStyle("{$colLetter}5:{$colLetter}{$lastRowIndex}")
+                        ->getNumberFormat()
+                        ->setFormatCode('#,##0.##');
+
+                    $sheet->getStyle("{$colLetter}5:{$colLetter}{$lastRowIndex}")
+                        ->getAlignment()
+                        ->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+                }
+            } else {
+                $startQtyCol = $this->getColumnLetter(4);
+                $sheet->getStyle("{$startQtyCol}5:{$this->lastColumnLetter}{$lastRowIndex}")
+                    ->getAlignment()
+                    ->setHorizontal(Alignment::HORIZONTAL_CENTER);
+            }
+        }
     }
 
     private function getColumnLetter(int $colNumber): string

@@ -25,6 +25,9 @@ class CrossBusinessStockInventory extends Component
     public array $brandIds = [];
     public array $brandLabels = [];
 
+    // Quantity display mode: 'decimal' or 'conversion'
+    public string $displayMode = 'decimal';
+
     // Filter drawer live-search state
     public string $categorySearch = '';
     public array $categoryOptions = [];
@@ -113,6 +116,13 @@ class CrossBusinessStockInventory extends Component
     public function updatedSelectedSettingIds(): void
     {
         $this->resetPage();
+    }
+
+    public function updatedDisplayMode($value): void
+    {
+        if (!in_array($value, ['decimal', 'conversion'], true)) {
+            $this->displayMode = 'decimal';
+        }
     }
 
     public function toggleBusinessExpand(int $settingId): void
@@ -263,12 +273,13 @@ class CrossBusinessStockInventory extends Component
             availability: $this->availability
         );
 
-        $exportData = $queryService->getAllRowsForExport($filterData);
+        $businesses = $queryService->getBusinessHierarchy($filterData->businessIds);
+        $rows = $queryService->getRowGeneratorForExport($filterData);
 
         $filename = 'stok-persediaan-lintas-bisnis_' . now()->format('Y-m-d_His') . '.xlsx';
 
         return Excel::download(
-            new CrossBusinessStockInventoryExport($exportData['rows'], $exportData['businesses'], $filterData),
+            new CrossBusinessStockInventoryExport($rows, $businesses, $filterData, $this->displayMode),
             $filename
         );
     }
@@ -331,6 +342,7 @@ class CrossBusinessStockInventory extends Component
             'availableSettings' => $this->getAvailableSettings(),
             'dialogSerials' => $serialNumbersPaginator,
             'dialogDiscrepancy' => $dialogDiscrepancy,
+            'displayMode' => $this->displayMode,
         ]);
     }
 }

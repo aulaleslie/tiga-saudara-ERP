@@ -99,30 +99,35 @@ class CrossBusinessStockInventoryQueryService
             return collect();
         }
 
-        return Setting::query()
+        $settings = Setting::query()
             ->whereIn('id', $businessIds)
             ->orderBy('company_name', 'asc')
-            ->get()
-            ->map(function (Setting $setting) {
-                // Get locations belonging to this setting
-                $locations = Location::query()
-                    ->where('setting_id', $setting->id)
-                    ->where('is_active', true)
-                    ->orderBy('name', 'asc')
-                    ->orderBy('id', 'asc')
-                    ->get(['id', 'name', 'setting_id']);
+            ->get();
 
-                return [
-                    'setting_id' => $setting->id,
-                    'company_name' => $setting->company_name,
-                    'is_pkp' => (bool) $setting->is_pkp,
-                    'locations' => $locations->map(fn ($loc) => [
-                        'id' => $loc->id,
-                        'name' => $loc->name,
-                        'setting_id' => $loc->setting_id,
-                    ])->all(),
-                ];
-            });
+        // Fetch all relevant locations once and group them in memory to avoid
+        // issuing one locations query per business.
+        $locationsBySetting = Location::query()
+            ->whereIn('setting_id', $businessIds)
+            ->where('is_active', true)
+            ->orderBy('name', 'asc')
+            ->orderBy('id', 'asc')
+            ->get(['id', 'name', 'setting_id'])
+            ->groupBy('setting_id');
+
+        return $settings->map(function (Setting $setting) use ($locationsBySetting) {
+            $locations = $locationsBySetting->get($setting->id, collect());
+
+            return [
+                'setting_id' => $setting->id,
+                'company_name' => $setting->company_name,
+                'is_pkp' => (bool) $setting->is_pkp,
+                'locations' => $locations->map(fn ($loc) => [
+                    'id' => $loc->id,
+                    'name' => $loc->name,
+                    'setting_id' => $loc->setting_id,
+                ])->all(),
+            ];
+        });
     }
 
     /**
@@ -258,12 +263,26 @@ class CrossBusinessStockInventoryQueryService
         return null;
     }
 
+    protected CrossBusinessInDeliveryStockService $inDeliveryService;
+
+    public function __construct(?CrossBusinessInDeliveryStockService $inDeliveryService = null)
+    {
+        $this->inDeliveryService = $inDeliveryService ?? new CrossBusinessInDeliveryStockService();
+    }
+
     /**
      * Build report rows with pagination and stock data.
      * When availability filter is active:
      * 'available' => total Good + Bad across visible businesses > 0
      * 'non_available' => total Good + Bad across visible businesses == 0
      * 'all' => no stock availability filtering
+     *
+     * Canonical row data (stock/in-delivery quantities) is always queried fresh: display-mode
+     * formatting happens downstream in the view, not here, so switching modes never needs stock
+     * or purchase requeries within a render, but a real mode-switch round trip is a separate
+     * Livewire HTTP request and will re-run this bounded query set. That re-query is intentional
+     * — a cross-request cache would show stale figures for its TTL window after a stock,
+     * purchase, receiving-note, product, location, or business mutation.
      */
     public function getReportData(
         CrossBusinessStockInventoryFilterData $filters,
@@ -275,14 +294,23 @@ class CrossBusinessStockInventoryQueryService
 
         // Standard database pagination; availability filter is already applied at the SQL query level
         $paginator = $productsQuery->paginate($perPage, ['*'], 'page', $page);
-        $products = collect($paginator->items());
+        $products = $paginator->getCollection();
         $productIds = $products->pluck('id')->all();
+
+        // Eager load base unit and conversions for the current page only
+        $products->loadMissing([
+            'unit',
+            'baseUnit',
+            'conversions.unit',
+        ]);
+
         $stockMatrix = $this->getStockMatrix($productIds, $filters->businessIds);
+        $inDeliveryMatrix = $this->inDeliveryService->getInDeliveryMatrix($productIds, $filters->businessIds);
 
         // Resolve serial marker context for on-screen display only
         $markerContext = $this->resolveSerialMarkerContext($filters->search, $filters->businessIds);
 
-        $rows = $this->buildRows($products, $businesses, $stockMatrix, $markerContext);
+        $rows = $this->buildRows($products, $businesses, $stockMatrix, $inDeliveryMatrix, $markerContext);
 
         return [
             'paginator' => $paginator,
@@ -294,35 +322,91 @@ class CrossBusinessStockInventoryQueryService
     /**
      * Get all rows for Excel export (no pagination), respecting search, filters, and business visibility.
      */
-    public function getAllRowsForExport(CrossBusinessStockInventoryFilterData $filters): array
+    public function getAllRowsForExport(CrossBusinessStockInventoryFilterData $filters, int $chunkSize = 100): array
     {
-        $businesses = $this->getBusinessHierarchy($filters->businessIds);
-        $productsQuery = $this->getFilteredProductsQuery($filters);
-        $allProducts = $productsQuery->get();
-        $allProductIds = $allProducts->pluck('id')->all();
-        $stockMatrix = $this->getStockMatrix($allProductIds, $filters->businessIds);
-
-        $rows = $this->buildRows($allProducts, $businesses, $stockMatrix);
-
         return [
-            'rows' => $rows,
-            'businesses' => $businesses,
+            'rows' => collect($this->getRowGeneratorForExport($filters, $chunkSize)),
+            'businesses' => $this->getBusinessHierarchy($filters->businessIds),
         ];
     }
 
     /**
-     * Build row view models from products, businesses, and stockMatrix.
+     * Lazily yield export row view models in bounded batches, so the caller (the export
+     * class) never needs a second fully materialized copy of the row data alongside its
+     * own formatted spreadsheet rows.
+     *
+     * @return \Generator<int, array>
      */
-    private function buildRows(Collection $products, Collection $businesses, array $stockMatrix, ?array $markerContext = null): Collection
+    public function getRowGeneratorForExport(CrossBusinessStockInventoryFilterData $filters, int $chunkSize = 100): \Generator
     {
-        return $products->map(function ($product) use ($businesses, $stockMatrix, $markerContext) {
+        $businesses = $this->getBusinessHierarchy($filters->businessIds);
+        $productsQuery = $this->getFilteredProductsQuery($filters);
+
+        // Process in bounded batches of $chunkSize to release related records and matrix data
+        foreach ($productsQuery->cursor()->chunk($chunkSize) as $lazyChunk) {
+            $productsChunk = new \Illuminate\Database\Eloquent\Collection($lazyChunk->all());
+            $productsChunk->loadMissing([
+                'unit',
+                'baseUnit',
+                'conversions.unit',
+                'category:id,category_name',
+                'brand:id,name',
+            ]);
+            $chunkProductIds = $productsChunk->pluck('id')->all();
+            $stockMatrix = $this->getStockMatrix($chunkProductIds, $filters->businessIds);
+            $inDeliveryMatrix = $this->inDeliveryService->getInDeliveryMatrix($chunkProductIds, $filters->businessIds);
+
+            foreach ($this->buildRows($productsChunk, $businesses, $stockMatrix, $inDeliveryMatrix) as $row) {
+                yield $row;
+            }
+
+            unset($productsChunk, $chunkProductIds, $stockMatrix, $inDeliveryMatrix);
+        }
+    }
+
+    /**
+     * Build row view models from products, businesses, stockMatrix, and inDeliveryMatrix.
+     */
+    private function buildRows(
+        Collection $products,
+        Collection $businesses,
+        array $stockMatrix,
+        array $inDeliveryMatrix = [],
+        ?array $markerContext = null
+    ): Collection {
+        return $products->map(function ($product) use ($businesses, $stockMatrix, $inDeliveryMatrix, $markerContext) {
             $productId = $product->id;
             $productStock = $stockMatrix[$productId] ?? null;
+            $productInDelivery = $inDeliveryMatrix[$productId] ?? [];
 
             // Determine if this product row matches the marker context
             $productMatchesMarker = $markerContext && (int) $markerContext['product_id'] === $productId;
 
+            // Resolve largest valid unit conversion once per product
+            $baseUnit = ($product->relationLoaded('baseUnit') ? $product->baseUnit : null)
+                ?? ($product->relationLoaded('unit') ? $product->unit : null);
+            $baseUnitName = $baseUnit ? ($baseUnit->short_name ?: $baseUnit->name) : null;
+
+            $largestConversion = null;
+            $conversionUnitName = null;
+            $conversionFactor = null;
+
+            if ($product->relationLoaded('conversions') && $product->conversions) {
+                $validConversions = $product->conversions->filter(function ($conv) {
+                    return (float) ($conv->conversion_factor ?? 0) > 0 && !empty($conv->unit);
+                });
+
+                if ($validConversions->isNotEmpty()) {
+                    $largestConversion = $validConversions->sortByDesc(fn ($c) => (float) $c->conversion_factor)->first();
+                    if ($largestConversion && $largestConversion->unit) {
+                        $conversionUnitName = $largestConversion->unit->short_name ?: $largestConversion->unit->name;
+                        $conversionFactor = (float) $largestConversion->conversion_factor;
+                    }
+                }
+            }
+
             $businessStockData = [];
+            $totalInDelivery = 0.0;
 
             foreach ($businesses as $b) {
                 $settingId = $b['setting_id'];
@@ -335,6 +419,10 @@ class CrossBusinessStockInventoryQueryService
                 $nonTaxGood = $bData['non_tax_good'] ?? 0.0;
                 $taxBad = $bData['tax_bad'] ?? 0.0;
                 $nonTaxBad = $bData['non_tax_bad'] ?? 0.0;
+
+                // Business-level in-delivery quantity (no location breakdown)
+                $inDelivery = (float) ($productInDelivery[$settingId] ?? 0.0);
+                $totalInDelivery += $inDelivery;
 
                 $goodTooltip = self::computeTooltip($isPkp, $taxGood, $nonTaxGood);
                 $badTooltip = self::computeTooltip($isPkp, $taxBad, $nonTaxBad);
@@ -377,6 +465,7 @@ class CrossBusinessStockInventoryQueryService
                 $businessStockData[$settingId] = [
                     'good' => $good,
                     'bad' => $bad,
+                    'in_delivery' => $inDelivery,
                     'good_tooltip' => $goodTooltip,
                     'bad_tooltip' => $badTooltip,
                     'marker_good' => $markerGood,
@@ -393,8 +482,12 @@ class CrossBusinessStockInventoryQueryService
                 'serial_number_required' => (bool) $product->serial_number_required,
                 'category_name' => optional($product->category)->category_name ?? '-',
                 'brand_name' => optional($product->brand)->name ?? '-',
+                'base_unit_name' => $baseUnitName,
+                'conversion_unit_name' => $conversionUnitName,
+                'conversion_factor' => $conversionFactor,
                 'total_good' => $productStock['total_good'] ?? 0.0,
                 'total_bad' => $productStock['total_bad'] ?? 0.0,
+                'total_in_delivery' => $totalInDelivery,
                 'businesses' => $businessStockData,
             ];
         });
