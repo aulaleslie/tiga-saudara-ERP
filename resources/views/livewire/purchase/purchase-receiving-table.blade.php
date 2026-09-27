@@ -71,8 +71,10 @@
             dari <strong>{{ $purchases->total() }}</strong> data
         </div>
         <div class="d-flex align-items-center gap-2">
-            <button class="btn btn-outline-secondary btn-sm"
-                    wire:click="$set('page', {{ $purchases->currentPage() - 1 }})"
+            <button type="button"
+                    class="btn btn-outline-secondary btn-sm"
+                    wire:click="previousPage('page')"
+                    wire:loading.attr="disabled"
                     @if($purchases->onFirstPage()) disabled @endif>
                 <i class="bi bi-chevron-left"></i> Prev
             </button>
@@ -80,8 +82,10 @@
             <strong>Halaman {{ $purchases->currentPage() }}</strong>
             <span class="text-muted">/ {{ $purchases->lastPage() }}</span>
         </span>
-            <button class="btn btn-outline-secondary btn-sm"
-                    wire:click="$set('page', {{ $purchases->currentPage() + 1 }})"
+            <button type="button"
+                    class="btn btn-outline-secondary btn-sm"
+                    wire:click="nextPage('page')"
+                    wire:loading.attr="disabled"
                     @if(!$purchases->hasMorePages()) disabled @endif>
                 Next <i class="bi bi-chevron-right"></i>
             </button>
