@@ -45,6 +45,15 @@
                             <i class="bi bi-arrow-left"></i> Kembali
                         </a>
                         <div>
+                            @if($product->stock_managed)
+                                <button type="button" class="btn btn-outline-primary me-2" id="btn-edit-hpp" data-toggle="modal" data-target="#globalHppModal" data-stock-managed="true">
+                                    <i class="bi bi-tag"></i> Ubah HPP
+                                </button>
+                            @else
+                                <button type="button" class="btn btn-outline-secondary me-2" id="btn-edit-hpp" disabled data-stock-managed="false" title="Produk tidak dikelola stoknya">
+                                    <i class="bi bi-tag"></i> Ubah HPP
+                                </button>
+                            @endif
                             <button type="button" class="btn btn-warning" id="btn-edit">
                                 <i class="bi bi-pencil"></i> Ubah
                             </button>
@@ -354,6 +363,77 @@
             </div>
         </form>
     </div>
+
+    <!-- Global HPP Modal -->
+    <div class="modal fade" id="globalHppModal" tabindex="-1" role="dialog" aria-labelledby="globalHppModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content border-0 shadow">
+                <form id="global-hpp-form" action="{{ route('products.cross-business-prices.update-global-hpp', $product->id) }}" method="POST">
+                    @csrf
+                    @method('PUT')
+
+                    <input type="hidden" name="loaded_state_evidence" value="{{ $globalHppSnapshot['data'] ?? '' }}">
+                    <input type="hidden" name="loaded_state_signature" value="{{ $globalHppSnapshot['signature'] ?? '' }}">
+
+                    <div class="modal-header bg-light">
+                        <h5 class="modal-title font-weight-bold text-dark" id="globalHppModalLabel">
+                            <i class="bi bi-tag mr-2 text-primary"></i> Ubah Harga Beli Rata-rata (HPP)
+                        </h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+
+                    <div class="modal-body p-4">
+                        @if(!empty($hasDivergentAverages))
+                            <div class="alert alert-warning mb-3">
+                                <i class="bi bi-exclamation-triangle-fill mr-1"></i>
+                                <strong>Perhatian:</strong> Nilai Harga Beli Rata-rata saat ini berbeda antar bisnis. Menyimpan nilai baru ini akan menyelaraskan (menormalisasi) seluruh bisnis ke satu nilai HPP global yang sama.
+                            </div>
+                        @endif
+
+                        <div class="alert alert-info mb-3">
+                            <i class="bi bi-info-circle-fill mr-1"></i>
+                            Pembaruan nilai ini berlaku untuk <strong>seluruh bisnis</strong> dan akan memengaruhi penentuan HPP pada penjualan di masa mendatang. Perubahan ini <strong>tidak mengubah</strong> snapshot riwayat penjualan yang sudah tercatat sebelumnya. Nilai ini juga dapat diperbarui atau dihitung ulang kembali jika terdapat penerimaan pembelian baru yang disetujui.
+                        </div>
+
+                        <div class="form-group mb-3">
+                            <label class="font-weight-bold text-muted small mb-1">Harga Beli Rata-rata Saat Ini</label>
+                            <div class="form-control bg-light font-weight-bold" readonly>
+                                Rp {{ $formatDecimalDisplay($currentGlobalHpp) }}
+                            </div>
+                        </div>
+
+                        <div class="form-group mb-0">
+                            <label for="modal-average-purchase-price" class="font-weight-bold text-dark small mb-1">
+                                Nilai HPP Baru (Rp) <span class="text-danger">*</span>
+                            </label>
+                            <input type="text"
+                                   id="modal-average-purchase-price"
+                                   name="average_purchase_price"
+                                   data-financial-amount
+                                   class="form-control @error('average_purchase_price') is-invalid @enderror"
+                                   value="{{ old('average_purchase_price', '') }}"
+                                   placeholder="Contoh: 50.000"
+                                   required>
+                            @error('average_purchase_price')
+                                <div class="invalid-feedback d-block">
+                                    {{ $message }}
+                                </div>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="modal-footer bg-light py-2">
+                        <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal" id="btn-cancel-hpp">Batal</button>
+                        <button type="submit" class="btn btn-primary btn-sm" id="btn-save-hpp">
+                            <i class="bi bi-check"></i> Simpan HPP
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 @endsection
 
 @section('third_party_scripts')
@@ -642,6 +722,60 @@
 
             // Initial dirty check in case old input is restored
             updateAllDirtyStates();
+
+            // --- Global HPP Modal Logic ---
+            const $btnEditHpp = $('#btn-edit-hpp');
+            const $modalHpp = $('#globalHppModal');
+            const $formHpp = $('#global-hpp-form');
+            const $inputHpp = $('#modal-average-purchase-price');
+            const $btnSaveHpp = $('#btn-save-hpp');
+            const $btnCancelHpp = $('#btn-cancel-hpp');
+
+            // Block HPP action when general form is in edit mode
+            $btnEdit.on('click', function () {
+                $btnEditHpp.prop('disabled', true).addClass('disabled');
+            });
+
+            $btnCancel.on('click', function () {
+                if ($btnEditHpp.data('stock-managed') !== false) {
+                    $btnEditHpp.prop('disabled', false).removeClass('disabled');
+                }
+            });
+
+            // Reopen modal automatically if validation errors exist for average_purchase_price
+            @if($errors->has('average_purchase_price'))
+                $modalHpp.modal('show');
+            @endif
+
+            // Clear invalid state on financial-amount:change or input
+            $inputHpp.on('input financial-amount:change', function () {
+                $(this).removeClass('is-invalid');
+                $formHpp.find('.invalid-feedback.client-feedback').remove();
+            });
+
+            // Prevent duplicate submit, unmask value to canonical decimal using FinancialInput, and show Menyimpan... state
+            $formHpp.on('submit', function (e) {
+                if ($btnSaveHpp.prop('disabled')) {
+                    e.preventDefault();
+                    return false;
+                }
+
+                let canonical = window.FinancialInput ? window.FinancialInput.getCanonicalValue($inputHpp[0]) : null;
+
+                if (canonical === null || canonical === '' || isNaN(parseFloat(canonical)) || parseFloat(canonical) <= 0) {
+                    e.preventDefault();
+                    $inputHpp.addClass('is-invalid');
+                    $formHpp.find('.invalid-feedback.client-feedback').remove();
+                    $inputHpp.after('<div class="invalid-feedback d-block client-feedback">Harga Beli Rata-rata harus bernilai positif lebih dari 0.</div>');
+                    $inputHpp.focus();
+                    return false;
+                }
+
+                $inputHpp.val(canonical);
+
+                $btnSaveHpp.prop('disabled', true).html('<i class="spinner-border spinner-border-sm mr-1"></i> Menyimpan...');
+                $btnCancelHpp.prop('disabled', true);
+            });
         });
     </script>
 @endsection

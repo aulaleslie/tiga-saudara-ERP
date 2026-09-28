@@ -40,6 +40,7 @@ class CrossBusinessPriceBackendTest extends TestCase
             'base_unit_id' => $unit->id,
             'is_purchased' => 1,
             'is_sold' => 1,
+            'stock_managed' => 1,
             'product_stock_alert' => 10,
         ]);
         
@@ -1218,5 +1219,300 @@ class CrossBusinessPriceBackendTest extends TestCase
         $this->assertEmpty($bundlesData['headers']);
         $this->assertEmpty($bundlesData['matrix']);
     }
+
+    public function test_global_hpp_snapshot_generation_and_drift_rejection()
+    {
+        $service = app(\Modules\Product\Services\CrossBusinessPriceService::class);
+
+        $price1 = ProductPrice::create([
+            'product_id' => $this->product->id,
+            'setting_id' => 1,
+            'average_purchase_price' => 50000,
+        ]);
+
+        $snapshot = $service->generateGlobalHppSnapshot($this->product);
+        $this->assertNotEmpty($snapshot['data']);
+        $this->assertNotEmpty($snapshot['signature']);
+
+        // 1. Valid snapshot can be verified
+        $decoded = $service->verifySnapshotIntegrity($this->product, $snapshot['data'], $snapshot['signature']);
+        $this->assertNotNull($decoded);
+        $this->assertEquals($this->product->id, $decoded['product_id']);
+
+        // 2. Tampered signature is rejected
+        $this->assertNull($service->verifySnapshotIntegrity($this->product, $snapshot['data'], 'invalid-signature'));
+
+        // 3. Modifying row version causes drift rejection during save
+        \Illuminate\Support\Facades\DB::table('product_prices')
+            ->where('id', $price1->id)
+            ->update(['updated_at' => now()->addMinutes(5)]);
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage("Data harga untuk bisnis ID 1 telah diperbarui oleh pengguna lain. Silakan muat ulang halaman.");
+
+        $service->saveGlobalHppForProduct(
+            $this->product,
+            60000,
+            $snapshot['data'],
+            $snapshot['signature']
+        );
+    }
+
+    public function test_global_hpp_save_rejects_average_value_drift()
+    {
+        $service = app(\Modules\Product\Services\CrossBusinessPriceService::class);
+
+        $price1 = ProductPrice::create([
+            'product_id' => $this->product->id,
+            'setting_id' => 1,
+            'average_purchase_price' => 50000,
+        ]);
+
+        $snapshot = $service->generateGlobalHppSnapshot($this->product);
+
+        // Manually update average_purchase_price in DB while preserving timestamp
+        \Illuminate\Support\Facades\DB::table('product_prices')
+            ->where('id', $price1->id)
+            ->update([
+                'average_purchase_price' => 55000,
+            ]);
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage("Harga Beli Rata-rata untuk bisnis ID 1 telah berubah. Silakan muat ulang halaman.");
+
+        $service->saveGlobalHppForProduct(
+            $this->product,
+            60000,
+            $snapshot['data'],
+            $snapshot['signature']
+        );
+    }
+
+    public function test_global_hpp_save_rejects_business_membership_drift()
+    {
+        $service = app(\Modules\Product\Services\CrossBusinessPriceService::class);
+        $snapshot = $service->generateGlobalHppSnapshot($this->product);
+
+        // Add a new business after snapshot generated
+        Setting::factory()->create(['id' => 3, 'company_name' => 'Business C']);
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage("Daftar bisnis telah berubah. Silakan muat ulang halaman.");
+
+        $service->saveGlobalHppForProduct(
+            $this->product,
+            60000,
+            $snapshot['data'],
+            $snapshot['signature']
+        );
+    }
+
+    public function test_global_hpp_save_normalizes_divergent_values_and_creates_missing_rows()
+    {
+        $service = app(\Modules\Product\Services\CrossBusinessPriceService::class);
+
+        $tax1 = \Modules\Setting\Entities\Tax::firstOrCreate(['name' => 'Tax 1'], ['value' => 10]);
+
+        // Setting 1 has existing row with average 40,000 and custom sales price and tax
+        $p1 = ProductPrice::create([
+            'product_id' => $this->product->id,
+            'setting_id' => 1,
+            'sale_price' => 150000,
+            'tier_1_price' => 140000,
+            'tier_2_price' => 130000,
+            'last_purchase_price' => 45000,
+            'average_purchase_price' => 40000,
+            'sale_tax_id' => $tax1->id,
+        ]);
+
+        // Setting 2 is missing a row initially
+        $snapshot = $service->generateGlobalHppSnapshot($this->product);
+
+        $service->saveGlobalHppForProduct(
+            $this->product,
+            75000,
+            $snapshot['data'],
+            $snapshot['signature']
+        );
+
+        // Verify setting 1: average updated to 75000, sale_price and taxes preserved
+        $p1Fresh = $p1->fresh();
+        $this->assertEquals(75000, (float) $p1Fresh->average_purchase_price);
+        $this->assertEquals(150000, (float) $p1Fresh->sale_price);
+        $this->assertEquals($tax1->id, $p1Fresh->sale_tax_id);
+
+        // Verify setting 2: missing row created with defaults and average 75000
+        $p2 = ProductPrice::where('product_id', $this->product->id)->where('setting_id', 2)->first();
+        $this->assertNotNull($p2);
+        $this->assertEquals(75000, (float) $p2->average_purchase_price);
+        $this->assertEquals(0, (float) $p2->sale_price);
+        $this->assertNull($p2->sale_tax_id);
+    }
+
+    public function test_global_hpp_save_rejects_zero_or_negative_value()
+    {
+        $service = app(\Modules\Product\Services\CrossBusinessPriceService::class);
+        $snapshot = $service->generateGlobalHppSnapshot($this->product);
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage("Harga Beli Rata-rata harus bernilai positif lebih dari 0.");
+
+        $service->saveGlobalHppForProduct(
+            $this->product,
+            0,
+            $snapshot['data'],
+            $snapshot['signature']
+        );
+    }
+
+    public function test_successful_global_hpp_update_redirects_with_flash_message_and_refreshed_averages()
+    {
+        $this->product->stock_managed = true;
+        $this->product->save();
+
+        ProductPrice::create([
+            'product_id' => $this->product->id,
+            'setting_id' => 1,
+            'average_purchase_price' => 20000,
+        ]);
+
+        $service = app(\Modules\Product\Services\CrossBusinessPriceService::class);
+        $snapshot = $service->generateGlobalHppSnapshot($this->product);
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update-global-hpp', $this->product), [
+                'average_purchase_price' => '65000.50',
+                'loaded_state_evidence' => $snapshot['data'],
+                'loaded_state_signature' => $snapshot['signature'],
+            ]);
+
+        $response->assertRedirect(route('products.cross-business-prices.edit', $this->product));
+        $response->assertSessionHas('success', 'Harga Beli Rata-rata berhasil diperbarui untuk seluruh bisnis.');
+
+        // Follow redirect and assert refreshed values rendered
+        $followResponse = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $followResponse->assertOk();
+        $followResponse->assertSee('Harga Beli Rata-rata berhasil diperbarui untuk seluruh bisnis.');
+        $followResponse->assertSee('value="65.000,50" readonly disabled', false);
+    }
+
+    public function test_displayed_current_hpp_falls_back_when_active_business_row_is_missing()
+    {
+        $this->product->stock_managed = true;
+        $this->product->save();
+
+        // Business 1 is missing a row. Business 2 has an existing row with average 75000.
+        ProductPrice::create([
+            'product_id' => $this->product->id,
+            'setting_id' => 2,
+            'average_purchase_price' => 75000,
+        ]);
+
+        // Active setting in session is 1 (which has no existing row)
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+        // The modal should display the first existing row's average (75.000,00) rather than 0
+        $response->assertSee('Rp 75.000,00');
+    }
+
+    public function test_no_op_rows_preserve_updated_at_timestamps()
+    {
+        $this->product->stock_managed = true;
+        $this->product->save();
+
+        $pastTime = now()->subHours(2);
+
+        $p1 = ProductPrice::create([
+            'product_id' => $this->product->id,
+            'setting_id' => 1,
+            'average_purchase_price' => 50000,
+        ]);
+        \Illuminate\Support\Facades\DB::table('product_prices')
+            ->where('id', $p1->id)
+            ->update(['updated_at' => $pastTime]);
+
+        $p2 = ProductPrice::create([
+            'product_id' => $this->product->id,
+            'setting_id' => 2,
+            'average_purchase_price' => 40000,
+        ]);
+        \Illuminate\Support\Facades\DB::table('product_prices')
+            ->where('id', $p2->id)
+            ->update(['updated_at' => $pastTime]);
+
+        $service = app(\Modules\Product\Services\CrossBusinessPriceService::class);
+        $snapshot = $service->generateGlobalHppSnapshot($this->product);
+
+        // Update HPP to 50000 -> Business 1 is unchanged (50k -> 50k), Business 2 changes (40k -> 50k)
+        $service->saveGlobalHppForProduct(
+            $this->product,
+            50000,
+            $snapshot['data'],
+            $snapshot['signature']
+        );
+
+        $p1Fresh = $p1->fresh();
+        $p2Fresh = $p2->fresh();
+
+        // Business 1 was a no-op, so its updated_at timestamp must be preserved
+        $this->assertEquals($pastTime->format('Y-m-d H:i:s'), $p1Fresh->updated_at->format('Y-m-d H:i:s'));
+
+        // Business 2 was updated, so its updated_at timestamp must have changed
+        $this->assertNotEquals($pastTime->format('Y-m-d H:i:s'), $p2Fresh->updated_at->format('Y-m-d H:i:s'));
+        $this->assertEquals(50000, (float) $p2Fresh->average_purchase_price);
+    }
+
+    public function test_transaction_rolls_back_completely_if_downstream_persistence_fails()
+    {
+        $this->product->stock_managed = true;
+        $this->product->save();
+
+        $p1 = ProductPrice::create([
+            'product_id' => $this->product->id,
+            'setting_id' => 1,
+            'average_purchase_price' => 30000,
+        ]);
+
+        $p2 = ProductPrice::create([
+            'product_id' => $this->product->id,
+            'setting_id' => 2,
+            'average_purchase_price' => 30000,
+        ]);
+
+        $service = app(\Modules\Product\Services\CrossBusinessPriceService::class);
+        $snapshot = $service->generateGlobalHppSnapshot($this->product);
+
+        // Mock ProductPriceFeedRecorder to throw an exception during recording
+        $mockRecorder = $this->createMock(\Modules\Product\Services\ProductPriceFeedRecorder::class);
+        $mockRecorder->expects($this->once())
+            ->method('record')
+            ->willThrowException(new \RuntimeException("Simulated downstream audit feed failure."));
+
+        $this->app->instance(\Modules\Product\Services\ProductPriceFeedRecorder::class, $mockRecorder);
+
+        try {
+            $service->saveGlobalHppForProduct(
+                $this->product,
+                90000,
+                $snapshot['data'],
+                $snapshot['signature']
+            );
+            $this->fail("Expected RuntimeException was not thrown.");
+        } catch (\RuntimeException $e) {
+            $this->assertEquals("Simulated downstream audit feed failure.", $e->getMessage());
+        }
+
+        // Verify that neither price row was committed with the new average
+        $this->assertEquals(30000, (float) $p1->fresh()->average_purchase_price);
+        $this->assertEquals(30000, (float) $p2->fresh()->average_purchase_price);
+    }
 }
+
 

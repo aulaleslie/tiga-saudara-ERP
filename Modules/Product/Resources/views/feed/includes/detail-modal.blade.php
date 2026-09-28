@@ -140,6 +140,7 @@ function formatPriceKey(key) {
         case 'tier_1_price': return 'Harga Tier 1';
         case 'tier_2_price': return 'Harga Tier 2';
         case 'last_purchase_price': return 'Harga Beli Terakhir';
+        case 'average_purchase_price': return 'Harga Beli Rata-rata';
         case 'bundle_sale_price': return 'Harga Jual Paket';
         default: return key;
     }

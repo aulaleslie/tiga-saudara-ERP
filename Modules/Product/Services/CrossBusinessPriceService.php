@@ -809,4 +809,194 @@ class CrossBusinessPriceService
             }
         });
     }
+
+    /**
+     * Build and sign the loaded state snapshot for global HPP.
+     */
+    public function generateGlobalHppSnapshot(Product $product): array
+    {
+        $settings = Setting::all()->sortBy('id');
+        $existingPrices = ProductPrice::where('product_id', $product->id)
+            ->get()
+            ->keyBy('setting_id');
+
+        $businessIds = $settings->pluck('id')->all();
+        $businessAverages = [];
+
+        foreach ($settings as $setting) {
+            $price = $existingPrices->get($setting->id);
+            $businessAverages[] = [
+                'setting_id' => $setting->id,
+                'exists' => $price !== null,
+                'average_purchase_price' => $price !== null ? number_format((float) $price->average_purchase_price, 2, '.', '') : null,
+                'version' => ($price && $price->updated_at) ? $price->updated_at->format('Y-m-d H:i:s.u') : null,
+            ];
+        }
+
+        $snapshotData = [
+            'product_id' => $product->id,
+            'business_ids' => $businessIds,
+            'business_averages' => $businessAverages,
+        ];
+
+        $encodedPayload = json_encode($snapshotData);
+        $key = (string) config('app.key');
+        $signature = hash_hmac('sha256', $encodedPayload, $key);
+
+        return [
+            'data' => base64_encode($encodedPayload),
+            'signature' => $signature,
+        ];
+    }
+
+    /**
+     * Save global average purchase price (HPP) across all businesses atomically.
+     */
+    public function saveGlobalHppForProduct(
+        Product $product,
+        float $averagePurchasePrice,
+        string $loadedStateEvidence,
+        string $loadedStateSignature
+    ): void {
+        if (!$product->stock_managed) {
+            throw new Exception("Produk bukan produk yang dikelola stoknya.");
+        }
+
+        if ($averagePurchasePrice <= 0) {
+            throw new Exception("Harga Beli Rata-rata harus bernilai positif lebih dari 0.");
+        }
+
+        DB::transaction(function () use (
+            $product,
+            $averagePurchasePrice,
+            $loadedStateEvidence,
+            $loadedStateSignature
+        ) {
+            // Consistent product-row lock acquired first
+            $lockedProduct = Product::where('id', $product->id)->lockForUpdate()->first();
+            if (!$lockedProduct) {
+                throw new Exception("Produk tidak ditemukan.");
+            }
+
+            if (!$lockedProduct->stock_managed) {
+                throw new Exception("Produk bukan produk yang dikelola stoknya.");
+            }
+
+            // Verify evidence integrity and product binding
+            $verifiedSnapshot = $this->verifySnapshotIntegrity($lockedProduct, $loadedStateEvidence, $loadedStateSignature);
+            if (!$verifiedSnapshot) {
+                throw new Exception("Bukti status data HPP telah diubah atau tidak valid. Silakan muat ulang halaman.");
+            }
+
+            // Lock the settings table/rows to prevent concurrent business creation from escaping global update
+            $currentSettings = Setting::lockForUpdate()->pluck('id')->sort()->values()->all();
+            $snapBusinessIds = $verifiedSnapshot['business_ids'] ?? [];
+            sort($snapBusinessIds);
+
+            // Revalidate membership
+            if ($snapBusinessIds !== $currentSettings) {
+                throw new Exception("Daftar bisnis telah berubah. Silakan muat ulang halaman.");
+            }
+
+            $snapAverages = collect($verifiedSnapshot['business_averages'] ?? [])->keyBy('setting_id');
+
+            // Lock and revalidate every setting's price row
+            $newPriceFormatted = number_format($averagePurchasePrice, 2, '.', '');
+            $snapshots = [];
+            $operationUuid = (string) \Illuminate\Support\Str::uuid();
+
+            foreach ($currentSettings as $settingId) {
+                $currentPriceRow = ProductPrice::where('product_id', $lockedProduct->id)
+                    ->where('setting_id', $settingId)
+                    ->lockForUpdate()
+                    ->first();
+
+                $snap = $snapAverages->get($settingId);
+                if (!$snap) {
+                    throw new Exception("Data status bisnis ID {$settingId} tidak ditemukan pada bukti muatan. Silakan muat ulang halaman.");
+                }
+
+                $snapExists = (bool) ($snap['exists'] ?? false);
+                $snapAvg = $snap['average_purchase_price'] ?? null;
+                $snapVersion = $snap['version'] ?? null;
+
+                if ($currentPriceRow) {
+                    if (!$snapExists) {
+                        throw new Exception("Data harga untuk bisnis ID {$settingId} telah dibuat oleh pengguna lain. Silakan muat ulang halaman.");
+                    }
+
+                    $currentVersion = $currentPriceRow->updated_at ? $currentPriceRow->updated_at->format('Y-m-d H:i:s.u') : null;
+                    if ($snapVersion !== $currentVersion) {
+                        throw new Exception("Data harga untuk bisnis ID {$settingId} telah diperbarui oleh pengguna lain. Silakan muat ulang halaman.");
+                    }
+
+                    $currentAvg = number_format((float) $currentPriceRow->average_purchase_price, 2, '.', '');
+                    if ($snapAvg !== $currentAvg) {
+                        throw new Exception("Harga Beli Rata-rata untuk bisnis ID {$settingId} telah berubah. Silakan muat ulang halaman.");
+                    }
+
+                    $beforeAvg = (float) $currentPriceRow->average_purchase_price;
+                    $beforeFormatted = number_format($beforeAvg, 2, '.', '');
+
+                    // Only update and save if the value has actually changed to avoid dirtying timestamps on no-op rows
+                    if ($beforeFormatted !== $newPriceFormatted) {
+                        $currentPriceRow->average_purchase_price = $averagePurchasePrice;
+                        $currentPriceRow->save();
+
+                        $snapshots[] = [
+                            'setting_id' => $settingId,
+                            'before' => ['average_purchase_price' => $beforeAvg],
+                            'after' => ['average_purchase_price' => $averagePurchasePrice],
+                        ];
+                    }
+                } else {
+                    if ($snapExists || !empty($snapVersion)) {
+                        throw new Exception("Data harga untuk bisnis ID {$settingId} telah dihapus atau tidak sinkron. Silakan muat ulang halaman.");
+                    }
+
+                    // Missing row: create with established defaults
+                    try {
+                        ProductPrice::create([
+                            'product_id' => $lockedProduct->id,
+                            'setting_id' => $settingId,
+                            'sale_price' => 0,
+                            'tier_1_price' => 0,
+                            'tier_2_price' => 0,
+                            'last_purchase_price' => 0,
+                            'average_purchase_price' => $averagePurchasePrice,
+                            'sale_tax_id' => null,
+                            'purchase_tax_id' => null,
+                        ]);
+
+                        $snapshots[] = [
+                            'setting_id' => $settingId,
+                            'before' => ['average_purchase_price' => 0.0],
+                            'after' => ['average_purchase_price' => $averagePurchasePrice],
+                        ];
+                    } catch (QueryException $e) {
+                        if ($e->errorInfo[1] == 1062 || $e->getCode() == 23000) {
+                            throw new Exception("Data harga berubah karena konflik penulisan konkuren. Silakan muat ulang halaman.");
+                        }
+                        throw new Exception("Terjadi kesalahan saat menyimpan data HPP. Silakan coba lagi.");
+                    }
+                }
+            }
+
+            // Record feed event only if there are changed rows
+            if (!empty($snapshots)) {
+                app(ProductPriceFeedRecorder::class)->record(
+                    \Modules\Product\Entities\ProductPriceFeedEvent::TYPE_PRODUCT_PRICE_UPDATED,
+                    \Modules\Product\Entities\ProductPriceFeedEvent::SUBJECT_PRODUCT,
+                    $lockedProduct->id,
+                    $lockedProduct->product_name,
+                    $lockedProduct->product_code,
+                    $snapshots,
+                    \Modules\Product\Entities\ProductPriceFeedEvent::SOURCE_MANUAL,
+                    null,
+                    $operationUuid
+                );
+            }
+        });
+    }
 }
+

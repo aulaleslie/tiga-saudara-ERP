@@ -305,4 +305,96 @@ class ProductPriceFeedIntegrationTest extends TestCase
         $this->assertEquals($event1->operation_uuid, $event2->operation_uuid);
         $this->assertEquals(2, ProductPriceFeedEvent::where('operation_uuid', $sharedOperationUuid)->count());
     }
+
+    public function test_global_hpp_update_records_grouped_feed_event_omits_unchanged_and_masks_purchase_price(): void
+    {
+        $product = Product::create([
+            'product_name' => 'HPP Feed Item',
+            'product_code' => 'HFI-001',
+            'setting_id' => $this->settingA->id,
+            'stock_managed' => true,
+            'product_quantity' => 0,
+            'product_cost' => 0,
+            'product_price' => 0,
+            'product_order_tax' => 0,
+            'product_tax_type' => 0,
+            'profit_percentage' => 0,
+        ]);
+
+        // Setting A already has average 50,000
+        ProductPrice::create([
+            'product_id' => $product->id,
+            'setting_id' => $this->settingA->id,
+            'average_purchase_price' => 50000,
+        ]);
+
+        // Setting B has average 40,000 (divergent)
+        ProductPrice::create([
+            'product_id' => $product->id,
+            'setting_id' => $this->settingB->id,
+            'average_purchase_price' => 40000,
+        ]);
+
+        $service = app(CrossBusinessPriceService::class);
+        $snapshot = $service->generateGlobalHppSnapshot($product);
+
+        // Update global HPP to 50,000 -> Setting A is unchanged (50k -> 50k, no-op), Setting B changes (40k -> 50k)
+        $service->saveGlobalHppForProduct(
+            $product,
+            50000,
+            $snapshot['data'],
+            $snapshot['signature']
+        );
+
+        $event = ProductPriceFeedEvent::where('subject_id', $product->id)
+            ->where('event_type', ProductPriceFeedEvent::TYPE_PRODUCT_PRICE_UPDATED)
+            ->first();
+
+        $this->assertNotNull($event);
+        $this->assertEquals(ProductPriceFeedEvent::SOURCE_MANUAL, $event->source);
+        $this->assertEquals($this->user->name ?? $this->user->email, $event->actor_name);
+
+        // Only Setting B snapshot should be recorded; Setting A omitted as unchanged
+        $this->assertCount(1, $event->snapshots);
+        $snap = $event->snapshots->first();
+        $this->assertEquals($this->settingB->id, $snap->setting_id);
+        $this->assertEquals(['average_purchase_price' => 40000.0], $snap->before_snapshot);
+        $this->assertEquals(['average_purchase_price' => 50000.0], $snap->after_snapshot);
+
+        // Visibility masking test:
+        // User with purchases.create can see average_purchase_price
+        $queryService = app(\Modules\Product\Services\ProductPriceFeedQueryService::class);
+        $roleBuyer = \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'Buyer', 'guard_name' => 'web']);
+        $permPurchase = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'purchases.create', 'guard_name' => 'web']);
+        $roleBuyer->givePermissionTo($permPurchase);
+
+        $buyerUser = User::factory()->create();
+        $buyerUser->assignRole($roleBuyer);
+        \Illuminate\Support\Facades\DB::table('user_setting')->insert([
+            'user_id' => $buyerUser->id,
+            'setting_id' => $this->settingB->id,
+            'role_id' => $roleBuyer->id,
+        ]);
+
+        $buyerDetail = $queryService->getEventDetail($buyerUser, $event->id);
+        $this->assertNotNull($buyerDetail);
+        $this->assertArrayHasKey('average_purchase_price', $buyerDetail['sections'][0]['after']);
+
+        // User with only sales.create cannot see average_purchase_price
+        $roleSeller = \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'Seller', 'guard_name' => 'web']);
+        $permSales = \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'sales.create', 'guard_name' => 'web']);
+        $roleSeller->givePermissionTo($permSales);
+
+        $sellerUser = User::factory()->create();
+        $sellerUser->assignRole($roleSeller);
+        \Illuminate\Support\Facades\DB::table('user_setting')->insert([
+            'user_id' => $sellerUser->id,
+            'setting_id' => $this->settingB->id,
+            'role_id' => $roleSeller->id,
+        ]);
+
+        $sellerDetail = $queryService->getEventDetail($sellerUser, $event->id);
+        $this->assertNull($sellerDetail); // Sections empty after masking, so detail returns null
+    }
 }
+

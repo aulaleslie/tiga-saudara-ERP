@@ -100,4 +100,41 @@ class CrossBusinessPriceAccessTest extends TestCase
         $productUnauth = collect($responseUnauth->json('data'))->firstWhere('id', $this->product->id);
         $this->assertStringNotContainsString($route, $productUnauth['action']);
     }
+
+    public function test_unauthorized_user_cannot_save_global_hpp()
+    {
+        $response = $this->actingAs($this->unauthorizedUser)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update-global-hpp', $this->product), [
+                'average_purchase_price' => 50000,
+                'loaded_state_evidence' => 'dummy',
+                'loaded_state_signature' => 'dummy',
+            ]);
+
+        $response->assertForbidden();
+    }
+
+    public function test_global_hpp_update_rejects_non_stock_managed_products()
+    {
+        $unit = \Modules\Setting\Entities\Unit::firstOrCreate(['name' => 'Unit Test', 'short_name' => 'UT']);
+        $nonStockProduct = app(\Modules\Product\Services\ProductCreator::class)->create([
+            'product_name' => 'Non Stock Product',
+            'product_code' => 'NSP-001',
+            'base_unit_id' => $unit->id,
+            'is_purchased' => 1,
+            'is_sold' => 1,
+            'stock_managed' => 0,
+        ]);
+
+        $response = $this->actingAs($this->authorizedUser)
+            ->withSession(['setting_id' => 1])
+            ->put(route('products.cross-business-prices.update-global-hpp', $nonStockProduct), [
+                'average_purchase_price' => 50000,
+                'loaded_state_evidence' => 'dummy',
+                'loaded_state_signature' => 'dummy',
+            ]);
+
+        $response->assertRedirect();
+        $response->assertSessionHas('error', 'Produk bukan produk yang dikelola stoknya.');
+    }
 }

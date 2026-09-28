@@ -72,7 +72,7 @@ class ProductPriceFeedQueryService
                                         $eventQ->whereRaw("(JSON_EXTRACT(after_snapshot, '$.sale_price') IS NOT NULL OR JSON_EXTRACT(after_snapshot, '$.tier_1_price') IS NOT NULL OR JSON_EXTRACT(after_snapshot, '$.tier_2_price') IS NOT NULL OR JSON_EXTRACT(after_snapshot, '$.bundle_sale_price') IS NOT NULL)");
                                     } elseif ($mask['can_purchase_price'] && ! $mask['can_sales_prices']) {
                                         // User can only see purchase prices -> exclude events where tracked fields are sales-only
-                                        $eventQ->whereRaw("JSON_EXTRACT(after_snapshot, '$.last_purchase_price') IS NOT NULL");
+                                        $eventQ->whereRaw("(JSON_EXTRACT(after_snapshot, '$.last_purchase_price') IS NOT NULL OR JSON_EXTRACT(after_snapshot, '$.average_purchase_price') IS NOT NULL)");
                                     }
                                 });
                             });
@@ -256,7 +256,7 @@ class ProductPriceFeedQueryService
 
         $sanitized = [];
         foreach ($snapshot as $key => $val) {
-            if ($key === 'last_purchase_price') {
+            if ($key === 'last_purchase_price' || $key === 'average_purchase_price') {
                 if ($mask['can_purchase_price']) {
                     $sanitized[$key] = $val;
                 }

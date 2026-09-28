@@ -33,6 +33,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::group(['middleware' => ['can:products.manage_cross_business_prices']], function () {
         Route::get('/products/{product}/cross-business-prices', [\Modules\Product\Http\Controllers\CrossBusinessPriceController::class, 'edit'])->name('products.cross-business-prices.edit');
         Route::put('/products/{product}/cross-business-prices', [\Modules\Product\Http\Controllers\CrossBusinessPriceController::class, 'update'])->name('products.cross-business-prices.update');
+        Route::put('/products/{product}/cross-business-prices/global-hpp', [\Modules\Product\Http\Controllers\CrossBusinessPriceController::class, 'updateGlobalHpp'])->name('products.cross-business-prices.update-global-hpp');
     });
 
     Route::group(['middleware' => ['can:products.convert_existing_stock_to_serialized']], function () {

@@ -526,5 +526,93 @@ class CrossBusinessPriceMaskTest extends TestCase
         $response->assertSee('Kelola Harga Multi-Bisnis: Product Without Code');
         $response->assertDontSee('text-muted small text-break');
     }
+
+    public function test_modal_renders_action_button_and_indonesian_warnings_for_stock_managed_product()
+    {
+        $this->product->stock_managed = true;
+        $this->product->save();
+
+        ProductPrice::updateOrCreate(
+            ['product_id' => $this->product->id, 'setting_id' => 1],
+            ['average_purchase_price' => 50000.00]
+        );
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+        $response->assertSee('id="btn-edit-hpp"', false);
+        $response->assertSee('Ubah HPP');
+        $response->assertSee('Ubah Harga Beli Rata-rata (HPP)');
+        $response->assertSee('Pembaruan nilai ini berlaku untuk <strong>seluruh bisnis</strong>', false);
+        $response->assertSee('tidak mengubah', false);
+        $response->assertSee('penerimaan pembelian baru yang disetujui');
+        $response->assertSee('Harga Beli Rata-rata Saat Ini');
+        $response->assertSee('50.000,00');
+
+        // Divergence warning should NOT be present when uniform
+        $response->assertDontSee('Nilai Harga Beli Rata-rata saat ini berbeda antar bisnis.');
+    }
+
+    public function test_modal_shows_divergence_warning_when_business_averages_differ()
+    {
+        $this->product->stock_managed = true;
+        $this->product->save();
+
+        Setting::factory()->create(['id' => 2, 'company_name' => 'Business B']);
+
+        ProductPrice::updateOrCreate(
+            ['product_id' => $this->product->id, 'setting_id' => 1],
+            ['average_purchase_price' => 50000.00]
+        );
+
+        ProductPrice::updateOrCreate(
+            ['product_id' => $this->product->id, 'setting_id' => 2],
+            ['average_purchase_price' => 60000.00]
+        );
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+        $response->assertSee('Nilai Harga Beli Rata-rata saat ini berbeda antar bisnis. Menyimpan nilai baru ini akan menyelaraskan (menormalisasi) seluruh bisnis ke satu nilai HPP global yang sama.');
+    }
+
+    public function test_non_stock_managed_product_has_disabled_hpp_button()
+    {
+        $this->product->stock_managed = false;
+        $this->product->save();
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+        $response->assertSee('id="btn-edit-hpp" disabled data-stock-managed="false"', false);
+    }
+
+    public function test_rendered_html_contains_modal_interaction_and_unmask_hooks()
+    {
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+        $response->assertSee('id="global-hpp-form"', false);
+        $response->assertSee('id="modal-average-purchase-price"', false);
+        $response->assertSee('data-financial-amount', false);
+        $response->assertSee('id="btn-save-hpp"', false);
+        $response->assertSee('Menyimpan...', false);
+        $response->assertSee('$btnEditHpp.prop(\'disabled\', true)', false);
+        $response->assertSee('window.FinancialInput.getCanonicalValue($inputHpp[0])', false);
+        $response->assertSee('Harga Beli Rata-rata harus bernilai positif lebih dari 0.');
+
+        // Obsolete custom focus/blur formatters on modal input must NOT be present
+        $response->assertDontSee('$inputHpp.on(\'focus\'', false);
+        $response->assertDontSee('$inputHpp.on(\'blur\'', false);
+    }
 }
+
 
