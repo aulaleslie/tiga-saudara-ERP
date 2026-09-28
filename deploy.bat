@@ -35,6 +35,7 @@ echo [5/10] Downloading vendor assets...
 REM Create directories
 if not exist "public\vendor\jquery" mkdir "public\vendor\jquery"
 if not exist "public\vendor\datatables" mkdir "public\vendor\datatables"
+if not exist "public\vendor\sweetalert" mkdir "public\vendor\sweetalert"
 if not exist "public\vendor\bootstrap-icons\fonts" mkdir "public\vendor\bootstrap-icons\fonts"
 if not exist "public\vendor\pdfmake" mkdir "public\vendor\pdfmake"
 if not exist "public\vendor\perfect-scrollbar" mkdir "public\vendor\perfect-scrollbar"
@@ -42,6 +43,13 @@ if not exist "public\vendor\popperjs" mkdir "public\vendor\popperjs"
 if not exist "public\vendor\chartjs" mkdir "public\vendor\chartjs"
 if not exist "public\vendor\font-awesome\css" mkdir "public\vendor\font-awesome\css"
 if not exist "public\vendor\font-awesome\webfonts" mkdir "public\vendor\font-awesome\webfonts"
+
+REM Copy package-owned assets installed by Composer. These files remain ignored by Git.
+copy /Y "vendor\yajra\laravel-datatables-buttons\src\resources\assets\buttons.server-side.js" "public\vendor\datatables\buttons.server-side.js"
+if errorlevel 1 goto :deployment_failed
+
+copy /Y "vendor\realrashid\sweet-alert\resources\js\sweetalert.all.js" "public\vendor\sweetalert\sweetalert.all.js"
+if errorlevel 1 goto :deployment_failed
 
 REM Download files using curl -sL (silent, follow redirects)
 curl -sL -o public\vendor\jquery\jquery-3.7.0.min.js "https://code.jquery.com/jquery-3.7.0.min.js"
