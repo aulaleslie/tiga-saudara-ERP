@@ -118,7 +118,7 @@ class PurchaseCreateNonPkpNormalizationTest extends TestCase
             ->set('payment_term', $this->paymentTerm->id)
             ->call('submit')
             ->assertHasNoErrors()
-            ->assertRedirect(route('purchases.index'));
+            ->assertRedirect(route('home'));
 
         $purchase = Purchase::query()->latest('id')->firstOrFail();
         $detail = PurchaseDetail::query()->where('purchase_id', $purchase->id)->firstOrFail();

@@ -1150,7 +1150,7 @@ class CreateForm extends Component
                 }
             }
             session()->flash('success', $successMessage);
-            return redirect()->route('purchases.index');
+            return redirect()->to(\Modules\Purchase\Support\PurchaseSaveRedirect::url($purchase));
 
         } catch (ValidationException $e) {
             if ($transactionStarted && DB::transactionLevel() > 0) {

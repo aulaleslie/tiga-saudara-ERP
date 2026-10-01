@@ -4,6 +4,8 @@ namespace Modules\Purchase\Services;
 
 use Illuminate\Support\Collection;
 use Modules\Product\Entities\Transaction;
+use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\ReceivedNote;
 use Modules\Purchase\Entities\ReceivedNoteDetail;
 
 /**
@@ -69,6 +71,54 @@ class LegacyTransactionResolver
             ->orderBy('created_at', 'asc')
             ->get();
 
+        return $this->selectFromCandidates($candidates, $receivedNote->approved_at);
+    }
+
+    /**
+     * Locked variant for execution: the caller passes already-locked receival context (no relation
+     * reads), and every matching candidate is locked in deterministic id order before the same
+     * uniqueness/chronology rules are applied, so a candidate appearing after a preview is seen.
+     *
+     * @return array{status: string, transaction: ?Transaction, candidates: Collection}
+     */
+    public function resolveLocked(
+        ReceivedNoteDetail $receivedNoteDetail,
+        ?ReceivedNote $receivedNote,
+        ?Purchase $purchase,
+        ?int $purchaseDetailProductId
+    ): array {
+        if (!$receivedNote || !$purchase || !$purchaseDetailProductId) {
+            return [
+                'status' => self::RESULT_MISSING,
+                'transaction' => null,
+                'candidates' => collect(),
+            ];
+        }
+
+        $candidates = Transaction::query()
+            ->where('product_id', $purchaseDetailProductId)
+            ->where('setting_id', $purchase->setting_id)
+            ->where('location_id', $receivedNote->location_id)
+            ->where('type', 'BUY')
+            ->where('reason', 'like', '%' . $purchase->reference . '%')
+            ->where('quantity', $receivedNoteDetail->quantity_received)
+            ->whereNull('received_note_detail_id')
+            ->orderBy('id', 'asc')
+            ->lockForUpdate()
+            ->get()
+            ->sortBy('created_at')
+            ->values();
+
+        return $this->selectFromCandidates($candidates, $receivedNote->approved_at);
+    }
+
+    /**
+     * Uniqueness and approval-chronology rules shared by the preview and locked resolution paths.
+     *
+     * @return array{status: string, transaction: ?Transaction, candidates: Collection}
+     */
+    private function selectFromCandidates(Collection $candidates, $approvedAt): array
+    {
         if ($candidates->isEmpty()) {
             return [
                 'status' => self::RESULT_MISSING,
@@ -87,17 +137,12 @@ class LegacyTransactionResolver
 
         // Multiple candidates: try to narrow down by approval chronology
         // If the receiving note has an approved_at timestamp, find the closest transaction
-        if ($receivedNote->approved_at) {
-            $approvedAt = $receivedNote->approved_at;
-
-            // Find candidate created closest to approval time (within a reasonable window)
-            $closestCandidate = $candidates->sortBy(function ($txn) use ($approvedAt) {
+        if ($approvedAt) {
+            $byDistance = $candidates->sortBy(function ($txn) use ($approvedAt) {
                 return abs($txn->created_at->diffInSeconds($approvedAt));
-            })->first();
-
-            $secondClosest = $candidates->sortBy(function ($txn) use ($approvedAt) {
-                return abs($txn->created_at->diffInSeconds($approvedAt));
-            })->skip(1)->first();
+            })->values();
+            $closestCandidate = $byDistance->get(0);
+            $secondClosest = $byDistance->get(1);
 
             // Only accept if there's clear separation (closest is within 60 seconds,
             // next candidate is significantly further)

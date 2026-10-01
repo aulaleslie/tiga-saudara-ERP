@@ -127,7 +127,7 @@ class PurchaseSalePkpValidationTest extends TestCase
                 ],
             ]);
 
-        $response->assertRedirect(route('purchases.index'));
+        $response->assertRedirect(route('home'));
         $response->assertSessionHasNoErrors();
         $this->assertDatabaseHas('purchases', [
             'supplier_id' => $supplier->id,

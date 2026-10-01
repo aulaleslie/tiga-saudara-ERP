@@ -37,6 +37,7 @@ class ProductSerialNumber extends BaseModel
     const STATUS_RETURNED = 'RETURNED';
     const STATUS_BROKEN = 'BROKEN';
     const STATUS_MISSING = 'MISSING';
+    const STATUS_RECEIVING_CANCELLED = 'RECEIVING_CANCELLED';
 
     /**
      * Normalize serial number to canonical UPPERCASE trimmed UTF-8.
@@ -415,6 +416,14 @@ class ProductSerialNumber extends BaseModel
                 'key' => 'sold',
                 'label' => 'Terjual',
                 'badge_class' => 'badge-secondary',
+            ];
+        }
+
+        if ($rawStatus === self::STATUS_RECEIVING_CANCELLED) {
+            return [
+                'key' => 'receiving_cancelled',
+                'label' => 'Penerimaan Dibatalkan',
+                'badge_class' => 'badge-dark',
             ];
         }
 

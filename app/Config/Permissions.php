@@ -198,6 +198,7 @@ return [
         'purchases.receive.access' => 'Hak Akses',
         'purchases.receive.approval' => 'Persetujuan',
         'purchases.receive' => 'Terima',
+        'purchases.receive.cancel' => 'Batalkan Penerimaan',
         'purchases.receive.complete_shortfall' => 'Selesaikan Kekurangan Pemasok',
         'purchases.receive.view_ordered_quantity' => 'Lihat Jumlah Pesanan Saat Terima',
     ],

@@ -114,7 +114,7 @@ class PurchaseEditNonPkpNormalizationTest extends TestCase
         Livewire::test(EditForm::class, ['purchaseId' => $purchase->id])
             ->call('submit')
             ->assertHasNoErrors()
-            ->assertRedirect(route('purchases.index'));
+            ->assertRedirect(route('home'));
 
         $purchase->refresh();
         $detail = PurchaseDetail::query()->where('purchase_id', $purchase->id)->firstOrFail();

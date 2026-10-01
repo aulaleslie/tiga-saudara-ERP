@@ -306,7 +306,7 @@ class PurchaseController extends Controller
             DB::commit();
 
             toast('Pembelian Ditambahkan!', 'success');
-            return redirect()->route('purchases.index');
+            return $this->redirectToSavedPurchase($purchase);
         } catch (Exception $e) {
             // Rollback on error
             DB::rollBack();
@@ -353,6 +353,7 @@ class PurchaseController extends Controller
             ->with([
                 'purchase',
                 'location',
+                'cancelledBy',
                 'receivedNoteDetails.purchaseDetail',
                 'receivedNoteDetails.productSerialNumbers',
                 'receivedNoteDetails.uomNormalizationLines.batch.oldBaseUnit',
@@ -455,6 +456,11 @@ class PurchaseController extends Controller
         $editMode = $purchase->resolveEditMode();
         if ($editMode === Purchase::EDIT_MODE_NONE) {
             abort(403, 'Anda tidak memiliki akses untuk mengubah pembelian ini pada status saat ini.');
+        }
+
+        // Edit Guard: reject full edit if any PENDING receivals exist
+        if ($editMode === Purchase::EDIT_MODE_FULL && $purchase->receivedNotes()->where('status', ReceivedNote::STATUS_PENDING)->exists()) {
+            abort(422, 'Pembelian memiliki penerimaan barang berstatus PENDING. Selesaikan atau batalkan penerimaan tersebut terlebih dahulu sebelum mengubah pesanan.');
         }
 
 
@@ -577,6 +583,10 @@ class PurchaseController extends Controller
                 abort(422, 'Pembelian yang sudah memiliki penerimaan barang tidak dapat diubah secara penuh.');
             }
 
+            if ($lockedPurchase->receivedNotes()->where('status', ReceivedNote::STATUS_PENDING)->exists()) {
+                abort(422, 'Pembelian memiliki penerimaan barang berstatus PENDING. Selesaikan atau batalkan penerimaan tersebut terlebih dahulu sebelum mengubah pesanan.');
+            }
+
             $isPkp = (bool) (Setting::query()->whereKey((int) session('setting_id'))->value('is_pkp') ?? false);
             $setting_id = $lockedPurchase->setting_id ?: session('setting_id');
             $normalizedPurchase = app(PurchaseNormalizer::class)->normalize([
@@ -662,7 +672,12 @@ class PurchaseController extends Controller
         });
 
         toast('Pembelian Diperbaharui!', 'info');
-        return redirect()->route('purchases.index');
+        return $this->redirectToSavedPurchase($purchase);
+    }
+
+    private function redirectToSavedPurchase(Purchase $purchase): RedirectResponse
+    {
+        return redirect()->to(\Modules\Purchase\Support\PurchaseSaveRedirect::url($purchase));
     }
 
     public function destroy(Purchase $purchase)
@@ -1431,8 +1446,23 @@ class PurchaseController extends Controller
                                     );
                                 }
                                 // Clear pending serial numbers after commit
-                                $detail->update(['pending_serial_numbers' => null]);
+                                $detail->pending_serial_numbers = null;
                             }
+
+                            // Save immutable detail snapshots on receiving approval
+                            $detail->update([
+                                'product_id' => $purchaseDetail->product_id,
+                                'product_code' => $purchaseDetail->product_code ?? $product->product_code,
+                                'product_name' => $purchaseDetail->product_name ?? $product->product_name,
+                                'purchase_unit_id' => $purchaseDetail->purchase_unit_id,
+                                'unit_name' => $purchaseDetail->unit_name,
+                                'base_unit_name' => $purchaseDetail->base_unit_name,
+                                'conversion_factor' => $purchaseDetail->conversion_factor ?? 1.000000,
+                                'entered_quantity' => $purchaseDetail->entered_quantity,
+                                'tax_id' => $purchaseDetail->tax_id,
+                                'location_id' => $receivedNote->location_id,
+                                'pending_serial_numbers' => null,
+                            ]);
                         }
                     }
 
@@ -1623,6 +1653,111 @@ class PurchaseController extends Controller
 
             toast('Penerimaan berhasil diselesaikan.', 'success');
             return redirect()->route('purchases.show', $purchase);
+        } catch (Exception $e) {
+            if ($request->ajax() || $request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => $e->getMessage(),
+                ], 422);
+            }
+
+            toast($e->getMessage(), 'error');
+            return redirect()->back();
+        }
+    }
+
+    public function previewReceivalCancellation(Purchase $purchase)
+    {
+        abort_if(Gate::denies('purchases.receive.cancel'), 403);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        try {
+            $preview = app(\Modules\Purchase\Services\PurchaseReceivalCancellationEligibilityService::class)->preview(
+                $purchase,
+                request('reason'),
+                (int) session('setting_id')
+            );
+
+            $summarizeNote = fn (ReceivedNote $note) => [
+                'id' => $note->id,
+                'status' => $note->status,
+                'external_delivery_number' => $note->external_delivery_number,
+                'location' => $note->location?->name,
+            ];
+
+            // Shape purpose-built response to minimize payload size and avoid exposing sensitive internal models
+            $sanitizedPreview = [
+                'eligible' => $preview['eligible'],
+                'blockers' => $preview['blockers'],
+                'approved_notes' => $preview['approved_notes']->map($summarizeNote)->values(),
+                'pending_notes' => $preview['pending_notes']->map($summarizeNote)->values(),
+                'lines' => $preview['lines'] ?? [],
+                'stock_requirements' => $preview['stock_requirements'] ?? [],
+                'serialized_details' => $preview['serialized_details'] ?? [],
+                'purchase' => [
+                    'id' => $purchase->id,
+                    'reference' => $purchase->reference,
+                ],
+            ];
+
+            return response()->json([
+                'success' => true,
+                'preview' => $sanitizedPreview,
+            ]);
+        } catch (\Throwable $e) {
+            // Preview reports business blockers in its payload; anything thrown is unexpected
+            report($e);
+
+            return response()->json([
+                'success' => false,
+                'error' => 'Pratinjau pembatalan tidak dapat dimuat. Silakan coba lagi atau hubungi administrator.',
+            ], 500);
+        }
+    }
+
+    public function cancelReceivings(Request $request, Purchase $purchase)
+    {
+        abort_if(Gate::denies('purchases.receive.cancel'), 403);
+        $this->ensurePurchaseBelongsToCurrentSetting($purchase);
+
+        $validated = $request->validate([
+            'reason' => 'required|string|min:3|max:1000',
+        ], [
+            'reason.required' => 'Alasan pembatalan penerimaan wajib diisi.',
+            'reason.min' => 'Alasan pembatalan minimal 3 karakter.',
+        ]);
+
+        try {
+            $cancellations = app(\Modules\Purchase\Services\PurchaseReceivalCancellationService::class)->cancel(
+                $purchase,
+                $validated['reason'],
+                auth()->user(),
+                (int) session('setting_id')
+            );
+
+            $message = "{$cancellations->count()} penerimaan berhasil dibatalkan. Pembelian kembali berstatus Disetujui.";
+
+            if ($request->ajax() || $request->wantsJson()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => $message,
+                    'cancellation_ids' => $cancellations->pluck('id')->values(),
+                ]);
+            }
+
+            toast($message, 'success');
+            return redirect()->route('purchases.show', $purchase);
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Never expose SQL or schema details to users
+            report($e);
+            $error = 'Pembatalan penerimaan gagal karena kesalahan sistem. Tidak ada perubahan yang disimpan.';
+
+            if ($request->ajax() || $request->wantsJson()) {
+                return response()->json(['success' => false, 'error' => $error], 500);
+            }
+
+            toast($error, 'error');
+            return redirect()->back();
         } catch (Exception $e) {
             if ($request->ajax() || $request->wantsJson()) {
                 return response()->json([

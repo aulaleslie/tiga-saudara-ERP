@@ -70,6 +70,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         ->name('receivings.approve');
     Route::post('/receivings/{receivedNote}/reject', [PurchaseController::class, 'rejectReceiving'])
         ->name('receivings.reject');
+    Route::get('/purchases/{purchase}/receivings/cancel/preview', [PurchaseController::class, 'previewReceivalCancellation'])
+        ->name('purchases.receivings.cancel.preview');
+    Route::post('/purchases/{purchase}/receivings/cancel', [PurchaseController::class, 'cancelReceivings'])
+        ->name('purchases.receivings.cancel');
     Route::get('/receivings/list', [PurchaseController::class, 'receivingsList'])
         ->name('receivings.list');
     Route::get('/purchases/{purchase}/receive', [PurchaseController::class, 'receive'])->name('purchases.receive');

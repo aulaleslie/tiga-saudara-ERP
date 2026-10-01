@@ -101,7 +101,8 @@ class PurchaseNonPkpTaxStrippingTest extends TestCase
             ]);
 
         $response->assertSessionHasNoErrors();
-        $response->assertRedirect(route('purchases.index'));
+        // User holds only purchases.create (no purchases.show / purchases.access): lands on home
+        $response->assertRedirect(route('home'));
 
         $this->assertDatabaseHas('purchases', [
             'total_amount' => 2000,

@@ -121,7 +121,7 @@ class PurchaseCreatePkpAutoTaxReconcileSubmitTest extends TestCase
             ->set('payment_term', $this->codTerm->id)
             ->call('submit')
             ->assertHasNoErrors()
-            ->assertRedirect(route('purchases.index'));
+            ->assertRedirect(route('home'));
 
         $this->assertDatabaseCount('purchases', 1);
         $this->assertDatabaseHas('purchase_details', [

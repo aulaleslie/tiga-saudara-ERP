@@ -115,7 +115,7 @@ class PurchaseEditPkpTaxTest extends TestCase
         Livewire::test(EditForm::class, ['purchaseId' => $purchase->id])
             ->call('submit')
             ->assertHasNoErrors()
-            ->assertRedirect(route('purchases.index'));
+            ->assertRedirect(route('home'));
 
         $purchase->refresh();
         $this->assertSame(1110.0, (float) $purchase->total_amount);
@@ -158,7 +158,7 @@ class PurchaseEditPkpTaxTest extends TestCase
         $editForm
             ->call('submit')
             ->assertHasNoErrors()
-            ->assertRedirect(route('purchases.index'));
+            ->assertRedirect(route('home'));
 
         $this->assertDatabaseHas('purchase_details', [
             'purchase_id' => $purchase->id,

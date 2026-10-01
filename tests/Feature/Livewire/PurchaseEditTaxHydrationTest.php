@@ -134,7 +134,7 @@ class PurchaseEditTaxHydrationTest extends TestCase
         Livewire::test(EditForm::class, ['purchaseId' => $purchase->id])
             ->call('submit')
             ->assertHasNoErrors()
-            ->assertRedirect(route('purchases.index'));
+            ->assertRedirect(route('home'));
 
         $purchase->refresh();
 

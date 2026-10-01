@@ -40,6 +40,7 @@ class GlobalPurchasePaymentController extends Controller
             ->with([
                 'purchase',
                 'location',
+                'cancelledBy',
                 'receivedNoteDetails.purchaseDetail',
                 'receivedNoteDetails.productSerialNumbers',
                 'receivedNoteDetails.uomNormalizationLines.batch.oldBaseUnit',

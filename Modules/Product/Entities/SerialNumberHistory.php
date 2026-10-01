@@ -46,6 +46,7 @@ class SerialNumberHistory extends BaseModel
     public const EVENT_STATUS_CHANGED = 'STATUS_CHANGED';
     public const EVENT_CONSIGNMENT_REVERSED = 'CONSIGNMENT_REVERSED';
     public const EVENT_STOCK_OPNAME_MISSING = 'STOCK_OPNAME_MISSING';
+    public const EVENT_PURCHASE_RECEIVING_CANCELLED = 'PURCHASE_RECEIVING_CANCELLED';
 
     /**
      * Get the serial number associated with the history.

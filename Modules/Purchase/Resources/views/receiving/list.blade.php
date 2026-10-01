@@ -60,6 +60,8 @@
                                                     <span class="badge badge-success">Disetujui</span>
                                                 @elseif($receivedNote->isRejected())
                                                     <span class="badge badge-danger" title="{{ $receivedNote->rejection_reason }}">Ditolak</span>
+                                                @elseif($receivedNote->isCancelled())
+                                                    <span class="badge badge-secondary" title="{{ $receivedNote->cancellation_reason }}">Dibatalkan</span>
                                                 @endif
                                             </td>
                                             @can('purchases.receive.approval')
@@ -105,6 +107,10 @@
                                                     @elseif($receivedNote->isRejected())
                                                         <span class="text-muted small" title="{{ $receivedNote->rejection_reason }}">
                                                             <i class="bi bi-info-circle"></i> {{ Str::limit($receivedNote->rejection_reason, 20) }}
+                                                        </span>
+                                                    @elseif($receivedNote->isCancelled())
+                                                        <span class="text-muted small" title="{{ $receivedNote->cancellation_reason }}">
+                                                            <i class="bi bi-info-circle"></i> {{ Str::limit($receivedNote->cancellation_reason, 20) }}
                                                         </span>
                                                     @else
                                                         <span class="text-muted">-</span>

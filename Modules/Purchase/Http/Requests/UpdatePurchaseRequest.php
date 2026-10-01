@@ -5,9 +5,10 @@ namespace Modules\Purchase\Http\Requests;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
-use Modules\Purchase\Entities\Purchase;
-use Modules\Purchase\Entities\PaymentTerm;
 use Modules\People\Entities\Supplier;
+use Modules\Purchase\Entities\PaymentTerm;
+use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\ReceivedNote;
 use Modules\Setting\Entities\Tax;
 
 class UpdatePurchaseRequest extends FormRequest
@@ -130,14 +131,14 @@ class UpdatePurchaseRequest extends FormRequest
             return false;
         }
 
-        // This endpoint's persistence deletes and recreates purchase_details,
-        // cascading away received_note_details. A received document must never
-        // reach it, so it is refused here — ahead of rules(), which would
-        // otherwise turn the attempt into a redirect rather than a rejection.
         $purchase = $this->route('purchase');
 
         if ($purchase && $purchase->resolveEditMode() === Purchase::EDIT_MODE_MONETARY_ONLY) {
             abort(422, 'Pembelian yang sudah diterima hanya dapat diubah melalui mode edit moneter.');
+        }
+
+        if ($purchase && $purchase->receivedNotes()->where('status', ReceivedNote::STATUS_PENDING)->exists()) {
+            abort(422, 'Pembelian memiliki penerimaan barang berstatus PENDING. Selesaikan atau batalkan penerimaan tersebut terlebih dahulu sebelum mengubah pesanan.');
         }
 
         return true;

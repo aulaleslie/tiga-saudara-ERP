@@ -38,6 +38,7 @@ class Transaction extends BaseModel
         'broken_quantity_non_tax',
         'received_note_detail_id',
         'consignment_receiving_detail_id',
+        'received_note_cancellation_detail_id',
     ];
 
     /**
@@ -107,6 +108,14 @@ class Transaction extends BaseModel
     public function consignmentReceivingDetail(): BelongsTo
     {
         return $this->belongsTo(\Modules\Consignment\Entities\ConsignmentReceivingDetail::class);
+    }
+
+    /**
+     * The received note cancellation detail that created this reversal transaction.
+     */
+    public function receivedNoteCancellationDetail(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Purchase\Entities\ReceivedNoteCancellationDetail::class, 'received_note_cancellation_detail_id');
     }
 
     /**

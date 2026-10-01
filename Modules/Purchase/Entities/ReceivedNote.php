@@ -13,6 +13,12 @@ class ReceivedNote extends BaseModel
     const STATUS_PENDING = 'PENDING';
     const STATUS_APPROVED = 'APPROVED';
     const STATUS_REJECTED = 'REJECTED';
+    const STATUS_CANCELLED = 'CANCELLED';
+
+    protected array $uppercaseExcept = [
+        'rejection_reason',
+        'cancellation_reason',
+    ];
 
     // Define fillable fields for mass assignment
     protected $fillable = [
@@ -25,10 +31,15 @@ class ReceivedNote extends BaseModel
         'approved_at',
         'approved_by',
         'rejection_reason',
+        'cancelled_at',
+        'cancelled_by',
+        'cancellation_reason',
+        'cancellation_origin',
     ];
 
     protected $casts = [
         'approved_at' => 'datetime',
+        'cancelled_at' => 'datetime',
     ];
 
     /**
@@ -57,6 +68,14 @@ class ReceivedNote extends BaseModel
         return $this->belongsTo(User::class, 'approved_by');
     }
 
+    /**
+     * Relationship with User who cancelled this receiving.
+     */
+    public function cancelledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
+    }
+
     public function receivedNoteDetails(): HasMany
     {
         return $this->hasMany(ReceivedNoteDetail::class);
@@ -65,6 +84,11 @@ class ReceivedNote extends BaseModel
     public function statusTransitionAudits(): HasMany
     {
         return $this->hasMany(PurchaseStatusTransitionAudit::class, 'received_note_id');
+    }
+
+    public function cancellation(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(ReceivedNoteCancellation::class, 'received_note_id');
     }
 
     public function scopeByPurchase($query) {
@@ -84,5 +108,10 @@ class ReceivedNote extends BaseModel
     public function isRejected(): bool
     {
         return $this->status === self::STATUS_REJECTED;
+    }
+
+    public function isCancelled(): bool
+    {
+        return $this->status === self::STATUS_CANCELLED;
     }
 }

@@ -869,7 +869,8 @@ class EditForm extends Component
                 }
             }
             session()->flash('success', $successMessage);
-            return redirect()->route('purchases.index');
+            // Fresh read: cross-business reassignment may have changed setting_id during the save
+            return redirect()->to(\Modules\Purchase\Support\PurchaseSaveRedirect::url($this->purchase->fresh()));
 
         } catch (ValidationException $e) {
             if ($transactionStarted && DB::transactionLevel() > 0) {
@@ -964,7 +965,7 @@ class EditForm extends Component
             return redirect()->route('purchases.global-payments.index');
         }
 
-        return redirect()->route('purchases.index');
+        return redirect()->to(\Modules\Purchase\Support\PurchaseSaveRedirect::url($this->purchase));
     }
 
     public function render(): Factory|Application|View|\Illuminate\View\View|\Illuminate\Contracts\Foundation\Application

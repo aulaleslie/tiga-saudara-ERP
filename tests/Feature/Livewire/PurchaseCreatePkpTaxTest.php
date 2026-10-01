@@ -80,7 +80,7 @@ class PurchaseCreatePkpTaxTest extends TestCase
             ->set('payment_term', $this->codTerm->id)
             ->call('submit')
             ->assertHasNoErrors()
-            ->assertRedirect(route('purchases.index'));
+            ->assertRedirect(route('home'));
 
         $purchase = Purchase::query()->latest('id')->first();
 
@@ -114,7 +114,7 @@ class PurchaseCreatePkpTaxTest extends TestCase
             ->set('payment_term', $this->codTerm->id)
             ->call('submit')
             ->assertHasNoErrors()
-            ->assertRedirect(route('purchases.index'));
+            ->assertRedirect(route('home'));
 
         $purchase = Purchase::query()->latest('id')->first();
 
@@ -158,7 +158,7 @@ class PurchaseCreatePkpTaxTest extends TestCase
             ->set('is_tax_included', true)
             ->call('submit')
             ->assertHasNoErrors()
-            ->assertRedirect(route('purchases.index'));
+            ->assertRedirect(route('home'));
 
         $purchase = Purchase::query()->latest('id')->with('purchaseDetails')->firstOrFail();
         $detail = $purchase->purchaseDetails->first();
@@ -279,7 +279,7 @@ class PurchaseCreatePkpTaxTest extends TestCase
             ->set('payment_term', $this->codTerm->id)
             ->call('submit')
             ->assertHasNoErrors()
-            ->assertRedirect(route('purchases.index'));
+            ->assertRedirect(route('home'));
             
         $this->assertDatabaseCount('purchases', 1);
     }
@@ -311,7 +311,7 @@ class PurchaseCreatePkpTaxTest extends TestCase
             ->set('payment_term', $this->codTerm->id)
             ->call('submit')
             ->assertHasNoErrors()
-            ->assertRedirect(route('purchases.index'));
+            ->assertRedirect(route('home'));
             
         $this->assertDatabaseCount('purchases', 1);
     }
@@ -344,7 +344,7 @@ class PurchaseCreatePkpTaxTest extends TestCase
             ->set('payment_term', $this->codTerm->id)
             ->call('submit')
             ->assertHasNoErrors()
-            ->assertRedirect(route('purchases.index'));
+            ->assertRedirect(route('home'));
 
         $purchase = \Modules\Purchase\Entities\Purchase::latest('id')->with('purchaseDetails')->first();
 

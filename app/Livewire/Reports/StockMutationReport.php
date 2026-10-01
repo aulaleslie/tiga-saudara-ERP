@@ -190,6 +190,7 @@ class StockMutationReport extends Component
 
         return match ($type) {
             'BUY' => 'Penerimaan Pembelian',
+            'PURCHASE_RECEIVING_CANCELLED' => 'Pembatalan Penerimaan Pembelian',
             'DISPATCH', 'SELL' => 'Pengiriman Penjualan',
             'TRF' => $delta >= 0 ? 'Transfer Masuk' : 'Transfer Keluar',
             'ADJ' => $delta >= 0 ? 'Penyesuaian Tambah' : 'Penyesuaian Kurang',

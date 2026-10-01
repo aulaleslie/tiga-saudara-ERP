@@ -12,7 +12,7 @@
         <tbody>
         @foreach($data->receivedNoteDetails as $detail)
             <tr>
-                <td>{{ optional($detail->purchaseDetail)->display_product_name ?? optional($detail->purchaseDetail)->product_name ?? 'Unknown' }}</td>
+                <td>{{ $detail->display_product_name ?? optional($detail->purchaseDetail)->display_product_name ?? optional($detail->purchaseDetail)->product_name ?? 'Unknown' }}</td>
                 <td>
                     {{ $detail->quantity_received }}
                     @if($detail->uomNormalizationLines && $detail->uomNormalizationLines->count() > 0)
@@ -51,6 +51,9 @@
                             } elseif ($status === \Modules\Product\Entities\ProductSerialNumber::STATUS_RETURNED) {
                                 $badgeClass = 'bg-danger';
                                 $title = 'Returned';
+                            } elseif ($status === \Modules\Product\Entities\ProductSerialNumber::STATUS_RECEIVING_CANCELLED) {
+                                $badgeClass = 'bg-secondary';
+                                $title = 'Receiving Cancelled';
                             }
 
                             return (object)[

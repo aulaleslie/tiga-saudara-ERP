@@ -43,6 +43,26 @@
                                     <i class="bi bi-files"></i> Duplikat
                                 </a>
                             @endcan
+                            @php
+                                // Mirrors PurchaseController::edit(): purchases.update, a non-NONE edit mode
+                                // (which covers purchases.approved.edit and consignment billing), and no
+                                // PENDING receival for full editing.
+                                $headerEditMode = $purchase->resolveEditMode();
+                                $canEditFromHeader = Gate::allows('purchases.update')
+                                    && $headerEditMode !== Purchase::EDIT_MODE_NONE
+                                    && !($headerEditMode === Purchase::EDIT_MODE_FULL
+                                        && $purchase->receivedNotes()->where('status', \Modules\Purchase\Entities\ReceivedNote::STATUS_PENDING)->exists());
+                            @endphp
+                            @if($canEditFromHeader)
+                                <a class="btn btn-sm btn-primary mfe-1 d-print-none" id="purchase-header-edit"
+                                   href="{{ route('purchases.edit', $purchase->id) }}">
+                                    @if($headerEditMode === Purchase::EDIT_MODE_MONETARY_ONLY)
+                                        <i class="bi bi-pencil-square"></i> Ubah Nilai (Moneter)
+                                    @else
+                                        <i class="bi bi-pencil"></i> Ubah
+                                    @endif
+                                </a>
+                            @endif
                         @endif
                         <a class="btn btn-sm btn-info {{ (isset($globalMode) && $globalMode) ? 'mfs-auto' : '' }} mfe-1 d-print-none"
                            href="{{ (isset($globalMode) && $globalMode) ? route('purchases.global-payments.index') : route('purchases.index') }}">
@@ -406,7 +426,23 @@
                             <div class="col-lg-12">
                                 <div class="card">
                                     <div class="card-body">
-                                        <h4 class="mb-3">Penerimaan Barang</h4>
+                                        @php
+                                            $cancellableReceivalCount = $receivedNotes->filter(fn ($note) => $note->isApproved() || $note->isPending())->count();
+                                            $canCancelReceivals = Gate::allows('purchases.receive.cancel')
+                                                && !(isset($globalMode) && $globalMode)
+                                                && !$purchase->isArchived()
+                                                && !$purchase->isConsignmentBilling()
+                                                && $cancellableReceivalCount > 0;
+                                        @endphp
+                                        <div class="d-flex align-items-center mb-3">
+                                            <h4 class="mb-0">Penerimaan Barang</h4>
+                                            @if($canCancelReceivals)
+                                                <button type="button" class="btn btn-sm btn-outline-danger ml-auto d-print-none"
+                                                        data-toggle="modal" data-target="#cancelReceivalsModal">
+                                                    <i class="bi bi-arrow-counterclockwise"></i> Batalkan Penerimaan
+                                                </button>
+                                            @endif
+                                        </div>
                                         <div class="table-responsive">
                                             <table id="purchase-receivings-table" class="table table-striped table-bordered">
                                                 <thead>
@@ -447,6 +483,17 @@
                                                                 <span class="badge badge-success">Disetujui</span>
                                                             @elseif($receivedNote->isRejected())
                                                                 <span class="badge badge-danger">Ditolak</span>
+                                                            @elseif($receivedNote->isCancelled())
+                                                                <span class="badge badge-secondary">Dibatalkan</span>
+                                                                <div class="small text-muted mt-1">
+                                                                    {{ optional($receivedNote->cancelled_at)->format('Y-m-d H:i') }}
+                                                                    @if($receivedNote->cancelledBy) &middot; {{ $receivedNote->cancelledBy->name }} @endif
+                                                                </div>
+                                                                @if($receivedNote->cancellation_reason)
+                                                                    <div class="small text-muted" title="{{ $receivedNote->cancellation_reason }}">
+                                                                        {{ Str::limit($receivedNote->cancellation_reason, 40) }}
+                                                                    </div>
+                                                                @endif
                                                             @endif
                                                         </td>
                                                         @can('purchases.receive.approval')
@@ -515,6 +562,74 @@
                             </div>
                         </div>
 
+                        @if($canCancelReceivals)
+                            <!-- Purchase-level Receival Cancellation Modal -->
+                            <div class="modal fade" id="cancelReceivalsModal" tabindex="-1"
+                                 data-preview-url="{{ route('purchases.receivings.cancel.preview', $purchase) }}">
+                                <div class="modal-dialog modal-lg">
+                                    <div class="modal-content">
+                                        <form action="{{ route('purchases.receivings.cancel', $purchase) }}" method="POST">
+                                            @csrf
+                                            <div class="modal-header">
+                                                <h5 class="modal-title">Batalkan Penerimaan &mdash; {{ $purchase->reference }}</h5>
+                                                <button type="button" class="close" data-dismiss="modal">
+                                                    <span>&times;</span>
+                                                </button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <p class="text-muted small">
+                                                    Seluruh penerimaan berstatus Disetujui dan Menunggu Persetujuan pada pembelian ini akan dibatalkan sekaligus.
+                                                    Stok dan serial dari penerimaan yang disetujui akan dibalik, dan pembelian kembali berstatus Disetujui.
+                                                    Jika salah satu penerimaan tidak dapat dibatalkan, tidak ada penerimaan yang dibatalkan.
+                                                </p>
+
+                                                <div class="cancel-preview-loading text-center py-3">
+                                                    <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                                                    <span class="text-muted small ml-1">Memeriksa kelayakan dan pratinjau pembatalan...</span>
+                                                </div>
+
+                                                <div class="cancel-preview-container d-none">
+                                                    <div class="cancel-blockers-alert alert alert-danger d-none">
+                                                        <h6 class="font-weight-bold mb-2"><i class="bi bi-x-circle"></i> Pembatalan Tidak Dapat Dilakukan:</h6>
+                                                        <ul class="mb-0 pl-3 cancel-blockers-list"></ul>
+                                                    </div>
+
+                                                    <div class="cancel-preview-content">
+                                                        <h6 class="font-weight-bold">Penerimaan yang akan dibatalkan</h6>
+                                                        <ul class="small pl-3 cancel-notes-list"></ul>
+
+                                                        <div class="table-responsive mb-3 cancel-lines-wrapper d-none">
+                                                            <table class="table table-sm table-bordered">
+                                                                <thead class="thead-light">
+                                                                <tr>
+                                                                    <th>Penerimaan</th>
+                                                                    <th>Produk</th>
+                                                                    <th class="text-right">Qty Batal</th>
+                                                                    <th>Dampak Stok (Pajak / Non-Pajak)</th>
+                                                                    <th>Serial Number</th>
+                                                                </tr>
+                                                                </thead>
+                                                                <tbody class="cancel-lines-table-body"></tbody>
+                                                            </table>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div class="form-group mt-3">
+                                                    <label for="cancel-receivals-reason">Alasan Pembatalan <span class="text-danger">*</span></label>
+                                                    <textarea id="cancel-receivals-reason" name="reason" class="form-control" rows="3" required minlength="3" placeholder="Masukkan alasan pembatalan"></textarea>
+                                                </div>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-dismiss="modal">Tutup</button>
+                                                <button type="submit" class="btn btn-danger btn-confirm-cancel" disabled>Konfirmasi Pembatalan</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
+
                         <!-- Payments Table -->
                         <div class="row mt-4">
                             <div class="col-lg-12">
@@ -575,9 +690,6 @@
                                         <input type="hidden" name="status" value="{{ Purchase::STATUS_WAITING_APPROVAL }}">
                                         <button type="submit" class="btn btn-warning">Kirim untuk Persetujuan</button>
                                     </form>
-                                    <a href="{{ route('purchases.edit', $purchase->id) }}" class="btn btn-primary">
-                                        <i class="bi bi-pencil mr-2"></i> Ubah
-                                    </a>
                                 @endif
 
                                 @can('purchases.approval')
@@ -892,6 +1004,108 @@
             });
         });
     </script>
+
+    @if($canCancelReceivals)
+    <script>
+        (function () {
+            const statusLabels = { APPROVED: 'Disetujui', PENDING: 'Menunggu Persetujuan' };
+
+            function loadCancellationPreview(modal) {
+                const previewUrl = modal.dataset.previewUrl;
+                const $modal = $(modal);
+                const loadingEl = $modal.find('.cancel-preview-loading');
+                const containerEl = $modal.find('.cancel-preview-container');
+                const blockersAlert = $modal.find('.cancel-blockers-alert');
+                const blockersList = $modal.find('.cancel-blockers-list');
+                const notesList = $modal.find('.cancel-notes-list');
+                const linesWrapper = $modal.find('.cancel-lines-wrapper');
+                const tbody = $modal.find('.cancel-lines-table-body');
+                const confirmBtn = $modal.find('.btn-confirm-cancel');
+
+                loadingEl.removeClass('d-none');
+                containerEl.addClass('d-none');
+                blockersAlert.addClass('d-none');
+                linesWrapper.addClass('d-none');
+                blockersList.empty();
+                notesList.empty();
+                tbody.empty();
+                confirmBtn.prop('disabled', true);
+
+                const showFailure = function (message) {
+                    loadingEl.addClass('d-none');
+                    containerEl.removeClass('d-none');
+                    blockersAlert.removeClass('d-none');
+                    blockersList.append($('<li>').text(message));
+                };
+
+                fetch(previewUrl, {
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+                })
+                .then(response => response.json())
+                .then(res => {
+                    if (!res.success || !res.preview) {
+                        showFailure(res.error || 'Gagal memuat pratinjau pembatalan.');
+                        return;
+                    }
+
+                    const preview = res.preview;
+                    loadingEl.addClass('d-none');
+                    containerEl.removeClass('d-none');
+
+                    (preview.approved_notes || []).concat(preview.pending_notes || []).forEach(note => {
+                        const label = `Penerimaan #${note.id}` + (note.external_delivery_number ? ` (${note.external_delivery_number})` : '')
+                            + ` - ${statusLabels[note.status] || note.status}` + (note.location ? ` - ${note.location}` : '');
+                        notesList.append($('<li>').text(label));
+                    });
+
+                    (preview.lines || []).forEach(line => {
+                        const serialsForLine = (preview.serialized_details || []).find(s => s.received_note_detail_id === line.received_note_detail_id);
+                        const serialTd = $('<td>');
+                        if (serialsForLine && serialsForLine.serials && serialsForLine.serials.length > 0) {
+                            serialsForLine.serials.forEach(s => {
+                                serialTd.append($('<span class="badge badge-secondary mr-1">').text(s.serial_number || ''));
+                            });
+                        } else {
+                            serialTd.append($('<span class="text-muted">').text('-'));
+                        }
+
+                        const productTd = $('<td>').append($('<div class="font-weight-bold">').text(line.product_name || '-'));
+                        if (line.product_code) {
+                            productTd.append($('<small class="text-muted">').text(line.product_code));
+                        }
+
+                        tbody.append($('<tr>')
+                            .append($('<td>').text('#' + line.received_note_id))
+                            .append(productTd)
+                            .append($('<td class="text-right font-weight-bold">').text(line.quantity))
+                            .append($('<td>').append($('<small>').text(`Pajak: ${line.quantity_tax || 0} / Non-Pajak: ${line.quantity_non_tax || 0}`)))
+                            .append(serialTd));
+                    });
+                    if ((preview.lines || []).length > 0) {
+                        linesWrapper.removeClass('d-none');
+                    }
+
+                    if (!preview.eligible) {
+                        blockersAlert.removeClass('d-none');
+                        (preview.blockers && preview.blockers.length ? preview.blockers : ['Penerimaan pembelian ini tidak memenuhi syarat untuk dibatalkan.'])
+                            .forEach(b => blockersList.append($('<li>').text(b)));
+                        return;
+                    }
+
+                    confirmBtn.prop('disabled', false);
+                })
+                .catch(err => showFailure('Terjadi kesalahan saat memeriksa pratinjau: ' + (err.message || 'Error')));
+            }
+
+            // CoreUI 3 dispatches native, bubbling `*.coreui.modal` events (not Bootstrap `*.bs.modal`)
+            document.addEventListener('show.coreui.modal', function (event) {
+                if (event.target && event.target.id === 'cancelReceivalsModal') {
+                    loadCancellationPreview(event.target);
+                }
+            });
+        })();
+    </script>
+    @endif
 
     <script>
         (function () {

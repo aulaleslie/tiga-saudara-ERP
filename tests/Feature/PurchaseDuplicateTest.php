@@ -173,7 +173,7 @@ class PurchaseDuplicateTest extends TestCase
 
         $component->assertSet('is_tax_included', true)
             ->call('submit')
-            ->assertRedirect(route('purchases.index'));
+            ->assertRedirect(route('home'));
 
         $this->assertDatabaseCount('purchases', 2);
 
@@ -272,7 +272,7 @@ class PurchaseDuplicateTest extends TestCase
             'duplicateId' => $originalPurchase->id,
         ]);
 
-        $component->call('submit')->assertRedirect(route('purchases.index'));
+        $component->call('submit')->assertRedirect(route('home'));
 
         $duplicatedDetail = PurchaseDetail::query()
             ->where('purchase_id', '!=', $originalPurchase->id)
@@ -330,7 +330,7 @@ class PurchaseDuplicateTest extends TestCase
             'duplicateId' => $originalPurchase->id,
         ]);
 
-        $component->call('submit')->assertRedirect(route('purchases.index'));
+        $component->call('submit')->assertRedirect(route('home'));
 
         $duplicatedDetail = PurchaseDetail::query()
             ->where('purchase_id', '!=', $originalPurchase->id)
@@ -391,7 +391,7 @@ class PurchaseDuplicateTest extends TestCase
             'duplicateId' => $originalPurchase->id,
         ]);
 
-        $component->call('submit')->assertRedirect(route('purchases.index'));
+        $component->call('submit')->assertRedirect(route('home'));
 
         $duplicatedDetail = PurchaseDetail::query()
             ->where('purchase_id', '!=', $originalPurchase->id)
@@ -452,7 +452,7 @@ class PurchaseDuplicateTest extends TestCase
             'duplicateId' => $originalPurchase->id,
         ]);
 
-        $component->call('submit')->assertRedirect(route('purchases.index'));
+        $component->call('submit')->assertRedirect(route('home'));
 
         $duplicatedDetail = PurchaseDetail::query()
             ->where('purchase_id', '!=', $originalPurchase->id)
@@ -515,7 +515,7 @@ class PurchaseDuplicateTest extends TestCase
             'duplicateId' => $originalPurchase->id,
         ]);
 
-        $component->call('submit')->assertRedirect(route('purchases.index'));
+        $component->call('submit')->assertRedirect(route('home'));
 
         $duplicatedDetail = PurchaseDetail::query()
             ->where('purchase_id', '!=', $originalPurchase->id)
@@ -576,7 +576,7 @@ class PurchaseDuplicateTest extends TestCase
             'duplicateId' => $originalPurchase->id,
         ]);
 
-        $component->call('submit')->assertRedirect(route('purchases.index'));
+        $component->call('submit')->assertRedirect(route('home'));
 
         $duplicatedDetail = PurchaseDetail::query()
             ->where('purchase_id', '!=', $originalPurchase->id)
@@ -635,7 +635,7 @@ class PurchaseDuplicateTest extends TestCase
             'duplicateId' => $originalPurchase->id,
         ]);
 
-        $component->call('submit')->assertRedirect(route('purchases.index'));
+        $component->call('submit')->assertRedirect(route('home'));
 
         $duplicatedDetail = PurchaseDetail::query()
             ->where('purchase_id', '!=', $originalPurchase->id)
@@ -698,7 +698,7 @@ class PurchaseDuplicateTest extends TestCase
             'duplicateId' => $originalPurchase->id,
         ]);
 
-        $component->call('submit')->assertRedirect(route('purchases.index'));
+        $component->call('submit')->assertRedirect(route('home'));
 
         $duplicatedDetail = PurchaseDetail::query()
             ->where('purchase_id', '!=', $originalPurchase->id)
@@ -771,7 +771,7 @@ class PurchaseDuplicateTest extends TestCase
             'duplicateId' => $originalPurchase->id,
         ]);
 
-        $component->call('submit')->assertRedirect(route('purchases.index'));
+        $component->call('submit')->assertRedirect(route('home'));
 
         $duplicatedDetail = PurchaseDetail::query()
             ->where('purchase_id', '!=', $originalPurchase->id)
@@ -818,7 +818,7 @@ class PurchaseDuplicateTest extends TestCase
             'duplicateId' => $originalPurchase->id,
         ]);
 
-        $component->call('submit')->assertRedirect(route('purchases.index'));
+        $component->call('submit')->assertRedirect(route('home'));
 
         $duplicatedDetail = PurchaseDetail::query()
             ->where('purchase_id', '!=', $originalPurchase->id)
@@ -892,7 +892,7 @@ class PurchaseDuplicateTest extends TestCase
             'duplicateId' => $originalPurchase->id,
         ]);
 
-        $component->call('submit')->assertRedirect(route('purchases.index'));
+        $component->call('submit')->assertRedirect(route('home'));
 
         $duplicatedPurchase = Purchase::query()
             ->where('id', '!=', $originalPurchase->id)

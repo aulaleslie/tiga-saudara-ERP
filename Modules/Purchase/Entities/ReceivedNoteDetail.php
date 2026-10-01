@@ -16,6 +16,16 @@ class ReceivedNoteDetail extends BaseModel
     protected $fillable = [
         'received_note_id',
         'po_detail_id',
+        'product_id',
+        'product_code',
+        'product_name',
+        'purchase_unit_id',
+        'unit_name',
+        'base_unit_name',
+        'conversion_factor',
+        'entered_quantity',
+        'tax_id',
+        'location_id',
         'quantity_received',
         'pending_serial_numbers',
         'note',
@@ -23,6 +33,8 @@ class ReceivedNoteDetail extends BaseModel
 
     protected $casts = [
         'quantity_received' => 'decimal:3',
+        'entered_quantity' => 'decimal:3',
+        'conversion_factor' => 'decimal:6',
         'pending_serial_numbers' => 'array',
     ];
 
@@ -46,11 +58,105 @@ class ReceivedNoteDetail extends BaseModel
 
     /**
      * Relationship with Product
-     * A ReceivedNoteDetail is related to a Product through the purchase detail.
+     * A ReceivedNoteDetail has a direct snapshot product_id, falling back to purchase detail product_id.
      */
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'product_id');
+    }
+
+    public function purchaseUnit(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Setting\Entities\Unit::class, 'purchase_unit_id');
+    }
+
+    public function tax(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Setting\Entities\Tax::class, 'tax_id');
+    }
+
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Setting\Entities\Location::class, 'location_id');
+    }
+
+    public function cancellationDetail(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(ReceivedNoteCancellationDetail::class, 'received_note_detail_id');
+    }
+
+    /**
+     * Accessor for display product name (prefers live product, then snapshot, then purchase detail).
+     */
+    public function getDisplayProductNameAttribute(): ?string
+    {
+        if ($this->relationLoaded('product') && $this->product?->product_name) {
+            return $this->product->product_name;
+        }
+
+        if (filled($this->product_name)) {
+            return $this->product_name;
+        }
+
+        if ($this->relationLoaded('purchaseDetail') && $this->purchaseDetail?->display_product_name) {
+            return $this->purchaseDetail->display_product_name;
+        }
+
+        return $this->product?->product_name ?? $this->purchaseDetail?->product?->product_name;
+    }
+
+    /**
+     * Accessor for display product code.
+     */
+    public function getDisplayProductCodeAttribute(): ?string
+    {
+        if ($this->relationLoaded('product') && $this->product?->product_code) {
+            return $this->product->product_code;
+        }
+
+        if (filled($this->product_code)) {
+            return $this->product_code;
+        }
+
+        return $this->product?->product_code ?? $this->purchaseDetail?->product_code ?? $this->purchaseDetail?->product?->product_code;
+    }
+
+    /**
+     * Accessor for display unit name (prefers snapshot, then purchase detail).
+     */
+    public function getDisplayUnitNameAttribute(): ?string
+    {
+        if (filled($this->unit_name)) {
+            return $this->unit_name;
+        }
+
+        return $this->purchaseDetail?->unit_name;
+    }
+
+    /**
+     * Accessor for display base unit name.
+     */
+    public function getDisplayBaseUnitNameAttribute(): ?string
+    {
+        if (filled($this->base_unit_name)) {
+            return $this->base_unit_name;
+        }
+
+        return $this->purchaseDetail?->base_unit_name;
+    }
+
+    /**
+     * Accessor for display conversion factor.
+     */
+    public function getDisplayConversionFactorAttribute(): ?string
+    {
+        if ($this->conversion_factor !== null) {
+            return (string) $this->conversion_factor;
+        }
+
+        return $this->purchaseDetail?->conversion_factor !== null
+            ? (string) $this->purchaseDetail->conversion_factor
+            : '1.000000';
     }
 
     /**

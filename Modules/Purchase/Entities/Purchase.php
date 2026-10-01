@@ -248,6 +248,10 @@ class Purchase extends BaseModel implements HasMedia
         return $this->hasMany(PurchaseStatusTransitionAudit::class, 'purchase_id', 'id');
     }
 
+    public function receivedNoteCancellations() {
+        return $this->hasMany(ReceivedNoteCancellation::class, 'purchase_id', 'id');
+    }
+
     public function getEffectiveDateAttribute(): ?\Carbon\CarbonInterface {
         return $this->reporting_date ?? $this->date;
     }

@@ -86,7 +86,7 @@ class PurchaseEditGlobalDiscountConsistencyTest extends TestCase
             ->assertSet('global_discount', 50)
             ->call('submit')
             ->assertHasNoErrors()
-            ->assertRedirect(route('purchases.index'));
+            ->assertRedirect(route('home'));
 
         $purchase->refresh();
         $this->assertSame(0.0, (float) $purchase->discount_percentage);
@@ -103,7 +103,7 @@ class PurchaseEditGlobalDiscountConsistencyTest extends TestCase
             ->assertSet('global_discount', 10)
             ->call('submit')
             ->assertHasNoErrors()
-            ->assertRedirect(route('purchases.index'));
+            ->assertRedirect(route('home'));
 
         $purchase->refresh();
         $this->assertSame(10.0, (float) $purchase->discount_percentage);
@@ -120,14 +120,14 @@ class PurchaseEditGlobalDiscountConsistencyTest extends TestCase
             ->assertSet('global_discount', 50)
             ->call('submit')
             ->assertHasNoErrors()
-            ->assertRedirect(route('purchases.index'));
+            ->assertRedirect(route('home'));
 
         Livewire::test(EditForm::class, ['purchaseId' => $purchase->id])
             ->assertSet('global_discount_type', 'fixed')
             ->assertSet('global_discount', 50)
             ->call('submit')
             ->assertHasNoErrors()
-            ->assertRedirect(route('purchases.index'));
+            ->assertRedirect(route('home'));
 
         $purchase->refresh();
         $this->assertSame(0.0, (float) $purchase->discount_percentage);
