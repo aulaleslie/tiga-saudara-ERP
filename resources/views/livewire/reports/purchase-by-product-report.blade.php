@@ -175,13 +175,14 @@
             </div>
 
             {{-- Product multi-select searchable --}}
-            <div class="mb-3">
+            <div class="mb-3" x-data="{ open: false }" @click.outside="open = false" @keydown.escape="open = false">
                 <label class="form-label small">Produk</label>
                 <div class="position-relative">
                     <input type="text" wire:model.live.debounce.300ms="productSearch"
+                           @focus="open = true" @input="open = true"
                            class="form-control" placeholder="Cari Produk (min 2 karakter)...">
                     @if(strlen($productSearch) >= 2)
-                        <div class="list-group position-absolute w-100 shadow-lg mt-1 bg-white text-dark" style="z-index: 1060; max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6;">
+                        <div x-show="open" class="list-group position-absolute w-100 shadow-lg mt-1 bg-white text-dark" style="z-index: 1060; max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6;">
                             @forelse($productOptions as $option)
                                 @if(in_array($option['id'], $productIds))
                                     <button type="button"
@@ -190,6 +191,7 @@
                                     </button>
                                 @else
                                     <button type="button"
+                                            @click="open = false"
                                             wire:click='selectProduct({{ $option['id'] }}, @json($option['product_name']))'
                                             class="list-group-item list-group-item-action bg-white text-dark small py-2">
                                         {{ $option['product_name'] }}

@@ -497,4 +497,86 @@ class PurchaseByProductReportTest extends TestCase
         $this->assertEquals(3000, $results[0]->purchase_value);
     }
 
+    /** @test */
+    public function it_finds_products_from_other_settings_in_suggestions()
+    {
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        $currency = Currency::first();
+        $otherSetting = Setting::create([
+            'company_name' => 'Other Setting Company',
+            'company_email' => 'other@example.com',
+            'company_phone' => '987654321',
+            'notification_email' => 'other_notify@example.com',
+            'default_currency_id' => $currency->id,
+            'default_currency_position' => 'prefix',
+            'footer_text' => 'Footer',
+            'company_address' => 'Address'
+        ]);
+
+        $category = Category::create([
+            'setting_id' => $otherSetting->id,
+            'category_code' => 'OTHER-CAT',
+            'category_name' => 'Other Category',
+            'created_by' => $this->user->id
+        ]);
+
+        $productOtherSetting = Product::create([
+            'setting_id' => $otherSetting->id,
+            'category_id' => $category->id,
+            'product_code' => 'GLOBAL-01',
+            'product_name' => 'Global Product Alpha',
+            'product_cost' => 1000,
+            'product_price' => 1500,
+        ]);
+
+        \Livewire\Livewire::test(\App\Livewire\Reports\PurchaseByProductReport::class)
+            ->set('productSearch', 'Alpha')
+            ->assertSee('Global Product Alpha')
+            ->assertSet('productOptions', function ($options) use ($productOtherSetting) {
+                return count($options) === 1
+                    && $options[0]['id'] === $productOtherSetting->id
+                    && $options[0]['product_name'] === 'Global Product Alpha';
+            });
+    }
+
+    /** @test */
+    public function it_retains_search_and_options_on_product_selection_and_prevents_duplicate_selection()
+    {
+        $this->actingAs($this->user);
+        session(['setting_id' => $this->setting->id]);
+
+        $category = $this->makeCategory();
+        $product = $this->makeProduct($category, 'PROD-1', 'Sample Product');
+
+        $component = \Livewire\Livewire::test(\App\Livewire\Reports\PurchaseByProductReport::class)
+            ->set('productSearch', 'Sample')
+            ->assertSee('Sample Product');
+
+        // Verify view has Alpine directives for open/collapse behavior while product is unselected
+        $html = $component->html();
+        $this->assertStringContainsString('x-data="{ open: false }"', $html);
+        $this->assertStringContainsString('@focus="open = true"', $html);
+        $this->assertStringContainsString('@click="open = false"', $html);
+
+        // Select the product
+        $component->call('selectProduct', $product->id, 'Sample Product')
+            // Verify productSearch and productOptions are retained
+            ->assertSet('productSearch', 'Sample')
+            ->assertSet('productIds', [$product->id])
+            ->assertSet('productLabels', [$product->id => 'Sample Product'])
+            ->assertSee('Sudah dipilih')
+            // Attempt duplicate selection
+            ->call('selectProduct', $product->id, 'Sample Product')
+            ->assertSet('productIds', [$product->id])
+            ->assertCount('productIds', 1);
+
+        // Even after selection, component view still has the Alpine wrapper and focus handler
+        $htmlAfter = $component->html();
+        $this->assertStringContainsString('x-data="{ open: false }"', $htmlAfter);
+        $this->assertStringContainsString('@focus="open = true"', $htmlAfter);
+        $this->assertStringContainsString('disabled', $htmlAfter);
+        $this->assertStringContainsString('Sudah dipilih', $htmlAfter);
+    }
 }

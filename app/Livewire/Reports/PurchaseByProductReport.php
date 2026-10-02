@@ -144,8 +144,6 @@ class PurchaseByProductReport extends Component
             $this->productIds[] = $id;
             $this->productLabels[$id] = $name;
         }
-        $this->productSearch = '';
-        $this->productOptions = [];
     }
 
     public function removeProduct(int $id): void
@@ -202,9 +200,7 @@ class PurchaseByProductReport extends Component
             $this->productOptions = [];
             return;
         }
-        $effectiveScopeId = $this->canViewGlobal ? $this->scopeSettingId : $this->settingId;
         $this->productOptions = Product::query()
-            ->where('setting_id', $effectiveScopeId)
             ->whereRaw('LOWER(product_name) LIKE ?', ['%' . mb_strtolower($value) . '%'])
             ->limit(10)->get(['id', 'product_name'])->toArray();
     }
