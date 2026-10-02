@@ -19,6 +19,7 @@ use Modules\Product\Entities\ProductBundle;
 use Modules\Product\Entities\ProductBundleItem;
 use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductStock;
+use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
@@ -226,6 +227,196 @@ class POSCustomerTierRepricingTest extends TestCase
         $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
         $this->assertEquals(125000, $snapshot['lines'][0]['unit_price'], 'Bundle line price should use authoritative bundle_sale_price and bypass tier repricing.');
         $this->assertEquals(15000, $snapshot['lines'][0]['bundle_price'], 'Legacy bundle price should be preserved in metadata.');
+    }
+
+    public function test_adding_ordinary_product_when_wholesaler_selected_applies_tier1_price_and_tags_tier(): void
+    {
+        $context = $this->createCheckoutContext('POS TIER FIRST WHOLESALE');
+
+        $wholesalerCustomer = Customer::factory()->create([
+            'setting_id' => $context['setting']->id,
+            'tier' => 'WHOLESALER',
+        ]);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-FIRST-WS', 100000, 75000);
+
+        // Select WHOLESALER customer on empty cart first
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $wholesalerCustomer);
+
+        // Add ordinary product
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $this->assertCount(1, $snapshot['lines']);
+        $line = reset($snapshot['lines']);
+        $this->assertEquals(75000, $line['unit_price'], 'Initial unit price should match tier 1 price for WHOLESALER');
+        $this->assertEquals('TIER', $line['price_source'], 'Price source should be TIER when tier price is applied');
+    }
+
+    public function test_adding_ordinary_product_when_reseller_selected_applies_tier2_price_and_tags_tier(): void
+    {
+        $context = $this->createCheckoutContext('POS TIER FIRST RESELLER');
+
+        $resellerCustomer = Customer::factory()->create([
+            'setting_id' => $context['setting']->id,
+            'tier' => 'RESELLER',
+        ]);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-FIRST-RS', 100000, 75000);
+        ProductPrice::where('product_id', $product->id)->where('setting_id', $context['setting']->id)
+            ->update(['tier_2_price' => 65000]);
+
+        // Select RESELLER customer on empty cart first
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $resellerCustomer);
+
+        // Add ordinary product
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $this->assertCount(1, $snapshot['lines']);
+        $line = reset($snapshot['lines']);
+        $this->assertEquals(65000, $line['unit_price'], 'Initial unit price should match tier 2 price for RESELLER');
+        $this->assertEquals('TIER', $line['price_source'], 'Price source should be TIER when tier price is applied');
+    }
+
+    public function test_adding_product_falls_back_to_base_price_when_tier_price_is_zero_or_null(): void
+    {
+        $context = $this->createCheckoutContext('POS TIER ZERO FALLBACK');
+
+        $wholesalerCustomer = Customer::factory()->create([
+            'setting_id' => $context['setting']->id,
+            'tier' => 'WHOLESALER',
+        ]);
+        // tier_1_price is null/0
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-TIER-ZERO', 100000, 0);
+
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $wholesalerCustomer);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $line = reset($snapshot['lines']);
+        $this->assertEquals(100000, $line['unit_price'], 'Should fall back to base sale_price when tier price is 0');
+        $this->assertEquals('BASE', $line['price_source'], 'Price source should be BASE when tier price was not applied');
+    }
+
+    public function test_adding_product_for_customer_without_tier_uses_base_price(): void
+    {
+        $context = $this->createCheckoutContext('POS NO TIER CUSTOMER');
+
+        $regularCustomer = Customer::factory()->create([
+            'setting_id' => $context['setting']->id,
+            'tier' => null,
+        ]);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-NO-TIER-CUST', 100000, 80000);
+
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $regularCustomer);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $line = reset($snapshot['lines']);
+        $this->assertEquals(100000, $line['unit_price'], 'Customer without tier should get base sale price');
+        $this->assertEquals('BASE', $line['price_source']);
+    }
+
+    public function test_conversion_unit_on_ordinary_product_uses_tier_price_per_base_unit_for_tier_customer(): void
+    {
+        $context = $this->createCheckoutContext('POS CONV TIER ORDINARY');
+
+        $wholesalerCustomer = Customer::factory()->create([
+            'setting_id' => $context['setting']->id,
+            'tier' => 'WHOLESALER',
+        ]);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-CONV-ORD', 10000, 8000);
+
+        $unit = Unit::firstOrCreate(['name' => 'PackConv', 'short_name' => 'PCK']);
+        $conversion = ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $unit->id,
+            'base_unit_id' => $product->base_unit_id,
+            'conversion_factor' => 5,
+            'barcode' => 'CONV-ORD-001',
+        ]);
+
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $wholesalerCustomer);
+
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $product->id,
+                'qty' => 2, // 2 packs = 10 base units
+                'conversion_id' => $conversion->id,
+            ])
+            ->assertOk();
+
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $line = reset($snapshot['lines']);
+        $this->assertEquals(10, $line['qty'], 'Qty should be multiplied by conversion factor (2 * 5 = 10)');
+        $this->assertEquals(8000, $line['unit_price'], 'Unit price should be tier price per base unit');
+        $this->assertEquals('TIER', $line['price_source']);
+    }
+
+    public function test_repeated_add_merges_into_one_line_at_tier_price(): void
+    {
+        $context = $this->createCheckoutContext('POS TIER MERGE');
+
+        $wholesalerCustomer = Customer::factory()->create([
+            'setting_id' => $context['setting']->id,
+            'tier' => 'WHOLESALER',
+        ]);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-TIER-MRG', 100000, 70000);
+
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $wholesalerCustomer);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 2);
+
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $this->assertCount(1, $snapshot['lines'], 'Both additions should merge into a single cart line');
+        $line = reset($snapshot['lines']);
+        $this->assertEquals(3, $line['qty']);
+        $this->assertEquals(70000, $line['unit_price']);
+        $this->assertEquals('TIER', $line['price_source']);
+    }
+
+    public function test_bundle_initial_add_unaffected_when_tier_customer_selected(): void
+    {
+        $context = $this->createCheckoutContext('POS TIER BUNDLE INITIAL');
+
+        $wholesalerCustomer = Customer::factory()->create([
+            'setting_id' => $context['setting']->id,
+            'tier' => 'WHOLESALER',
+        ]);
+        $parent = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-BNDL-P2', 100000, 50000);
+        $child = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-BNDL-C2', 20000, null);
+
+        $bundle = ProductBundle::query()->create([
+            'setting_id' => $context['setting']->id,
+            'parent_product_id' => $parent->id,
+            'name' => 'Bundle Parent + Child 2',
+            'bundle_sale_price' => 130000,
+            'price' => 20000,
+        ]);
+
+        ProductBundleItem::query()->create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $child->id,
+            'quantity' => 1,
+        ]);
+
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $wholesalerCustomer);
+
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $parent->id,
+                'qty' => 1,
+                'bundle_id' => $bundle->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('cart_snapshot.lines.0.unit_price', 130000)
+            ->assertJsonPath('cart_snapshot.lines.0.bundle_price', 20000);
+
+        $snapshot = $this->cartSnapshot($context['cashier'], $context['setting']);
+        $this->assertEquals(130000, $snapshot['lines'][0]['unit_price']);
+        $this->assertEquals('BUNDLE', $snapshot['lines'][0]['price_source']);
     }
 
     // ==== HELPER METHODS ====

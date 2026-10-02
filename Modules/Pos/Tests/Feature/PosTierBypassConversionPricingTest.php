@@ -316,6 +316,7 @@ class PosTierBypassConversionPricingTest extends TestCase
             'purchase_prefix_document' => 'PO',
             'sale_prefix_document' => 'SO',
             'pos_enabled' => true,
+            'row_total_rounding_increment' => 0.00,
         ]);
     }
 

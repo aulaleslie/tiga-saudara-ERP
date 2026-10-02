@@ -211,7 +211,28 @@ class PosCartService
 
                 $saleTaxId = (int) ($priceRow?->sale_tax_id ?? 0);
                 $tax = $saleTaxId > 0 ? Tax::query()->find($saleTaxId) : null;
-                $unitPrice = (float) ($priceRow?->sale_price ?? $product->product_price ?? 0);
+                $basePrice = (float) ($priceRow?->sale_price ?? $product->product_price ?? 0);
+
+                if ($selectedCustomerTier === 'WHOLESALER') {
+                    $tier1Price = (float) ($priceRow?->tier_1_price ?? 0);
+                    if ($tier1Price > 0) {
+                        $unitPrice = $tier1Price;
+                        $priceSource = 'TIER';
+                    } else {
+                        $unitPrice = $basePrice;
+                    }
+                } elseif ($selectedCustomerTier === 'RESELLER') {
+                    $tier2Price = (float) ($priceRow?->tier_2_price ?? 0);
+                    if ($tier2Price > 0) {
+                        $unitPrice = $tier2Price;
+                        $priceSource = 'TIER';
+                    } else {
+                        $unitPrice = $basePrice;
+                    }
+                } else {
+                    $unitPrice = $basePrice;
+                }
+
                 $taxId = $tax ? (int) $tax->id : null;
                 $taxName = $tax ? (string) $tax->name : null;
                 $taxRate = $tax ? (float) $tax->value : 0.0;
