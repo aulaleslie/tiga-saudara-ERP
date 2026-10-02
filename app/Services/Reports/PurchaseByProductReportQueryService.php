@@ -20,9 +20,9 @@ class PurchaseByProductReportQueryService
             ->leftJoin('units as base_units', 'products.base_unit_id', '=', 'base_units.id')
             ->select(
                 'purchase_details.product_id',
-                DB::raw("COALESCE(products.product_code, purchase_details.product_code, '') as product_code"),
-                DB::raw("COALESCE(products.product_name, purchase_details.product_name, '') as product_name"),
-                DB::raw("COALESCE(units.short_name, base_units.short_name, products.product_unit, '-') as unit_name"),
+                DB::raw("MAX(COALESCE(products.product_code, purchase_details.product_code, '')) as product_code"),
+                DB::raw("MAX(COALESCE(products.product_name, purchase_details.product_name, '')) as product_name"),
+                DB::raw("MAX(COALESCE(units.short_name, base_units.short_name, products.product_unit, '-')) as unit_name"),
                 DB::raw('SUM(purchase_details.quantity) as purchase_quantity'),
                 DB::raw('SUM(CASE WHEN purchases.is_tax_included = 1 THEN purchase_details.sub_total - COALESCE(purchase_details.product_tax_amount, 0) ELSE purchase_details.sub_total END) as purchase_value'),
                 DB::raw('CASE WHEN SUM(purchase_details.quantity) > 0 THEN SUM(CASE WHEN purchases.is_tax_included = 1 THEN purchase_details.sub_total - COALESCE(purchase_details.product_tax_amount, 0) ELSE purchase_details.sub_total END) / SUM(purchase_details.quantity) ELSE 0 END as average_purchase_value')
@@ -35,7 +35,7 @@ class PurchaseByProductReportQueryService
 
         $this->applyFiltersToPurchase($query, $filter);
 
-        $query->groupBy('purchase_details.product_id', 'purchase_details.product_code', 'purchase_details.product_name', 'unit_name');
+        $query->groupBy('purchase_details.product_id');
 
         return $query;
     }

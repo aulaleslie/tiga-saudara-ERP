@@ -69,23 +69,28 @@ The report SHALL calculate `Nilai pembelian` and `Nilai retur` as tax-exclusive 
 - **THEN** the report uses the persisted return detail value without recomputing tax from current settings
 
 ### Requirement: Product aggregate presentation
-The report SHALL present one aggregate row per product and unit combination with columns for product code, product name, purchase quantity, return quantity, unit, purchase value, return value, and average purchase value.
+The report SHALL present one aggregate row per `product_id` with columns for product code, product name, purchase quantity, unit, purchase value, and average purchase value. Display values for product code, product name, and unit SHALL be derived from the `products` and `units` master tables. The grouping SHALL use `purchase_details.product_id` as the sole grouping key — snapshot columns on `purchase_details` SHALL NOT participate in the GROUP BY clause.
 
 #### Scenario: Product row displays aggregate columns
-- **WHEN** a product has matching purchased or returned quantities
-- **THEN** the row displays `Kode produk / SKU`, `Nama produk`, `Qty pembelian`, `Qty retur`, `Unit`, `Nilai pembelian`, `Nilai retur`, and `Nilai pembelian rata-rata`
+- **WHEN** a product has matching purchased quantities
+- **THEN** the row displays `Kode produk / SKU`, `Nama produk`, `Qty pembelian`, `Unit`, `Nilai pembelian`, and `Nilai pembelian rata-rata`
 
 #### Scenario: Product without code remains reportable
-- **WHEN** a matching purchase or return detail has no product code
+- **WHEN** a matching purchase detail has no product code
 - **THEN** the report still includes the product row with a blank or fallback code display
 
 #### Scenario: Total row is shown
 - **WHEN** the report has one or more matching product rows
-- **THEN** the report shows a total row summing `Nilai pembelian` and `Nilai retur`
+- **THEN** the report shows a total row summing `Nilai pembelian`
 
 #### Scenario: Empty result state is shown
-- **WHEN** filters match no purchase details and no lifecycle-valid purchase return details
+- **WHEN** filters match no purchase details
 - **THEN** the report shows an empty state instead of totals
+
+#### Scenario: Same product with mixed snapshot values produces one row
+- **WHEN** a product has purchase detail rows where `purchase_details.product_name` or `purchase_details.unit_name` differ across rows (due to historical edits or NULL values)
+- **THEN** the report produces exactly one aggregated row for that `product_id`
+- **AND** the displayed product name and unit come from the current master `products` and `units` tables
 
 ### Requirement: Purchase by product filtering and sorting
 The report SHALL support date range, period presets, supplier, tag, product category, and product filters, with configurable tag and category match logic, and sorting by product name, product code, purchase quantity, return quantity, purchase value, and average purchase value. Product suggestions SHALL search the global product catalog regardless of the selected report setting. Selecting a suggestion SHALL collapse the suggestion list while preserving the search term and matching suggestions for display when the search input regains focus. A product SHALL appear at most once in the selected filter.
