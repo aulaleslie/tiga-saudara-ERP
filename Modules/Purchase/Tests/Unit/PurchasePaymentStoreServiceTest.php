@@ -460,4 +460,288 @@ class PurchasePaymentStoreServiceTest extends TestCase
             }
         }
     }
+
+    /** @test */
+    public function it_creates_payment_with_zero_one_and_multiple_attachments_and_reconciles_balance()
+    {
+        $dropzoneDir = storage_path('app/temp/dropzone');
+        if (!file_exists($dropzoneDir)) {
+            mkdir($dropzoneDir, 0755, true);
+        }
+
+        // 1. Zero attachments
+        $pay1 = $this->service->storeWithAttachments(
+            purchase: $this->purchase,
+            actor: $this->user,
+            data: [
+                'date' => now()->format('Y-m-d'),
+                'reference' => 'PAY-MULTI-ZERO',
+                'amount' => 20000.0,
+                'payment_method_id' => $this->paymentMethod->id,
+            ],
+            attachments: []
+        );
+        $this->assertEquals(0, $pay1->getMedia('attachments')->count());
+        $this->purchase->refresh();
+        $this->assertEquals(20000.0, (float) $this->purchase->paid_amount);
+        $this->assertEquals(80000.0, (float) $this->purchase->due_amount);
+        $this->assertEquals(Purchase::PAYMENT_STATUS_PARTIAL, $this->purchase->payment_status);
+
+        // 2. One attachment
+        $file1 = $dropzoneDir . '/single_test.pdf';
+        file_put_contents($file1, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+        $pay2 = $this->service->storeWithAttachments(
+            purchase: $this->purchase,
+            actor: $this->user,
+            data: [
+                'date' => now()->format('Y-m-d'),
+                'reference' => 'PAY-MULTI-ONE',
+                'amount' => 30000.0,
+                'payment_method_id' => $this->paymentMethod->id,
+            ],
+            attachments: ['single_test.pdf']
+        );
+        $this->assertEquals(1, $pay2->getMedia('attachments')->count());
+        $this->purchase->refresh();
+        $this->assertEquals(50000.0, (float) $this->purchase->paid_amount);
+        $this->assertEquals(50000.0, (float) $this->purchase->due_amount);
+
+        // 3. Multiple attachments
+        $file2 = $dropzoneDir . '/multi_test1.pdf';
+        $file3 = $dropzoneDir . '/multi_test2.txt';
+        file_put_contents($file2, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+        file_put_contents($file3, "Catatan pelunasan pembayaran.");
+
+        $pay3 = $this->service->storeWithAttachments(
+            purchase: $this->purchase,
+            actor: $this->user,
+            data: [
+                'date' => now()->format('Y-m-d'),
+                'reference' => 'PAY-MULTI-TWO',
+                'amount' => 50000.0,
+                'payment_method_id' => $this->paymentMethod->id,
+            ],
+            attachments: ['multi_test1.pdf', 'multi_test2.txt']
+        );
+        $this->assertEquals(2, $pay3->getMedia('attachments')->count());
+        $this->purchase->refresh();
+        $this->assertEquals(100000.0, (float) $this->purchase->paid_amount);
+        $this->assertEquals(0.0, (float) $this->purchase->due_amount);
+        $this->assertEquals(Purchase::PAYMENT_STATUS_PAID, $this->purchase->payment_status);
+    }
+
+    /** @test */
+    public function it_rejects_duplicate_staged_filenames_and_path_traversal_in_multi_attachments()
+    {
+        $dropzoneDir = storage_path('app/temp/dropzone');
+        if (!file_exists($dropzoneDir)) {
+            mkdir($dropzoneDir, 0755, true);
+        }
+
+        $file1 = $dropzoneDir . '/dup_test.pdf';
+        file_put_contents($file1, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+
+        // Duplicate test
+        try {
+            $this->service->storeWithAttachments(
+                purchase: $this->purchase,
+                actor: $this->user,
+                data: [
+                    'date' => now()->format('Y-m-d'),
+                    'reference' => 'PAY-DUP',
+                    'amount' => 10000.0,
+                    'payment_method_id' => $this->paymentMethod->id,
+                ],
+                attachments: ['dup_test.pdf', 'dup_test.pdf']
+            );
+            $this->fail('Expected InvalidArgumentException on duplicate staged attachment.');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('duplikat', $e->getMessage());
+        }
+
+        // Path traversal test
+        try {
+            $this->service->storeWithAttachments(
+                purchase: $this->purchase,
+                actor: $this->user,
+                data: [
+                    'date' => now()->format('Y-m-d'),
+                    'reference' => 'PAY-TRAVERSAL',
+                    'amount' => 10000.0,
+                    'payment_method_id' => $this->paymentMethod->id,
+                ],
+                attachments: ['../dup_test.pdf']
+            );
+            $this->fail('Expected InvalidArgumentException on path traversal.');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('traversal', $e->getMessage());
+        }
+
+        // Mismatched extension and MIME test (e.g. .pdf file containing image/png)
+        $mismatchFile = $dropzoneDir . '/fake_pdf.pdf';
+        // 1x1 PNG bytes
+        file_put_contents($mismatchFile, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='));
+        try {
+            $this->service->storeWithAttachments(
+                purchase: $this->purchase,
+                actor: $this->user,
+                data: [
+                    'date' => now()->format('Y-m-d'),
+                    'reference' => 'PAY-MISMATCH',
+                    'amount' => 10000.0,
+                    'payment_method_id' => $this->paymentMethod->id,
+                ],
+                attachments: ['fake_pdf.pdf']
+            );
+            $this->fail('Expected InvalidArgumentException on mismatched extension and MIME.');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('does not match its detected content type', $e->getMessage());
+        }
+
+        @unlink($mismatchFile);
+        @unlink($file1);
+    }
+
+    /** @test */
+    public function it_retains_readable_original_name_from_metadata()
+    {
+        $dropzoneDir = storage_path('app/temp/dropzone');
+        if (!file_exists($dropzoneDir)) {
+            mkdir($dropzoneDir, 0755, true);
+        }
+
+        $stagedUuidName = 'uuid-stored-file-12345.pdf';
+        $fullPath = $dropzoneDir . '/' . $stagedUuidName;
+        file_put_contents($fullPath, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+
+        // Write metadata
+        file_put_contents($fullPath . '.meta', json_encode(['original_name' => 'Faktur Pembelian Asli.pdf']));
+
+        $payment = $this->service->storeWithAttachments(
+            purchase: $this->purchase,
+            actor: $this->user,
+            data: [
+                'date' => now()->format('Y-m-d'),
+                'reference' => 'PAY-META-NAME',
+                'amount' => 10000.0,
+                'payment_method_id' => $this->paymentMethod->id,
+            ],
+            attachments: [$stagedUuidName]
+        );
+
+        $media = $payment->getFirstMedia('attachments');
+        $this->assertNotNull($media);
+        $this->assertEquals('Faktur Pembelian Asli.pdf', $media->getCustomProperty('original_name'));
+        $this->assertFalse(file_exists($fullPath . '.meta')); // Cleaned up
+    }
+
+    /** @test */
+    public function it_cleans_up_created_media_on_failure_during_multi_attachment_creation()
+    {
+        $dropzoneDir = storage_path('app/temp/dropzone');
+        if (!file_exists($dropzoneDir)) {
+            mkdir($dropzoneDir, 0755, true);
+        }
+
+        $file1 = $dropzoneDir . '/rollback1.pdf';
+        file_put_contents($file1, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+
+        // Force amount exceeding due amount to trigger domain exception after validation
+        try {
+            $this->service->storeWithAttachments(
+                purchase: $this->purchase,
+                actor: $this->user,
+                data: [
+                    'date' => now()->format('Y-m-d'),
+                    'reference' => 'PAY-EXCEED',
+                    'amount' => 200000.0, // exceeds 100,000 due
+                    'payment_method_id' => $this->paymentMethod->id,
+                ],
+                attachments: ['rollback1.pdf']
+            );
+            $this->fail('Expected DomainException.');
+        } catch (\DomainException $e) {
+            $this->assertStringContainsString('exceeds the remaining due amount', $e->getMessage());
+        }
+
+        // Balance untouched
+        $this->purchase->refresh();
+        $this->assertEquals(0.0, (float) $this->purchase->paid_amount);
+
+        @unlink($file1);
+    }
+
+    /** @test */
+    public function it_attaches_docx_and_doc_documents_with_secondary_mime_types_to_saved_payment()
+    {
+        $dropzoneDir = storage_path('app/temp/dropzone');
+        if (!file_exists($dropzoneDir)) {
+            mkdir($dropzoneDir, 0755, true);
+        }
+
+        // DOCX files are zip archives containing Office XML parts
+        $docxPath = $dropzoneDir . '/contract.docx';
+        $zip = new \ZipArchive();
+        $zip->open($docxPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
+        $zip->addFromString('[Content_Types].xml', '<?xml version="1.0"?><Types></Types>');
+        $zip->addFromString('word/document.xml', '<?xml version="1.0"?><w:document></w:document>');
+        $zip->close();
+
+        // DOC file (valid compound document header)
+        $docPath = $dropzoneDir . '/legacy.doc';
+        file_put_contents($docPath, "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1" . str_repeat("\x00", 504));
+
+        $payment = $this->service->storeWithAttachments(
+            purchase: $this->purchase,
+            actor: $this->user,
+            data: [
+                'date' => now()->format('Y-m-d'),
+                'reference' => 'PAY-OFFICE-DOCS',
+                'amount' => 15000.0,
+                'payment_method_id' => $this->paymentMethod->id,
+            ],
+            attachments: ['contract.docx', 'legacy.doc']
+        );
+
+        $this->assertNotNull($payment);
+        $mediaItems = $payment->getMedia('attachments');
+        $this->assertCount(2, $mediaItems);
+        $this->assertEquals('contract.docx', $mediaItems[0]->file_name);
+        $this->assertEquals('legacy.doc', $mediaItems[1]->file_name);
+    }
+
+    /** @test */
+    public function it_rejects_generic_zip_renamed_to_docx_or_xlsx_during_payment_storage()
+    {
+        $dropzoneDir = storage_path('app/temp/dropzone');
+        if (!file_exists($dropzoneDir)) {
+            mkdir($dropzoneDir, 0755, true);
+        }
+
+        // Generic zip without Word parts
+        $fakeDocxPath = $dropzoneDir . '/arbitrary.docx';
+        $zip = new \ZipArchive();
+        $zip->open($fakeDocxPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
+        $zip->addFromString('hello.txt', 'arbitrary content');
+        $zip->close();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('not a valid DOCX document package');
+
+        try {
+            $this->service->storeWithAttachments(
+                purchase: $this->purchase,
+                actor: $this->user,
+                data: [
+                    'date' => now()->format('Y-m-d'),
+                    'reference' => 'PAY-FAKE-DOCX',
+                    'amount' => 10000.0,
+                    'payment_method_id' => $this->paymentMethod->id,
+                ],
+                attachments: ['arbitrary.docx']
+            );
+        } finally {
+            @unlink($fakeDocxPath);
+        }
+    }
 }

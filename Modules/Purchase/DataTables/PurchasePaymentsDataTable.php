@@ -44,19 +44,19 @@ class PurchasePaymentsDataTable extends DataTable
                     : '-';
             })
             ->addColumn('attachment', function ($data) {
-                // Check if there is a file attached
-                if ($data->getMedia('attachments')->isNotEmpty()) {
-                    $media = $data->getFirstMediaUrl('attachments');
+                $attachments = $data->getMedia('attachments');
+                if ($attachments->isNotEmpty()) {
+                    $links = [];
+                    foreach ($attachments as $media) {
+                        $url = e($media->getUrl());
+                        $label = e($media->getCustomProperty('original_name') ?: ($media->file_name ?: 'Lampiran'));
+                        $links[] = '<a href="' . $url . '" class="text-primary d-inline-block text-truncate" style="max-width: 180px;" target="_blank" rel="noopener noreferrer" title="' . $label . '">' . $label . '</a>';
+                    }
 
-                    Log::info('Attachment found for PurchasePayment', [
-                        'purchase_payment_id' => $data->id,
-                        'media_url' => $media,
-                    ]);
-
-                    // Return the HTML link with the full URL
-                    return '<a href="' . $media . '" class="text-primary" target="_blank">Lihat Lampiran</a>';
+                    return '<div class="d-flex flex-column gap-1">' . implode('', $links) . '</div>';
                 }
-                return 'No Attachment';
+
+                return '<span class="text-muted">No Attachment</span>';
             })
             ->addColumn('action', function ($data) {
                 $globalMode = $this->globalMode ?: request()->routeIs('datatable.global_purchase_payments');
@@ -74,7 +74,7 @@ class PurchasePaymentsDataTable extends DataTable
 
         return $model->newQuery()
             ->when($purchaseId, fn($q) => $q->where('purchase_id', $purchaseId))
-            ->with(['purchase', 'paymentMethod']);
+            ->with(['purchase', 'paymentMethod', 'media']);
     }
 
     public function html() {

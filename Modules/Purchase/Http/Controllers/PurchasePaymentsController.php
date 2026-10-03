@@ -10,13 +10,15 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchasePayment;
+use Modules\Purchase\Services\IndividualPurchasePaymentAttachmentStagingService;
 use Modules\Purchase\Services\PurchasePaymentStoreService;
 use Modules\Setting\Entities\PaymentMethod;
 
 class PurchasePaymentsController extends Controller
 {
     public function __construct(
-        protected PurchasePaymentStoreService $paymentStoreService
+        protected PurchasePaymentStoreService $paymentStoreService,
+        protected IndividualPurchasePaymentAttachmentStagingService $attachmentStagingService
     ) {}
 
     public function index($purchase_id, PurchasePaymentsDataTable $dataTable) {
@@ -59,21 +61,30 @@ class PurchasePaymentsController extends Controller
             'note' => 'nullable|string|max:1000',
             'purchase_id' => 'required|integer|exists:purchases,id',
             'payment_method_id' => 'required|integer|exists:payment_methods,id,is_active,1',
-            'attachment' => 'nullable|string', // Validation for file upload
+            'attachments' => 'nullable|array',
+            'attachments.*' => 'string',
+            'attachment' => 'nullable|string', // Backward-compatible fallback
         ], [
             'amount.min' => 'Jumlah pembayaran harus minimal 0.01.',
             'amount.max' => 'The payment amount cannot be greater than the due amount.'
         ]);
 
-        $this->paymentStoreService->store(
+        $attachments = [];
+        if (!empty($validated['attachments']) && is_array($validated['attachments'])) {
+            $attachments = array_values(array_filter($validated['attachments']));
+        } elseif (!empty($validated['attachment'])) {
+            $attachments = [$validated['attachment']];
+        }
+
+        $this->paymentStoreService->storeWithAttachments(
             purchase: $purchase,
             actor: auth()->user(),
             data: $validated,
-            attachment: $validated['attachment'] ?? null
+            attachments: $attachments
         );
 
         toast('Pembayaran berhasil dibuat!', 'success');
-        return redirect()->route('purchases.index');
+        return redirect()->route('purchases.show', $purchase);
     }
 
 
@@ -218,6 +229,51 @@ class PurchasePaymentsController extends Controller
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
         return $dataTable->with(['purchase_id' => $purchase_id])->render('purchase::payments.index', compact('purchase'));
+    }
+
+    public function uploadAttachment(Request $request)
+    {
+        abort_if(Gate::denies('purchasePayments.create'), 403);
+
+        $request->validate([
+            'file' => 'required|file',
+        ]);
+
+        try {
+            $result = $this->attachmentStagingService->stageUploadedFile($request->file('file'));
+
+            return response()->json($result);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    public function deleteAttachment(Request $request)
+    {
+        abort_if(Gate::denies('purchasePayments.create'), 403);
+
+        $request->validate([
+            'file_name' => 'required|string',
+        ]);
+
+        $fileName = basename($request->string('file_name')->toString());
+        if ($fileName !== $request->string('file_name')->toString() || str_contains($request->string('file_name')->toString(), '..')) {
+            return response()->json(['message' => 'Invalid file name.'], 422);
+        }
+
+        $path = IndividualPurchasePaymentAttachmentStagingService::STAGING_DIR . '/' . $fileName;
+        if (Storage::exists($path)) {
+            Storage::delete($path);
+        }
+
+        $metaPath = IndividualPurchasePaymentAttachmentStagingService::STAGING_DIR . '/' . $fileName . '.meta';
+        if (Storage::exists($metaPath)) {
+            Storage::delete($metaPath);
+        }
+
+        return response()->json(['success' => true]);
     }
 
     private function ensurePurchaseBelongsToCurrentSetting(Purchase $purchase): void

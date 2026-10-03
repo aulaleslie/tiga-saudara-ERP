@@ -87,16 +87,17 @@
                             </div>
 
                             <div class="form-group">
-                                <div class="form-group">
-                                    <label for="attachment">Unggah Berkas (PDF/Gambar)</label>
-                                    <div class="dropzone d-flex flex-wrap align-items-center justify-content-center"
-                                         id="file-dropzone">
-                                        <div class="dz-message" data-dz-message>
-                                            <i class="bi bi-cloud-arrow-up"></i> Drag & Drop a file here or click to
-                                            upload
-                                        </div>
+                                <label for="attachments">Unggah Berkas Lampiran (Gambar / PDF / Word / Excel / Teks)</label>
+                                <div class="dropzone d-flex flex-wrap align-items-center justify-content-center"
+                                     id="file-dropzone">
+                                    <div class="dz-message" data-dz-message>
+                                        <i class="bi bi-cloud-arrow-up"></i> Tarik & lepas berkas di sini atau klik untuk mengunggah
                                     </div>
                                 </div>
+                                <div id="attachments-hidden-inputs"></div>
+                                <small class="form-text text-muted">
+                                    Mendukung banyak berkas (JPG, PNG, WebP, GIF, BMP, PDF, DOC, DOCX, XLS, XLSX, TXT).
+                                </small>
                             </div>
 
                             <input type="hidden" value="{{ $purchase->id }}" name="purchase_id">
@@ -110,10 +111,74 @@
 
 @push('page_scripts')
     <script src="{{ asset('js/payment-amount-input.js') }}"></script>
+    <script src="{{ asset('js/dropzone.js') }}"></script>
     <script>
+        Dropzone.autoDiscover = false;
         $(document).ready(function () {
-            // On form submission, block on an invalid amount; otherwise submit the canonical value.
+            var paymentDropzone = new Dropzone('#file-dropzone', {
+                url: '{{ route('purchase-payments.attachments.upload') }}',
+                paramName: 'file',
+                uploadMultiple: false,
+                maxFilesize: null, // No application size cap; delegated to server/proxy transport limits
+                timeout: 0,
+                acceptedFiles: '.jpg,.jpeg,.png,.webp,.gif,.bmp,.pdf,.doc,.docx,.xls,.xlsx,.txt',
+                addRemoveLinks: true,
+                dictRemoveFile: "<i class='bi bi-x-circle text-danger'></i> Hapus",
+                dictInvalidFileType: "Tipe berkas tidak didukung.",
+                headers: {
+                    'X-CSRF-TOKEN': "{{ csrf_token() }}"
+                },
+                init: function () {
+                    // On successful upload, create unique hidden input for this file
+                    this.on("success", function (file, response) {
+                        file.serverFileName = response.name;
+                        var input = $('<input>')
+                            .attr('type', 'hidden')
+                            .attr('name', 'attachments[]')
+                            .attr('value', response.name)
+                            .attr('data-client-name', file.name);
+                        $('#attachments-hidden-inputs').append(input);
+                    });
+
+                    // On removing a file, remove only its corresponding hidden input and delete staged temp file
+                    this.on("removedfile", function (file) {
+                        var serverName = file.serverFileName;
+                        if (serverName) {
+                            $('#attachments-hidden-inputs')
+                                .find('input[name="attachments[]"][value="' + serverName + '"]')
+                                .remove();
+
+                            $.ajax({
+                                type: 'POST',
+                                url: '{{ route('purchase-payments.attachments.delete') }}',
+                                data: {
+                                    _token: "{{ csrf_token() }}",
+                                    file_name: serverName
+                                }
+                            });
+                        } else {
+                            // In case it was removed before upload finished
+                            $('#attachments-hidden-inputs')
+                                .find('input[data-client-name="' + file.name + '"]')
+                                .remove();
+                        }
+                    });
+
+                    this.on("error", function (file, message) {
+                        var errorText = typeof message === 'object' && message.message ? message.message : message;
+                        console.error('Upload error:', errorText);
+                    });
+                }
+            });
+
+            // Form submission logic
             $('#payment-form').on('submit', function (e) {
+                if (paymentDropzone.getUploadingFiles().length > 0 || paymentDropzone.getQueuedFiles().length > 0) {
+                    e.preventDefault();
+                    alert('Mohon tunggu hingga proses unggah berkas selesai.');
+                    return false;
+                }
+
                 var canonical = PaymentAmountInput.getCanonicalValue('#amount');
                 if (canonical === null) {
                     e.preventDefault();
@@ -124,69 +189,4 @@
             });
         });
     </script>
-
-    <script src="{{ asset('js/dropzone.js') }}"></script>
-    <script>
-        Dropzone.options.fileDropzone = {
-            url: '{{ route('dropzone.upload') }}', // Upload route
-            maxFilesize: 2, // Maximum file size (in MB)
-            acceptedFiles: '.jpg,.jpeg,.png,.pdf', // Only allow images and PDFs
-            maxFiles: 1, // Restrict to one file
-            addRemoveLinks: true, // Enable remove links
-            dictRemoveFile: "<i class='bi bi-x-circle text-danger'></i> Remove",
-            headers: {
-                'X-CSRF-TOKEN': "{{ csrf_token() }}" // CSRF token for security
-            },
-            init: function () {
-                var uploadedFileMap = {};
-
-                // Preload existing file for edit mode
-                @if(isset($payment) && $payment->getMedia('attachments'))
-                var files = {!! json_encode($payment->getMedia('attachments')) !!};
-                for (var i in files) {
-                    var file = files[i];
-                    this.options.addedfile.call(this, file);
-                    this.options.thumbnail.call(this, file, file.original_url);
-                    file.previewElement.classList.add('dz-complete');
-                    $('form').append('<input type="hidden" name="attachment" value="' + file.file_name + '">');
-                }
-                @endif
-
-                // Handle file upload success
-                this.on("success", function (file, response) {
-                    $('form').append('<input type="hidden" name="attachment" value="' + response.name + '">');
-                    uploadedFileMap[file.name] = response.name;
-                });
-
-                // Handle file removal
-                this.on("removedfile", function (file) {
-                    var name = uploadedFileMap[file.name] || file.name;
-                    $.ajax({
-                        type: 'POST',
-                        url: '{{ route('dropzone.delete') }}',
-                        data: {
-                            _token: "{{ csrf_token() }}",
-                            file_name: name
-                        },
-                    });
-                    $('form').find('input[name="attachment"][value="' + name + '"]').remove();
-                });
-
-                // Ensure only one file is uploaded at a time
-                this.on("addedfile", function () {
-                    if (this.files.length > 1) {
-                        this.removeFile(this.files[0]); // Remove the previously uploaded file
-                    }
-                });
-
-                // Generate thumbnails for images
-                this.on("thumbnail", function (file, dataUrl) {
-                    if (file.type.startsWith("image/")) {
-                        this.emit("thumbnail", file, dataUrl);
-                    }
-                });
-            }
-        };
-    </script>
 @endpush
-

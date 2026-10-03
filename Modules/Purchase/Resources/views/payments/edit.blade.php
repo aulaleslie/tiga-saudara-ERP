@@ -63,16 +63,23 @@
                                     </span>
                                 </div>
                             </div>
-                            @if($purchasePayment->getMedia('attachments')->isNotEmpty())
-                                <div class="col-md-12 mb-3">
-                                    <label class="text-muted small">Lampiran</label>
-                                    <div>
-                                        <a href="{{ $purchasePayment->getFirstMediaUrl('attachments') }}" class="btn btn-outline-primary btn-sm" target="_blank">
-                                            <i class="bi bi-paperclip"></i> Lihat Lampiran
-                                        </a>
-                                    </div>
+                            <div class="col-md-12 mb-3">
+                                <label class="text-muted small">Lampiran</label>
+                                <div>
+                                    @if($purchasePayment->getMedia('attachments')->isNotEmpty())
+                                        <div class="d-flex flex-wrap gap-2">
+                                            @foreach($purchasePayment->getMedia('attachments') as $media)
+                                                @php($label = $media->getCustomProperty('original_name') ?: ($media->file_name ?: 'Lihat Lampiran'))
+                                                <a href="{{ $media->getUrl() }}" class="btn btn-outline-primary btn-sm mr-2 mb-2" target="_blank" rel="noopener noreferrer">
+                                                    <i class="bi bi-paperclip"></i> {{ $label }}
+                                                </a>
+                                            @endforeach
+                                        </div>
+                                    @else
+                                        <span class="text-muted font-italic">Tidak ada lampiran</span>
+                                    @endif
                                 </div>
-                            @endif
+                            </div>
                         </div>
                     </div>
                 </div>

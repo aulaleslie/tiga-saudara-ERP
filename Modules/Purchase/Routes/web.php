@@ -126,6 +126,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         ->name('datatable.purchase_payments');
     Route::get('/purchase-payments/{purchase_id}', 'PurchasePaymentsController@index')->name('purchase-payments.index');
     Route::get('/purchase-payments/{purchase_id}/create', 'PurchasePaymentsController@create')->name('purchase-payments.create');
+    Route::post('/purchase-payments/attachments/upload', [PurchasePaymentsController::class, 'uploadAttachment'])
+        ->name('purchase-payments.attachments.upload');
+    Route::post('/purchase-payments/attachments/delete', [PurchasePaymentsController::class, 'deleteAttachment'])
+        ->name('purchase-payments.attachments.delete');
     Route::post('/purchase-payments/store', 'PurchasePaymentsController@store')->name('purchase-payments.store');
     Route::get('/purchase-payments/{purchase_id}/edit/{purchasePayment}', 'PurchasePaymentsController@edit')->name('purchase-payments.edit');
     Route::patch('/purchase-payments/update/{purchasePayment}', 'PurchasePaymentsController@update')->name('purchase-payments.update');

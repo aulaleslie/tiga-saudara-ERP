@@ -306,4 +306,118 @@ class PurchasePaymentDataTableAndDeletionTest extends TestCase
         $response->assertStatus(403);
         $this->assertDatabaseHas('purchase_payments', ['id' => $payment->id]);
     }
+
+    /** @test */
+    public function it_renders_every_attachment_in_shared_datatable_cell_with_escaped_names_and_new_tab_links(): void
+    {
+        // 1. Payment with zero attachments
+        $payZero = PurchasePayment::create([
+            'purchase_id' => $this->purchase->id,
+            'payment_method_id' => $this->paymentMethod->id,
+            'amount' => 10000,
+            'date' => '2026-08-20',
+            'reference' => 'PPAY-ATT-ZERO',
+            'payment_method' => 'Cash',
+            'status' => PurchasePayment::STATUS_ACTIVE,
+        ]);
+
+        // 2. Payment with multiple attachments including HTML-like filename
+        $payMulti = PurchasePayment::create([
+            'purchase_id' => $this->purchase->id,
+            'payment_method_id' => $this->paymentMethod->id,
+            'amount' => 20000,
+            'date' => '2026-08-20',
+            'reference' => 'PPAY-ATT-MULTI',
+            'payment_method' => 'Cash',
+            'status' => PurchasePayment::STATUS_ACTIVE,
+        ]);
+
+        $tmpFile1 = tempnam(sys_get_temp_dir(), 'att1') . '.pdf';
+        file_put_contents($tmpFile1, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+        $payMulti->addMedia($tmpFile1)
+            ->usingFileName('uuid-generated-file-1.pdf')
+            ->withCustomProperties(['original_name' => 'Faktur Pemasok PT Abadi.pdf'])
+            ->toMediaCollection('attachments');
+
+        $tmpFile2 = tempnam(sys_get_temp_dir(), 'att2') . '.txt';
+        file_put_contents($tmpFile2, "Notes content");
+        $payMulti->addMedia($tmpFile2)
+            ->usingFileName('uuid-generated-file-2.txt')
+            ->withCustomProperties(['original_name' => 'catatan<script>.txt'])
+            ->toMediaCollection('attachments');
+
+        // Check Purchase detail payment DataTable context
+        $ajaxUrl = route('datatable.purchase_payments', $this->purchase->id);
+        $response = $this->withSession(['setting_id' => $this->setting->id])
+            ->getJson($ajaxUrl, ['HTTP_X-Requested-With' => 'XMLHttpRequest']);
+
+        $response->assertStatus(200);
+        $data = $response->json('data');
+
+        $rowZero = collect($data)->where('reference', 'PPAY-ATT-ZERO')->first();
+        $rowMulti = collect($data)->where('reference', 'PPAY-ATT-MULTI')->first();
+
+        $this->assertNotNull($rowZero);
+        $this->assertNotNull($rowMulti);
+
+        $this->assertStringContainsString('No Attachment', $rowZero['attachment']);
+        $this->assertStringContainsString('Faktur Pemasok PT Abadi.pdf', $rowMulti['attachment']);
+        $this->assertStringContainsString('catatan&lt;script&gt;.txt', $rowMulti['attachment']);
+        $this->assertStringNotContainsString('catatan<script>.txt', $rowMulti['attachment']);
+        $this->assertStringContainsString('target="_blank"', $rowMulti['attachment']);
+        $this->assertStringContainsString('rel="noopener noreferrer"', $rowMulti['attachment']);
+
+        // Check separate payment list / global payment history context
+        $globalUrl = route('purchases.global-payments.history', $this->purchase->id);
+        $globalRes = $this->withSession(['setting_id' => $this->setting->id])
+            ->getJson($globalUrl, ['HTTP_X-Requested-With' => 'XMLHttpRequest']);
+        $globalRes->assertStatus(200);
+        $globalMulti = collect($globalRes->json('data'))->where('reference', 'PPAY-ATT-MULTI')->first();
+        $this->assertNotNull($globalMulti);
+        $this->assertStringContainsString('Faktur Pemasok PT Abadi.pdf', $globalMulti['attachment']);
+        $this->assertStringContainsString('catatan&lt;script&gt;.txt', $globalMulti['attachment']);
+
+        @unlink($tmpFile1);
+        @unlink($tmpFile2);
+    }
+
+    /** @test */
+    public function it_renders_every_attachment_on_payment_detail_view(): void
+    {
+        $payment = PurchasePayment::create([
+            'purchase_id' => $this->purchase->id,
+            'payment_method_id' => $this->paymentMethod->id,
+            'amount' => 20000,
+            'date' => '2026-08-20',
+            'reference' => 'PPAY-DETAIL-VIEW',
+            'payment_method' => 'Cash',
+            'status' => PurchasePayment::STATUS_ACTIVE,
+        ]);
+
+        $tmpFile1 = tempnam(sys_get_temp_dir(), 'view1') . '.pdf';
+        file_put_contents($tmpFile1, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+        $payment->addMedia($tmpFile1)
+            ->usingFileName('uuid-doc-1.pdf')
+            ->withCustomProperties(['original_name' => 'Surat Jalan Asli.pdf'])
+            ->toMediaCollection('attachments');
+
+        $tmpFile2 = tempnam(sys_get_temp_dir(), 'view2') . '.txt';
+        file_put_contents($tmpFile2, "Text detail");
+        $payment->addMedia($tmpFile2)
+            ->usingFileName('uuid-doc-2.txt')
+            ->withCustomProperties(['original_name' => 'Catatan Khusus.txt'])
+            ->toMediaCollection('attachments');
+
+        $response = $this->withSession(['setting_id' => $this->setting->id])
+            ->get(route('purchase-payments.edit', [$this->purchase->id, $payment->id]));
+
+        $response->assertStatus(200);
+        $response->assertSee('Surat Jalan Asli.pdf', false);
+        $response->assertSee('Catatan Khusus.txt', false);
+        $response->assertSee('target="_blank"', false);
+        $response->assertSee('rel="noopener noreferrer"', false);
+
+        @unlink($tmpFile1);
+        @unlink($tmpFile2);
+    }
 }

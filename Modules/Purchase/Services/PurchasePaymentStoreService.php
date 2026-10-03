@@ -125,7 +125,280 @@ class PurchasePaymentStoreService
     }
 
     /**
+     * Atomically process and record an individual purchase payment with multiple attachments.
+     *
+     * Locks the Purchase and active payment rows for update, revalidates live due amount,
+     * validates all staged attachments, creates payment, attaches files, and updates totals.
+     *
+     * @param Purchase $purchase
+     * @param User $actor
+     * @param array $data
+     * @param array $attachments Array of staged filenames
+     * @return PurchasePayment
+     * @throws \DomainException|\InvalidArgumentException
+     */
+    public function storeWithAttachments(Purchase $purchase, User $actor, array $data, array $attachments = []): PurchasePayment
+    {
+        $amount = (float) ($data['amount'] ?? 0);
+
+        if ($amount < 0.01) {
+            throw new \InvalidArgumentException('Payment amount must be at least 0.01.');
+        }
+
+        // Validate and sanitize all attachment file paths before opening transaction or acquiring locks
+        $validatedAttachmentPaths = $this->validateMultipleAttachments($attachments);
+
+        $createdMedia = [];
+
+        try {
+            return DB::transaction(function () use ($purchase, $actor, $data, $validatedAttachmentPaths, $amount, &$createdMedia) {
+                /** @var Purchase $lockedPurchase */
+                $lockedPurchase = Purchase::withArchived()->lockForUpdate()->findOrFail($purchase->id);
+
+                // Re-verify that Purchase allows payment operations (allows ordinary and consignment-billing)
+                PurchaseSourceGuard::assertPaymentAllowed($lockedPurchase);
+
+                // Deterministically lock all active payment rows for update
+                $activePayments = PurchasePayment::where('purchase_id', $lockedPurchase->id)
+                    ->where('status', PurchasePayment::STATUS_ACTIVE)
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get();
+
+                $effectivePaid = (float) $activePayments->sum('amount');
+                $liveDue = max(0.0, round((float) $lockedPurchase->total_amount - $effectivePaid, 2));
+
+                if ($amount > $liveDue + 0.001) {
+                    throw new \DomainException(
+                        "Payment amount (" . number_format($amount, 2) . ") exceeds the remaining due amount (" . number_format($liveDue, 2) . ")."
+                    );
+                }
+
+                $pmId = (int) ($data['payment_method_id'] ?? 0);
+                /** @var \Modules\Setting\Entities\PaymentMethod|null $pm */
+                $pm = \Modules\Setting\Entities\PaymentMethod::where('id', $pmId)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$pm || !$pm->is_active) {
+                    throw new \InvalidArgumentException("Payment method #{$pmId} is not active or available.");
+                }
+                $paymentMethodName = $pm->name;
+
+                $payment = PurchasePayment::create([
+                    'date' => $data['date'],
+                    'reference' => $data['reference'],
+                    'amount' => $amount,
+                    'note' => $data['note'] ?? null,
+                    'purchase_id' => $lockedPurchase->id,
+                    'payment_method_id' => $pm->id,
+                    'payment_method' => $paymentMethodName,
+                    'status' => PurchasePayment::STATUS_ACTIVE,
+                ]);
+
+                // Store uploaded attachment files if validated
+                foreach ($validatedAttachmentPaths as $item) {
+                    $validPath = $item['path'];
+                    $originalName = $item['original_name'];
+
+                    $media = $payment->addMedia($validPath)
+                        ->withCustomProperties([
+                            'original_name' => $originalName,
+                        ])
+                        ->toMediaCollection('attachments');
+
+                    $createdMedia[] = $media;
+
+                    // Clean up .meta file if exists
+                    $metaPath = $validPath . '.meta';
+                    if (file_exists($metaPath)) {
+                        @unlink($metaPath);
+                    }
+                }
+
+                // Recalculate and update Purchase header totals under lock
+                $newEffectivePaid = round($effectivePaid + $amount, 2);
+                $newDue = max(0.0, round((float) $lockedPurchase->total_amount - $newEffectivePaid, 2));
+                $paymentStatus = $newDue <= 0.01
+                    ? Purchase::PAYMENT_STATUS_PAID
+                    : ($newEffectivePaid > 0.01 ? Purchase::PAYMENT_STATUS_PARTIAL : Purchase::PAYMENT_STATUS_UNPAID);
+
+                $lockedPurchase->update([
+                    'paid_amount' => $newEffectivePaid,
+                    'due_amount' => $newDue,
+                    'payment_status' => $paymentStatus,
+                ]);
+
+                return $payment;
+            });
+        } catch (\Throwable $e) {
+            // Compensating filesystem cleanup for media stored during failed attempt
+            foreach ($createdMedia as $media) {
+                try {
+                    if ($media && file_exists($media->getPath())) {
+                        @unlink($media->getPath());
+                    }
+                    $media?->delete();
+                } catch (\Throwable $cleanEx) {
+                    \Illuminate\Support\Facades\Log::error('Failed to purge physical payment media file during transaction rollback cleanup.', [
+                        'media_id' => $media?->id,
+                        'file_path' => $media?->getPath(),
+                        'exception' => $cleanEx,
+                    ]);
+                }
+            }
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Validate an array of staged filenames for individual purchase payment attachments.
+     * Prevents duplicates, path traversal, missing files, and unaccepted types.
+     *
+     * @param array $attachments
+     * @return array<array{path: string, original_name: string}>
+     * @throws \InvalidArgumentException
+     */
+    public function validateMultipleAttachments(array $attachments): array
+    {
+        $seen = [];
+        $validatedItems = [];
+
+        foreach ($attachments as $index => $item) {
+            if (!is_string($item) || trim($item) === '') {
+                throw new \InvalidArgumentException("Lampiran pada indeks {$index} tidak valid.");
+            }
+
+            $trimmed = trim($item);
+
+            if (isset($seen[$trimmed])) {
+                throw new \InvalidArgumentException("Lampiran duplikat '{$trimmed}' terdeteksi.");
+            }
+            $seen[$trimmed] = true;
+
+            $validatedItems[] = $this->validateAndSanitizeIndividualAttachment($trimmed);
+        }
+
+        return $validatedItems;
+    }
+
+    /**
+     * Validate individual attachment filename and ensure path stays strictly within temp/dropzone.
+     * Checks that extension matches detected MIME type, and resolves original name from metadata.
+     *
+     * @param string $attachment
+     * @return array{path: string, original_name: string}
+     * @throws \InvalidArgumentException
+     */
+    protected function validateAndSanitizeIndividualAttachment(string $attachment): array
+    {
+        $filename = basename($attachment);
+        if ($filename !== $attachment || str_contains($attachment, '..')) {
+            throw new \InvalidArgumentException("Invalid attachment file path. Path traversal is strictly prohibited.");
+        }
+
+        $stagingDir = Storage::path('temp/dropzone');
+        $targetPath = $stagingDir . DIRECTORY_SEPARATOR . $filename;
+
+        if (!file_exists($targetPath) || !is_readable($targetPath)) {
+            throw new \InvalidArgumentException("Payment attachment file '{$filename}' does not exist or is not readable.");
+        }
+
+        $realStaging = realpath($stagingDir);
+        $realTarget = realpath($targetPath);
+        $stagingBound = $realStaging ? rtrim($realStaging, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR : '';
+
+        if (!$realStaging || !$realTarget || !str_starts_with($realTarget, $stagingBound)) {
+            throw new \InvalidArgumentException("Attachment file path escapes the temporary dropzone directory.");
+        }
+
+        $allowedExtensionToMimes = [
+            'pdf' => ['application/pdf'],
+            'doc' => ['application/msword', 'application/vnd.ms-office', 'application/cdfv2'],
+            'docx' => ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/zip'],
+            'xls' => ['application/vnd.ms-excel', 'application/vnd.ms-office', 'application/cdfv2'],
+            'xlsx' => ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/zip'],
+            'txt' => ['text/plain'],
+            'jpg' => ['image/jpeg'],
+            'jpeg' => ['image/jpeg'],
+            'png' => ['image/png'],
+            'webp' => ['image/webp'],
+            'gif' => ['image/gif'],
+            'bmp' => ['image/bmp', 'image/x-ms-bmp'],
+        ];
+
+        $ext = strtolower(pathinfo($realTarget, PATHINFO_EXTENSION));
+        $mime = function_exists('mime_content_type') ? strtolower((string) @mime_content_type($realTarget)) : '';
+
+        if (!array_key_exists($ext, $allowedExtensionToMimes)) {
+            throw new \InvalidArgumentException("Payment attachment has an unsupported file extension ('ext: {$ext}').");
+        }
+
+        if (empty($mime) || !in_array($mime, $allowedExtensionToMimes[$ext], true)) {
+            throw new \InvalidArgumentException("Payment attachment extension ('{$ext}') does not match its detected content type ('{$mime}').");
+        }
+
+        // Active content checks for text
+        if ($ext === 'txt' || $mime === 'text/plain') {
+            $handle = @fopen($realTarget, 'rb');
+            if ($handle) {
+                $head = fread($handle, 256);
+                fclose($handle);
+                if (is_string($head) && (str_contains($head, '<?php') || str_contains($head, '<script'))) {
+                    throw new \InvalidArgumentException('Berkas teks terdeteksi berisi kode skrip.');
+                }
+            }
+        }
+
+        // Office OpenXML package integrity check for DOCX and XLSX
+        if (in_array($ext, ['docx', 'xlsx'], true)) {
+            if (!class_exists(\ZipArchive::class)) {
+                throw new \InvalidArgumentException('PHP ZipArchive extension is required to verify Office OpenXML document attachments.');
+            }
+
+            $zip = new \ZipArchive();
+            $res = $zip->open($realTarget, \ZipArchive::RDONLY);
+            if ($res !== true) {
+                throw new \InvalidArgumentException('Berkas OpenXML tidak valid atau arsip rusak.');
+            }
+
+            $hasContentTypes = $zip->locateName('[Content_Types].xml') !== false;
+            $hasOfficePart = false;
+            if ($ext === 'docx') {
+                $hasOfficePart = ($zip->locateName('word/document.xml') !== false)
+                    || ($zip->locateName('word/_rels/document.xml.rels') !== false);
+            } elseif ($ext === 'xlsx') {
+                $hasOfficePart = ($zip->locateName('xl/workbook.xml') !== false)
+                    || ($zip->locateName('xl/_rels/workbook.xml.rels') !== false);
+            }
+            $zip->close();
+
+            if (!$hasContentTypes || !$hasOfficePart) {
+                $formatName = strtoupper($ext);
+                throw new \InvalidArgumentException("Payment attachment is not a valid {$formatName} document package.");
+            }
+        }
+
+        // Retrieve original name from .meta file if present
+        $originalName = $filename;
+        $metaPath = $realTarget . '.meta';
+        if (file_exists($metaPath) && is_readable($metaPath)) {
+            $metaJson = @json_decode(file_get_contents($metaPath), true);
+            if (!empty($metaJson['original_name'])) {
+                $originalName = (string) $metaJson['original_name'];
+            }
+        }
+
+        return [
+            'path' => $realTarget,
+            'original_name' => $originalName,
+        ];
+    }
+
+    /**
      * Validate attachment filename and ensure path stays strictly within temp/dropzone.
+     * Legacy single-attachment method preserved for existing caller compatibility.
      *
      * @param string|null $attachment
      * @return string|null

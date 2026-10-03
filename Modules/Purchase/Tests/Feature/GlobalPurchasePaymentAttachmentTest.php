@@ -20,6 +20,7 @@ class GlobalPurchasePaymentAttachmentTest extends TestCase
     protected $setting;
     protected $supplier;
     protected $service;
+    protected $paymentMethod;
 
     protected function setUp(): void
     {
@@ -36,6 +37,19 @@ class GlobalPurchasePaymentAttachmentTest extends TestCase
             'country' => 'Indonesia',
             'address' => 'Test Address',
             'setting_id' => $this->setting->id,
+        ]);
+
+        $coa = \Modules\Setting\Entities\ChartOfAccount::create([
+            'setting_id' => $this->setting->id,
+            'account_number' => 'COA-' . uniqid(),
+            'name' => 'Cash in Bank',
+            'category' => 'Kas & Bank',
+        ]);
+
+        $this->paymentMethod = \Modules\Setting\Entities\PaymentMethod::create([
+            'name' => 'Bank Transfer',
+            'coa_id' => $coa->id,
+            'is_active' => true,
         ]);
 
         $this->service = app(GlobalPurchasePaymentService::class);
@@ -66,7 +80,7 @@ class GlobalPurchasePaymentAttachmentTest extends TestCase
         $data = [
             'date' => now()->format('Y-m-d'),
             'reference' => 'PAY-001',
-            'payment_method_id' => 999,
+            'payment_method_id' => $this->paymentMethod->id,
             'allocations' => [
                 $p1->id => 1000,
                 $p2->id => 2000,
@@ -86,13 +100,17 @@ class GlobalPurchasePaymentAttachmentTest extends TestCase
         $p2 = $this->createPurchase(2000);
 
         Storage::fake('local');
-        $fileName = 'test-receipt.jpg';
-        Storage::put('temp/dropzone/' . $fileName, 'dummy content');
+        $fileName = 'test-receipt.pdf';
+        $fullPath = Storage::path('temp/dropzone/' . $fileName);
+        if (!file_exists(dirname($fullPath))) {
+            mkdir(dirname($fullPath), 0777, true);
+        }
+        file_put_contents($fullPath, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
 
         $data = [
             'date' => now()->format('Y-m-d'),
             'reference' => 'PAY-002',
-            'payment_method_id' => 999,
+            'payment_method_id' => $this->paymentMethod->id,
             'allocations' => [
                 $p1->id => 500,
                 $p2->id => 1000,
@@ -109,7 +127,7 @@ class GlobalPurchasePaymentAttachmentTest extends TestCase
             $this->assertCount(1, $payment->getMedia('attachments'));
         }
         $this->assertEquals(2, Media::count());
-        $this->assertFalse(Storage::exists('temp/dropzone/' . $fileName)); // Cleaned up
+        $this->assertFalse(file_exists($fullPath)); // Cleaned up
     }
 
     public function test_failure_rolls_back_everything()
@@ -119,10 +137,12 @@ class GlobalPurchasePaymentAttachmentTest extends TestCase
 
         Storage::fake('local');
         config()->set('media-library.disk_name', 'local');
-        $fileName = 'test-attachment.jpg';
-        Storage::put('temp/dropzone/' . $fileName, 'dummy content');
-        
+        $fileName = 'test-attachment.pdf';
         $attachmentPath = Storage::path('temp/dropzone/' . $fileName);
+        if (!file_exists(dirname($attachmentPath))) {
+            mkdir(dirname($attachmentPath), 0777, true);
+        }
+        file_put_contents($attachmentPath, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
 
         // Fail on the second copy by deleting the temp file during the first media event
         \Illuminate\Support\Facades\Event::listen(\Spatie\MediaLibrary\MediaCollections\Events\MediaHasBeenAdded::class, function($event) use ($attachmentPath) {
@@ -132,7 +152,7 @@ class GlobalPurchasePaymentAttachmentTest extends TestCase
         $data = [
             'date' => now()->format('Y-m-d'),
             'reference' => 'PAY-003',
-            'payment_method_id' => 999,
+            'payment_method_id' => $this->paymentMethod->id,
             'allocations' => [
                 $p1->id => 500,
                 $p2->id => 1000,
@@ -143,7 +163,7 @@ class GlobalPurchasePaymentAttachmentTest extends TestCase
         try {
             $this->service->storeMultiPayment($this->supplier->id, $data);
             $this->fail('Service should have thrown an exception');
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             // DB Transaction rollback is implicit, but we can verify our models were not persisted
             $this->assertEquals(0, PurchasePayment::count());
             
