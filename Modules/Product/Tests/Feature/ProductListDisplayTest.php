@@ -252,6 +252,103 @@ class ProductListDisplayTest extends TestCase
     }
 
     /** @test */
+    public function product_list_separates_active_and_inactive_products()
+    {
+        $this->product->update(['is_active' => true]);
+
+        $inactiveProduct = $this->product->replicate();
+        $inactiveProduct->product_name = 'Inactive Product';
+        $inactiveProduct->product_code = 'INACTIVE-001';
+        $inactiveProduct->is_active = false;
+        $inactiveProduct->save();
+
+        $activeResponse = $this->actingAs($this->user)
+            ->getJson(route('products.index'), [
+                'HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest',
+            ]);
+
+        $activeResponse->assertSuccessful();
+        $activeIds = collect($activeResponse->json('data'))->pluck('id');
+        $this->assertTrue($activeIds->contains($this->product->id));
+        $this->assertFalse($activeIds->contains($inactiveProduct->id));
+
+        $inactiveResponse = $this->actingAs($this->user)
+            ->getJson(route('products.index', ['status' => 'inactive']), [
+                'HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest',
+            ]);
+
+        $inactiveResponse->assertSuccessful();
+        $inactiveIds = collect($inactiveResponse->json('data'))->pluck('id');
+        $this->assertFalse($inactiveIds->contains($this->product->id));
+        $this->assertTrue($inactiveIds->contains($inactiveProduct->id));
+    }
+
+    /** @test */
+    public function product_status_can_be_toggled_with_a_json_response()
+    {
+        Permission::findOrCreate('products.edit', 'web');
+        $this->user->givePermissionTo('products.edit');
+        $this->user->forgetCachedPermissions();
+        $this->product->update(['is_active' => true]);
+
+        $deactivateResponse = $this->actingAs($this->user)
+            ->patchJson(route('products.toggle-status', $this->product));
+
+        $deactivateResponse
+            ->assertSuccessful()
+            ->assertJson([
+                'message' => 'Produk berhasil dinonaktifkan!',
+                'is_active' => false,
+            ]);
+        $this->assertFalse((bool) $this->product->fresh()->is_active);
+
+        $reactivateResponse = $this->actingAs($this->user)
+            ->patchJson(route('products.toggle-status', $this->product));
+
+        $reactivateResponse
+            ->assertSuccessful()
+            ->assertJson([
+                'message' => 'Produk berhasil diaktifkan kembali!',
+                'is_active' => true,
+            ]);
+        $this->assertTrue((bool) $this->product->fresh()->is_active);
+    }
+
+    /** @test */
+    public function product_index_renders_status_tabs_and_ajax_status_form_handler()
+    {
+        $response = $this->actingAs($this->user)
+            ->get(route('products.index'));
+
+        $response->assertSuccessful();
+        $response->assertSee('Produk Aktif');
+        $response->assertSee('Produk Nonaktif');
+        $response->assertSee('product-status-form', false);
+        $response->assertSee("table.rows({ page: 'current' }).count() === 1", false);
+        $response->assertSee("table.page('previous').draw('page')", false);
+        $response->assertSee("ajax.reload(null, false)", false);
+    }
+
+    /** @test */
+    public function inactive_product_uses_the_shared_ajax_status_handler()
+    {
+        Permission::findOrCreate('products.edit', 'web');
+        $this->user->givePermissionTo('products.edit');
+        $this->user->forgetCachedPermissions();
+        $this->product->update(['is_active' => false]);
+
+        $this->actingAs($this->user);
+
+        $actions = view('product::products.partials.actions', [
+            'data' => $this->product->fresh(),
+        ])->render();
+
+        $this->assertStringContainsString('product-status-form', $actions);
+        $this->assertStringContainsString('data-product-active="0"', $actions);
+        $this->assertStringContainsString('title="Aktifkan Kembali"', $actions);
+    }
+
+    /** @test */
     public function price_columns_visible_in_html_for_authorized_users()
     {
         Cache::flush();
