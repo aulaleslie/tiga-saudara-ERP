@@ -324,6 +324,8 @@ class ProductListDisplayTest extends TestCase
         $response->assertSee('Produk Aktif');
         $response->assertSee('Produk Nonaktif');
         $response->assertSee('product-status-form', false);
+        $response->assertSee("table.rows({ page: 'current' }).count() === 1", false);
+        $response->assertSee("table.page('previous').draw('page')", false);
         $response->assertSee("ajax.reload(null, false)", false);
     }
 

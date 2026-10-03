@@ -72,6 +72,20 @@
                 return window.LaravelDataTables && window.LaravelDataTables[tableId];
             }
 
+            function reloadProductTableAfterStatusChange() {
+                var table = productTable();
+                var pageInfo = table.page.info();
+                var isOnlyRowOnCurrentPage = table.rows({ page: 'current' }).count() === 1;
+
+                if (pageInfo.page > 0 && isOnlyRowOnCurrentPage) {
+                    table.page('previous').draw('page');
+
+                    return;
+                }
+
+                table.ajax.reload(null, false);
+            }
+
             function showFeedback(message, type) {
                 feedback.innerHTML = '';
 
@@ -145,7 +159,7 @@
                     }
 
                     showFeedback(payload.message, payload.is_active ? 'success' : 'info');
-                    productTable().ajax.reload(null, false);
+                    reloadProductTableAfterStatusChange();
                 } catch (error) {
                     showFeedback(error.message || 'Status produk gagal diperbarui.', 'danger');
                     submitButton.disabled = false;
