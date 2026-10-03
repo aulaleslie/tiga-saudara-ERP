@@ -330,6 +330,25 @@ class ProductListDisplayTest extends TestCase
     }
 
     /** @test */
+    public function inactive_product_uses_the_shared_ajax_status_handler()
+    {
+        Permission::findOrCreate('products.edit', 'web');
+        $this->user->givePermissionTo('products.edit');
+        $this->user->forgetCachedPermissions();
+        $this->product->update(['is_active' => false]);
+
+        $this->actingAs($this->user);
+
+        $actions = view('product::products.partials.actions', [
+            'data' => $this->product->fresh(),
+        ])->render();
+
+        $this->assertStringContainsString('product-status-form', $actions);
+        $this->assertStringContainsString('data-product-active="0"', $actions);
+        $this->assertStringContainsString('title="Aktifkan Kembali"', $actions);
+    }
+
+    /** @test */
     public function price_columns_visible_in_html_for_authorized_users()
     {
         Cache::flush();
