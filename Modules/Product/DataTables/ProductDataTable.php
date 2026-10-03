@@ -206,13 +206,12 @@ class ProductDataTable extends DataTable
                 'pp.average_purchase_price as pp_average_purchase_price',
             ]);
 
-        if (request()->filled('status')) {
-            $status = request('status');
-            if ($status === 'active') {
-                $query->where('products.is_active', true);
-            } elseif ($status === 'inactive') {
-                $query->where('products.is_active', false);
-            }
+        $status = request('status', 'active');
+
+        if ($status === 'inactive') {
+            $query->where('products.is_active', false);
+        } else {
+            $query->where('products.is_active', true);
         }
 
         return $query;

@@ -601,21 +601,45 @@ class ProductController extends Controller
     }
 
 
-    public function toggleStatus(Product $product, \App\Services\MasterDataLifecycleService $lifecycleService): RedirectResponse
+    public function toggleStatus(
+        Request $request,
+        Product $product,
+        \App\Services\MasterDataLifecycleService $lifecycleService
+    ): JsonResponse|RedirectResponse
     {
         abort_if(! Gate::allows('products.edit') && ! Gate::allows('products.delete'), 403);
 
         try {
             if ($product->is_active) {
                 $lifecycleService->deactivate($product);
-                toast('Produk berhasil dinonaktifkan!', 'info');
+                $message = 'Produk berhasil dinonaktifkan!';
+                $alertType = 'info';
             } else {
                 $lifecycleService->reactivate($product);
-                toast('Produk berhasil diaktifkan kembali!', 'success');
+                $message = 'Produk berhasil diaktifkan kembali!';
+                $alertType = 'success';
             }
         } catch (\Illuminate\Validation\ValidationException $e) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => $e->getMessage(),
+                    'errors' => $e->errors(),
+                ], 422);
+            }
+
             toast($e->getMessage(), 'error');
+
+            return redirect()->back();
         }
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => $message,
+                'is_active' => (bool) $product->fresh()->is_active,
+            ]);
+        }
+
+        toast($message, $alertType);
 
         return redirect()->back();
     }

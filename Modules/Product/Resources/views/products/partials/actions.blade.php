@@ -21,28 +21,22 @@
 </a>
 @endcan
 @if(auth()->user()->can('products.edit') || auth()->user()->can('products.delete'))
-    @if($data->is_active)
-        <button type="button" class="btn btn-warning btn-sm" title="Nonaktifkan Produk" onclick="
-            event.preventDefault();
-            if (confirm('Nonaktifkan produk &quot;{{ $data->product_name }}&quot;? Produk tidak akan muncul untuk transaksi baru, namun data historis tetap aman.')) {
-                document.getElementById('toggle-status-{{ $data->id }}').submit();
-            }
-        ">
-            <i class="bi bi-pause-circle"></i>
-        </button>
-    @else
-        <button type="button" class="btn btn-success btn-sm" title="Aktifkan Kembali" onclick="
-            event.preventDefault();
-            if (confirm('Aktifkan kembali produk &quot;{{ $data->product_name }}&quot;?')) {
-                document.getElementById('toggle-status-{{ $data->id }}').submit();
-            }
-        ">
-            <i class="bi bi-play-circle"></i>
-        </button>
-    @endif
-    <form id="toggle-status-{{ $data->id }}" class="d-none" action="{{ route('products.toggle-status', $data->id) }}" method="POST">
+    <form class="d-inline product-status-form"
+          action="{{ route('products.toggle-status', $data->id) }}"
+          method="POST"
+          data-product-name="{{ $data->product_name }}"
+          data-product-active="{{ $data->is_active ? '1' : '0' }}">
         @csrf
         @method('patch')
+
+        @if($data->is_active)
+        <button type="submit" class="btn btn-warning btn-sm" title="Nonaktifkan Produk">
+            <i class="bi bi-pause-circle"></i>
+        </button>
+        @else
+        <button type="submit" class="btn btn-success btn-sm" title="Aktifkan Kembali">
+            <i class="bi bi-play-circle"></i>
+        </button>
+        @endif
     </form>
 @endif
-
