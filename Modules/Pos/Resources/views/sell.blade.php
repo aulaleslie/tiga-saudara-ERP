@@ -2584,7 +2584,8 @@
                     }
 
                     clearResults();
-                    if (searchInput) {
+                    // Keep focus inside Cari Produk when it stays open for simple products
+                    if (searchInput && !(op.options && op.options.keepSearchOpen)) {
                         searchInput.focus();
                     }
 
@@ -2662,6 +2663,18 @@
             }
 
 
+
+            // Serializes simple-product selections made from Cari Produk result cards.
+            let searchResultSelectionQueue = Promise.resolve();
+            // Set when a unit/bundle card is clicked; cleared when Cari Produk is shown again.
+            let searchResultSelectionFlowPending = false;
+
+            // Mirrors addProductToCart's unit and bundle checks for a manual result-card click.
+            function searchResultRequiresSelectionFlow(product) {
+                const hasSelectableUnits = Boolean(product.unit_options && product.unit_options.has_selectable_units);
+                const isBundleParent = product.is_bundle_parent === 1 || product.is_bundle_parent === true;
+                return hasSelectableUnits || isBundleParent;
+            }
 
             // Phase 3: Render search results in card-grid layout
             function renderSearchResultsModal(data) {
@@ -2753,23 +2766,29 @@
                             this.style.backgroundColor = 'white';
                         });
 
-                        card.addEventListener('click', async function () {
-                            // Close modal and let addProductToCart handle cleanup
-                            if (searchResultsModalElement) {
-                                try {
-                                    if (typeof jQuery !== 'undefined') {
-                                        jQuery(searchResultsModalElement).modal('hide');
-                                    } else if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
-                                        const modal = bootstrap.Modal.getInstance(searchResultsModalElement);
-                                        if (modal) {
-                                            modal.hide();
-                                        }
-                                    }
-                                } catch (e) {
-                                    console.error('Error closing modal:', e);
-                                }
+                        card.addEventListener('click', function () {
+                            // A unit/bundle selection is already pending; ignore further
+                            // clicks until search is reopened.
+                            if (searchResultSelectionFlowPending) {
+                                return searchResultSelectionQueue;
                             }
-                            await addProductToCart(product, 'manual');
+
+                            // Simple products stay in Cari Produk: queue the add so rapid
+                            // clicks submit one at a time, in click order.
+                            if (!searchResultRequiresSelectionFlow(product)) {
+                                searchResultSelectionQueue = searchResultSelectionQueue
+                                    .then(() => addProductToCart(product, 'manual', { keepSearchOpen: true }))
+                                    .catch((e) => console.error('Error adding search result:', e));
+                                return searchResultSelectionQueue;
+                            }
+
+                            // Unit/bundle products wait for pending simple adds, then close
+                            // search and continue to their selection flow.
+                            searchResultSelectionFlowPending = true;
+                            searchResultSelectionQueue = searchResultSelectionQueue
+                                .then(() => openSearchResultSelectionFlow(product))
+                                .catch((e) => console.error('Error opening selection flow:', e));
+                            return searchResultSelectionQueue;
                         });
                     }
 
@@ -2778,6 +2797,24 @@
 
                 // Setup keyboard navigation for the cards
                 setupSearchResultsModalKeyboard();
+            }
+
+            async function openSearchResultSelectionFlow(product) {
+                if (searchResultsModalElement) {
+                    try {
+                        if (typeof jQuery !== 'undefined') {
+                            jQuery(searchResultsModalElement).modal('hide');
+                        } else if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                            const modal = bootstrap.Modal.getInstance(searchResultsModalElement);
+                            if (modal) {
+                                modal.hide();
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error closing modal:', e);
+                    }
+                }
+                await addProductToCart(product, 'manual');
             }
 
 
@@ -2869,6 +2906,14 @@
             // Phase 3: Wire up modal keyboard navigation
             if (searchResultsModalElement) {
                 searchResultsModalElement.addEventListener('shown.bs.modal', setupSearchResultsModalKeyboard);
+                // Reopening Cari Produk re-enables card selection after a unit/bundle flow.
+                // Bootstrap 4 fires modal events through jQuery, Bootstrap 5 natively.
+                const releaseSearchResultSelectionFlow = () => { searchResultSelectionFlowPending = false; };
+                if (typeof jQuery !== 'undefined') {
+                    jQuery(searchResultsModalElement).on('show.bs.modal', releaseSearchResultSelectionFlow);
+                } else {
+                    searchResultsModalElement.addEventListener('show.bs.modal', releaseSearchResultSelectionFlow);
+                }
             }
 
             // Shared scan resolver function (2.1): used by both Enter and helper button
