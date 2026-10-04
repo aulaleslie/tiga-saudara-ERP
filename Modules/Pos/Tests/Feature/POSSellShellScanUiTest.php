@@ -508,4 +508,38 @@ class POSSellShellScanUiTest extends TestCase
 
         return $terminal;
     }
+
+    /**
+     * Verify scan queueing and targeted quantity DOM reconciliation scripts are present.
+     */
+    public function test_sell_shell_contains_scan_queue_and_targeted_qty_reconciliation(): void
+    {
+        $setting = $this->createSetting('SCAN UI TEST QUEUE');
+        [$cashier] = $this->createCashierAndOpenSession($setting, 'SCAN UI CASHIER QUEUE');
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sell'));
+
+        $response->assertOk();
+
+        $html = $response->getContent();
+
+        // Scan queue state & FIFO draining
+        $this->assertStringContainsString('scanQueue = []', $html);
+        $this->assertStringContainsString('drainScanQueue', $html);
+        $this->assertStringContainsString('handleScanSubmission', $html);
+        $this->assertStringContainsString('currentTransactionGeneration', $html);
+        $this->assertStringContainsString('window._posScanQueue', $html);
+
+        // Targeted quantity reconciliation and lifecycle reset
+        $this->assertStringContainsString('reconcileCartQuantityRow', $html);
+        $this->assertStringContainsString('refreshCartSummaryAndControls', $html);
+        $this->assertStringContainsString('window.posLifecycleAcknowledged = false;', $html);
+        $this->assertStringContainsString('PosStagedPayment.setLifecycleAcknowledged(false)', $html);
+
+        // Rapid scan preservation: downstream async execution must NOT clear newly typed search input
+        $this->assertStringContainsString("if (op.source !== 'scan' && searchInput)", $html);
+        $this->assertStringNotContainsString("clearSearchInput({ keepFocus: false });\n                        // Task 3.1", $html);
+    }
 }

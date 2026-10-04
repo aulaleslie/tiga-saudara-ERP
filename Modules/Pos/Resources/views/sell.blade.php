@@ -441,6 +441,10 @@
             // previous transaction cannot repopulate the new transaction's state.
             function resetProductSearchModalState() {
                 latestRequestId += 1;
+                if (typeof currentTransactionGeneration !== 'undefined') {
+                    currentTransactionGeneration += 1;
+                    scanQueue = [];
+                }
 
                 if (modalSearchInput) {
                     modalSearchInput.value = '';
@@ -1594,6 +1598,15 @@
                     cartBody.innerHTML = lines.map(buildLineRow).join('');
                 }
 
+                refreshCartSummaryAndControls(snapshot);
+            }
+
+            function refreshCartSummaryAndControls(snapshot) {
+                currentSnapshot = snapshot || null;
+                window.posLifecycleAcknowledged = false;
+                if (typeof PosStagedPayment !== 'undefined' && typeof PosStagedPayment.setLifecycleAcknowledged === 'function') {
+                    PosStagedPayment.setLifecycleAcknowledged(false);
+                }
                 renderTotals(snapshot);
                 renderCustomer(snapshot);
                 renderNote(snapshot);
@@ -1699,9 +1712,54 @@
                  }
 
                  updateCartControlStates(snapshot);
-             }
+            }
 
-             function updateCartControlStates(snapshot) {
+            function reconcileCartQuantityRow(targetLineId, snapshot) {
+                if (!snapshot || !Array.isArray(snapshot.lines) || !cartBody) {
+                    renderCart(snapshot);
+                    return;
+                }
+
+                const domRows = Array.from(cartBody.querySelectorAll('tr[data-line-id]'));
+                const snapshotLines = snapshot.lines;
+
+                if (domRows.length !== snapshotLines.length) {
+                    renderCart(snapshot);
+                    return;
+                }
+
+                for (let i = 0; i < domRows.length; i++) {
+                    const rowLineId = Number(domRows[i].getAttribute('data-line-id'));
+                    const snapLineId = Number(snapshotLines[i].line_id);
+                    if (rowLineId !== snapLineId) {
+                        renderCart(snapshot);
+                        return;
+                    }
+                }
+
+                const targetRow = cartBody.querySelector(`tr[data-line-id="${targetLineId}"]`);
+                const updatedLine = snapshotLines.find(l => Number(l.line_id) === Number(targetLineId));
+
+                if (!targetRow || !updatedLine) {
+                    renderCart(snapshot);
+                    return;
+                }
+
+                const newRowHtml = buildLineRow(updatedLine);
+                const tempTable = document.createElement('tbody');
+                tempTable.innerHTML = newRowHtml.trim();
+                const newRowEl = tempTable.firstElementChild;
+
+                if (!newRowEl) {
+                    renderCart(snapshot);
+                    return;
+                }
+
+                targetRow.replaceWith(newRowEl);
+                refreshCartSummaryAndControls(snapshot);
+            }
+
+            function updateCartControlStates(snapshot) {
                  if (saveDraftButton) {
                      const hasItems = snapshot && Array.isArray(snapshot.lines) && snapshot.lines.length > 0;
                      const grandTotal = snapshot && snapshot.totals ? Number(snapshot.totals.grand_total || 0) : 0;
@@ -1741,7 +1799,7 @@
                         + (location ? ' pada ' + escapeHtml(location) : '') + '. Silakan pindai serial lainnya.';
                     setSearchStatus(message, 'text-info');
                     if (searchInput) {
-                        clearSearchInput();
+                        searchInput.focus();
                     }
                     return;
                 }
@@ -2176,6 +2234,49 @@
             let scanResolveInFlight = false;
             let isModalTransitioning = false;
 
+            // Scan Queue Management (FIFO serialization for rapid hardware and helper scans)
+            let scanQueue = [];
+            const MAX_SCAN_QUEUE_SIZE = 10;
+            let isProcessingScanQueue = false;
+            let currentTransactionGeneration = 1;
+
+            async function drainScanQueue() {
+                if (isProcessingScanQueue || scanResolveInFlight) {
+                    return;
+                }
+                const isModalOpen = (unitSelectionModal && unitSelectionModal.classList.contains('show')) ||
+                                    (bundleSelectionModal && bundleSelectionModal.classList.contains('show'));
+                if (isModalOpen || (activeSelectionOperation && activeSelectionOperation.status === 'active')) {
+                    return;
+                }
+
+                isProcessingScanQueue = true;
+                try {
+                    while (scanQueue.length > 0) {
+                        const item = scanQueue[0];
+                        if (!item || item.generation !== currentTransactionGeneration) {
+                            scanQueue.shift();
+                            continue;
+                        }
+
+                        const modalCheck = (unitSelectionModal && unitSelectionModal.classList.contains('show')) ||
+                                           (bundleSelectionModal && bundleSelectionModal.classList.contains('show'));
+                        if (modalCheck || (activeSelectionOperation && activeSelectionOperation.status === 'active')) {
+                            break;
+                        }
+
+                        scanQueue.shift();
+                        await executeScanResolve(item.query, { fromQueue: true });
+
+                        if (activeSelectionOperation && activeSelectionOperation.status === 'active') {
+                            break;
+                        }
+                    }
+                } finally {
+                    isProcessingScanQueue = false;
+                }
+            }
+
             function cancelActiveSelection() {
                 if (activeSelectionOperation) {
                     activeSelectionOperation.status = 'cancelled';
@@ -2184,6 +2285,7 @@
                 if (searchInput) {
                     searchInput.focus();
                 }
+                drainScanQueue();
             }
 
             function openUnitSelectionModal(product, source, options = {}) {
@@ -2352,6 +2454,7 @@
                         bundleError.textContent = error.message || 'Gagal memuat paket.';
                         bundleError.classList.remove('d-none');
                     }
+                    drainScanQueue();
                 }
             }
 
@@ -2421,7 +2524,7 @@
 
                 latestRequestId += 1;
                 clearResults();
-                if (searchInput) {
+                if (op.source !== 'scan' && searchInput) {
                     clearSearchInput({ keepFocus: false });
                 }
 
@@ -2490,6 +2593,8 @@
                     const errorMsg = error.message || 'Gagal menambahkan produk ke keranjang.';
                     setCartStatus(errorMsg, 'text-danger');
                     setSearchStatus(errorMsg, 'text-danger');
+                } finally {
+                    drainScanQueue();
                 }
             }
 
@@ -2807,7 +2912,6 @@
 
                     if (response.type === 'product_exact') {
                         await addProductToCart(response.product, 'scan');
-                        clearSearchInput({ keepFocus: false });
                         // Task 3.1: Enrich message with product name
                         const productMessage = 'Produk "' + (response.product.product_name || 'Unknown') + '" telah ditambahkan';
                         setSearchStatus(productMessage, 'text-success');
@@ -2829,7 +2933,6 @@
                         };
                     } else if (response.type === 'serial_exact') {
                         await handleSerialScanResult(response);
-                        clearSearchInput({ keepFocus: false });
                         // Task 3.2: Enrich message with serial number
                         const serialMessage = 'Serial "' + (response.serial.serial_number || 'Unknown') + '" telah ditambahkan';
                         setSearchStatus(serialMessage, 'text-success');
@@ -2874,6 +2977,11 @@
 
             // Expose shared resolver to global scope so camera scanner can access it (2.3)
             window.executeScanResolve = executeScanResolve;
+            window._posScanQueue = {
+                getQueue: () => scanQueue,
+                getGeneration: () => currentTransactionGeneration,
+                drain: () => drainScanQueue(),
+            };
 
             searchInput.addEventListener('input', function () {
                 syncSearchClearButtonVisibility();
@@ -2887,54 +2995,42 @@
 
             syncSearchClearButtonVisibility();
 
-            // Phase 1: Enter key handler for scan resolver (2.2: preserve for scanner hardware)
-            searchInput.addEventListener('keydown', async function (event) {
-                if (event.key !== 'Enter' && event.code !== 'Enter') {
-                    return;
-                }
-                event.preventDefault();
-                if (scanResolveInFlight) {
-                    return;
-                }
-                if (activeSelectionOperation && activeSelectionOperation.status === 'active') {
-                    return;
-                }
-                const isModalOpen = (unitSelectionModal && unitSelectionModal.classList.contains('show')) ||
-                                    (bundleSelectionModal && bundleSelectionModal.classList.contains('show'));
-                if (isModalOpen) {
-                    return;
-                }
+            function handleScanSubmission() {
+                const query = (searchInput.value || '').trim();
+                clearSearchInput({ keepFocus: true });
 
-                const query = (this.value || '').trim();
                 if (!query) {
                     setSearchStatus('Masukkan kode produk atau nomor serial.', 'text-muted');
                     return;
                 }
-                await executeScanResolve(query);
+
+                if (scanQueue.length >= MAX_SCAN_QUEUE_SIZE) {
+                    setSearchStatus('Antrean pemindaian penuh. Mohon tunggu.', 'text-warning');
+                    return;
+                }
+
+                scanQueue.push({
+                    query: query,
+                    generation: currentTransactionGeneration,
+                });
+
+                drainScanQueue();
+            }
+
+            // Phase 1: Enter key handler for scan resolver (2.2: preserve for scanner hardware)
+            searchInput.addEventListener('keydown', function (event) {
+                if (event.key !== 'Enter' && event.code !== 'Enter') {
+                    return;
+                }
+                event.preventDefault();
+                handleScanSubmission();
             });
 
             // Helper button handler (2.2: wire helper to shared resolver)
             const scanHelperButton = document.getElementById('pos-btn-scan-helper');
             if (scanHelperButton) {
-                scanHelperButton.addEventListener('click', async function () {
-                    if (scanResolveInFlight) {
-                        return;
-                    }
-                    if (activeSelectionOperation && activeSelectionOperation.status === 'active') {
-                        return;
-                    }
-                    const isModalOpen = (unitSelectionModal && unitSelectionModal.classList.contains('show')) ||
-                                        (bundleSelectionModal && bundleSelectionModal.classList.contains('show'));
-                    if (isModalOpen) {
-                        return;
-                    }
-
-                    const query = (searchInput.value || '').trim();
-                    if (!query) {
-                        setSearchStatus('Masukkan kode produk atau nomor serial.', 'text-muted');
-                        return;
-                    }
-                    await executeScanResolve(query);
+                scanHelperButton.addEventListener('click', function () {
+                    handleScanSubmission();
                 });
             }
 
@@ -3307,7 +3403,7 @@
                         throw new Error('Gagal memperbarui qty.');
                     }
 
-                    renderCart(response.cart_snapshot || null);
+                    reconcileCartQuantityRow(lineId, response.cart_snapshot || null);
                     setCartStatus('Qty berhasil diperbarui.', 'text-success');
                 };
 
@@ -3443,7 +3539,7 @@
                                 }
                             }
 
-                            renderCart(response.cart_snapshot || null);
+                            reconcileCartQuantityRow(lineId, response.cart_snapshot || null);
                             setCartStatus('Qty berhasil diperbarui.', 'text-success');
                         };
 
