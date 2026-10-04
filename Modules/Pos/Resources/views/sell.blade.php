@@ -114,6 +114,8 @@
             const newCustomerPhone = document.getElementById('pos-new-customer-phone');
             const newCustomerTier = document.getElementById('pos-new-customer-tier');
             const saveDraftButton = document.getElementById('pos-save-draft');
+            const savePrintButton = document.getElementById('pos-save-print');
+            let savePrintPending = false;
 
             const transactionNote = document.getElementById('pos-transaction-note');
             const transactionNoteStatus = document.getElementById('pos-transaction-note-status');
@@ -307,6 +309,7 @@
             const cartStoreLineEndpoint = @json(route('pos.sell.cart.lines.store'));
             const cartClearEndpoint = @json(route('pos.sell.cart.clear'));
             const saveAndNewEndpoint = @json(route('pos.sell.transactions.save-and-new'));
+            const saveAndPrintEndpoint = @json(route('pos.sell.transactions.save-and-print'));
             const cartCustomerEndpoint = @json(route('pos.sell.cart.customer.update'));
             const cartNoteEndpoint = @json(route('pos.sell.cart.note.update'));
             const customerStoreEndpoint = @json(route('pos.sell.customers.store'));
@@ -1671,6 +1674,10 @@
                      saveDraftButton.disabled = !canSaveDraft;
                  }
 
+                 if (savePrintButton) {
+                     savePrintButton.disabled = savePrintPending || !canSaveDraft;
+                 }
+
                  // Display serial mismatch message if present
                  if (!allSerialsValid && mismatchMessage) {
                      setCartStatus(mismatchMessage, canSaveDraft ? 'text-muted' : 'text-danger');
@@ -1770,6 +1777,9 @@
 
                      const canSaveDraft = hasItems && grandTotal > 0 && hasCustomer && allPricesValid;
                      saveDraftButton.disabled = !canSaveDraft;
+                     if (savePrintButton) {
+                         savePrintButton.disabled = savePrintPending || !canSaveDraft;
+                     }
                  }
              }
  
@@ -3278,6 +3288,75 @@
                             setCartStatus('Keranjang dikosongkan.', 'text-success');
                         }
                     });
+                });
+            }
+
+            if (savePrintButton) {
+                savePrintButton.addEventListener('click', async function () {
+                    if (savePrintPending) {
+                        return;
+                    }
+                    savePrintPending = true;
+                    const originalText = savePrintButton.textContent;
+                    savePrintButton.disabled = true;
+                    savePrintButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Menyimpan...';
+
+                    // Open the window synchronously on click so popup blockers allow it.
+                    let printWindow = null;
+                    try {
+                        printWindow = window.open('', '_blank');
+                    } catch (e) {
+                        printWindow = null;
+                    }
+                    const closePrintWindow = () => {
+                        if (printWindow && !printWindow.closed) {
+                            printWindow.close();
+                        }
+                    };
+
+                    try {
+                        if (noteDebounceHandle) {
+                            clearTimeout(noteDebounceHandle);
+                            noteDebounceHandle = null;
+                        }
+                        const noteSaved = await submitNoteUpdate();
+                        if (!noteSaved) {
+                            closePrintWindow();
+                            setCartStatus('Gagal menyimpan catatan, cetak transaksi dibatalkan.', 'text-danger', true);
+                            return;
+                        }
+
+                        const response = await jsonRequest(saveAndPrintEndpoint, 'POST');
+                        const transaction = response && response.transaction ? response.transaction : null;
+                        const receiptUrl = response ? response.receipt_url : null;
+
+                        if (!transaction || !receiptUrl) {
+                            closePrintWindow();
+                            setCartStatus('Gagal menyimpan transaksi untuk dicetak.', 'text-danger', true);
+                            return;
+                        }
+
+                        if (response.cart_snapshot) {
+                            renderCart(response.cart_snapshot);
+                        }
+
+                        if (!printWindow || printWindow.closed) {
+                            setCartStatus('Transaksi ' + transaction.code + ' disimpan, tetapi jendela cetak diblokir browser. Izinkan pop-up lalu coba lagi.', 'text-warning', true);
+                            return;
+                        }
+
+                        // The receipt page triggers printing itself when opened via this route.
+                        printWindow.location.href = receiptUrl;
+
+                        setCartStatus('Transaksi ' + transaction.code + ' disimpan dan dibuka untuk dicetak.', 'text-success');
+                    } catch (error) {
+                        closePrintWindow();
+                        setCartStatus(error.message || 'Gagal menyimpan transaksi untuk dicetak.', 'text-danger', true);
+                    } finally {
+                        savePrintPending = false;
+                        savePrintButton.textContent = originalText;
+                        updateCartControlStates(currentSnapshot);
+                    }
                 });
             }
 

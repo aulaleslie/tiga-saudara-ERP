@@ -107,6 +107,9 @@ class PosRolePolicyService
             'can_view_transactions' => $user->can('pos.transactions.view'),
             'can_save_draft' => $user->can('pos.transactions.save'),
             'can_load_draft' => $user->can('pos.transactions.load'),
+            'can_print_current_transaction' => $user->can('pos.transactions.save')
+                && $user->can('pos.transactions.load')
+                && $user->can('pos.transactions.print-current'),
             'can_reduce_quantity' => $user->can('pos.cart.line.reduce'),
             'direct_permissions' => [
                 'cart_clear' => $user->can('pos.cart.clear'),

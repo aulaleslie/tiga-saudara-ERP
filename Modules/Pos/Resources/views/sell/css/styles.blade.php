@@ -969,6 +969,42 @@
         font-size: 0.92rem;
     }
 
+    .pos-payment-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .pos-payment-secondary-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .pos-payment-secondary-actions .btn {
+        flex: 1 1 0;
+        min-width: 0;
+    }
+
+    .pos-save-print-btn {
+        background-color: transparent;
+        border: 1px solid #04AA6D;
+        color: #04AA6D;
+    }
+
+    .pos-save-print-btn:hover,
+    .pos-save-print-btn:focus {
+        background-color: #04AA6D;
+        border-color: #04AA6D;
+        color: #fff;
+    }
+
+    @media (max-width: 575.98px) {
+        .pos-payment-secondary-actions {
+            flex-direction: column;
+        }
+    }
+
     #pos-customer-search-results .list-group-item {
         padding: 0.45rem 0.55rem;
         line-height: 1.35;

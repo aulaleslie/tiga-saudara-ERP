@@ -25,6 +25,7 @@ class TenantUserSeeder extends Seeder
         'pos.transactions.view',
         'pos.transactions.save',
         'pos.transactions.load',
+        'pos.transactions.print-current',
     ];
 
     /**
@@ -38,6 +39,7 @@ class TenantUserSeeder extends Seeder
         'pos.transactions.view',
         'pos.transactions.save',
         'pos.transactions.load',
+        'pos.transactions.print-current',
     ];
 
     /**

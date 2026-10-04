@@ -52,6 +52,7 @@ final class PosPermissionMatrix
                     'pos.transactions.view',
                     'pos.transactions.save',
                     'pos.transactions.load',
+                    'pos.transactions.print-current',
                     'pos.transactions.edit.any',
                     'pos.returns.view',
                     'pos.returns.create',
@@ -77,6 +78,7 @@ final class PosPermissionMatrix
                     'pos.transactions.view',
                     'pos.transactions.save',
                     'pos.transactions.load',
+                    'pos.transactions.print-current',
                     'pos.returns.view',
                     'pos.returns.create',
                 ],
@@ -92,6 +94,7 @@ final class PosPermissionMatrix
                     'pos.transactions.view',
                     'pos.transactions.save',
                     'pos.transactions.load',
+                    'pos.transactions.print-current',
                 ],
             ],
         ];
@@ -109,7 +112,7 @@ final class PosPermissionMatrix
             ],
             'draft_handoff' => [
                 'label' => 'Serah Terima Draf',
-                'permissions' => ['pos.transactions.view', 'pos.transactions.save', 'pos.transactions.load'],
+                'permissions' => ['pos.transactions.view', 'pos.transactions.save', 'pos.transactions.load', 'pos.transactions.print-current'],
             ],
             'checkout' => [
                 'label' => 'Pembayaran & Checkout',

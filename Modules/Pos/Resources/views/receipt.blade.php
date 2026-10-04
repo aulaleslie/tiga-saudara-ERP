@@ -439,5 +439,10 @@
         </div>
     </div>
 </div>
+@if(!empty($autoPrint))
+    <script>
+        window.addEventListener('load', function () { window.print(); });
+    </script>
+@endif
 </body>
 </html>

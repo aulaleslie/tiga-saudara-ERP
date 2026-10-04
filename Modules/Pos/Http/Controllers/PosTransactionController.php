@@ -13,6 +13,7 @@ use Modules\Pos\Entities\PosReceiptPrintLog;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosTransaction;
 use Modules\Pos\Http\Requests\StorePosTransactionLoadRequest;
+use Modules\Pos\Http\Requests\StorePosTransactionSaveAndPrintRequest;
 use Modules\Pos\Http\Requests\StorePosTransactionSaveRequest;
 use Modules\Pos\Services\Exceptions\PosTransactionConflictException;
 use Modules\Pos\Services\Exceptions\PosTransactionValidationException;
@@ -64,6 +65,60 @@ class PosTransactionController extends Controller
                 ],
                 'cart_snapshot' => $cartSnapshot,
             ], 201);
+        } catch (PosTransactionValidationException $e) {
+            return response()->json([
+                'code' => $e->errorCode(),
+                'message' => $e->getMessage(),
+            ], 422);
+        } catch (PosTransactionConflictException $e) {
+            return response()->json([
+                'code' => $e->errorCode(),
+                'message' => $e->getMessage(),
+            ], 409);
+        } catch (\DomainException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    /**
+     * POST /pos/sell/transactions/save-and-print
+     * Save current cart as a draft, keep it loaded, and return its receipt URL.
+     */
+    public function saveAndPrint(StorePosTransactionSaveAndPrintRequest $request): JsonResponse
+    {
+        try {
+            $settingId = $this->currentSettingId();
+            if ($guardResponse = $this->transactionsDisabledResponse($request, $settingId)) {
+                return $guardResponse;
+            }
+            $posSession = $request->attributes->get('pos_active_session');
+
+            if (! $posSession instanceof PosSession) {
+                return response()->json([
+                    'message' => 'Sesi POS tidak aktif.',
+                ], 500);
+            }
+
+            $transaction = $this->transactionService->saveAndRetain(
+                $settingId,
+                $posSession,
+                $request->user()
+            );
+
+            $cartSnapshot = $this->cartService->getSnapshot($settingId, $posSession->id);
+
+            return response()->json([
+                'message' => 'Transaksi disimpan dan siap dicetak.',
+                'transaction' => [
+                    'id' => $transaction->id,
+                    'code' => $transaction->code,
+                    'status' => $transaction->status,
+                ],
+                'receipt_url' => route('pos.sell.transactions.print-receipt', $transaction),
+                'cart_snapshot' => $cartSnapshot,
+            ], 200);
         } catch (PosTransactionValidationException $e) {
             return response()->json([
                 'code' => $e->errorCode(),
@@ -230,6 +285,34 @@ class PosTransactionController extends Controller
         $receiptData = $receiptService->getTransactionReceiptData($transaction);
 
         return view('pos::receipt', compact('receiptData'));
+    }
+
+    /**
+     * GET /pos/sell/transactions/{transaction}/print-receipt
+     * Draft receipt for the transaction currently loaded in this session's cart,
+     * authorized by the current-transaction print permissions instead of
+     * pos.transactions.view.
+     */
+    public function printCurrentReceipt(PosTransaction $transaction, PosReceiptService $receiptService, Request $request): Renderable
+    {
+        $settingId = $this->currentSettingId();
+        $posSession = $request->attributes->get('pos_active_session');
+        abort_unless($posSession instanceof PosSession, 403, 'Sesi POS tidak aktif.');
+
+        $cart = app(\Modules\Pos\Services\PosCartSessionStore::class)->getCart($settingId, (int) $posSession->id);
+        abort_unless(
+            (int) ($cart['active_transaction_id'] ?? 0) === (int) $transaction->id,
+            403,
+            'Struk hanya dapat dicetak untuk transaksi yang sedang aktif di keranjang.'
+        );
+        abort_unless(
+            $transaction->status === PosTransaction::STATUS_LOADED,
+            409,
+            'Transaksi tidak lagi aktif dan struknya tidak dapat dicetak.'
+        );
+
+        return $this->receipt($transaction, $receiptService, $request)
+            ->with('autoPrint', true);
     }
 
     /**

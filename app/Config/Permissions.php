@@ -364,6 +364,7 @@ return [
         'pos.transactions.view' => 'Lihat Transaksi',
         'pos.transactions.save' => 'Simpan Transaksi',
         'pos.transactions.load' => 'Muat Transaksi',
+        'pos.transactions.print-current' => 'Simpan dan Cetak Transaksi Aktif',
         'pos.transactions.edit.any' => 'Ambil Alih Draft Transaksi',
     ],
 

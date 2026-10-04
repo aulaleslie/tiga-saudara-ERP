@@ -47,10 +47,33 @@ class PosTransactionService
         );
     }
 
-    private function saveAndNewWithinLock(
+    /**
+     * Save the current session cart as a draft and keep it as the active
+     * (LOADED) transaction in the same cart so editing can continue.
+     * Repeated calls update the same transaction and keep its code.
+     *
+     * @throws PosTransactionValidationException('CART_EMPTY', ...)
+     * @throws PosTransactionValidationException('TRANSACTION_NOT_FOUND', ...)
+     * @throws PosTransactionValidationException('TRANSACTION_NOT_SAVEABLE', ...)
+     * @throws PosTransactionConflictException('EDIT_FORBIDDEN', ...)
+     */
+    public function saveAndRetain(
         int $settingId,
         PosSession $activeSession,
         User $user
+    ): PosTransaction {
+        return $this->cartMutationLock->withLock(
+            $settingId,
+            (int) $activeSession->id,
+            fn (): PosTransaction => $this->saveAndNewWithinLock($settingId, $activeSession, $user, true)
+        );
+    }
+
+    private function saveAndNewWithinLock(
+        int $settingId,
+        PosSession $activeSession,
+        User $user,
+        bool $retain = false
     ): PosTransaction {
         $cart = $this->cartSessionStore->getCart($settingId, $activeSession->id);
 
@@ -64,7 +87,7 @@ class PosTransactionService
 
         $activeTransactionId = (int) ($cart['active_transaction_id'] ?? 0);
 
-        $transaction = DB::transaction(function () use ($settingId, $activeSession, $user, $cart, $activeTransactionId) {
+        $transaction = DB::transaction(function () use ($settingId, $activeSession, $user, $cart, $activeTransactionId, $retain) {
             $snapshot = $this->cartService->getSnapshot($settingId, $activeSession->id);
             $snapshotTotals = $this->mapper->buildSnapshotTotals($snapshot['totals'] ?? []);
 
@@ -132,6 +155,15 @@ class PosTransactionService
             $transaction->update([
                 'snapshot_hash' => $this->mapper->buildSnapshotHash($transaction),
             ]);
+
+            if ($retain) {
+                // Keep the same cart and bind it to the saved transaction.
+                $transaction->update(['status' => PosTransaction::STATUS_LOADED]);
+                $cart['active_transaction_id'] = $transaction->id;
+                $this->cartSessionStore->putCart($settingId, $activeSession->id, $cart);
+
+                return $transaction->fresh();
+            }
 
             // Clear the session cart
             $emptyCart = $this->cartSessionStore->emptyCart($settingId, $activeSession->id);

@@ -58,6 +58,7 @@ abstract class PosTransactionFeatureTestCase extends TestCase
             'pos.transactions.view',
             'pos.transactions.save',
             'pos.transactions.load',
+            'pos.transactions.print-current',
             'pos.transactions.edit.any',
             'pos.void',
         ] as $permission) {

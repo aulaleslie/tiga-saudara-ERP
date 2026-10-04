@@ -214,6 +214,12 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
     Route::post('/pos/sell/transactions/save-and-new', [PosTransactionController::class, 'saveAndNew'])
         ->middleware('pos.transactions.enabled')
         ->name('pos.sell.transactions.save-and-new');
+    Route::post('/pos/sell/transactions/save-and-print', [PosTransactionController::class, 'saveAndPrint'])
+        ->middleware(['pos.transactions.enabled', 'can:pos.transactions.save', 'can:pos.transactions.load', 'can:pos.transactions.print-current'])
+        ->name('pos.sell.transactions.save-and-print');
+    Route::get('/pos/sell/transactions/{transaction}/print-receipt', [PosTransactionController::class, 'printCurrentReceipt'])
+        ->middleware(['pos.transactions.enabled', 'can:pos.transactions.save', 'can:pos.transactions.load', 'can:pos.transactions.print-current'])
+        ->name('pos.sell.transactions.print-receipt');
 });
 
 Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.terminals.access']], function () {
