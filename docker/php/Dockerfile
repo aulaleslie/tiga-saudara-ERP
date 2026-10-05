@@ -8,9 +8,11 @@ RUN apt-get update \
         default-mysql-client \
         fontconfig \
         git \
+        libcurl4-openssl-dev \
         libfreetype6-dev \
         libicu-dev \
         libjpeg62-turbo-dev \
+        libonig-dev \
         libpng-dev \
         libxext6 \
         libxrender1 \
@@ -18,11 +20,19 @@ RUN apt-get update \
         libzip-dev \
         unzip \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && CPPFLAGS="$PHP_CPPFLAGS -I/usr/src/php" docker-php-ext-install -j1 \
+        dom \
+        simplexml \
+        xml \
+        xmlreader \
+        xmlwriter \
     && docker-php-ext-install -j"$(nproc)" \
         bcmath \
+        curl \
         exif \
         gd \
         intl \
+        mbstring \
         pcntl \
         pdo_mysql \
         soap \
