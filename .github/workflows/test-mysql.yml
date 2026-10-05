@@ -15,7 +15,7 @@ jobs:
         image: mysql:8.0
         env:
           MYSQL_ROOT_PASSWORD: password
-          MYSQL_DATABASE: testing_test
+          MYSQL_DATABASE: testing
         ports:
           - 3306:3306
         options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
@@ -28,7 +28,6 @@ jobs:
       with:
         php-version: '8.2'
         extensions: pdo_mysql, zip, gd, dom, curl, libxml, mbstring
-        ini-values: memory_limit=512M
         coverage: none
 
     - name: Get Composer Cache Directory
@@ -54,24 +53,25 @@ jobs:
 
     - name: Configure PHPUnit for MySQL
       run: |
-        sed -i 's/value="sqlite"/value="mysql_test"/g' phpunit.xml
+        sed -i 's/value="sqlite"/value="mysql"/g' phpunit.xml
+        sed -i 's/value="database\/testing.sqlite"/value="testing"/g' phpunit.xml
 
     - name: Verify MySQL Migrations
       env:
-        DB_CONNECTION: mysql_test
-        MYSQL_TEST_HOST: 127.0.0.1
-        MYSQL_TEST_PORT: 3306
-        MYSQL_TEST_DATABASE: testing_test
-        MYSQL_TEST_USERNAME: root
-        MYSQL_TEST_PASSWORD: password
-      run: php artisan migrate:fresh --database=mysql_test --force
+        DB_CONNECTION: mysql
+        DB_HOST: 127.0.0.1
+        DB_PORT: 3306
+        DB_DATABASE: testing
+        DB_USERNAME: root
+        DB_PASSWORD: password
+      run: php artisan migrate:fresh
 
     - name: Run Tests (MySQL)
       env:
-        DB_CONNECTION: mysql_test
-        MYSQL_TEST_HOST: 127.0.0.1
-        MYSQL_TEST_PORT: 3306
-        MYSQL_TEST_DATABASE: testing_test
-        MYSQL_TEST_USERNAME: root
-        MYSQL_TEST_PASSWORD: password
+        DB_CONNECTION: mysql
+        DB_HOST: 127.0.0.1
+        DB_PORT: 3306
+        DB_DATABASE: testing
+        DB_USERNAME: root
+        DB_PASSWORD: password
       run: php artisan test --filter=CustomerReceivablesReportTest
