@@ -2289,6 +2289,9 @@
 
             function cancelActiveSelection() {
                 if (activeSelectionOperation) {
+                    if (activeSelectionOperation.options && activeSelectionOperation.options.fromSearchSelectionFlow) {
+                        searchResultSelectionFlowPending = false;
+                    }
                     activeSelectionOperation.status = 'cancelled';
                     activeSelectionOperation = null;
                 }
@@ -2556,11 +2559,17 @@
                     if (!response) {
                         op.status = 'error';
                         activeSelectionOperation = null;
+                        if (op.options && op.options.fromSearchSelectionFlow) {
+                            searchResultSelectionFlowPending = false;
+                        }
                         return;
                     }
 
                     op.status = 'finished';
                     activeSelectionOperation = null;
+                    if (op.options && op.options.fromSearchSelectionFlow) {
+                        searchResultSelectionFlowPending = false;
+                    }
 
                     renderCart(response.cart_snapshot || null);
 
@@ -2601,6 +2610,9 @@
                 } catch (error) {
                     op.status = 'error';
                     activeSelectionOperation = null;
+                    if (op.options && op.options.fromSearchSelectionFlow) {
+                        searchResultSelectionFlowPending = false;
+                    }
                     const errorMsg = error.message || 'Gagal menambahkan produk ke keranjang.';
                     setCartStatus(errorMsg, 'text-danger');
                     setSearchStatus(errorMsg, 'text-danger');
@@ -2666,7 +2678,7 @@
 
             // Serializes simple-product selections made from Cari Produk result cards.
             let searchResultSelectionQueue = Promise.resolve();
-            // Set when a unit/bundle card is clicked; cleared when Cari Produk is shown again.
+            // Set while a unit/bundle result selection is in progress.
             let searchResultSelectionFlowPending = false;
 
             // Mirrors addProductToCart's unit and bundle checks for a manual result-card click.
@@ -2814,7 +2826,7 @@
                         console.error('Error closing modal:', e);
                     }
                 }
-                await addProductToCart(product, 'manual');
+                await addProductToCart(product, 'manual', { fromSearchSelectionFlow: true });
             }
 
 
@@ -2903,17 +2915,29 @@
                         modalSearchInput.focus();
                     }
                 };
-                // Reopening Cari Produk re-enables card selection after a unit/bundle flow.
-                // Bootstrap 4 fires modal events through jQuery, Bootstrap 5 natively.
-                const releaseSearchResultSelectionFlow = () => { searchResultSelectionFlowPending = false; };
+                // CoreUI and Bootstrap use different modal lifecycle event namespaces.
+                const refocusScanner = () => {
+                    if (activeSelectionOperation || searchResultSelectionFlowPending ||
+                        (unitSelectionModal && unitSelectionModal.classList.contains('show')) ||
+                        (bundleSelectionModal && bundleSelectionModal.classList.contains('show'))) {
+                        return;
+                    }
+                    if (searchInput) {
+                        searchInput.focus();
+                    }
+                };
                 if (typeof jQuery !== 'undefined') {
-                    jQuery(searchResultsModalElement).on('shown.bs.modal', setupSearchResultsModalKeyboard);
-                    jQuery(searchResultsModalElement).on('shown.bs.modal', focusSearchResultsKeyword);
-                    jQuery(searchResultsModalElement).on('show.bs.modal', releaseSearchResultSelectionFlow);
+                    jQuery(searchResultsModalElement).on('shown.bs.modal shown.coreui.modal', setupSearchResultsModalKeyboard);
+                    jQuery(searchResultsModalElement).on('shown.bs.modal shown.coreui.modal', focusSearchResultsKeyword);
+                    jQuery(searchResultsModalElement).on('hidden.bs.modal hidden.coreui.modal', refocusScanner);
                 } else {
-                    searchResultsModalElement.addEventListener('shown.bs.modal', setupSearchResultsModalKeyboard);
-                    searchResultsModalElement.addEventListener('shown.bs.modal', focusSearchResultsKeyword);
-                    searchResultsModalElement.addEventListener('show.bs.modal', releaseSearchResultSelectionFlow);
+                    ['shown.bs.modal', 'shown.coreui.modal'].forEach(eventName => {
+                        searchResultsModalElement.addEventListener(eventName, setupSearchResultsModalKeyboard);
+                        searchResultsModalElement.addEventListener(eventName, focusSearchResultsKeyword);
+                    });
+                    ['hidden.bs.modal', 'hidden.coreui.modal'].forEach(eventName => {
+                        searchResultsModalElement.addEventListener(eventName, refocusScanner);
+                    });
                 }
             }
 
@@ -3093,6 +3117,7 @@
             // Phase 3: Cari Produk button click handler
             if (cariProdukButton) {
                 cariProdukButton.addEventListener('click', function () {
+                    searchResultSelectionFlowPending = false;
                     // Preserve the previous query and rendered results within the same
                     // transaction; state is only cleared by resetProductSearchModalState()
                     // at a successful transaction boundary.
@@ -3115,15 +3140,6 @@
                         } catch (e) {}
                     }
                     
-                    // Refocus scanner field on modal close
-                    if (searchResultsModalElement) {
-                        searchResultsModalElement.addEventListener('hidden.bs.modal', function refocusScanner() {
-                            if (searchInput) {
-                                searchInput.focus();
-                            }
-                            searchResultsModalElement.removeEventListener('hidden.bs.modal', refocusScanner);
-                        }, { once: true });
-                    }
                 });
                 
                 // Phase 4: Auto-focus serial modal input when modal opens
@@ -4103,7 +4119,7 @@
 
             // Reset modal states when hidden
             if (typeof $ !== 'undefined') {
-                $(unitSelectionModal).on('hidden.bs.modal', function() {
+                $(unitSelectionModal).on('hidden.bs.modal hidden.coreui.modal', function() {
                     if (unitError) {
                         unitError.classList.add('d-none');
                         unitError.textContent = '';
@@ -4115,7 +4131,7 @@
                     isModalTransitioning = false;
                 });
 
-                $(bundleSelectionModal).on('hidden.bs.modal', function() {
+                $(bundleSelectionModal).on('hidden.bs.modal hidden.coreui.modal', function() {
                     if (bundleLoading) bundleLoading.classList.add('d-none');
                     if (bundleError) bundleError.classList.add('d-none');
                     if (bundleOptions) bundleOptions.innerHTML = '';

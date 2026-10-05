@@ -172,8 +172,8 @@ class POSTransactionSaveAndPrintTest extends PosTransactionFeatureTestCase
         $this->assertStringNotContainsString('pos-current-receipt-print-frame', $handler);
         $this->assertStringNotContainsString("document.createElement('iframe')", $handler);
 
-        $this->assertStringContainsString("jQuery(searchResultsModalElement).on('shown.bs.modal', setupSearchResultsModalKeyboard)", $view);
-        $this->assertStringContainsString("jQuery(searchResultsModalElement).on('shown.bs.modal', focusSearchResultsKeyword)", $view);
+        $this->assertStringContainsString("jQuery(searchResultsModalElement).on('shown.bs.modal shown.coreui.modal', setupSearchResultsModalKeyboard)", $view);
+        $this->assertStringContainsString("jQuery(searchResultsModalElement).on('shown.bs.modal shown.coreui.modal', focusSearchResultsKeyword)", $view);
     }
 
     public function test_search_card_keyboard_navigation_uses_one_delegated_handler(): void
