@@ -1,0 +1,62 @@
+#!/usr/bin/env sh
+
+set -eu
+
+download_asset() {
+    target="$1"
+    url="$2"
+
+    if [ -s "$target" ]; then
+        return
+    fi
+
+    curl --fail --silent --show-error --location --retry 3 --output "$target" "$url"
+}
+
+mkdir -p \
+    public/vendor/bootstrap-icons/fonts \
+    public/vendor/chartjs \
+    public/vendor/datatables \
+    public/vendor/font-awesome/css \
+    public/vendor/font-awesome/webfonts \
+    public/vendor/jquery \
+    public/vendor/pdfmake \
+    public/vendor/perfect-scrollbar \
+    public/vendor/popperjs \
+    public/vendor/sweetalert
+
+cp vendor/yajra/laravel-datatables-buttons/src/resources/assets/buttons.server-side.js \
+    public/vendor/datatables/buttons.server-side.js
+cp vendor/realrashid/sweet-alert/resources/js/sweetalert.all.js \
+    public/vendor/sweetalert/sweetalert.all.js
+
+download_asset public/vendor/jquery/jquery-3.7.0.min.js \
+    https://code.jquery.com/jquery-3.7.0.min.js
+download_asset public/vendor/datatables/datatables.min.css \
+    https://cdn.datatables.net/v/bs4/jszip-3.10.1/dt-1.13.5/b-2.4.1/b-html5-2.4.1/b-print-2.4.1/sl-1.7.0/datatables.min.css
+download_asset public/vendor/datatables/datatables.min.js \
+    https://cdn.datatables.net/v/bs4/jszip-3.10.1/dt-1.13.5/b-2.4.1/b-html5-2.4.1/b-print-2.4.1/sl-1.7.0/datatables.min.js
+download_asset public/vendor/bootstrap-icons/bootstrap-icons.min.css \
+    https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css
+download_asset public/vendor/bootstrap-icons/fonts/bootstrap-icons.woff2 \
+    https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/fonts/bootstrap-icons.woff2
+download_asset public/vendor/bootstrap-icons/fonts/bootstrap-icons.woff \
+    https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/fonts/bootstrap-icons.woff
+download_asset public/vendor/pdfmake/pdfmake.min.js \
+    https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/pdfmake.min.js
+download_asset public/vendor/pdfmake/vfs_fonts.js \
+    https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/vfs_fonts.js
+download_asset public/vendor/perfect-scrollbar/perfect-scrollbar.min.js \
+    https://cdnjs.cloudflare.com/ajax/libs/jquery.perfect-scrollbar/1.4.0/perfect-scrollbar.min.js
+download_asset public/vendor/popperjs/popper.min.js \
+    https://cdn.jsdelivr.net/npm/@popperjs/core@2.10.2/dist/umd/popper.min.js
+download_asset public/vendor/chartjs/chart.min.js \
+    https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.5.0/chart.min.js
+download_asset public/vendor/font-awesome/css/all.min.css \
+    https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.14.0/css/all.min.css
+download_asset public/vendor/font-awesome/webfonts/fa-solid-900.woff2 \
+    https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.14.0/webfonts/fa-solid-900.woff2
+download_asset public/vendor/font-awesome/webfonts/fa-regular-400.woff2 \
+    https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.14.0/webfonts/fa-regular-400.woff2
+download_asset public/vendor/font-awesome/webfonts/fa-brands-400.woff2 \
+    https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.14.0/webfonts/fa-brands-400.woff2

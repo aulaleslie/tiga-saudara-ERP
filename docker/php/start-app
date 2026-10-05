@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+
+set -eu
+
+mkdir -p \
+    bootstrap/cache \
+    storage/framework/cache/data \
+    storage/framework/sessions \
+    storage/framework/testing \
+    storage/framework/views \
+    storage/logs
+
+if [ ! -f vendor/autoload.php ]; then
+    composer install --no-interaction --prefer-dist
+fi
+
+install-public-assets
+
+php artisan config:clear
+
+exec php -S 0.0.0.0:8000 -t public server.php
