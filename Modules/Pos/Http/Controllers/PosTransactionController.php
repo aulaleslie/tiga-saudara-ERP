@@ -311,8 +311,7 @@ class PosTransactionController extends Controller
             'Transaksi tidak lagi aktif dan struknya tidak dapat dicetak.'
         );
 
-        return $this->receipt($transaction, $receiptService, $request)
-            ->with('autoPrint', true);
+        return $this->receipt($transaction, $receiptService, $request);
     }
 
     /**

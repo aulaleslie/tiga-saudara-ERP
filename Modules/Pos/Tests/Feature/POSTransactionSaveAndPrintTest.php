@@ -157,6 +157,39 @@ class POSTransactionSaveAndPrintTest extends PosTransactionFeatureTestCase
             ->assertDontSee('id="pos-save-print"', false);
     }
 
+    public function test_sell_screen_opens_receipt_in_new_tab_without_frame(): void
+    {
+        $view = file_get_contents(base_path('Modules/Pos/Resources/views/sell.blade.php'));
+        $start = strpos($view, "if (savePrintButton) {\n                savePrintButton.addEventListener('click'");
+        $end = strpos($view, "if (saveDraftButton) {", $start);
+        $this->assertNotFalse($start);
+        $this->assertNotFalse($end);
+        $handler = substr($view, $start, $end - $start);
+
+        $this->assertStringContainsString("window.open('', '_blank')", $handler);
+        $this->assertStringContainsString('closePrintWindow()', $handler);
+        $this->assertStringContainsString('printWindow.location.href = receiptUrl', $handler);
+        $this->assertStringNotContainsString('pos-current-receipt-print-frame', $handler);
+        $this->assertStringNotContainsString("document.createElement('iframe')", $handler);
+
+        $this->assertStringContainsString("jQuery(searchResultsModalElement).on('shown.bs.modal', setupSearchResultsModalKeyboard)", $view);
+        $this->assertStringContainsString("jQuery(searchResultsModalElement).on('shown.bs.modal', focusSearchResultsKeyword)", $view);
+    }
+
+    public function test_search_card_keyboard_navigation_uses_one_delegated_handler(): void
+    {
+        $view = file_get_contents(base_path('Modules/Pos/Resources/views/sell.blade.php'));
+        $start = strpos($view, 'function setupSearchResultsModalKeyboard() {');
+        $end = strpos($view, '// Phase 3: Wire up modal keyboard navigation', $start);
+        $this->assertNotFalse($start);
+        $this->assertNotFalse($end);
+        $keyboard = substr($view, $start, $end - $start);
+
+        $this->assertStringNotContainsString("item.addEventListener('keydown'", $keyboard);
+        $this->assertSame(1, substr_count($keyboard, "searchResultsModalContainer.addEventListener('keydown'"));
+        $this->assertStringContainsString('card.click()', $keyboard);
+    }
+
     public function test_receipt_shows_saved_lines_and_code_without_payment_details(): void
     {
         [$setting, $location] = $this->bootstrapCashier('BIZ POS PRINT RECEIPT', self::FULL_PERMISSIONS);
@@ -172,6 +205,8 @@ class POSTransactionSaveAndPrintTest extends PosTransactionFeatureTestCase
             ->assertOk()
             ->assertSee($response->json('transaction.code'))
             ->assertSee('Produk Cetak Struk')
+            ->assertSee('Cetak Struk')
+            ->assertDontSee("window.addEventListener('load', function () { window.print(); });", false)
             ->assertDontSee('Bayar:')
             ->assertDontSee('Kembalian');
     }
@@ -219,7 +254,7 @@ class POSTransactionSaveAndPrintTest extends PosTransactionFeatureTestCase
 
         $this->get($response->json('receipt_url'))
             ->assertOk()
-            ->assertSee("window.addEventListener('load', function () { window.print(); });", false);
+            ->assertDontSee("window.addEventListener('load', function () { window.print(); });", false);
 
         PosTransaction::query()->whereKey($transactionId)->update(['status' => PosTransaction::STATUS_CANCELLED]);
 

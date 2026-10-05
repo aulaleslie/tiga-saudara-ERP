@@ -2869,49 +2869,50 @@
             // Phase 3: Setup keyboard navigation for search results modal
             function setupSearchResultsModalKeyboard() {
                 const items = searchResultsModalContainer ? Array.from(searchResultsModalContainer.querySelectorAll('button.pos-search-card:not(:disabled)')) : [];
-                if (items.length === 0) {
-                    return;
+                if (items.length > 0) {
+                    items[0].focus();
                 }
+            }
 
-                let currentFocusIndex = 0;
-
-                // Focus first item on setup
-                items[0].focus();
-
-                // Key navigation handler
-                function handleKeyNav(event) {
+            // Delegate once so reopening Cari Produk cannot stack handlers on preserved cards.
+            if (searchResultsModalContainer) {
+                searchResultsModalContainer.addEventListener('keydown', function (event) {
+                    const items = Array.from(searchResultsModalContainer.querySelectorAll('button.pos-search-card:not(:disabled)'));
+                    const card = event.target.closest('button.pos-search-card:not(:disabled)');
+                    const currentFocusIndex = items.indexOf(card);
+                    if (currentFocusIndex < 0) {
+                        return;
+                    }
                     if (event.key === 'ArrowDown') {
                         event.preventDefault();
-                        currentFocusIndex = (currentFocusIndex + 1) % items.length;
-                        items[currentFocusIndex].focus();
+                        items[(currentFocusIndex + 1) % items.length].focus();
                     } else if (event.key === 'ArrowUp') {
                         event.preventDefault();
-                        currentFocusIndex = (currentFocusIndex - 1 + items.length) % items.length;
-                        items[currentFocusIndex].focus();
+                        items[(currentFocusIndex - 1 + items.length) % items.length].focus();
                     } else if (event.key === 'Enter') {
                         event.preventDefault();
-                        items[currentFocusIndex].click();
+                        card.click();
                     }
-                }
-
-                // Add keydown listeners to all items
-                items.forEach((item, index) => {
-                    item.addEventListener('keydown', handleKeyNav);
-                    item.addEventListener('focus', () => {
-                        currentFocusIndex = index;
-                    });
                 });
             }
 
             // Phase 3: Wire up modal keyboard navigation
             if (searchResultsModalElement) {
-                searchResultsModalElement.addEventListener('shown.bs.modal', setupSearchResultsModalKeyboard);
+                const focusSearchResultsKeyword = () => {
+                    if (modalSearchInput) {
+                        modalSearchInput.focus();
+                    }
+                };
                 // Reopening Cari Produk re-enables card selection after a unit/bundle flow.
                 // Bootstrap 4 fires modal events through jQuery, Bootstrap 5 natively.
                 const releaseSearchResultSelectionFlow = () => { searchResultSelectionFlowPending = false; };
                 if (typeof jQuery !== 'undefined') {
+                    jQuery(searchResultsModalElement).on('shown.bs.modal', setupSearchResultsModalKeyboard);
+                    jQuery(searchResultsModalElement).on('shown.bs.modal', focusSearchResultsKeyword);
                     jQuery(searchResultsModalElement).on('show.bs.modal', releaseSearchResultSelectionFlow);
                 } else {
+                    searchResultsModalElement.addEventListener('shown.bs.modal', setupSearchResultsModalKeyboard);
+                    searchResultsModalElement.addEventListener('shown.bs.modal', focusSearchResultsKeyword);
                     searchResultsModalElement.addEventListener('show.bs.modal', releaseSearchResultSelectionFlow);
                 }
             }
@@ -3125,15 +3126,6 @@
                     }
                 });
                 
-                // Phase 3: Auto-focus modal search input when modal opens
-                if (searchResultsModalElement) {
-                    searchResultsModalElement.addEventListener('shown.bs.modal', function () {
-                        if (modalSearchInput) {
-                            modalSearchInput.focus();
-                        }
-                    });
-                }
-
                 // Phase 4: Auto-focus serial modal input when modal opens
                 if (serialModalElement) {
                     serialModalElement.addEventListener('shown.bs.modal', function () {
@@ -3390,7 +3382,7 @@
                             return;
                         }
 
-                        // The receipt page triggers printing itself when opened via this route.
+                        // The cashier prints manually from the receipt page.
                         printWindow.location.href = receiptUrl;
 
                         setCartStatus('Transaksi ' + transaction.code + ' disimpan dan dibuka untuk dicetak.', 'text-success');
