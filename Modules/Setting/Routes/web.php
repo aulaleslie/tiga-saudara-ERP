@@ -14,6 +14,7 @@
 use Modules\Setting\Http\Controllers\PrintController;
 use Illuminate\Support\Facades\Route;
 use Modules\Setting\Http\Controllers\BusinessController;
+use Modules\Setting\Http\Controllers\CashDenominationConfigurationController;
 use Modules\Setting\Http\Controllers\JournalController;
 use Modules\Setting\Http\Controllers\PaymentMethodController;
 use Modules\Setting\Http\Controllers\SaleLocationConfigurationController;
@@ -49,6 +50,11 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         ->name('pos-payment-configurations.bulkEnable');
     Route::post('pos-payment-configurations/bulk-disable', 'PosPaymentConfigurationController@bulkDisable')
         ->name('pos-payment-configurations.bulkDisable');
+    // Cash Denomination Configurations
+    Route::get('cash-denomination-configurations', [CashDenominationConfigurationController::class, 'index'])
+        ->name('cash-denomination-configurations.index');
+    Route::put('cash-denomination-configurations', [CashDenominationConfigurationController::class, 'update'])
+        ->name('cash-denomination-configurations.update');
     // Taxes
     Route::patch('taxes/{tax}/toggle-status', 'TaxController@toggleStatus')->name('taxes.toggle-status');
     Route::resource('taxes', 'TaxController')->except('show');

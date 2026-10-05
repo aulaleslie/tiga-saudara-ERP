@@ -7,9 +7,10 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Modules\People\Entities\Customer;
-use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Currency\Entities\Currency;
+use Modules\People\Entities\Customer;
+use Modules\Setting\Entities\SettingCashDenomination;
+use Modules\Setting\Entities\SettingSaleLocation;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
@@ -25,6 +26,8 @@ class Setting extends BaseModel
     protected static function booted(): void
     {
         static::created(function (Setting $setting) {
+            SettingCashDenomination::createDefaultsForSetting($setting->id);
+
             if (app()->runningUnitTests()) {
                 return;
             }
@@ -115,4 +118,8 @@ class Setting extends BaseModel
             ->withPivot('is_enabled');
     }
 
+    public function cashDenominations(): HasMany
+    {
+        return $this->hasMany(SettingCashDenomination::class);
+    }
 }
