@@ -1,4 +1,100 @@
 services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: tiga_saudara_app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    environment:
+      APP_NAME: Tiga Saudara ERP
+      APP_ENV: local
+      APP_KEY: base64:2agneh3D9yRy3U4sD32j/aMuaVONDqSwcj8kyiDJa6E=
+      APP_DEBUG: "true"
+      APP_URL: http://localhost:8000
+      APP_TIMEZONE: Asia/Makassar
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: ${MYSQL_DATABASE:-tiga_saudara}
+      DB_USERNAME: ${MYSQL_USER:-tiga_saudara}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-tiga_saudara}
+      CACHE_DRIVER: file
+      FILESYSTEM_DRIVER: local
+      LOG_CHANNEL: stack
+      LOG_LEVEL: debug
+      MAIL_MAILER: log
+      QUEUE_CONNECTION: database
+      SESSION_DRIVER: file
+      SCOUT_DRIVER: "null"
+      BROADCAST_DRIVER: pusher
+      PUSHER_APP_ID: local-app
+      PUSHER_APP_KEY: local-key
+      PUSHER_APP_SECRET: local-secret
+      PUSHER_HOST: soketi
+      PUSHER_PORT: 6001
+      PUSHER_SCHEME: http
+      PUSHER_APP_CLUSTER: mt1
+      POS_CHECKOUT_SPLIT_POSTING_ENABLED: "true"
+      SEQUENCE_PURCHASE_ENABLED: "true"
+      SEQUENCE_SALE_ENABLED: "true"
+      AUDITING_ENABLED: "true"
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - .:/var/www/html
+      - composer_vendor:/var/www/html/vendor
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.0.44
+    container_name: tiga_saudara_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-tiga_saudara}
+      MYSQL_USER: ${MYSQL_USER:-tiga_saudara}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-tiga_saudara}
+      TZ: ${TZ:-Asia/Makassar}
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --transaction-isolation=REPEATABLE-READ
+      --sql-mode=ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+      --default-time-zone=+08:00
+      --bind-address=0.0.0.0
+    ports:
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  node:
+    image: node:22-bookworm
+    container_name: tiga_saudara_node
+    restart: unless-stopped
+    working_dir: /var/www/html
+    command: sh -lc "npm ci && npm run dev -- --host 0.0.0.0"
+    environment:
+      VITE_PUSHER_APP_KEY: local-key
+      VITE_PUSHER_HOST: localhost
+      VITE_PUSHER_PORT: 6001
+      VITE_PUSHER_SCHEME: http
+      VITE_PUSHER_APP_CLUSTER: mt1
+    ports:
+      - "127.0.0.1:5173:5173"
+    volumes:
+      - .:/var/www/html
+      - node_modules:/var/www/html/node_modules
+
   soketi:
     image: quay.io/soketi/soketi:1.0-16-alpine
     environment:
@@ -9,3 +105,8 @@ services:
       - SOKETI_PORT=6001
     ports:
       - "6001:6001"
+
+volumes:
+  composer_vendor:
+  mysql_data:
+  node_modules:
