@@ -325,6 +325,10 @@ return [
         'saleReturnPayments.delete' => 'Hapus',
     ],
 
+    'Konfigurasi Pecahan Uang' => [
+        'cashDenominations.access' => 'Hak Akses',
+        'cashDenominations.edit' => 'Ubah',
+    ],
 
     'Laporan & Pengaturan' => [
         'reports.access' => 'Akses Laporan',
