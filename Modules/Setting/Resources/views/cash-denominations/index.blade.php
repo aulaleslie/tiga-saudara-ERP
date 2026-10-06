@@ -6,10 +6,10 @@
     <div class="container">
         @php
             $canEdit = auth()->user()?->can('cashDenominations.edit');
-            $oldEnabledDenominations = old('enabled_denominations', $enabledDenominations);
-            $selectedDenominations = is_array($oldEnabledDenominations)
-                ? array_map('intval', $oldEnabledDenominations)
-                : $enabledDenominations;
+            $oldEnabledDenominationIds = old('enabled_denomination_ids', $enabledDenominationIds);
+            $selectedDenominationIds = is_array($oldEnabledDenominationIds)
+                ? array_map('intval', $oldEnabledDenominationIds)
+                : $enabledDenominationIds;
         @endphp
 
         <div class="row">
@@ -22,7 +22,7 @@
                         <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                             <span>Konfigurasi Pecahan Uang</span>
                             <div class="d-flex align-items-center gap-2">
-                                <span class="badge bg-primary text-white">{{ $setting->company_name }}</span>
+                                <span class="badge bg-primary text-white">Global</span>
                                 @if($canEdit)
                                     <button type="submit" class="btn btn-sm btn-primary ml-2">
                                         Simpan Konfigurasi
@@ -33,13 +33,13 @@
 
                         <div class="card-body">
                             <p class="text-muted mb-4">
-                                Pilih pecahan yang tersedia untuk proses penghitungan kas. Perubahan hanya berlaku untuk bisnis aktif.
+                                Pilih pecahan yang tersedia untuk proses penghitungan kas. Perubahan berlaku untuk seluruh perusahaan.
                             </p>
 
-                            @error('enabled_denominations')
+                            @error('enabled_denomination_ids')
                                 <div class="alert alert-danger">{{ $message }}</div>
                             @enderror
-                            @error('enabled_denominations.*')
+                            @error('enabled_denomination_ids.*')
                                 <div class="alert alert-danger">{{ $message }}</div>
                             @enderror
 
@@ -51,9 +51,8 @@
                                                 {{ $title }}
                                             </div>
                                             <div class="list-group list-group-flush">
-                                                @foreach($denominationGroups->get($type, collect()) as $configuration)
-                                                    @php($denomination = $configuration->denomination)
-                                                    <label class="list-group-item d-flex justify-content-between align-items-center mb-0" for="denomination-{{ $denomination->value }}">
+                                                @foreach($denominationGroups->get($type, collect()) as $denomination)
+                                                    <label class="list-group-item d-flex justify-content-between align-items-center mb-0" for="denomination-{{ $denomination->id }}">
                                                         <span>
                                                             <strong>{{ $denomination->label() }}</strong>
                                                             <small class="text-muted d-block">Satuan: {{ $denomination->unitLabel() }}</small>
@@ -62,14 +61,14 @@
                                                             <input
                                                                 type="checkbox"
                                                                 class="custom-control-input"
-                                                                id="denomination-{{ $denomination->value }}"
-                                                                name="enabled_denominations[]"
-                                                                value="{{ $denomination->value }}"
-                                                                @checked(in_array($denomination->value, $selectedDenominations, true))
+                                                                id="denomination-{{ $denomination->id }}"
+                                                                name="enabled_denomination_ids[]"
+                                                                value="{{ $denomination->id }}"
+                                                                @checked(in_array($denomination->id, $selectedDenominationIds, true))
                                                                 @disabled(!$canEdit)
                                                             >
                                                             <span class="custom-control-label">
-                                                                {{ in_array($denomination->value, $selectedDenominations, true) ? 'Aktif' : 'Tidak Aktif' }}
+                                                                {{ in_array($denomination->id, $selectedDenominationIds, true) ? 'Aktif' : 'Tidak Aktif' }}
                                                             </span>
                                                         </span>
                                                     </label>

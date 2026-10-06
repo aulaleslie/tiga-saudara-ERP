@@ -6,9 +6,9 @@ namespace Modules\Setting\Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Schema;
+use Modules\Setting\Entities\CashDenomination;
 use Modules\Setting\Entities\Setting;
-use Modules\Setting\Entities\SettingCashDenomination;
-use Modules\Setting\Enums\CashDenomination;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
@@ -42,21 +42,17 @@ class CashDenominationConfigurationTest extends TestCase
         ]);
     }
 
-    public function test_new_setting_receives_all_supported_denominations_enabled_by_default(): void
+    public function test_default_denominations_are_created_globally(): void
     {
-        $configurations = SettingCashDenomination::query()
-            ->where('setting_id', $this->setting->id)
-            ->orderBy('position')
-            ->get();
+        $denominations = CashDenomination::query()->orderBy('position')->get();
 
-        $this->assertCount(11, $configurations);
+        $this->assertCount(11, $denominations);
         $this->assertSame(
-            CashDenomination::values(),
-            $configurations->pluck('denomination')
-                ->map(static fn (CashDenomination $denomination): int => $denomination->value)
-                ->all(),
+            [100, 200, 500, 1_000, 2_000, 5_000, 10_000, 20_000, 50_000, 75_000, 100_000],
+            $denominations->pluck('value')->all(),
         );
-        $this->assertTrue($configurations->every('is_enabled'));
+        $this->assertTrue($denominations->every('is_enabled'));
+        $this->assertFalse(Schema::hasColumn('cash_denominations', 'setting_id'));
     }
 
     public function test_index_displays_coin_and_banknote_denominations(): void
@@ -65,6 +61,7 @@ class CashDenominationConfigurationTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Konfigurasi Pecahan Uang');
+        $response->assertSee('Global');
         $response->assertSee('Uang Logam');
         $response->assertSee('Uang Kertas');
         $response->assertSee('Rp100');
@@ -77,89 +74,83 @@ class CashDenominationConfigurationTest extends TestCase
         $response->assertSee('Satuan: lembar');
     }
 
-    public function test_it_updates_enabled_denominations_for_active_setting(): void
+    public function test_it_updates_enabled_denominations_globally(): void
     {
-        $enabled = [100, 1_000, 20_000, 100_000];
+        $enabledIds = CashDenomination::query()
+            ->whereIn('value', [100, 1_000, 20_000, 100_000])
+            ->pluck('id')
+            ->all();
 
         $response = $this->put(route('cash-denomination-configurations.update'), [
-            'enabled_denominations' => $enabled,
+            'enabled_denomination_ids' => $enabledIds,
         ]);
 
         $response->assertRedirect(route('cash-denomination-configurations.index'));
-
         $this->assertEqualsCanonicalizing(
-            $enabled,
-            SettingCashDenomination::query()
-                ->where('setting_id', $this->setting->id)
-                ->where('is_enabled', true)
-                ->get()
-                ->map(static fn (SettingCashDenomination $configuration): int => $configuration->denomination->value)
-                ->all(),
+            [100, 1_000, 20_000, 100_000],
+            CashDenomination::query()->where('is_enabled', true)->pluck('value')->all(),
         );
-        $this->assertSame(
-            7,
-            SettingCashDenomination::query()
-                ->where('setting_id', $this->setting->id)
-                ->where('is_enabled', false)
-                ->count(),
-        );
+        $this->assertSame(7, CashDenomination::query()->where('is_enabled', false)->count());
     }
 
     public function test_it_can_disable_all_denominations(): void
     {
-        $response = $this->put(route('cash-denomination-configurations.update'));
+        $this->put(route('cash-denomination-configurations.update'))
+            ->assertRedirect(route('cash-denomination-configurations.index'));
 
-        $response->assertRedirect(route('cash-denomination-configurations.index'));
-        $this->assertSame(
-            0,
-            SettingCashDenomination::query()
-                ->where('setting_id', $this->setting->id)
-                ->where('is_enabled', true)
-                ->count(),
-        );
+        $this->assertSame(0, CashDenomination::query()->where('is_enabled', true)->count());
     }
 
-    public function test_configuration_is_isolated_between_settings(): void
+    public function test_configuration_is_shared_between_settings(): void
     {
-        $otherSetting = Setting::factory()->create();
+        $enabledId = CashDenomination::query()->where('value', 100)->value('id');
 
         $this->put(route('cash-denomination-configurations.update'), [
-            'enabled_denominations' => [100, 200],
+            'enabled_denomination_ids' => [$enabledId],
         ])->assertRedirect(route('cash-denomination-configurations.index'));
 
-        $this->assertSame(
-            2,
-            SettingCashDenomination::query()
-                ->where('setting_id', $this->setting->id)
-                ->where('is_enabled', true)
-                ->count(),
-        );
-        $this->assertSame(
-            11,
-            SettingCashDenomination::query()
-                ->where('setting_id', $otherSetting->id)
-                ->where('is_enabled', true)
-                ->count(),
-        );
+        $otherSetting = Setting::factory()->create();
+        $response = $this->withSession(['setting_id' => $otherSetting->id])
+            ->get(route('cash-denomination-configurations.index'));
+
+        $response->assertOk();
+        $response->assertSee('Perubahan berlaku untuk seluruh perusahaan.');
+        $this->assertSame(1, CashDenomination::query()->where('is_enabled', true)->count());
     }
 
-    public function test_it_rejects_unsupported_or_duplicate_denominations(): void
+    public function test_database_denominations_work_without_code_changes(): void
     {
+        $denomination = CashDenomination::query()->create([
+            'value' => 1,
+            'type' => 'banknote',
+            'is_enabled' => false,
+            'position' => 12,
+        ]);
+
+        $this->get(route('cash-denomination-configurations.index'))
+            ->assertOk()
+            ->assertSee('Rp1');
+
+        $this->put(route('cash-denomination-configurations.update'), [
+            'enabled_denomination_ids' => [$denomination->id],
+        ])->assertRedirect(route('cash-denomination-configurations.index'));
+
+        $this->assertTrue($denomination->fresh()->is_enabled);
+    }
+
+    public function test_it_rejects_unknown_or_duplicate_denomination_ids(): void
+    {
+        $denominationId = CashDenomination::query()->value('id');
+
         $this->from(route('cash-denomination-configurations.index'))
             ->put(route('cash-denomination-configurations.update'), [
-                'enabled_denominations' => [100, 100, 250],
+                'enabled_denomination_ids' => [$denominationId, $denominationId, 999_999],
             ])
             ->assertRedirect(route('cash-denomination-configurations.index'))
-            ->assertSessionHasErrors('enabled_denominations.1')
-            ->assertSessionHasErrors('enabled_denominations.2');
+            ->assertSessionHasErrors('enabled_denomination_ids.1')
+            ->assertSessionHasErrors('enabled_denomination_ids.2');
 
-        $this->assertSame(
-            11,
-            SettingCashDenomination::query()
-                ->where('setting_id', $this->setting->id)
-                ->where('is_enabled', true)
-                ->count(),
-        );
+        $this->assertSame(11, CashDenomination::query()->where('is_enabled', true)->count());
     }
 
     public function test_user_with_access_permission_sees_read_only_configuration(): void
@@ -189,22 +180,12 @@ class CashDenominationConfigurationTest extends TestCase
         $this->user->revokePermissionTo('cashDenominations.edit');
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
+        $denominationId = CashDenomination::query()->value('id');
+
         $this->put(route('cash-denomination-configurations.update'), [
-            'enabled_denominations' => [100],
+            'enabled_denomination_ids' => [$denominationId],
         ])->assertForbidden();
 
-        $this->assertSame(
-            11,
-            SettingCashDenomination::query()
-                ->where('setting_id', $this->setting->id)
-                ->where('is_enabled', true)
-                ->count(),
-        );
-    }
-
-    public function test_one_thousand_is_a_banknote_and_twenty_thousand_is_supported(): void
-    {
-        $this->assertSame('banknote', CashDenomination::Banknote1000->type());
-        $this->assertContains(20_000, CashDenomination::values());
+        $this->assertSame(11, CashDenomination::query()->where('is_enabled', true)->count());
     }
 }
