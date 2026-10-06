@@ -330,7 +330,6 @@ return [
         'cashDenominations.edit' => 'Ubah',
     ],
 
-
     'Laporan & Pengaturan' => [
         'reports.access' => 'Akses Laporan',
         'settings.access' => 'Akses Pengaturan',
