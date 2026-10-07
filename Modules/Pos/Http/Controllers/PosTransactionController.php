@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Modules\Pos\Entities\PosActionApprovalRequest;
 use Modules\Pos\Entities\PosReceiptPrintLog;
 use Modules\Pos\Entities\PosSession;
@@ -550,10 +551,15 @@ class PosTransactionController extends Controller
      */
     private function serializeTransaction(PosTransaction $transaction, Collection $approvalMap): array
     {
+        $note = trim((string) ($transaction->note ?? ''));
+        $note = $note === '' ? null : preg_replace('/\s+/u', ' ', $note);
+
         return [
             'id' => (int) $transaction->id,
             'code' => $transaction->code,
             'status' => $transaction->status,
+            'note' => $note,
+            'note_excerpt' => $note !== null ? Str::limit($note, 80) : null,
             'owner_user_id' => (int) $transaction->owner_user_id,
             'updated_at' => $transaction->updated_at?->toIso8601String(),
             'snapshot_totals' => $transaction->snapshot_totals,
