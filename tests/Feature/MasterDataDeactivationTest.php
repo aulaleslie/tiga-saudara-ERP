@@ -138,6 +138,74 @@ class MasterDataDeactivationTest extends TestCase
         $this->assertDatabaseHas('customers', ['id' => $customer->id]);
     }
 
+    public function test_supplier_deactivation_and_reactivation_lifecycle(): void
+    {
+        $supplier = Supplier::create([
+            'supplier_name' => 'Archive Supplier',
+            'setting_id' => $this->setting->id,
+            'supplier_email' => 'supplier@example.com',
+            'supplier_phone' => '08000000002',
+            'city' => 'Jakarta',
+            'country' => 'Indonesia',
+            'address' => 'Test Address',
+            'is_active' => true,
+        ]);
+
+        $this->patch(route('suppliers.toggle-status', $supplier->id))->assertRedirect();
+        $this->assertFalse($supplier->fresh()->is_active);
+        $this->assertCount(0, Supplier::active()->get());
+
+        $this->patch(route('suppliers.toggle-status', $supplier->id))->assertRedirect();
+        $this->assertTrue($supplier->fresh()->is_active);
+
+        $this->delete(route('suppliers.destroy', $supplier->id))->assertRedirect();
+        $this->assertFalse($supplier->fresh()->is_active);
+        $this->assertDatabaseHas('suppliers', ['id' => $supplier->id]);
+    }
+
+    public function test_contact_archive_actions_use_non_destructive_copy(): void
+    {
+        $customer = Customer::create([
+            'customer_name' => 'Archive Customer',
+            'customer_phone' => '08000000001',
+            'is_active' => true,
+        ]);
+        $supplier = Supplier::create([
+            'supplier_name' => 'Archive Supplier',
+            'setting_id' => $this->setting->id,
+            'supplier_email' => 'supplier@example.com',
+            'supplier_phone' => '08000000002',
+            'city' => 'Jakarta',
+            'country' => 'Indonesia',
+            'address' => 'Test Address',
+            'is_active' => true,
+        ]);
+
+        $customerHtml = view('people::customers.partials.actions', ['data' => $customer])->render();
+        $supplierHtml = view('people::suppliers.partials.actions', ['data' => $supplier])->render();
+
+        $this->assertStringContainsString('Nonaktifkan Pelanggan', $customerHtml);
+        $this->assertStringContainsString('Data tidak akan dihapus', $customerHtml);
+        $this->assertStringContainsString('Nonaktifkan Pemasok', $supplierHtml);
+        $this->assertStringContainsString('Data tidak akan dihapus', $supplierHtml);
+        $this->assertStringNotContainsString('Hapus', $customerHtml);
+        $this->assertStringNotContainsString('Hapus', $supplierHtml);
+
+        $customer->forceFill(['is_active' => false])->save();
+        $supplier->forceFill(['is_active' => false])->save();
+
+        $this->assertStringContainsString('Aktifkan Kembali', view('people::customers.partials.actions', ['data' => $customer->fresh()])->render());
+        $this->assertStringContainsString('Aktifkan Kembali', view('people::suppliers.partials.actions', ['data' => $supplier->fresh()])->render());
+    }
+
+    public function test_contact_delete_permissions_are_labeled_as_deactivation(): void
+    {
+        $permissions = require base_path('app/Config/Permissions.php');
+
+        $this->assertSame('Nonaktifkan', $permissions['Pelanggan']['customers.delete']);
+        $this->assertSame('Nonaktifkan', $permissions['Pemasok']['suppliers.delete']);
+    }
+
     public function test_tax_deactivation_reassigns_default_if_needed(): void
     {
         $tax1 = Tax::create(['name' => 'PPN 11%', 'value' => 11, 'is_default' => true, 'is_active' => true]);

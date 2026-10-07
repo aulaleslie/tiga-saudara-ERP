@@ -95,7 +95,7 @@ return [
         'customers.access' => 'Hak Akses',
         'customers.create' => 'Buat',
         'customers.edit' => 'Ubah',
-        'customers.delete' => 'Hapus',
+        'customers.delete' => 'Nonaktifkan',
         'customers.show' => 'Tampilkan',
     ],
 
@@ -408,7 +408,7 @@ return [
         'suppliers.access' => 'Hak Akses',
         'suppliers.create' => 'Buat',
         'suppliers.edit' => 'Ubah',
-        'suppliers.delete' => 'Hapus',
+        'suppliers.delete' => 'Nonaktifkan',
         'suppliers.show' => 'Tampilkan',
     ],
 
