@@ -32,11 +32,11 @@
                     </div>
                     <div class="col-md-2">
                         <label for="pos-transaction-date-from" class="small text-muted mb-1">Dari Tanggal</label>
-                        <input id="pos-transaction-date-from" type="date" class="form-control">
+                        <input id="pos-transaction-date-from" type="date" class="form-control" value="{{ $defaultDateFrom }}">
                     </div>
                     <div class="col-md-2">
                         <label for="pos-transaction-date-to" class="small text-muted mb-1">Sampai Tanggal</label>
-                        <input id="pos-transaction-date-to" type="date" class="form-control">
+                        <input id="pos-transaction-date-to" type="date" class="form-control" value="{{ $defaultDateTo }}">
                     </div>
                     <div class="col-md-3 d-flex gap-2">
                         <button id="pos-transaction-filter" type="button" class="btn btn-primary">Muat Data</button>
@@ -96,6 +96,7 @@
 
             const dataEndpoint = @json(route('pos.transactions.data'));
             const transactionsBaseUrl = @json(url('/pos/transactions'));
+            const transactionsIndexUrl = @json(route('pos.transactions.index'));
             const approvalRequestsBaseUrl = @json(url('/pos/sell/approval-requests'));
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
             const canLoad = @json(auth()->user()->can('pos.sell') && auth()->user()->can('pos.transactions.load'));
@@ -106,6 +107,42 @@
             let page = 1;
             let pagination = null;
             let latestLoadToken = 0;
+
+            const initializeFiltersFromUrl = () => {
+                const params = new URLSearchParams(window.location.search);
+                const queryValue = (key) => (params.get(key) || '').trim();
+
+                searchInput.value = queryValue('q');
+                statusSelect.value = queryValue('status') || queryValue('status[]');
+                dateFromInput.value = queryValue('date_from') || dateFromInput.value;
+                dateToInput.value = queryValue('date_to') || dateToInput.value;
+            };
+
+            const syncFilterUrl = () => {
+                const url = new URL(transactionsIndexUrl, window.location.origin);
+
+                const search = (searchInput.value || '').trim();
+                if (search !== '') {
+                    url.searchParams.set('q', search);
+                }
+
+                const status = (statusSelect.value || '').trim();
+                if (status !== '') {
+                    url.searchParams.set('status', status);
+                }
+
+                const dateFrom = (dateFromInput.value || '').trim();
+                if (dateFrom !== '') {
+                    url.searchParams.set('date_from', dateFrom);
+                }
+
+                const dateTo = (dateToInput.value || '').trim();
+                if (dateTo !== '') {
+                    url.searchParams.set('date_to', dateTo);
+                }
+
+                window.history.replaceState({}, '', url.toString());
+            };
 
             const formatCurrency = (value) => {
                 const amount = Number(value || 0);
@@ -435,6 +472,7 @@
                 }
                 setLoadingControls(true);
                 setStatus(showLoading ? 'Memuat transaksi...' : defaultStatusMessage, showLoading ? 'muted' : 'success');
+                syncFilterUrl();
                 try {
                     const response = await jsonRequest(buildQueryUrl(), 'GET');
                     if (loadToken !== latestLoadToken) {
@@ -637,6 +675,7 @@
             });
 
             setStatus(defaultStatusMessage, 'muted');
+            initializeFiltersFromUrl();
             loadRows();
         })();
     </script>

@@ -151,6 +151,8 @@ class PosTransactionController extends Controller
 
         return view('pos::transactions.index', [
             'settingId' => $settingId,
+            'defaultDateFrom' => now()->toDateString(),
+            'defaultDateTo' => now()->toDateString(),
         ]);
     }
 

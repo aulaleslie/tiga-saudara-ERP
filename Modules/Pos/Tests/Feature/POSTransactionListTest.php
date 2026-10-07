@@ -130,6 +130,29 @@ class POSTransactionListTest extends PosTransactionFeatureTestCase
             ->assertSee('Transaksi POS');
     }
 
+    public function test_transaction_list_page_defaults_date_filters_to_today(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-10-07 09:30:00'));
+
+        try {
+            $setting = $this->createSetting('BIZ POS TXN LIST DEFAULT DATE');
+            $user = $this->createUserForSetting($setting, 'POS TXN LIST DEFAULT DATE USER', [
+                'pos.access',
+                'pos.transactions.view',
+            ]);
+
+            $this->actingAsInSetting($user, $setting);
+
+            $this->get(route('pos.transactions.index'))
+                ->assertOk()
+                ->assertSee('id="pos-transaction-date-from" type="date" class="form-control" value="2026-10-07"', false)
+                ->assertSee('id="pos-transaction-date-to" type="date" class="form-control" value="2026-10-07"', false)
+                ->assertSee('initializeFiltersFromUrl();', false);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
     public function test_transaction_list_page_includes_client_bootstrap_script(): void
     {
         $setting = $this->createSetting('BIZ POS TXN LIST SCRIPT');
