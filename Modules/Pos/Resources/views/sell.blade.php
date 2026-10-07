@@ -1572,6 +1572,34 @@
                     </tr>
                 `;
             }
+            function captureCartScrollState() {
+                const scrollContainer = cartBody ? cartBody.closest(".pos-cart-table-wrap") : null;
+
+                if (!scrollContainer) {
+                    return null;
+                }
+
+                return {
+                    container: scrollContainer,
+                    top: scrollContainer.scrollTop,
+                    left: scrollContainer.scrollLeft,
+                };
+            }
+
+            function restoreCartScrollState(state) {
+                if (!state || !state.container) {
+                    return;
+                }
+
+                window.requestAnimationFrame(() => {
+                    const maxTop = Math.max(0, state.container.scrollHeight - state.container.clientHeight);
+                    const maxLeft = Math.max(0, state.container.scrollWidth - state.container.clientWidth);
+
+                    state.container.scrollTop = Math.min(state.top, maxTop);
+                    state.container.scrollLeft = Math.min(state.left, maxLeft);
+                });
+            }
+
 
             function renderCart(snapshot) {
                 console.log('[renderCart] Called with snapshot: ' + JSON.stringify({
@@ -1590,6 +1618,7 @@
                     PosStagedPayment.setLifecycleAcknowledged(false);
                 }
                 const lines = snapshot && Array.isArray(snapshot.lines) ? snapshot.lines : [];
+                const scrollState = captureCartScrollState();
 
                 if (lines.length === 0) {
                     cartBody.innerHTML = `
@@ -1600,8 +1629,8 @@
                 } else {
                     cartBody.innerHTML = lines.map(buildLineRow).join('');
                 }
-
                 refreshCartSummaryAndControls(snapshot);
+                restoreCartScrollState(scrollState);
             }
 
             function refreshCartSummaryAndControls(snapshot) {
