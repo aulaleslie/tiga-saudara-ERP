@@ -54,6 +54,15 @@
                                     <strong>{{ $cart_item->name }}</strong> <br>
                                 @endcan
                                 <span class="badge badge-success">{{ $cart_item->options->code }}</span>
+                                @can('products.edit')
+                                    <a href="{{ route('products.edit', $cart_item->id) }}"
+                                       target="_blank"
+                                       rel="noopener"
+                                       class="d-inline-block small text-info font-weight-bold ml-1"
+                                       title="Edit Produk">
+                                        <i class="bi bi-pencil-square"></i> Edit Produk
+                                    </a>
+                                @endcan
 
                                 <!-- Tooltip Container -->
                                 <span class="d-inline-block"

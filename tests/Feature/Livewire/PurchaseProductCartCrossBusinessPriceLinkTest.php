@@ -21,6 +21,7 @@ class PurchaseProductCartCrossBusinessPriceLinkTest extends TestCase
     protected Setting $setting;
     protected User $authorizedUser;
     protected User $unauthorizedUser;
+    protected User $productEditorUser;
 
     protected function setUp(): void
     {
@@ -65,6 +66,7 @@ class PurchaseProductCartCrossBusinessPriceLinkTest extends TestCase
 
         // Setup users and permissions
         $permission = Permission::firstOrCreate(['name' => 'products.manage_cross_business_prices']);
+        $editPermission = Permission::firstOrCreate(['name' => 'products.edit']);
         
         $this->authorizedUser = User::factory()->create();
         $role = Role::firstOrCreate(['name' => 'Admin']);
@@ -72,6 +74,9 @@ class PurchaseProductCartCrossBusinessPriceLinkTest extends TestCase
         $this->authorizedUser->assignRole($role);
 
         $this->unauthorizedUser = User::factory()->create();
+
+        $this->productEditorUser = User::factory()->create();
+        $this->productEditorUser->givePermissionTo($editPermission);
     }
 
     public function test_renders_cross_business_price_link_for_authorized_user()
@@ -94,6 +99,30 @@ class PurchaseProductCartCrossBusinessPriceLinkTest extends TestCase
         Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
             ->assertDontSeeHtml(route('products.cross-business-prices.edit', $this->product->id))
             ->assertSeeHtml('<strong>' . $this->product->product_name . '</strong>');
+    }
+
+    public function test_renders_product_edit_link_for_product_editor_user()
+    {
+        $this->actingAs($this->productEditorUser);
+
+        $this->seedCartRow();
+
+        Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
+            ->assertSeeHtml('href="' . route('products.edit', $this->product->id) . '"')
+            ->assertSeeHtml('target="_blank"')
+            ->assertSeeHtml('rel="noopener"')
+            ->assertSeeHtml('Edit Produk');
+    }
+
+    public function test_hides_product_edit_link_without_product_edit_permission()
+    {
+        $this->actingAs($this->unauthorizedUser);
+
+        $this->seedCartRow();
+
+        Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
+            ->assertDontSeeHtml(route('products.edit', $this->product->id))
+            ->assertDontSeeHtml('Edit Produk');
     }
 
     private function seedCartRow(): void
