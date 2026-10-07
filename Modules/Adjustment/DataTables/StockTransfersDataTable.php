@@ -81,103 +81,87 @@ class StockTransfersDataTable extends DataTable
 
 
     /**
-     * Global search: document number, current linked product name / primary
-     * barcode, and serial numbers persisted with the transfer at any stage.
-     * Uses correlated EXISTS so each transfer is returned once.
+     * Global search: document number, status, creation date, current linked
+     * product name / primary barcode, and serial numbers persisted with the
+     * transfer at any stage (requests, allocations, movements, drafts).
+     *
+     * Measured on MySQL, these shapes are slow and are avoided here:
+     * correlating the text match per transfer (rescans products/serials for
+     * every transfer), `transfers.id IN (... UNION ...)` (MySQL re-runs the
+     * union per transfer row), joining the union as a derived table (the
+     * planner still scans and sorts every transfer), and JSON scans when
+     * nothing can match. Instead the matching product/serial id sets are
+     * materialized once (CTE), the association branches are unioned, and the
+     * resulting transfer ids are stored once in a temporary table.
+     * Branches whose id set is empty are skipped.
      */
     protected function applyGlobalSearch($query, string $term): void
     {
         $like = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($term)) . '%';
-        $match = fn (string $column) => "LOWER({$column}) LIKE ? ESCAPE '!'";
-
-        $query->where(function ($search) use ($like, $match) {
-            $search->whereRaw($match('transfers.document_number'), [$like])
-                ->orWhereExists(function ($q) use ($like, $match) {
-                    $q->select(DB::raw(1))->from('products')
-                        ->whereRaw("(" . $match('products.product_name') . ' OR ' . $match('products.barcode') . ')', [$like, $like])
-                        ->where(function ($p) {
-                            $p->whereExists(fn ($e) => $e->select(DB::raw(1))->from('transfer_products')
-                                    ->whereColumn('transfer_products.transfer_id', 'transfers.id')
-                                    ->whereColumn('transfer_products.product_id', 'products.id'))
-                                ->orWhereExists(fn ($e) => $e->select(DB::raw(1))->from('transfer_approval_allocations')
-                                    ->whereColumn('transfer_approval_allocations.transfer_id', 'transfers.id')
-                                    ->whereColumn('transfer_approval_allocations.product_id', 'products.id'))
-                                ->orWhereExists(fn ($e) => $e->select(DB::raw(1))->from('transfer_movement_lines')
-                                    ->join('transfer_movements', 'transfer_movements.id', '=', 'transfer_movement_lines.transfer_movement_id')
-                                    ->whereColumn('transfer_movements.transfer_id', 'transfers.id')
-                                    ->whereColumn('transfer_movement_lines.product_id', 'products.id'))
-                                // Historical v3 request revisions (e.g. a product removed before allocation).
-                                ->orWhereExists(function ($e) {
-                                    $e->select(DB::raw(1))->from('transfer_request_revisions')
-                                        ->whereColumn('transfer_request_revisions.transfer_id', 'transfers.id')
-                                        ->whereRaw(DB::connection()->getDriverName() === 'sqlite'
-                                            ? "exists (select 1 from json_each(transfer_request_revisions.lines) j where json_extract(j.value, '\$.product_id') = products.id)"
-                                            : "JSON_CONTAINS(JSON_EXTRACT(transfer_request_revisions.lines, '\$[*].product_id'), CAST(products.id AS CHAR))");
-                                });
-                        });
-                })
-                ->orWhereExists(function ($q) use ($like, $match) {
-                    $q->select(DB::raw(1))->from('transfer_movement_serials')
-                        ->join('transfer_movements', 'transfer_movements.id', '=', 'transfer_movement_serials.transfer_movement_id')
-                        ->whereColumn('transfer_movements.transfer_id', 'transfers.id')
-                        ->whereRaw($match('transfer_movement_serials.serial_number'), [$like]);
-                })
-                ->orWhereExists(function ($q) use ($like, $match) {
-                    $q->select(DB::raw(1))->from('transfer_approval_allocation_serials')
-                        ->join('product_serial_numbers', 'product_serial_numbers.id', '=', 'transfer_approval_allocation_serials.product_serial_number_id')
-                        ->whereColumn('transfer_approval_allocation_serials.transfer_id', 'transfers.id')
-                        ->whereRaw($match('product_serial_numbers.serial_number'), [$like]);
-                });
-
-            // Persisted JSON selections (legacy and v3-draft transfer_products,
-            // v3 request revisions) hold serial ids, either bare or as
-            // {id, serial_number} objects. Correlate to the serial text per
-            // transfer so no result set is truncated.
-            $search->orWhereExists(function ($q) use ($like, $match) {
-                $q->select(DB::raw(1))->from('transfer_products')
-                    ->whereColumn('transfer_products.transfer_id', 'transfers.id')
-                    ->where(function ($w) use ($like, $match) {
-                        foreach (['serial_numbers', 'dispatched_serial_numbers'] as $column) {
-                            $w->orWhereExists($this->serialJsonExists("transfer_products.{$column}", false, $like, $match));
-                        }
-                    });
-            })->orWhereExists(function ($q) use ($like, $match) {
-                $q->select(DB::raw(1))->from('transfer_request_revisions')
-                    ->whereColumn('transfer_request_revisions.transfer_id', 'transfers.id')
-                    ->whereExists($this->serialJsonExists('transfer_request_revisions.lines', true, $like, $match));
-            });
-
-            // Keep the default header search the list had before.
-            $search->orWhereRaw('LOWER(transfers.status) LIKE ? ESCAPE \'!\'', [$like])
-                ->orWhereRaw('CAST(transfers.created_at AS CHAR) LIKE ? ESCAPE \'!\'', [$like]);
-        });
-    }
-
-    /**
-     * Correlated EXISTS over a JSON column of serial ids ($nested: revision
-     * lines with serials[].id; otherwise a flat list of ids or id objects).
-     */
-    protected function serialJsonExists(string $column, bool $nested, string $like, \Closure $match): \Closure
-    {
-        $wrapped = DB::connection()->getQueryGrammar()->wrap($column);
         $sqlite = DB::connection()->getDriverName() === 'sqlite';
 
-        if ($sqlite) {
-            $condition = $nested
-                ? "exists (select 1 from json_tree({$wrapped}) t where t.key = 'id' and t.value = psn.id)"
-                : "exists (select 1 from json_each({$wrapped}) j where j.value = psn.id or json_extract(j.value, '\$.id') = psn.id)";
-        } else {
-            $path = $nested ? '$[*].serials[*].id' : '$[*].id';
-            $condition = $nested
-                ? "JSON_CONTAINS(JSON_EXTRACT({$wrapped}, '{$path}'), CAST(psn.id AS CHAR))"
-                : "(JSON_CONTAINS({$wrapped}, CAST(psn.id AS CHAR)) OR JSON_CONTAINS(JSON_EXTRACT({$wrapped}, '{$path}'), CAST(psn.id AS CHAR)))";
+        // Columns are case-insensitive under the app's utf8mb4_unicode_ci
+        // collation (and SQLite ASCII LIKE), so no LOWER() is applied.
+        $productWhere = "product_name LIKE ? ESCAPE '!' or barcode LIKE ? ESCAPE '!'";
+        $hasProducts = DB::table('products')->whereRaw($productWhere, [$like, $like])->exists();
+        $hasSerials = DB::table('product_serial_numbers')->whereRaw("serial_number LIKE ? ESCAPE '!'", [$like])->exists();
+
+        $ctes = $cteBindings = $branches = $bindings = [];
+
+        $branches[] = ["select id as transfer_id from transfers where document_number LIKE ? ESCAPE '!' or status LIKE ? ESCAPE '!' or CAST(created_at AS CHAR) LIKE ? ESCAPE '!'", [$like, $like, $like]];
+
+        if ($hasProducts) {
+            $ctes[] = "p as (select id from products where {$productWhere})";
+            $cteBindings = array_merge($cteBindings, [$like, $like]);
+
+            $branches[] = ['select transfer_id from transfer_products where product_id in (select id from p)', []];
+            $branches[] = ['select transfer_id from transfer_approval_allocations where product_id in (select id from p)', []];
+            $branches[] = ['select m.transfer_id from transfer_movement_lines l join transfer_movements m on m.id = l.transfer_movement_id where l.product_id in (select id from p)', []];
+            $branches[] = $sqlite
+                ? ["select r.transfer_id from transfer_request_revisions r, json_each(r.`lines`) j where json_extract(j.value, '\$.product_id') in (select id from p)", []]
+                : ["select r.transfer_id from transfer_request_revisions r, json_table(r.`lines`, '\$[*]' columns (pid bigint path '\$.product_id')) jt where jt.pid in (select id from p)", []];
         }
 
-        return function ($e) use ($condition, $like, $match) {
-            $e->select(DB::raw(1))->from('product_serial_numbers as psn')
-                ->whereRaw($match('psn.serial_number'), [$like])
-                ->whereRaw($condition);
-        };
+        // Movement serial snapshots are matched by text so they survive
+        // deleted live serial rows.
+        $branches[] = ["select m.transfer_id from transfer_movement_serials s join transfer_movements m on m.id = s.transfer_movement_id where s.serial_number LIKE ? ESCAPE '!'", [$like]];
+
+        if ($hasSerials) {
+            $ctes[] = "s as (select id from product_serial_numbers where serial_number LIKE ? ESCAPE '!')";
+            $cteBindings[] = $like;
+
+            $branches[] = ['select transfer_id from transfer_approval_allocation_serials where product_serial_number_id in (select id from s)', []];
+
+            if ($sqlite) {
+                $branches[] = ["select r.transfer_id from transfer_request_revisions r, json_tree(r.`lines`) t where t.key = 'id' and t.value in (select id from s)", []];
+                foreach (['serial_numbers', 'dispatched_serial_numbers'] as $column) {
+                    $branches[] = ["select tp.transfer_id from transfer_products tp, json_each(tp.{$column}) j where (j.value in (select id from s) or json_extract(j.value, '\$.id') in (select id from s))", []];
+                }
+            } else {
+                $branches[] = ["select r.transfer_id from transfer_request_revisions r, json_table(r.`lines`, '\$[*].serials[*]' columns (sid bigint path '\$.id')) jt where jt.sid in (select id from s)", []];
+                foreach (['serial_numbers', 'dispatched_serial_numbers'] as $column) {
+                    // Elements are bare ids (legacy) or {id, serial_number} objects (v3
+                    // drafts): read each as a scalar (a) and via $.id (b); a failed read is NULL.
+                    $branches[] = ["select tp.transfer_id from transfer_products tp, json_table(tp.{$column}, '\$[*]' columns (a bigint path '\$' null on error null on empty, b bigint path '\$.id' null on error null on empty)) jt where tp.{$column} is not null and (jt.a in (select id from s) or jt.b in (select id from s))", []];
+                }
+            }
+        }
+
+        $union = implode(' union ', array_column($branches, 0));
+        $with = $ctes ? 'with ' . implode(', ', $ctes) . ' ' : '';
+        $bindings = array_merge($cteBindings, ...array_column($branches, 1));
+
+        // Resolved once per request into a connection-local temporary table,
+        // filled server-side so hit ids never pass through PHP and the count
+        // and page queries stay small however many transfers match. The
+        // table is dropped when the request terminates.
+        $table = 'tmp_transfer_search_' . bin2hex(random_bytes(6));
+        $connection = DB::connection();
+        $connection->statement("create temporary table {$table} (transfer_id bigint not null primary key)");
+        app()->terminating(fn () => $connection->statement('drop ' . ($sqlite ? '' : 'temporary ') . "table if exists {$table}"));
+        $connection->insert("insert into {$table} (transfer_id) select transfer_id from ({$with}{$union}) as hit_ids", $bindings);
+
+        $query->whereIn('transfers.id', fn ($sub) => $sub->select('transfer_id')->from($table));
     }
 
     public function query(Transfer $model): Builder

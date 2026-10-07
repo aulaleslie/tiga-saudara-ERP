@@ -154,6 +154,26 @@ class StockTransfersListSearchTest extends TestCase
     }
 
     /** @test */
+    public function broad_searches_do_not_inline_hit_ids_into_queries(): void
+    {
+        $p = $this->product('Broadmatch Item');
+        $ids = [];
+        foreach (range(1, 400) as $i) {
+            $t = $this->transfer();
+            TransferProduct::create(['transfer_id' => $t->id, 'product_id' => $p->id, 'quantity' => 1]);
+            $ids[] = $t->id;
+        }
+
+        \DB::enableQueryLog();
+        $result = $this->search('broadmatch', ['length' => 25]);
+
+        $this->assertSame(400, $result['recordsFiltered']);
+        $this->assertCount(25, $result['data']);
+        $longest = max(array_map(fn ($q) => strlen($q['query']), \DB::getQueryLog()));
+        $this->assertLessThan(6000, $longest, 'hit ids must not be inlined into SQL');
+    }
+
+    /** @test */
     public function it_keeps_status_and_date_search(): void
     {
         $t = $this->transfer();
