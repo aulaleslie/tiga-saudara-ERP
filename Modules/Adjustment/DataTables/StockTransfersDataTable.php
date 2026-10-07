@@ -154,12 +154,23 @@ class StockTransfersDataTable extends DataTable
         // Resolved once per request into a connection-local temporary table,
         // filled server-side so hit ids never pass through PHP and the count
         // and page queries stay small however many transfers match. The
-        // table is dropped when the request terminates.
+        // table must outlive this method (count and page queries run later),
+        // so it is dropped on request termination, and immediately if
+        // building it fails. Connections are not persistent in the supported
+        // runtimes, so closing the connection also discards it.
         $table = 'tmp_transfer_search_' . bin2hex(random_bytes(6));
         $connection = DB::connection();
-        $connection->statement("create temporary table {$table} (transfer_id bigint not null primary key)");
-        app()->terminating(fn () => $connection->statement('drop ' . ($sqlite ? '' : 'temporary ') . "table if exists {$table}"));
-        $connection->insert("insert into {$table} (transfer_id) select transfer_id from ({$with}{$union}) as hit_ids", $bindings);
+        $drop = fn () => $connection->statement('drop ' . ($sqlite ? '' : 'temporary ') . "table if exists {$table}");
+
+        try {
+            $connection->statement("create temporary table {$table} (transfer_id bigint not null primary key)");
+            app()->terminating($drop);
+            $connection->insert("insert into {$table} (transfer_id) select transfer_id from ({$with}{$union}) as hit_ids", $bindings);
+        } catch (\Throwable $e) {
+            $drop();
+
+            throw $e;
+        }
 
         $query->whereIn('transfers.id', fn ($sub) => $sub->select('transfer_id')->from($table));
     }

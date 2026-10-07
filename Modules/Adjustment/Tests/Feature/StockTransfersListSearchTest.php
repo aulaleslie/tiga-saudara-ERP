@@ -173,6 +173,79 @@ class StockTransfersListSearchTest extends TestCase
         $this->assertLessThan(6000, $longest, 'hit ids must not be inlined into SQL');
     }
 
+    private function searchTableName(): string
+    {
+        foreach (\DB::getQueryLog() as $q) {
+            if (preg_match('/create (?:temporary )?table (tmp_transfer_search_\w+)/', $q['query'], $m)) {
+                return $m[1];
+            }
+        }
+
+        $this->fail('no temporary search table was created');
+    }
+
+    private function assertTableGone(string $table): void
+    {
+        try {
+            \DB::select("select count(*) from {$table}");
+        } catch (\Illuminate\Database\QueryException) {
+            $this->addToAssertionCount(1);
+
+            return;
+        }
+
+        $this->fail("temporary table {$table} is still queryable on the same connection");
+    }
+
+    /** @test */
+    public function temporary_search_table_is_dropped_on_termination_after_a_successful_request(): void
+    {
+        $p = $this->product('Cleanup Item');
+        $t = $this->transfer();
+        TransferProduct::create(['transfer_id' => $t->id, 'product_id' => $p->id, 'quantity' => 1]);
+
+        \DB::enableQueryLog();
+        $this->assertSame([$t->id], $this->ids('cleanup item'));
+        $table = $this->searchTableName();
+
+        // The framework test client terminates the app after the response,
+        // so the termination callback has already issued the drop.
+        $drops = array_filter(\DB::getQueryLog(), fn ($q) => preg_match("/^drop (temporary )?table if exists {$table}$/", $q['query']));
+        $this->assertCount(1, $drops);
+
+        $this->app->terminate(); // running termination again must be harmless
+        $this->assertTableGone($table);
+    }
+
+    /** @test */
+    public function temporary_search_table_is_dropped_when_building_it_fails(): void
+    {
+        $p = $this->product('Failing Cleanup Item');
+        $t = $this->transfer();
+        TransferProduct::create(['transfer_id' => $t->id, 'product_id' => $p->id, 'quantity' => 1]);
+
+        \DB::enableQueryLog();
+        // Fail after the table exists and has been populated.
+        \DB::listen(function ($query) {
+            if (str_starts_with($query->sql, 'insert into tmp_transfer_search_')) {
+                throw new \RuntimeException('boom after temporary table creation');
+            }
+        });
+
+        try {
+            $this->search('failing cleanup item');
+        } catch (\Throwable) {
+            // Yajra may surface the failure as an error payload or an exception.
+        }
+
+        $table = $this->searchTableName();
+        $this->assertTableGone($table);
+
+        // The registered callback must also be harmless when it runs afterwards.
+        $this->app->terminate();
+        $this->assertTableGone($table);
+    }
+
     /** @test */
     public function it_keeps_status_and_date_search(): void
     {
