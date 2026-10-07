@@ -32,11 +32,11 @@
                     </div>
                     <div class="col-md-2">
                         <label for="pos-transaction-date-from" class="small text-muted mb-1">Dari Tanggal</label>
-                        <input id="pos-transaction-date-from" type="date" class="form-control">
+                        <input id="pos-transaction-date-from" type="date" class="form-control" value="{{ $defaultDateFrom }}">
                     </div>
                     <div class="col-md-2">
                         <label for="pos-transaction-date-to" class="small text-muted mb-1">Sampai Tanggal</label>
-                        <input id="pos-transaction-date-to" type="date" class="form-control">
+                        <input id="pos-transaction-date-to" type="date" class="form-control" value="{{ $defaultDateTo }}">
                     </div>
                     <div class="col-md-3 d-flex gap-2">
                         <button id="pos-transaction-filter" type="button" class="btn btn-primary">Muat Data</button>

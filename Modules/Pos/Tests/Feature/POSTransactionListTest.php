@@ -147,6 +147,49 @@ class POSTransactionListTest extends PosTransactionFeatureTestCase
             ->assertSee('loadRows();', false);
     }
 
+    public function test_transaction_list_page_defaults_date_filters_to_today(): void
+    {
+        Carbon::setTestNow(Carbon::create(2026, 3, 12, 10, 0, 0));
+
+        try {
+            $setting = $this->createSetting('BIZ POS TXN LIST DEFAULT DATE');
+            $user = $this->createUserForSetting($setting, 'POS TXN LIST DEFAULT DATE USER', [
+                'pos.access',
+                'pos.transactions.view',
+            ]);
+
+            $response = $this->actingAs($user)
+                ->withSession(['setting_id' => $setting->id])
+                ->get(route('pos.transactions.index'));
+
+            $response->assertOk()
+                ->assertSee('id="pos-transaction-date-from" type="date" class="form-control" value="2026-03-12"', false)
+                ->assertSee('id="pos-transaction-date-to" type="date" class="form-control" value="2026-03-12"', false);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_transaction_list_page_preserves_date_filters_from_query(): void
+    {
+        $setting = $this->createSetting('BIZ POS TXN LIST QUERY DATE');
+        $user = $this->createUserForSetting($setting, 'POS TXN LIST QUERY DATE USER', [
+            'pos.access',
+            'pos.transactions.view',
+        ]);
+
+        $response = $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.transactions.index', [
+                'date_from' => '2026-03-01',
+                'date_to' => '2026-03-15',
+            ]));
+
+        $response->assertOk()
+            ->assertSee('id="pos-transaction-date-from" type="date" class="form-control" value="2026-03-01"', false)
+            ->assertSee('id="pos-transaction-date-to" type="date" class="form-control" value="2026-03-15"', false);
+    }
+
     public function test_transaction_list_data_can_filter_by_date_range(): void
     {
         $setting = $this->createSetting('BIZ POS TXN LIST DATE RANGE');

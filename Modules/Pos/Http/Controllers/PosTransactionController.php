@@ -149,8 +149,12 @@ class PosTransactionController extends Controller
             'Fitur transaksi POS belum diaktifkan untuk bisnis ini.'
         );
 
+        $today = now()->toDateString();
+
         return view('pos::transactions.index', [
             'settingId' => $settingId,
+            'defaultDateFrom' => $this->dateQueryValueOrDefault($request, 'date_from', $today),
+            'defaultDateTo' => $this->dateQueryValueOrDefault($request, 'date_to', $today),
         ]);
     }
 
@@ -485,6 +489,17 @@ class PosTransactionController extends Controller
         return (bool) Setting::query()
             ->whereKey($settingId)
             ->value('pos_transactions_enabled');
+    }
+
+    private function dateQueryValueOrDefault(Request $request, string $key, string $default): string
+    {
+        $value = $request->query($key);
+
+        if (is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) === 1) {
+            return $value;
+        }
+
+        return $default;
     }
 
     private function transactionsDisabledResponse(Request $request, int $settingId): ?JsonResponse
