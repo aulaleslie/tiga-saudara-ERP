@@ -2,6 +2,7 @@
 
 namespace App\Livewire\SalesReturn;
 
+use App\Constants\PaymentStatus;
 use Exception;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
@@ -143,11 +144,11 @@ class SaleReturnSettlementForm extends Component
                 ->limit(50)
                 ->get()
                 ->map(function ($sale) use ($productId) {
-                    $statusLabel = ' (Partial)';
+                    $statusLabel = ' (' . PaymentStatus::label(PaymentStatus::PARTIAL) . ')';
                     if ((float) $sale->due_amount <= 0) {
-                        $statusLabel = ' (Paid)';
+                        $statusLabel = ' (' . PaymentStatus::label(PaymentStatus::PAID) . ')';
                     } elseif ((float) $sale->paid_amount <= 0) {
-                        $statusLabel = ' (Unpaid)';
+                        $statusLabel = ' (' . PaymentStatus::label(PaymentStatus::UNPAID) . ')';
                     }
                     
                     $saleDetail = $sale->saleDetails->where('product_id', $productId)->first();
