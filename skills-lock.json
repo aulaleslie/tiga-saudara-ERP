@@ -6,6 +6,12 @@
       "sourceType": "github",
       "computedHash": "9ac1268798ae480224524bd7541de58d9bed5f0d5e2c8914f4a61dee23e5f244"
     },
+    "grill-me": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/grill-me/SKILL.md",
+      "computedHash": "9cdbb4b8f7a3aeaef82e6230c9e823500d4a8a1214c726cf342cf9829d34fc7d"
+    },
     "laravel-specialist": {
       "source": "jeffallan/claude-skills",
       "sourceType": "github",
