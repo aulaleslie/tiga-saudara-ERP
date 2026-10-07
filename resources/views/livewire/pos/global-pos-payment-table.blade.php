@@ -229,12 +229,15 @@
                         @endif
                     </td>
                     <td class="text-center">
-                        @if ($proj['payment_status'] === 'Paid')
-                            <span class="badge bg-success">Lunas</span>
-                        @elseif ($proj['payment_status'] === 'Partial')
-                            <span class="badge bg-warning text-dark">Dibayar Sebagian</span>
+                        @php
+                            $paymentStatus = $proj['payment_status'] ?? null;
+                        @endphp
+                        @if (\App\Constants\PaymentStatus::matches($paymentStatus, \App\Constants\PaymentStatus::PAID))
+                            <span class="badge bg-success">{{ \App\Constants\PaymentStatus::label($paymentStatus) }}</span>
+                        @elseif (\App\Constants\PaymentStatus::matches($paymentStatus, \App\Constants\PaymentStatus::PARTIAL))
+                            <span class="badge bg-warning text-dark">{{ \App\Constants\PaymentStatus::label($paymentStatus) }}</span>
                         @else
-                            <span class="badge bg-danger">Belum Dibayar</span>
+                            <span class="badge bg-danger">{{ \App\Constants\PaymentStatus::label($paymentStatus) }}</span>
                         @endif
                     </td>
                     <td>

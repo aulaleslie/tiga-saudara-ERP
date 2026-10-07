@@ -243,6 +243,40 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
             ->assertSee('20,000'); // Paid in last 30d: 20,000
     }
 
+    public function test_global_pos_payment_table_renders_indonesian_payment_status_labels()
+    {
+        $this->createCompletedPosTransaction($this->setting1, $this->customer1, 10000, 'POS-LABEL-UNPAID');
+
+        $partial = $this->createCompletedPosTransaction($this->setting1, $this->customer1, 20000, 'POS-LABEL-PARTIAL');
+        SalePayment::create([
+            'sale_id' => $partial['sale']->id,
+            'amount' => 5000,
+            'date' => now()->toDateString(),
+            'status' => SalePayment::STATUS_ACTIVE,
+            'payment_method_id' => $this->cashMethod->id,
+            'payment_method' => 'Cash',
+            'reference' => 'PAY-LABEL-PARTIAL',
+        ]);
+        $partial['sale']->reconcileFromActivePayments();
+
+        $paid = $this->createCompletedPosTransaction($this->setting1, $this->customer1, 30000, 'POS-LABEL-PAID');
+        SalePayment::create([
+            'sale_id' => $paid['sale']->id,
+            'amount' => 30000,
+            'date' => now()->toDateString(),
+            'status' => SalePayment::STATUS_ACTIVE,
+            'payment_method_id' => $this->cashMethod->id,
+            'payment_method' => 'Cash',
+            'reference' => 'PAY-LABEL-PAID',
+        ]);
+        $paid['sale']->reconcileFromActivePayments();
+
+        Livewire::test(GlobalPosPaymentTable::class)
+            ->assertSee('Belum Dibayar')
+            ->assertSee('Dibayar Sebagian')
+            ->assertSee('Lunas');
+    }
+
     public function test_pos_summary_cards_render_loading_overlay_targeting_toggle_card_filter()
     {
         $html = Livewire::test(PosSummaryCards::class)->html();

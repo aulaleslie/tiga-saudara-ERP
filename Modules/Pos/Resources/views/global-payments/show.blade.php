@@ -213,12 +213,12 @@
                                             <td class="text-end text-success">{{ format_currency($salePaid) }}</td>
                                             <td class="text-end text-danger fw-bold">{{ format_currency($saleDue) }}</td>
                                             <td class="text-center">
-                                                @if($sale->payment_status === 'PAID')
-                                                    <span class="badge bg-success">Lunas</span>
-                                                @elseif($sale->payment_status === 'PARTIAL')
-                                                    <span class="badge bg-warning text-dark">Sebagian</span>
+                                                @if(\App\Constants\PaymentStatus::matches($sale->payment_status, \App\Constants\PaymentStatus::PAID))
+                                                    <span class="badge bg-success">{{ \App\Constants\PaymentStatus::label($sale->payment_status) }}</span>
+                                                @elseif(\App\Constants\PaymentStatus::matches($sale->payment_status, \App\Constants\PaymentStatus::PARTIAL))
+                                                    <span class="badge bg-warning text-dark">{{ \App\Constants\PaymentStatus::label($sale->payment_status) }}</span>
                                                 @else
-                                                    <span class="badge bg-danger">Belum Bayar</span>
+                                                    <span class="badge bg-danger">{{ \App\Constants\PaymentStatus::label($sale->payment_status) }}</span>
                                                 @endif
                                             </td>
                                             <td class="text-center">
