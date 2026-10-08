@@ -138,6 +138,132 @@ class NotificationCommandTest extends TestCase
         $this->assertNotNull($notification->resolved_at);
     }
 
+
+    public function test_sync_uses_sellable_stock_for_low_stock_notifications()
+    {
+        $setting = Setting::factory()->create();
+        $user = User::factory()->create(['is_active' => 1]);
+        $permission = Permission::firstOrCreate(['name' => 'notifications.lowStock', 'guard_name' => 'web']);
+        $role = Role::firstOrCreate(['name' => 'Low Stock Manager', 'guard_name' => 'web']);
+        $role->givePermissionTo($permission);
+        $user->assignRole($role);
+        $user->settings()->attach($setting->id, ['role_id' => $role->id]);
+
+        $location = \Modules\Setting\Entities\Location::factory()->create(['setting_id' => $setting->id]);
+
+        $globalProduct = Product::create([
+            'setting_id' => $setting->id,
+            'product_name' => 'Global Kabel',
+            'product_code' => 'GLOBAL-LOW',
+            'product_cost' => 0,
+            'product_price' => 0,
+            'product_stock_alert' => 5,
+            'product_quantity' => 12,
+            'broken_quantity' => 8,
+            'stock_managed' => true,
+        ]);
+
+        $locationProduct = Product::create([
+            'setting_id' => $setting->id,
+            'product_name' => 'Lokasi Kabel',
+            'product_code' => 'LOCATION-LOW',
+            'product_cost' => 0,
+            'product_price' => 0,
+            'product_stock_alert' => 5,
+            'product_quantity' => 20,
+            'broken_quantity' => 0,
+            'stock_managed' => true,
+        ]);
+
+        $stock = \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $locationProduct->id,
+            'location_id' => $location->id,
+            'quantity' => 9,
+            'quantity_non_tax' => 9,
+            'quantity_tax' => 0,
+            'broken_quantity_non_tax' => 6,
+            'broken_quantity_tax' => 0,
+            'broken_quantity' => 6,
+        ]);
+
+        Artisan::call('notifications:sync');
+
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $user->id,
+            'type' => 'global_low_stock',
+            'source_type' => Product::class,
+            'source_id' => $globalProduct->id,
+        ]);
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $user->id,
+            'type' => 'location_low_stock',
+            'source_type' => \Modules\Product\Entities\ProductStock::class,
+            'source_id' => $stock->id,
+        ]);
+
+        $globalNotification = Notification::where('source_id', $globalProduct->id)
+            ->where('type', 'global_low_stock')
+            ->first();
+        $locationNotification = Notification::where('source_id', $stock->id)
+            ->where('type', 'location_low_stock')
+            ->first();
+
+        $this->assertStringContainsString('(4 / 5)', $globalNotification->message);
+        $this->assertEquals(4, $globalNotification->metadata['current_quantity']);
+        $this->assertStringContainsString('(3 / 5)', $locationNotification->message);
+        $this->assertEquals(3, $locationNotification->metadata['current_quantity']);
+    }
+
+    public function test_sync_resolves_stock_notification_when_sellable_stock_recovers()
+    {
+        $setting = Setting::factory()->create();
+        $user = User::factory()->create(['is_active' => 1]);
+        $location = \Modules\Setting\Entities\Location::factory()->create(['setting_id' => $setting->id]);
+        $product = Product::create([
+            'setting_id' => $setting->id,
+            'product_name' => 'Recovery Kabel',
+            'product_code' => 'RECOVERY-LOW',
+            'product_cost' => 0,
+            'product_price' => 0,
+            'product_stock_alert' => 5,
+            'product_quantity' => 20,
+            'broken_quantity' => 0,
+            'stock_managed' => true,
+        ]);
+        $stock = \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $location->id,
+            'quantity' => 12,
+            'quantity_non_tax' => 12,
+            'quantity_tax' => 0,
+            'broken_quantity_non_tax' => 8,
+            'broken_quantity_tax' => 0,
+            'broken_quantity' => 8,
+        ]);
+        $notification = Notification::create([
+            'user_id' => $user->id,
+            'setting_id' => $setting->id,
+            'location_id' => $location->id,
+            'category' => 'stock',
+            'type' => 'location_low_stock',
+            'title' => 'Test',
+            'message' => 'Test',
+            'action_url' => '#',
+            'source_type' => \Modules\Product\Entities\ProductStock::class,
+            'source_id' => $stock->id,
+            'fingerprint' => 'stock:location:recovery-test',
+        ]);
+
+        Artisan::call('notifications:sync');
+        $this->assertNull($notification->fresh()->resolved_at);
+
+        $stock->update(['broken_quantity' => 4, 'broken_quantity_non_tax' => 4]);
+
+        Artisan::call('notifications:sync');
+
+        $this->assertNotNull($notification->fresh()->resolved_at);
+    }
+
     public function test_prune_cutoff_behavior()
     {
         $setting = Setting::factory()->create();

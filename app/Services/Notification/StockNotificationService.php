@@ -27,6 +27,16 @@ class StockNotificationService
         }
     }
 
+    public function thresholdQuantityForProduct(Product $product): float
+    {
+        return max(0.0, (float) $product->product_quantity - (float) ($product->broken_quantity ?? 0));
+    }
+
+    public function thresholdQuantityForLocation(ProductStock $stock): float
+    {
+        return max(0.0, (float) $stock->quantity - (float) ($stock->broken_quantity ?? 0));
+    }
+
     /**
      * @param float $previousQuantity The quantity the threshold decision is based on, BEFORE the change.
      * @param float $currentQuantity The quantity the threshold decision is based on, AFTER the change.
@@ -54,9 +64,10 @@ class StockNotificationService
         }
     }
 
-    public function createGlobalStockNotifications(Product $product): void
+    public function createGlobalStockNotifications(Product $product, ?float $currentQuantity = null): void
     {
         $recipients = $this->permissionResolver->getLowStockRecipients($product->setting_id);
+        $displayQuantity = $currentQuantity ?? (float) $product->product_quantity;
 
         foreach ($recipients as $user) {
             $this->notificationService->write([
@@ -66,13 +77,13 @@ class StockNotificationService
                 'category' => 'stock',
                 'type' => 'global_low_stock',
                 'title' => 'Stok Global Menipis',
-                'message' => "Stok untuk produk {$product->product_name} menipis secara global ({$product->product_quantity} / {$product->product_stock_alert}).",
+                'message' => "Stok untuk produk {$product->product_name} menipis secara global ({$displayQuantity} / {$product->product_stock_alert}).",
                 'source_type' => Product::class,
                 'source_id' => $product->id,
                 'fingerprint' => "stock:global:{$product->id}:user:{$user->id}",
                 'action_url' => route('products.show', $product->id, false),
                 'metadata' => [
-                    'current_quantity' => $product->product_quantity,
+                    'current_quantity' => $displayQuantity,
                     'threshold' => $product->product_stock_alert,
                 ]
             ]);
