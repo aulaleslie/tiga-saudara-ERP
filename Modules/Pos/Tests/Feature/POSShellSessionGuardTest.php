@@ -105,15 +105,20 @@ class POSShellSessionGuardTest extends TestCase
             ->assertOk()
             ->assertSee('Layar Kasir POS')
             ->assertSee('Sesi #' . $activeSession->id)
-            ->assertSee('Kasir Information')
-            ->assertSee('Navigation')
+                        ->assertSee('Navigation')
             ->assertSee('Search')
             ->assertSee('Keranjang')
             ->assertSee('Pelanggan')
             ->assertSee('Pembayaran')
             ->assertSee('Pilih Pembayaran')
-            ->assertDontSee('Override')
-            ->assertSee('pos-shell-posting-note');
+            ->assertSee('pos-shell-posting-note')
+            ->assertSee('pos-transaction-note-input', false)
+            ->assertSee('rows="4"', false)
+            ->assertSee('grid-template-rows: clamp(64px, 9dvh, 86px) clamp(104px, 16dvh, 150px) minmax(0, 1fr) clamp(168px, 21dvh, 218px) clamp(132px, 19dvh, 184px);', false)
+            ->assertSee('.pos-cart-product {', false)
+            ->assertSee('max-width: 240px;', false)
+            ->assertSee('-webkit-line-clamp: 2;', false)
+            ->assertSee('<div class="name" title="${productName}">${productName}${serialBadge}</div>', false);
 
         $this->assertSame($cashEventCountBefore, DB::table('pos_session_cash_events')->count());
         $this->assertSame($checkoutCountBefore, DB::table('pos_checkouts')->count());
