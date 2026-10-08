@@ -94,18 +94,28 @@ class GlobalPurchasePaymentAttachmentTest extends TestCase
         $this->assertEquals(0, Media::count());
     }
 
-    public function test_attachment_copied_to_every_generated_payment()
+    public function test_distinct_multi_file_rows_and_empty_rows_preserve_original_name_metadata()
     {
         $p1 = $this->createPurchase(1000);
         $p2 = $this->createPurchase(2000);
 
         Storage::fake('local');
-        $fileName = 'test-receipt.pdf';
-        $fullPath = Storage::path('temp/dropzone/' . $fileName);
-        if (!file_exists(dirname($fullPath))) {
-            mkdir(dirname($fullPath), 0777, true);
+        $dropzoneDir = Storage::path('temp/dropzone');
+        if (!file_exists($dropzoneDir)) {
+            mkdir($dropzoneDir, 0777, true);
         }
-        file_put_contents($fullPath, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+
+        // Row 1: two files (one with .meta original name)
+        $file1 = 'staged-file-1.pdf';
+        $fullPath1 = $dropzoneDir . '/' . $file1;
+        file_put_contents($fullPath1, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+        file_put_contents($fullPath1 . '.meta', json_encode(['original_name' => 'Faktur Pembelian 1.pdf']));
+
+        $file2 = 'staged-file-2.txt';
+        $fullPath2 = $dropzoneDir . '/' . $file2;
+        file_put_contents($fullPath2, "Kwitansi pelunasan baris pertama");
+
+        // Row 2 has 0 files (empty row)
 
         $data = [
             'date' => now()->format('Y-m-d'),
@@ -115,19 +125,189 @@ class GlobalPurchasePaymentAttachmentTest extends TestCase
                 $p1->id => 500,
                 $p2->id => 1000,
             ],
-            'attachment' => $fileName,
+            'attachments' => [
+                $p1->id => [$file1, $file2],
+                $p2->id => [],
+            ],
         ];
 
         $payments = $this->service->storeMultiPayment($this->supplier->id, $data);
 
         $this->assertCount(2, $payments);
-        
-        // Assert each payment has exactly 1 media record and independent files
-        foreach ($payments as $payment) {
-            $this->assertCount(1, $payment->getMedia('attachments'));
-        }
+
+        $pay1 = collect($payments)->firstWhere('purchase_id', $p1->id);
+        $pay2 = collect($payments)->firstWhere('purchase_id', $p2->id);
+
+        // Row 1 has 2 distinct attachments
+        $mediaPay1 = $pay1->getMedia('attachments');
+        $this->assertCount(2, $mediaPay1);
+        $this->assertEquals('Faktur Pembelian 1.pdf', $mediaPay1[0]->getCustomProperty('original_name'));
+        $this->assertFalse(file_exists($fullPath1 . '.meta')); // Cleaned up
+
+        // Row 2 has 0 attachments
+        $this->assertCount(0, $pay2->getMedia('attachments'));
         $this->assertEquals(2, Media::count());
-        $this->assertFalse(file_exists($fullPath)); // Cleaned up
+
+        // Staged files are cleaned up from dropzone
+        $this->assertFalse(file_exists($fullPath1));
+        $this->assertFalse(file_exists($fullPath2));
+    }
+
+    public function test_rejects_duplicate_file_references_across_rows()
+    {
+        $p1 = $this->createPurchase(1000);
+        $p2 = $this->createPurchase(2000);
+
+        Storage::fake('local');
+        $dropzoneDir = Storage::path('temp/dropzone');
+        if (!file_exists($dropzoneDir)) {
+            mkdir($dropzoneDir, 0777, true);
+        }
+
+        $sharedFile = 'shared-receipt.pdf';
+        file_put_contents($dropzoneDir . '/' . $sharedFile, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+
+        $data = [
+            'date' => now()->format('Y-m-d'),
+            'reference' => 'PAY-DUP',
+            'payment_method_id' => $this->paymentMethod->id,
+            'allocations' => [
+                $p1->id => 500,
+                $p2->id => 1000,
+            ],
+            'attachments' => [
+                $p1->id => [$sharedFile],
+                $p2->id => [$sharedFile], // Duplicate across rows!
+            ],
+        ];
+
+        try {
+            $this->service->storeMultiPayment($this->supplier->id, $data);
+            $this->fail('Expected ValidationException on duplicate file references across rows');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->assertArrayHasKey('attachments', $e->errors());
+            $this->assertStringContainsString('duplikat', $e->errors()['attachments'][0]);
+        }
+
+        $this->assertEquals(0, PurchasePayment::count());
+        $this->assertEquals(0, Media::count());
+    }
+
+    public function test_rejects_files_on_zero_amount_allocation_rows()
+    {
+        $p1 = $this->createPurchase(1000);
+        $p2 = $this->createPurchase(2000);
+
+        Storage::fake('local');
+        $dropzoneDir = Storage::path('temp/dropzone');
+        if (!file_exists($dropzoneDir)) {
+            mkdir($dropzoneDir, 0777, true);
+        }
+
+        $file1 = 'zero-row-file.pdf';
+        file_put_contents($dropzoneDir . '/' . $file1, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+
+        $data = [
+            'date' => now()->format('Y-m-d'),
+            'reference' => 'PAY-ZERO-ATTACH',
+            'payment_method_id' => $this->paymentMethod->id,
+            'allocations' => [
+                $p1->id => 500,
+                $p2->id => 0, // Zero allocation!
+            ],
+            'attachments' => [
+                $p1->id => [],
+                $p2->id => [$file1], // Attachments on zero allocation row!
+            ],
+        ];
+
+        try {
+            $this->service->storeMultiPayment($this->supplier->id, $data);
+            $this->fail('Expected ValidationException when zero-allocation row has files');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->assertTrue(
+                isset($e->errors()['attachments']) || isset($e->errors()["allocations.{$p2->id}"]),
+                'Errors must identify zero allocation row having attachments'
+            );
+        }
+
+        $this->assertEquals(0, PurchasePayment::count());
+        $this->assertEquals(0, Media::count());
+    }
+
+    public function test_rejects_tampered_row_associations_or_nonexistent_purchase_in_attachments()
+    {
+        $p1 = $this->createPurchase(1000);
+
+        Storage::fake('local');
+        $dropzoneDir = Storage::path('temp/dropzone');
+        if (!file_exists($dropzoneDir)) {
+            mkdir($dropzoneDir, 0777, true);
+        }
+
+        $file1 = 'tampered.pdf';
+        file_put_contents($dropzoneDir . '/' . $file1, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+
+        $data = [
+            'date' => now()->format('Y-m-d'),
+            'reference' => 'PAY-TAMPERED',
+            'payment_method_id' => $this->paymentMethod->id,
+            'allocations' => [
+                $p1->id => 500,
+            ],
+            'attachments' => [
+                999999 => [$file1], // Tampered / unallocated purchase ID
+            ],
+        ];
+
+        try {
+            $this->service->storeMultiPayment($this->supplier->id, $data);
+            $this->fail('Expected ValidationException when unallocated purchase ID has attachments');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->assertArrayHasKey('attachments', $e->errors());
+        }
+
+        $this->assertEquals(0, PurchasePayment::count());
+    }
+
+    public function test_rejects_malformed_file_entries_mixed_with_valid_files()
+    {
+        $p1 = $this->createPurchase(1000);
+
+        Storage::fake('local');
+        $dropzoneDir = Storage::path('temp/dropzone');
+        if (!file_exists($dropzoneDir)) {
+            mkdir($dropzoneDir, 0777, true);
+        }
+
+        $validFile = 'valid-receipt.pdf';
+        file_put_contents($dropzoneDir . '/' . $validFile, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+
+        // Payload contains a valid file mixed with a blank string and a non-string entry
+        $data = [
+            'date' => now()->format('Y-m-d'),
+            'reference' => 'PAY-MALFORMED-ENTRY',
+            'payment_method_id' => $this->paymentMethod->id,
+            'allocations' => [
+                $p1->id => 500,
+            ],
+            'attachments' => [
+                $p1->id => [$validFile, '', 12345],
+            ],
+        ];
+
+        try {
+            $this->service->storeMultiPayment($this->supplier->id, $data);
+            $this->fail('Expected ValidationException on malformed file entries');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->assertTrue(
+                isset($e->errors()["attachments.{$p1->id}"]) || isset($e->errors()['attachments']),
+                'Must reject submission when malformed entries exist instead of silently dropping them'
+            );
+        }
+
+        $this->assertEquals(0, PurchasePayment::count());
+        $this->assertEquals(0, Media::count());
     }
 
     public function test_failure_rolls_back_everything()
@@ -137,16 +317,19 @@ class GlobalPurchasePaymentAttachmentTest extends TestCase
 
         Storage::fake('local');
         config()->set('media-library.disk_name', 'local');
-        $fileName = 'test-attachment.pdf';
-        $attachmentPath = Storage::path('temp/dropzone/' . $fileName);
-        if (!file_exists(dirname($attachmentPath))) {
-            mkdir(dirname($attachmentPath), 0777, true);
+        $dropzoneDir = Storage::path('temp/dropzone');
+        if (!file_exists($dropzoneDir)) {
+            mkdir($dropzoneDir, 0777, true);
         }
-        file_put_contents($attachmentPath, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
 
-        // Fail on the second copy by deleting the temp file during the first media event
-        \Illuminate\Support\Facades\Event::listen(\Spatie\MediaLibrary\MediaCollections\Events\MediaHasBeenAdded::class, function($event) use ($attachmentPath) {
-            @unlink($attachmentPath);
+        $file1 = 'test-file-1.pdf';
+        $file2 = 'test-file-2.pdf';
+        file_put_contents($dropzoneDir . '/' . $file1, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+        file_put_contents($dropzoneDir . '/' . $file2, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+
+        // Fail on the second payment by deleting the second file before it can be added
+        \Illuminate\Support\Facades\Event::listen(\Spatie\MediaLibrary\MediaCollections\Events\MediaHasBeenAdded::class, function($event) use ($dropzoneDir, $file2) {
+            @unlink($dropzoneDir . '/' . $file2);
         });
 
         $data = [
@@ -157,14 +340,17 @@ class GlobalPurchasePaymentAttachmentTest extends TestCase
                 $p1->id => 500,
                 $p2->id => 1000,
             ],
-            'attachment' => $fileName,
+            'attachments' => [
+                $p1->id => [$file1],
+                $p2->id => [$file2],
+            ],
         ];
 
         try {
             $this->service->storeMultiPayment($this->supplier->id, $data);
             $this->fail('Service should have thrown an exception');
         } catch (\Throwable $e) {
-            // DB Transaction rollback is implicit, but we can verify our models were not persisted
+            // DB Transaction rollback is implicit, verify our models were not persisted
             $this->assertEquals(0, PurchasePayment::count());
             
             // Verify media was cleaned up / never persisted
@@ -173,9 +359,6 @@ class GlobalPurchasePaymentAttachmentTest extends TestCase
             // Validate the disk is completely empty (no partial physical copies)
             $directories = Storage::disk('local')->directories();
             $this->assertEmpty(array_filter($directories, fn($dir) => $dir !== 'temp'));
-            
-            // The staged temporary source was also cleaned up
-            $this->assertFalse(file_exists($attachmentPath));
             
             // Validate purchases were unaffected
             $this->assertEquals(1000, $p1->fresh()->live_due_amount);

@@ -151,13 +151,15 @@ class GlobalPurchasePaymentController extends Controller
             'date' => 'required|date',
             'payment_method_id' => 'required|integer|exists:payment_methods,id',
             'note' => 'nullable|string',
-            'attachment' => 'nullable|string',
+            'attachments' => 'nullable|array',
+            'attachments.*' => 'nullable|array',
+            'attachments.*.*' => 'required|string',
             'allocations' => 'required|array',
             'allocations.*' => 'numeric|min:0',
         ]);
 
         $service->storeMultiPayment($supplier_id, $request->only([
-            'reference', 'date', 'payment_method_id', 'note', 'attachment', 'allocations'
+            'reference', 'date', 'payment_method_id', 'note', 'attachments', 'allocations'
         ]));
 
         toast('Pembayaran Global berhasil dibuat!', 'success');

@@ -231,4 +231,88 @@ class GlobalPurchasePaymentCreateTest extends TestCase
             $latePurchase->id,
         ], $supplierCandidateIds);
     }
+
+    public function test_renders_multiple_file_attachment_control_per_row_with_stable_purchase_id()
+    {
+        session(['setting_id' => $this->setting1->id]);
+
+        $response = $this->actingAs($this->user)->get(route('purchases.global-payments.create', [
+            'supplier' => $this->supplier->id,
+            'purchase_id' => $this->purchase1->id,
+        ]));
+
+        $response->assertOk();
+
+        // Check context columns are preserved
+        $response->assertSee('Nomor Transaksi');
+        $response->assertSee('No. Pembelian Supplier');
+        $response->assertSee('Deskripsi');
+        $response->assertSee('Jatuh Tempo');
+        $response->assertSee('Total');
+        $response->assertSee('Sisa Tagihan');
+        $response->assertSee('Jumlah Dibayar');
+        $response->assertSee('Lampiran');
+
+        // Check dropzone container is rendered for each purchase row with stable purchase id
+        $response->assertSee('id="dropzone-purchase-' . $this->purchase1->id . '"', false);
+        $response->assertSee('data-purchase-id="' . $this->purchase1->id . '"', false);
+        $response->assertSee('id="dropzone-purchase-' . $this->purchase2->id . '"', false);
+        $response->assertSee('data-purchase-id="' . $this->purchase2->id . '"', false);
+
+        // Ensure legacy top-level dropzone is not rendered
+        $response->assertDontSee('id="file-dropzone"', false);
+    }
+
+    public function test_form_preserves_row_specific_hidden_inputs_and_uses_individual_staging_endpoints()
+    {
+        session(['setting_id' => $this->setting1->id]);
+
+        // Create > 10 candidate purchases so they span across multiple DataTables pages
+        for ($i = 3; $i <= 12; $i++) {
+            $p = $this->purchase1->replicate();
+            $p->reference = "PR-PAGINATED-{$i}";
+            $p->save();
+        }
+
+        // Simulate session old input with row-specific allocations and attachments
+        $oldSession = [
+            'allocations' => [
+                $this->purchase1->id => 500,
+                $this->purchase2->id => 750,
+            ],
+            'attachments' => [
+                $this->purchase1->id => ['receipt1.pdf', 'invoice1.png'],
+                $this->purchase2->id => ['contract2.docx'],
+            ],
+        ];
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['_old_input' => $oldSession])
+            ->get(route('purchases.global-payments.create', [
+                'supplier' => $this->supplier->id,
+            ]));
+
+        $response->assertOk();
+
+        // 1. Verify individual staging and delete route endpoints are present in page scripts
+        $response->assertSee(route('purchase-payments.attachments.upload'));
+        $response->assertSee(route('purchase-payments.attachments.delete'));
+
+        // 2. Verify all 12 candidate rows are rendered in HTML markup (DataTables manages them client-side)
+        $response->assertSee('PR-PAGINATED-12');
+
+        // 3. Verify row-specific hidden inputs for attachments were initialized from old input
+        $response->assertSee('name="attachments[' . $this->purchase1->id . '][]"', false);
+        $response->assertSee('value="receipt1.pdf"', false);
+        $response->assertSee('value="invoice1.png"', false);
+        $response->assertSee('name="attachments[' . $this->purchase2->id . '][]"', false);
+        $response->assertSee('value="contract2.docx"', false);
+
+        // 4. Verify client script embeds rowAttachmentsMap tracking for off-page rows
+        $response->assertSee('rowAttachmentsMap[' . $this->purchase1->id . '].push({', false);
+        $response->assertSee('serverName: "receipt1.pdf"', false);
+
+        // 5. Verify submit handler blocks failed/error uploads
+        $response->assertSee('getFilesWithStatus(Dropzone.ERROR)');
+    }
 }

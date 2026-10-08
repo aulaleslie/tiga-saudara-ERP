@@ -77,7 +77,8 @@
                                             <th>Jatuh Tempo</th>
                                             <th>Total</th>
                                             <th>Sisa Tagihan</th>
-                                            <th style="width: 250px;">Jumlah Dibayar</th>
+                                            <th style="width: 220px;">Jumlah Dibayar</th>
+                                            <th style="width: 260px;">Lampiran</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -86,8 +87,9 @@
                                             $isStarting = $startingPurchase && $startingPurchase->id === $candidate->id;
                                             $defaultAmount = $isStarting ? $candidate->live_due_amount : 0;
                                             $oldAmount = old('allocations.'.$candidate->id, $defaultAmount);
+                                            $oldAttachments = old('attachments.'.$candidate->id, []);
                                         @endphp
-                                        <tr>
+                                        <tr data-purchase-id="{{ $candidate->id }}">
                                             <td>
                                                 <a href="{{ route('purchases.global-payments.show', $candidate->id) }}" target="_blank">
                                                     {{ $candidate->reference }}
@@ -109,6 +111,25 @@
                                                     value="{{ $oldAmount }}">
                                                 <input type="hidden" name="allocations[{{ $candidate->id }}]" id="allocation_hidden_{{ $candidate->id }}" value="{{ $oldAmount }}">
                                             </td>
+                                            <td>
+                                                <div class="row-dropzone dropzone p-2 border rounded"
+                                                     id="dropzone-purchase-{{ $candidate->id }}"
+                                                     data-purchase-id="{{ $candidate->id }}"
+                                                     style="min-height: 80px; font-size: 0.85rem;">
+                                                    <div class="dz-message m-1 text-center" data-dz-message style="font-size: 0.8rem; cursor: pointer;">
+                                                        <i class="bi bi-cloud-arrow-up"></i> <span class="d-inline">Upload berkas</span>
+                                                    </div>
+                                                </div>
+                                                <div class="row-attachments-hidden-inputs" id="attachments-hidden-inputs-{{ $candidate->id }}">
+                                                    @if(is_array($oldAttachments))
+                                                        @foreach($oldAttachments as $oldFile)
+                                                            @if(!empty($oldFile))
+                                                                <input type="hidden" name="attachments[{{ $candidate->id }}][]" value="{{ $oldFile }}" data-file-name="{{ $oldFile }}">
+                                                            @endif
+                                                        @endforeach
+                                                    @endif
+                                                </div>
+                                            </td>
                                         </tr>
                                         @endforeach
                                     </tbody>
@@ -120,17 +141,7 @@
                                 <textarea class="form-control" rows="4" name="note">{{ old('note') }}</textarea>
                             </div>
 
-                            <div class="form-group">
-                                <div class="form-group">
-                                    <label for="attachment">Unggah Berkas (PDF/Gambar)</label>
-                                    <div class="dropzone d-flex flex-wrap align-items-center justify-content-center"
-                                         id="file-dropzone">
-                                        <div class="dz-message" data-dz-message>
-                                            <i class="bi bi-cloud-arrow-up"></i> Drag & Drop a file here or click to upload
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                            <div id="persistent-attachments-container"></div>
                         </div>
                     </div>
                 </div>
@@ -141,17 +152,130 @@
 
 @push('page_scripts')
     <script src="{{ asset('js/payment-amount-input.js') }}"></script>
+    <script src="{{ asset('js/dropzone.js') }}"></script>
     <script>
+        Dropzone.autoDiscover = false;
+
         $(document).ready(function () {
             function formatCurrency(num) {
                 return PaymentAmountInput.formatDisplay(String(num || 0));
             }
 
+            // Global map to track staged attachments across all purchases (even when off-page)
+            // Format: rowAttachmentsMap[purchaseId] = [ { serverName: '...', clientName: '...' } ]
+            var rowAttachmentsMap = {};
+
+            // Initialize rowAttachmentsMap with any old input values rendered on page load
+            @foreach($candidates as $candidate)
+                rowAttachmentsMap[{{ $candidate->id }}] = [];
+                @php
+                    $candidateOldAttachments = old('attachments.'.$candidate->id, []);
+                @endphp
+                @if(is_array($candidateOldAttachments))
+                    @foreach($candidateOldAttachments as $oldFile)
+                        @if(!empty($oldFile))
+                            rowAttachmentsMap[{{ $candidate->id }}].push({
+                                serverName: "{{ $oldFile }}",
+                                clientName: "{{ $oldFile }}"
+                            });
+                        @endif
+                    @endforeach
+                @endif
+            @endforeach
+
+            var activeDropzones = {}; // Map of purchaseId => Dropzone instance for active table rows
+
             var table = $('#allocations-table').DataTable({
                 lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
                 pageLength: 10,
                 ordering: false,
+                drawCallback: function () {
+                    initDropzonesForVisibleRows();
+                }
             });
+
+            function initDropzonesForVisibleRows() {
+                $('#allocations-table tbody .row-dropzone').each(function () {
+                    var el = this;
+                    var purchaseId = $(el).data('purchase-id');
+
+                    if (activeDropzones[purchaseId]) {
+                        return; // already initialized
+                    }
+
+                    var dz = new Dropzone(el, {
+                        url: '{{ route('purchase-payments.attachments.upload') }}',
+                        paramName: 'file',
+                        uploadMultiple: false,
+                        maxFilesize: null,
+                        timeout: 0,
+                        acceptedFiles: '.jpg,.jpeg,.png,.webp,.gif,.bmp,.pdf,.doc,.docx,.xls,.xlsx,.txt',
+                        addRemoveLinks: true,
+                        dictRemoveFile: "<i class='bi bi-x-circle text-danger'></i>",
+                        dictInvalidFileType: "Tipe berkas tidak didukung.",
+                        headers: {
+                            'X-CSRF-TOKEN': "{{ csrf_token() }}"
+                        },
+                        init: function () {
+                            var self = this;
+
+                            // Display pre-existing files if any (e.g. from old input)
+                            if (rowAttachmentsMap[purchaseId] && rowAttachmentsMap[purchaseId].length > 0) {
+                                $.each(rowAttachmentsMap[purchaseId], function (idx, item) {
+                                    var mockFile = { name: item.clientName, size: 12345, serverFileName: item.serverName };
+                                    self.emit("addedfile", mockFile);
+                                    self.emit("complete", mockFile);
+                                    self.files.push(mockFile);
+                                });
+                            }
+
+                            self.on("success", function (file, response) {
+                                file.serverFileName = response.name;
+                                if (!rowAttachmentsMap[purchaseId]) {
+                                    rowAttachmentsMap[purchaseId] = [];
+                                }
+                                rowAttachmentsMap[purchaseId].push({
+                                    serverName: response.name,
+                                    clientName: file.name
+                                });
+                            });
+
+                            self.on("removedfile", function (file) {
+                                var serverName = file.serverFileName;
+                                if (serverName) {
+                                    if (rowAttachmentsMap[purchaseId]) {
+                                        rowAttachmentsMap[purchaseId] = rowAttachmentsMap[purchaseId].filter(function (f) {
+                                            return f.serverName !== serverName;
+                                        });
+                                    }
+
+                                    $.ajax({
+                                        type: 'POST',
+                                        url: '{{ route('purchase-payments.attachments.delete') }}',
+                                        data: {
+                                            _token: "{{ csrf_token() }}",
+                                            file_name: serverName
+                                        }
+                                    });
+                                } else {
+                                    if (rowAttachmentsMap[purchaseId]) {
+                                        rowAttachmentsMap[purchaseId] = rowAttachmentsMap[purchaseId].filter(function (f) {
+                                            return f.clientName !== file.name;
+                                        });
+                                    }
+                                }
+                            });
+
+                            self.on("error", function (file, message) {
+                                var errorText = typeof message === 'object' && message.message ? message.message : message;
+                                alert('Gagal mengunggah berkas untuk pembelian #' + purchaseId + ': ' + errorText + '\nHapus atau unggah ulang berkas yang gagal sebelum menyimpan.');
+                            });
+                        }
+                    });
+
+                    activeDropzones[purchaseId] = dz;
+                });
+            }
 
             function recalculateTotal() {
                 var total = 0;
@@ -167,23 +291,16 @@
             });
             recalculateTotal();
 
-            // The formatter renders in real time by cancelling the native beforeinput/input
-            // events and dispatching its own 'financial-amount:change' event after every
-            // accepted edit, so the hidden allocation field and running total must be kept in
-            // sync from that event (not 'input', which the formatter's real-time editing path
-            // never fires) to avoid staying stale until blur.
             $('#allocations-table').on('financial-amount:change', '.allocation-input', function () {
                 var id = $(this).data('id');
                 var canonical = PaymentAmountInput.getCanonicalValue(this);
 
                 if (canonical === null) {
-                    // Invalid: leave the hidden field untouched so submit-time validation catches it.
                     recalculateTotal();
                     return;
                 }
 
                 $('#allocation_hidden_' + id).val(canonical);
-
                 recalculateTotal();
             });
 
@@ -205,12 +322,39 @@
                 }
 
                 $('#allocation_hidden_' + id).val(PaymentAmountInput.getCanonicalValue(this));
-
                 recalculateTotal();
             });
 
             $('#payment-form').on('submit', function (e) {
-                // Block submission if any currently visible allocation input holds an invalid edit.
+                // 1. Check if any dropzone has ongoing uploads or failed files
+                var uploadPending = false;
+                var hasFailedUploads = false;
+                $.each(activeDropzones, function (pId, dz) {
+                    if (dz.getUploadingFiles().length > 0 || dz.getQueuedFiles().length > 0) {
+                        uploadPending = true;
+                        return false;
+                    }
+                    // Check for files in error status
+                    var failed = dz.getFilesWithStatus(Dropzone.ERROR);
+                    if (failed && failed.length > 0) {
+                        hasFailedUploads = true;
+                        return false;
+                    }
+                });
+
+                if (uploadPending) {
+                    e.preventDefault();
+                    alert('Mohon tunggu hingga seluruh proses unggah berkas selesai.');
+                    return false;
+                }
+
+                if (hasFailedUploads) {
+                    e.preventDefault();
+                    alert('Terdapat berkas yang gagal diunggah. Hapus atau unggah ulang berkas yang gagal sebelum menyimpan.');
+                    return false;
+                }
+
+                // 2. Block submission if any allocation input holds an invalid edit.
                 var hasInvalid = false;
                 table.$('.allocation-input').each(function () {
                     if (PaymentAmountInput.getCanonicalValue(this) === null) {
@@ -225,8 +369,11 @@
                     return false;
                 }
 
-                // Ensure all inputs are synced to hidden fields before submit
-                // And append hidden inputs to the form since DataTables removes off-page rows
+                // 3. Check for zero-amount rows having staged files
+                var zeroAmountWithFiles = false;
+                var zeroAmountPurchaseRef = '';
+
+                // Sync all allocations across DataTables pages and check zero-allocation attachments
                 table.$('.allocation-input').each(function() {
                     var id = $(this).data('id');
                     var canonical = PaymentAmountInput.getCanonicalValue(this);
@@ -237,9 +384,13 @@
                         val = max;
                     }
 
-                    // If the hidden input is not in the DOM, it might have been removed by DataTables pagination
-                    // DataTables removes tr elements from DOM when they are not on the current page.
-                    // We need to add the hidden inputs back to the form if they are not present.
+                    var rowFiles = rowAttachmentsMap[id] || [];
+                    if (val <= 0 && rowFiles.length > 0) {
+                        zeroAmountWithFiles = true;
+                        zeroAmountPurchaseRef = '#' + id;
+                    }
+
+                    // Attach hidden input to persistent form if off-page
                     if ($('#allocation_hidden_' + id).length === 0 || !$.contains(document, $('#allocation_hidden_' + id)[0])) {
                         $('<input>').attr({
                             type: 'hidden',
@@ -252,50 +403,31 @@
                     }
                 });
 
+                if (zeroAmountWithFiles) {
+                    e.preventDefault();
+                    alert('Baris alokasi dengan nominal 0 tidak boleh memiliki lampiran berkas.');
+                    return false;
+                }
+
+                // 4. Serialize all attachments across all purchases into persistent container
+                $('#persistent-attachments-container').empty();
+                $.each(rowAttachmentsMap, function (purchaseId, files) {
+                    if (files && files.length > 0) {
+                        $.each(files, function (idx, fileObj) {
+                            $('<input>').attr({
+                                type: 'hidden',
+                                name: 'attachments[' + purchaseId + '][]',
+                                value: fileObj.serverName
+                            }).appendTo('#persistent-attachments-container');
+                        });
+                    }
+                });
+
+                // Remove any inline attachment hidden inputs that were already in the table to avoid duplication
+                $('.row-attachments-hidden-inputs').empty();
+
                 $('#btn-submit').attr('disabled', true);
             });
         });
-    </script>
-
-    <script src="{{ asset('js/dropzone.js') }}"></script>
-    <script>
-        Dropzone.options.fileDropzone = {
-            url: '{{ route('dropzone.upload') }}',
-            maxFilesize: 2,
-            acceptedFiles: '.jpg,.jpeg,.png,.pdf',
-            maxFiles: 1,
-            addRemoveLinks: true,
-            dictRemoveFile: "<i class='bi bi-x-circle text-danger'></i> Remove",
-            headers: {
-                'X-CSRF-TOKEN': "{{ csrf_token() }}"
-            },
-            init: function () {
-                var uploadedFileMap = {};
-
-                this.on("success", function (file, response) {
-                    $('form').append('<input type="hidden" name="attachment" value="' + response.name + '">');
-                    uploadedFileMap[file.name] = response.name;
-                });
-
-                this.on("removedfile", function (file) {
-                    var name = uploadedFileMap[file.name] || file.name;
-                    $.ajax({
-                        type: 'POST',
-                        url: '{{ route('dropzone.delete') }}',
-                        data: {
-                            _token: "{{ csrf_token() }}",
-                            file_name: name
-                        },
-                    });
-                    $('form').find('input[name="attachment"][value="' + name + '"]').remove();
-                });
-
-                this.on("addedfile", function () {
-                    if (this.files.length > 1) {
-                        this.removeFile(this.files[0]);
-                    }
-                });
-            }
-        };
     </script>
 @endpush

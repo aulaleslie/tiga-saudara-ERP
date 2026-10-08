@@ -217,14 +217,14 @@ class GlobalPurchasePaymentStoreTest extends TestCase
         $this->assertEquals(1, PurchasePayment::count()); // Only 1 created
     }
 
-    public function test_attachment_replication()
+    public function test_row_specific_attachment_storage_and_isolation()
     {
         // Mock storage for medialibrary and temp dropzone
         \Illuminate\Support\Facades\Storage::fake('local');
         \Illuminate\Support\Facades\Storage::fake('public');
         
         $tempPath = 'temp/dropzone/test-file.pdf';
-        $pdfContent = "%PDF-1.4\n%TEST-GLOBAL-PAYMENT-PDF-CONTENT\n";
+        $pdfContent = "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF";
         \Illuminate\Support\Facades\Storage::disk('local')->put($tempPath, $pdfContent);
         $fullPath = \Illuminate\Support\Facades\Storage::disk('local')->path($tempPath);
 
@@ -238,7 +238,10 @@ class GlobalPurchasePaymentStoreTest extends TestCase
             'reference' => 'GLOB-PAY-02',
             'date' => now()->format('Y-m-d'),
             'payment_method_id' => $this->paymentMethod->id,
-            'attachment' => 'test-file.pdf',
+            'attachments' => [
+                $this->purchase1->id => ['test-file.pdf'],
+                $this->purchase2->id => [],
+            ],
             'allocations' => [
                 $this->purchase1->id => 100,
                 $this->purchase2->id => 100,
@@ -248,10 +251,54 @@ class GlobalPurchasePaymentStoreTest extends TestCase
         $response->assertSessionHasNoErrors();
         $this->assertEquals(2, PurchasePayment::count());
         
-        $payments = PurchasePayment::all();
-        foreach ($payments as $payment) {
-            $this->assertCount(1, $payment->getMedia('attachments'));
-        }
+        $pay1 = PurchasePayment::where('purchase_id', $this->purchase1->id)->first();
+        $pay2 = PurchasePayment::where('purchase_id', $this->purchase2->id)->first();
+
+        // Row 1 has 1 attachment
+        $this->assertCount(1, $pay1->getMedia('attachments'));
+        // Row 2 has 0 attachments (not replicated)
+        $this->assertCount(0, $pay2->getMedia('attachments'));
+    }
+
+    public function test_store_request_validation_for_valid_zero_file_and_malformed_attachments()
+    {
+        // 1. Valid zero-file payload (null or empty attachments array)
+        $respZero = $this->actingAs($this->user)->post(route('purchases.global-payments.store', $this->supplier->id), [
+            'reference' => 'GLOB-PAY-ZERO-FILES',
+            'date' => now()->format('Y-m-d'),
+            'payment_method_id' => $this->paymentMethod->id,
+            'attachments' => [],
+            'allocations' => [
+                $this->purchase1->id => 100,
+            ]
+        ]);
+        $respZero->assertSessionHasNoErrors();
+
+        // 2. Malformed attachments payload: attachments is a string instead of array
+        $respMalformed1 = $this->actingAs($this->user)->post(route('purchases.global-payments.store', $this->supplier->id), [
+            'reference' => 'GLOB-PAY-MALFORMED-1',
+            'date' => now()->format('Y-m-d'),
+            'payment_method_id' => $this->paymentMethod->id,
+            'attachments' => 'invalid-string-payload',
+            'allocations' => [
+                $this->purchase1->id => 100,
+            ]
+        ]);
+        $respMalformed1->assertSessionHasErrors(['attachments']);
+
+        // 3. Malformed attachments payload: inner row files item is non-string (e.g. integer or array)
+        $respMalformed2 = $this->actingAs($this->user)->post(route('purchases.global-payments.store', $this->supplier->id), [
+            'reference' => 'GLOB-PAY-MALFORMED-2',
+            'date' => now()->format('Y-m-d'),
+            'payment_method_id' => $this->paymentMethod->id,
+            'attachments' => [
+                $this->purchase1->id => [['nested' => 'bad']],
+            ],
+            'allocations' => [
+                $this->purchase1->id => 100,
+            ]
+        ]);
+        $respMalformed2->assertSessionHasErrors(["attachments.{$this->purchase1->id}.0"]);
     }
 
     public function test_rejects_supplier_mismatch()
@@ -396,7 +443,9 @@ class GlobalPurchasePaymentStoreTest extends TestCase
                 'reference' => 'GLOB-FAIL-MEDIA-CLEANUP',
                 'date' => now()->format('Y-m-d'),
                 'payment_method_id' => $this->paymentMethod->id,
-                'attachment' => 'cleanup-fail-test.pdf',
+                'attachments' => [
+                    $this->purchase1->id => ['cleanup-fail-test.pdf'],
+                ],
                 'allocations' => [
                     $this->purchase1->id => 100,
                 ]

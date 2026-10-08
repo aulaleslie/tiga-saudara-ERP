@@ -20,7 +20,7 @@ class GlobalPurchasePaymentService
      *        - date: date
      *        - payment_method_id: int
      *        - note: string (optional)
-     *        - attachment: string (file name from dropzone) (optional)
+     *        - attachments: [purchase_id => [filename, ...]] (optional)
      * @return array Array of created PurchasePayment instances
      * @throws \Exception
      */
@@ -31,38 +31,9 @@ class GlobalPurchasePaymentService
             throw ValidationException::withMessages(['allocations' => 'Tidak ada alokasi yang diberikan.']);
         }
 
-        // Pre-validate attachment file, path containment, MIME, extension, and size
-        $attachmentPath = null;
-        if (!empty($data['attachment'])) {
-            $basename = basename($data['attachment']);
-            if ($basename !== $data['attachment'] || str_contains($data['attachment'], '..')) {
-                throw ValidationException::withMessages(['attachment' => 'Path traversal tidak diperbolehkan.']);
-            }
-
-            $stagingDir = \Illuminate\Support\Facades\Storage::path('temp/dropzone');
-            $targetPath = $stagingDir . DIRECTORY_SEPARATOR . $basename;
-            $realStaging = realpath($stagingDir);
-            $realTarget = realpath($targetPath);
-            $stagingBound = $realStaging ? rtrim($realStaging, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR : '';
-
-            if (!$realStaging || !$realTarget || !str_starts_with($realTarget, $stagingBound)) {
-                throw ValidationException::withMessages(['attachment' => 'File lampiran tidak valid atau berada di luar direktori dropzone.']);
-            }
-
-            $allowedMimes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-            $allowedExts = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
-            $ext = strtolower(pathinfo($realTarget, PATHINFO_EXTENSION));
-            $mime = function_exists('mime_content_type') ? strtolower((string) @mime_content_type($realTarget)) : '';
-
-            if (!in_array($ext, $allowedExts, true) || empty($mime) || !in_array($mime, $allowedMimes, true)) {
-                throw ValidationException::withMessages(['attachment' => 'File lampiran memiliki ekstensi atau MIME type yang tidak didukung.']);
-            }
-
-            if (filesize($realTarget) > 10240 * 1024) {
-                throw ValidationException::withMessages(['attachment' => 'Ukuran file lampiran melebihi batas 10MB.']);
-            }
-
-            $attachmentPath = $realTarget;
+        $rawAttachments = $data['attachments'] ?? [];
+        if (!is_array($rawAttachments)) {
+            throw ValidationException::withMessages(['attachments' => 'Format data lampiran tidak valid.']);
         }
 
         // Filter positive allocations
@@ -70,6 +41,13 @@ class GlobalPurchasePaymentService
         foreach ($allocations as $pId => $rawAmount) {
             $rawFloat = (float) $rawAmount;
             if ($rawFloat <= 0) {
+                // If this row has attachments but non-positive allocation, reject the entire submission
+                if (!empty($rawAttachments[$pId]) && is_array($rawAttachments[$pId]) && count(array_filter($rawAttachments[$pId])) > 0) {
+                    throw ValidationException::withMessages([
+                        'attachments' => "Baris pembelian #{$pId} memiliki lampiran namun nominal alokasinya 0.",
+                        "allocations.{$pId}" => "Baris pembelian #{$pId} memiliki lampiran namun nominal alokasinya 0.",
+                    ]);
+                }
                 continue;
             }
             $amount = round($rawFloat, 2);
@@ -79,14 +57,76 @@ class GlobalPurchasePaymentService
             $positiveAllocations[(int) $pId] = $amount;
         }
 
+        // Check if any key in rawAttachments is not in allocations or has 0 allocation
+        foreach ($rawAttachments as $pId => $files) {
+            if (!empty($files) && is_array($files) && count(array_filter($files)) > 0) {
+                if (!isset($positiveAllocations[(int) $pId])) {
+                    throw ValidationException::withMessages([
+                        'attachments' => "Baris pembelian #{$pId} memiliki lampiran namun nominal alokasinya 0 atau tidak ada.",
+                        "allocations.{$pId}" => "Baris pembelian #{$pId} memiliki lampiran namun nominal alokasinya 0 atau tidak ada.",
+                    ]);
+                }
+            }
+        }
+
         if (empty($positiveAllocations)) {
             throw ValidationException::withMessages(['allocations' => 'Tidak ada alokasi positif yang valid untuk diproses.']);
+        }
+
+        // Pre-validate all attachments across all rows using PurchasePaymentStoreService rules
+        // Ensure no duplicate file is used anywhere across the entire submission
+        /** @var PurchasePaymentStoreService $paymentStoreService */
+        $paymentStoreService = app(PurchasePaymentStoreService::class);
+        $globalSeenFiles = [];
+        $validatedAttachmentsByPurchase = []; // [purchaseId => [ ['path' => ..., 'original_name' => ...], ... ]]
+
+        foreach ($positiveAllocations as $purchaseId => $amount) {
+            $rowFiles = $rawAttachments[$purchaseId] ?? [];
+            if (!is_array($rowFiles)) {
+                throw ValidationException::withMessages(["attachments.{$purchaseId}" => "Format lampiran untuk pembelian #{$purchaseId} tidak valid."]);
+            }
+
+            // Reject malformed file entries (non-string, blank) instead of silently dropping them
+            foreach ($rowFiles as $idx => $file) {
+                if (!is_string($file) || trim($file) === '') {
+                    throw ValidationException::withMessages([
+                        "attachments.{$purchaseId}" => "Lampiran pada indeks {$idx} untuk pembelian #{$purchaseId} tidak valid.",
+                    ]);
+                }
+
+                $trimmed = trim($file);
+                if (isset($globalSeenFiles[$trimmed])) {
+                    throw ValidationException::withMessages([
+                        'attachments' => "Lampiran duplikat '{$trimmed}' terdeteksi pada lebih dari satu alokasi atau berulang.",
+                    ]);
+                }
+                $globalSeenFiles[$trimmed] = true;
+            }
+
+            if (!empty($rowFiles)) {
+                try {
+                    $validatedItems = $paymentStoreService->validateMultipleAttachments($rowFiles);
+                    $validatedAttachmentsByPurchase[$purchaseId] = $validatedItems;
+                } catch (\InvalidArgumentException $e) {
+                    throw ValidationException::withMessages([
+                        "attachments.{$purchaseId}" => $e->getMessage(),
+                    ]);
+                }
+            } else {
+                $validatedAttachmentsByPurchase[$purchaseId] = [];
+            }
         }
 
         $createdMedia = [];
 
         try {
-            return DB::transaction(function () use ($supplierId, $data, $positiveAllocations, $attachmentPath, &$createdMedia) {
+            return DB::transaction(function () use (
+                $supplierId,
+                $data,
+                $positiveAllocations,
+                $validatedAttachmentsByPurchase,
+                &$createdMedia
+            ) {
                 $targetPurchaseIds = array_keys($positiveAllocations);
                 sort($targetPurchaseIds); // Deterministic ordering by ID to prevent deadlocks
 
@@ -125,6 +165,7 @@ class GlobalPurchasePaymentService
                 }
 
                 $createdPayments = [];
+                $processedFilesToClean = [];
 
                 foreach ($positiveAllocations as $purchaseId => $amount) {
                     /** @var Purchase $purchase */
@@ -150,14 +191,26 @@ class GlobalPurchasePaymentService
                         'note' => $data['note'] ?? null,
                     ]);
 
-                    if (!empty($data['attachment'])) {
-                        $payment->_temporary_attachment = $data['attachment'];
-                    }
+                    // Attach only this row's validated files to the generated payment
+                    $rowAttachments = $validatedAttachmentsByPurchase[$purchaseId] ?? [];
+                    foreach ($rowAttachments as $item) {
+                        $validPath = $item['path'];
+                        $originalName = $item['original_name'];
 
-                    // Replicate attachment to media collection if provided
-                    if ($attachmentPath) {
-                        $media = $payment->addMedia($attachmentPath)->preservingOriginal()->toMediaCollection('attachments');
+                        $media = $payment->addMedia($validPath)
+                            ->withCustomProperties([
+                                'original_name' => $originalName,
+                            ])
+                            ->toMediaCollection('attachments');
+
                         $createdMedia[] = $media;
+                        $processedFilesToClean[] = $validPath;
+
+                        // Clean up .meta file if exists
+                        $metaPath = $validPath . '.meta';
+                        if (file_exists($metaPath)) {
+                            @unlink($metaPath);
+                        }
                     }
 
                     // Sync purchase header balances from canonical active payments
@@ -174,9 +227,11 @@ class GlobalPurchasePaymentService
                     $createdPayments[] = $payment;
                 }
 
-                // Clean up staging attachment source after successful media creation across all payments
-                if ($attachmentPath && file_exists($attachmentPath)) {
-                    @unlink($attachmentPath);
+                // Clean up staging files after successful transaction
+                foreach ($processedFilesToClean as $path) {
+                    if (file_exists($path)) {
+                        @unlink($path);
+                    }
                 }
 
                 return $createdPayments;
