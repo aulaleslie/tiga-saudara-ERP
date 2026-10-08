@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Livewire\Purchase\CreateForm;
+use App\Livewire\Purchase\ProductCart;
 use App\Models\User;
 use Carbon\Carbon;
 use Gloudemans\Shoppingcart\Facades\Cart;
@@ -11,6 +12,7 @@ use Livewire\Livewire;
 use Modules\Currency\Entities\Currency;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Purchase\Entities\PaymentTerm;
 use Modules\Purchase\Entities\Purchase;
@@ -911,6 +913,146 @@ class PurchaseDuplicateTest extends TestCase
         $this->assertEquals(24, (float) $duplicatedDetails[1]->quantity);
     }
 
+    public function test_purchase_duplicate_cart_rows_remain_editable_before_submit(): void
+    {
+        Setting::query()->whereKey(session('setting_id'))->update(['is_pkp' => true]);
+
+        [$supplier, $paymentTerm] = $this->createSupplierAndTerm();
+        [$product, $pcsUnit, $boxUnit] = $this->createConversionProduct();
+        $removedProduct = $this->createTestProduct('DUP-REMOVE-' . uniqid());
+        $addedProduct = $this->createTestProduct('DUP-ADD-' . uniqid());
+        $tax = Tax::create(['name' => 'PPN 11%', 'value' => 11]);
+
+        ProductPrice::create([
+            'product_id' => $addedProduct->id,
+            'setting_id' => session('setting_id'),
+            'last_purchase_price' => 5000,
+            'average_purchase_price' => 5000,
+            'purchase_tax_id' => $tax->id,
+        ]);
+
+        $conversion = ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $boxUnit->id,
+            'base_unit_id' => $pcsUnit->id,
+            'conversion_factor' => 12,
+        ]);
+
+        $originalPurchase = $this->createConversionPurchase($supplier, $paymentTerm);
+
+        PurchaseDetail::create([
+            'purchase_id' => $originalPurchase->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 24,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'sub_total' => 24000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'tax_id' => null,
+            'purchase_unit_id' => $boxUnit->id,
+            'product_unit_conversion_id' => $conversion->id,
+            'entered_quantity' => 2,
+            'entered_unit_price' => 12000,
+            'entered_product_discount_amount' => 0,
+            'conversion_factor' => 12,
+            'unit_name' => 'BOX',
+            'base_unit_name' => 'PCS',
+        ]);
+
+        PurchaseDetail::create([
+            'purchase_id' => $originalPurchase->id,
+            'product_id' => $removedProduct->id,
+            'product_name' => $removedProduct->product_name,
+            'product_code' => $removedProduct->product_code,
+            'quantity' => 1,
+            'price' => 2500,
+            'unit_price' => 2500,
+            'sub_total' => 2500,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'tax_id' => null,
+        ]);
+
+        $form = Livewire::test(CreateForm::class, [
+            'idempotencyToken' => 'token-dup-editable-cart',
+            'duplicateId' => $originalPurchase->id,
+        ]);
+
+        $cart = Cart::instance('purchase');
+        $editableRow = $cart->content()->firstWhere('id', $product->id);
+        $removedRow = $cart->content()->firstWhere('id', $removedProduct->id);
+
+        $this->assertNotNull($editableRow);
+        $this->assertNotNull($removedRow);
+
+        $cartComponent = Livewire::test(ProductCart::class, [
+            'cartInstance' => 'purchase',
+            'selectedSettingId' => session('setting_id'),
+        ]);
+
+        $cartComponent
+            ->set('quantity.' . $editableRow->rowId, 3)
+            ->call('updateQuantity', $editableRow->rowId, $product->id);
+
+        $editableRow = $cart->content()->firstWhere('id', $product->id);
+        $cartComponent->call('updateUnit', $editableRow->rowId, 'base_' . $pcsUnit->id);
+
+        $editableRow = $cart->content()->firstWhere('id', $product->id);
+        $cartComponent
+            ->set('unit_price.' . $editableRow->rowId, 15000)
+            ->call('updatePrice', $editableRow->rowId, $product->id);
+
+        $editableRow = $cart->content()->firstWhere('id', $product->id);
+        $cartComponent->call('updateTax', $editableRow->rowId, $product->id, $tax->id);
+
+        $cartComponent->call('removeItem', $removedRow->rowId);
+        $cartComponent->call('productSelected', [
+            'id' => $addedProduct->id,
+            'product_name' => $addedProduct->product_name,
+            'product_code' => $addedProduct->product_code,
+            'product_quantity' => $addedProduct->product_quantity,
+            'product_unit' => $addedProduct->product_unit,
+            'purchase_unit_id' => $pcsUnit->id,
+            'product_unit_conversion_id' => null,
+        ]);
+
+        $form->call('submit')->assertRedirect(route('home'));
+
+        $originalDetails = PurchaseDetail::query()
+            ->where('purchase_id', $originalPurchase->id)
+            ->orderBy('id')
+            ->get();
+        $this->assertCount(2, $originalDetails);
+        $this->assertEquals(24, (float) $originalDetails[0]->quantity);
+        $this->assertEquals(2500, (float) $originalDetails[1]->price);
+
+        $duplicatedPurchase = Purchase::query()
+            ->where('id', '!=', $originalPurchase->id)
+            ->latest('id')
+            ->firstOrFail();
+
+        $duplicatedDetails = PurchaseDetail::query()
+            ->where('purchase_id', $duplicatedPurchase->id)
+            ->get()
+            ->keyBy('product_id');
+
+        $this->assertArrayHasKey($product->id, $duplicatedDetails);
+        $this->assertArrayNotHasKey($removedProduct->id, $duplicatedDetails);
+        $this->assertArrayHasKey($addedProduct->id, $duplicatedDetails);
+
+        $editedDetail = $duplicatedDetails[$product->id];
+        $this->assertSame($pcsUnit->id, $editedDetail->purchase_unit_id);
+        $this->assertNull($editedDetail->product_unit_conversion_id);
+        $this->assertEquals(3, (float) $editedDetail->quantity);
+        $this->assertEquals(15000, (float) $editedDetail->price);
+        $this->assertSame($tax->id, $editedDetail->tax_id);
+    }
+
     /**
      * @return array{0: Product, 1: Unit, 2: Unit}
      */
@@ -1018,11 +1160,11 @@ class PurchaseDuplicateTest extends TestCase
         return [$supplier, $paymentTerm];
     }
 
-    private function createTestProduct(): Product
+    private function createTestProduct(?string $code = null): Product
     {
         return Product::create([
             'product_name' => 'Duplicate Test Product',
-            'product_code' => 'DUP-TEST-001',
+            'product_code' => $code ?? 'DUP-TEST-001',
             'product_quantity' => 10,
             'setting_id' => session('setting_id'),
             'product_cost' => 100,
