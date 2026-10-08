@@ -24,26 +24,34 @@ class SyncNotificationsCommand extends Command
         $activeNotifications = Notification::whereNull('resolved_at')->get();
 
         foreach ($activeNotifications as $notification) {
-            $this->checkAndResolve($notification);
+            $this->checkAndResolve($notification, $stockService);
         }
 
         // 2. Stock Notifications
         $this->info('Syncing stock notifications...');
-        $products = Product::whereColumn('product_quantity', '<=', 'product_stock_alert')
-            ->where('product_stock_alert', '>', 0)
+        $products = Product::where('product_stock_alert', '>', 0)
+            ->whereRaw('(COALESCE(product_quantity, 0) - COALESCE(broken_quantity, 0)) <= product_stock_alert')
             ->get();
-        
+
         foreach ($products as $product) {
-            $stockService->createGlobalStockNotifications($product);
+            $stockService->createGlobalStockNotifications(
+                $product,
+                $stockService->thresholdQuantityForProduct($product)
+            );
         }
 
-        $stocks = ProductStock::whereHas('product', function ($q) {
-            $q->whereColumn('product_stocks.quantity', '<=', 'products.product_stock_alert')
-              ->where('products.product_stock_alert', '>', 0);
-        })->get();
+        $stocks = ProductStock::with(['product', 'location'])
+            ->whereHas('product', function ($q) {
+                $q->whereRaw('(COALESCE(product_stocks.quantity, 0) - COALESCE(product_stocks.broken_quantity, 0)) <= products.product_stock_alert')
+                    ->where('products.product_stock_alert', '>', 0);
+            })
+            ->get();
 
         foreach ($stocks as $stock) {
-            $stockService->createLocationStockNotifications($stock);
+            $stockService->createLocationStockNotifications(
+                $stock,
+                $stockService->thresholdQuantityForLocation($stock)
+            );
         }
 
         // 3. Document Notifications
@@ -53,17 +61,17 @@ class SyncNotificationsCommand extends Command
         $this->info('Sync completed successfully.');
     }
 
-    protected function checkAndResolve(Notification $notification)
+    protected function checkAndResolve(Notification $notification, StockNotificationService $stockService)
     {
         if ($notification->category === 'stock') {
             if ($notification->type === 'global_low_stock') {
                 $product = Product::find($notification->source_id);
-                if (!$product || $product->product_quantity > $product->product_stock_alert) {
+                if (!$product || $stockService->thresholdQuantityForProduct($product) > (float) $product->product_stock_alert) {
                     $notification->update(['resolved_at' => now()]);
                 }
             } elseif ($notification->type === 'location_low_stock') {
                 $stock = ProductStock::with('product')->find($notification->source_id);
-                if (!$stock || !$stock->product || $stock->quantity > $stock->product->product_stock_alert) {
+                if (!$stock || !$stock->product || $stockService->thresholdQuantityForLocation($stock) > (float) $stock->product->product_stock_alert) {
                     $notification->update(['resolved_at' => now()]);
                 }
             }
