@@ -69,6 +69,9 @@
             <div style="margin-top: 8px;">
                 <span class="bold">KEPADA YTH.</span><br>
                 {{ $customer->customer_name ?: 'CASH' }}
+                @if(filled($customer->npwp))
+                    <br>NPWP: {{ $customer->npwp }}
+                @endif
             </div>
         </td>
     </tr>
