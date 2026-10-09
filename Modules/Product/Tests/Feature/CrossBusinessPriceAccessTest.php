@@ -57,6 +57,21 @@ class CrossBusinessPriceAccessTest extends TestCase
         $response->assertOk();
     }
 
+    public function test_cross_business_price_page_labels_product_and_business_rows()
+    {
+        Setting::factory()->create(['id' => 2, 'company_name' => 'Business B']);
+
+        $response = $this->actingAs($this->authorizedUser)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk();
+        $response->assertSee('Kelola Harga Multi-Bisnis: Test Product');
+        $response->assertSee('TEST-001');
+        $response->assertSee('BUSINESS A');
+        $response->assertSee('BUSINESS B');
+    }
+
     public function test_unauthorized_user_cannot_access_cross_business_price_page()
     {
         $response = $this->actingAs($this->unauthorizedUser)
