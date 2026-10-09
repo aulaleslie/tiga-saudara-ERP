@@ -558,20 +558,65 @@ class PurchaseLazyLoadingPreventionTest extends TestCase
             'tax_amount' => 0,
         ]);
 
-        \Modules\Consignment\Entities\ConsignmentPurchaseDetailLineage::forceCreate([
-            'setting_id' => $this->setting->id,
-            'purchase_id' => $purchase->id,
-            'purchase_detail_id' => $purchaseDetail->id,
+        // Two lineage rows so a per-row lazy load cannot hide behind a single record.
+        $secondDispatchDetail = \Modules\Sale\Entities\DispatchDetail::forceCreate([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetail->id,
             'product_id' => $this->product->id,
+            'dispatched_quantity' => 5,
+        ]);
+
+        $secondSoldSource = \Modules\Consignment\Entities\ConsignmentSoldSource::forceCreate([
+            'setting_id' => $this->setting->id,
+            'dispatch_detail_id' => $secondDispatchDetail->id,
+            'sale_id' => $sale->id,
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'original_base_quantity' => 5,
+            'dispatched_at' => now(),
+            'source_hash' => 'hash_test_456',
+            'source_snapshot' => [],
+        ]);
+
+        $secondConfirmationLine = \Modules\Consignment\Entities\ConsignmentBillingConfirmationLine::forceCreate([
+            'consignment_billing_confirmation_id' => $confirmation->id,
+            'consignment_sold_source_id' => $secondSoldSource->id,
+            'product_id' => $this->product->id,
+            'location_id' => $this->location->id,
+            'allocated_base_quantity' => 5,
+        ]);
+
+        $secondReceivingDetail = \Modules\Consignment\Entities\ConsignmentReceivingDetail::forceCreate([
+            'consignment_receiving_id' => $consignmentReceiving->id,
+            'consignment_receival_line_id' => $receivalLine->id,
+            'product_id' => $this->product->id,
+            'quantity_received' => 5,
             'unit_cost' => 10000,
             'unit_dpp' => 10000,
             'tax_rate' => 0,
             'tax_amount' => 0,
-            'consignment_billing_confirmation_id' => $confirmation->id,
-            'consignment_billing_confirmation_line_id' => $confirmationLine->id,
-            'consignment_receiving_detail_id' => $consignmentReceivingDetail->id,
-            'billed_base_quantity' => 10,
         ]);
+
+        foreach ([
+            [$confirmationLine, $consignmentReceivingDetail, 10],
+            [$secondConfirmationLine, $secondReceivingDetail, 5],
+        ] as [$line, $receivingDetail, $quantity]) {
+            \Modules\Consignment\Entities\ConsignmentPurchaseDetailLineage::forceCreate([
+                'setting_id' => $this->setting->id,
+                'purchase_id' => $purchase->id,
+                'purchase_detail_id' => $purchaseDetail->id,
+                'product_id' => $this->product->id,
+                'unit_cost' => 10000,
+                'unit_dpp' => 10000,
+                'tax_rate' => 0,
+                'tax_amount' => 0,
+                'consignment_billing_confirmation_id' => $confirmation->id,
+                'consignment_billing_confirmation_line_id' => $line->id,
+                'consignment_receiving_detail_id' => $receivingDetail->id,
+                'billed_base_quantity' => $quantity,
+            ]);
+        }
 
         $otherSetting = Setting::create([
             'company_name' => 'SETTING GLOBAL CONSIGNMENT VIEWER',
