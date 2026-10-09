@@ -478,6 +478,92 @@ class PurchaseDueDateAdjustmentFeatureTest extends TestCase
         $this->assertDatabaseMissing('due_date_audits', ['auditable_id' => $purchase->id]);
     }
 
+    public function test_reporting_date_clear_and_due_date_set_are_saved_atomically()
+    {
+        $this->user->givePermissionTo('purchases.reporting-date.override');
+        $this->user->givePermissionTo('purchases.due-date.override');
+
+        $originalReportingDate = now()->subDays(4)->format('Y-m-d');
+        $originalDueDate = now()->addDays(8)->format('Y-m-d');
+        $purchase = Purchase::create([
+            'status' => Purchase::STATUS_APPROVED,
+            'setting_id' => $this->setting->id,
+            'date' => now()->subDays(10),
+            'reporting_date' => $originalReportingDate,
+            'due_date' => $originalDueDate,
+            'reference' => 'TST-CLR-SET',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 100,
+            'due_amount' => 100,
+            'paid_amount' => 0,
+        ]);
+
+        $newDueDate = now()->addDays(21)->format('Y-m-d');
+
+        $response = $this->putJson(route('purchases.date-adjustment.update', $purchase), [
+            'reporting_action' => 'clear',
+            'due_date_action' => 'set',
+            'due_date' => $newDueDate,
+            'reason' => 'Clear override and renegotiate due date',
+        ]);
+
+        $response->assertStatus(200);
+        $purchase->refresh();
+
+        $this->assertNull($purchase->reporting_date);
+        $this->assertEquals($newDueDate, $purchase->due_date->format('Y-m-d'));
+        $this->assertDatabaseHas('reporting_date_audits', [
+            'auditable_id' => $purchase->id,
+            'prior_override' => $originalReportingDate . ' 00:00:00',
+            'resulting_override' => null,
+            'reason' => 'Clear override and renegotiate due date',
+        ]);
+        $this->assertDatabaseHas('due_date_audits', [
+            'auditable_id' => $purchase->id,
+            'prior_due_date' => $originalDueDate . ' 00:00:00',
+            'resulting_due_date' => $newDueDate . ' 00:00:00',
+            'reason' => 'Clear override and renegotiate due date',
+        ]);
+    }
+
+    public function test_invalid_combined_adjustment_leaves_existing_dates_unchanged()
+    {
+        $this->user->givePermissionTo('purchases.reporting-date.override');
+        $this->user->givePermissionTo('purchases.due-date.override');
+
+        $originalReportingDate = now()->subDays(3)->format('Y-m-d');
+        $originalDueDate = now()->addDays(9)->format('Y-m-d');
+        $purchase = Purchase::create([
+            'status' => Purchase::STATUS_APPROVED,
+            'setting_id' => $this->setting->id,
+            'date' => now()->subDays(10),
+            'reporting_date' => $originalReportingDate,
+            'due_date' => $originalDueDate,
+            'reference' => 'TST-BAD-COMBO',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 100,
+            'due_amount' => 100,
+            'paid_amount' => 0,
+        ]);
+
+        $response = $this->putJson(route('purchases.date-adjustment.update', $purchase), [
+            'reporting_action' => 'set',
+            'reporting_date' => now()->subDays(1)->format('Y-m-d'),
+            'due_date_action' => 'set',
+            'reason' => 'Missing due date should reject the whole change',
+        ]);
+
+        $response->assertStatus(422);
+        $purchase->refresh();
+
+        $this->assertEquals($originalReportingDate, $purchase->reporting_date->format('Y-m-d'));
+        $this->assertEquals($originalDueDate, $purchase->due_date->format('Y-m-d'));
+        $this->assertDatabaseMissing('reporting_date_audits', ['auditable_id' => $purchase->id]);
+        $this->assertDatabaseMissing('due_date_audits', ['auditable_id' => $purchase->id]);
+    }
+
     public function test_per_field_tampering_denied()
     {
         // User has ONLY due-date override permission, NOT reporting-date permission
