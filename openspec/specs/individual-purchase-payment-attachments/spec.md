@@ -6,7 +6,7 @@ Allow an individual purchase payment to retain multiple separate supporting imag
 ## Requirements
 
 ### Requirement: Individual purchase payment accepts multiple separate attachments
-The system SHALL allow an authorized user to attach zero or more files to one individual purchase payment during creation. It MUST retain each accepted file as a distinct attachment associated with that payment and MUST NOT package files into a ZIP archive. The global purchase payment creation workflow SHALL retain its existing attachment behavior.
+The system SHALL allow an authorized user to attach zero or more files to one individual purchase payment during creation. It MUST retain each accepted file as a distinct attachment associated with that payment and MUST NOT package files into a ZIP archive. Global purchase payment row uploads SHALL use the same accepted file types, content validation, image processing, and file-size behavior as individual uploads, while remaining independently associated with their corresponding generated payments.
 
 #### Scenario: Payment created with several files
 - **WHEN** an authorized user submits an individual purchase payment with several accepted files
@@ -17,9 +17,15 @@ The system SHALL allow an authorized user to attach zero or more files to one in
 - **WHEN** an authorized user submits a valid individual purchase payment without attachments
 - **THEN** the payment is created without attachments
 
-#### Scenario: Global payment remains unchanged
-- **WHEN** a user creates a global purchase payment
-- **THEN** its existing upload and allocation behavior remains available
+#### Scenario: Global row upload uses the same file rules
+- **WHEN** a user uploads files on a global purchase payment allocation row
+- **THEN** the accepted types, content checks, image processing, and application file-size behavior match those for an individual purchase payment
+- **AND** unsupported or disguised files are rejected
+
+#### Scenario: Global payment remains independently associated
+- **WHEN** an individual purchase payment is created with multiple files
+- **THEN** its file processing remains independent of the global purchase payment workflow
+- **AND** global row uploads follow their own purchase-to-payment association rule
 
 ### Requirement: Individual payment upload accepts images and documents
 The system SHALL accept supported raster image files (JPEG, PNG, WebP, GIF, BMP) and PDF, Word, Excel, and plain-text documents for individual purchase payment attachments. The system SHALL explicitly exclude SVG files to eliminate browser active-content and script-execution risks. It MUST validate the actual file type, verify OpenXML package structure for DOCX and XLSX documents, and reject disguised or unsupported files. The application SHALL NOT impose a maximum original file size for this workflow; deployment-level transport limits may still prevent a request from reaching the application.
