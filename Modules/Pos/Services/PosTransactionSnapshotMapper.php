@@ -49,6 +49,9 @@ class PosTransactionSnapshotMapper
                     'bundle_item_serials' => $line['bundle_item_serials'] ?? null,
                     'breakdown' => $line['breakdown'] ?? null,
                     'pricing_basis' => $line['pricing_basis'] ?? null,
+                    // Stable cart line identity used to link generated Sale details
+                    // back to this persisted POS line at checkout finalization.
+                    'cart_line_id' => (int) $sessionLineId,
                 ];
 
                 // Carry the canonical override metadata into the snapshot so a

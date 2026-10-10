@@ -151,6 +151,7 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         $actualGrandMinor = 0;
         $allocatedPaidMinor = 0;
         $hppWarnings = [];
+        $saleDetailLineIds = [];
 
         foreach ($groups as $group) {
             $splitKey = (string) ($group['split_key'] ?? '');
@@ -252,6 +253,10 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             $actualGrandMinor += $this->toMinor($groupActualGrand);
             $allocatedPaidMinor += $this->toMinor($groupPaidTotal);
 
+            foreach ((is_array($result['sale_detail_line_ids'] ?? null) ? $result['sale_detail_line_ids'] : []) as $detailId => $lineId) {
+                $saleDetailLineIds[(int) $detailId] = (int) $lineId;
+            }
+
             $groupHppWarnings = is_array($result['hpp_warnings'] ?? null) ? $result['hpp_warnings'] : [];
             foreach ($groupHppWarnings as $warning) {
                 $hppWarnings[] = array_merge($warning, ['split_key' => $splitKey]);
@@ -298,6 +303,7 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 'groups' => $splitGroups,
             ],
             'hpp_warnings' => $hppWarnings,
+            'sale_detail_line_ids' => $saleDetailLineIds,
         ];
     }
 

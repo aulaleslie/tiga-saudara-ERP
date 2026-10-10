@@ -10,7 +10,10 @@ use Modules\Pos\Entities\PosCheckoutPayment;
 use Modules\Pos\Entities\PosReceiptPrintLog;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosTransaction;
+use Modules\Pos\Entities\PosTransactionLine;
 use Modules\Pos\Tests\Feature\Support\PosTransactionFeatureTestCase;
+use Modules\Sale\Entities\Sale;
+use Modules\Sale\Entities\SaleDetails;
 use Modules\Setting\Entities\ChartOfAccount;
 use Modules\Setting\Entities\PaymentMethod;
 use Spatie\Permission\Models\Permission;
@@ -158,8 +161,9 @@ class POSTransactionReceiptReprintTest extends PosTransactionFeatureTestCase
             'pos.transactions.view',
             'pos.receipts.reprint',
         ]);
-        [$terminal] = $this->createTerminalWithLocation($setting);
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
         $session = $this->openSession($setting, $terminal, $user);
+        $product = $this->createStockedProduct($setting, $location, ['sale_price' => 100000]);
         $customer = Customer::factory()->create([
             'setting_id' => $setting->id,
             'contact_name' => 'Completed Customer',
@@ -206,12 +210,57 @@ class POSTransactionReceiptReprintTest extends PosTransactionFeatureTestCase
             'reference' => null,
             'sequence_order' => 1,
         ]);
+        $sale = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SO-TXN-001',
+            'customer_id' => $customer->id,
+            'customer_name' => $expectedCustomerName,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 100000,
+            'paid_amount' => 120000,
+            'due_amount' => 0,
+            'status' => 'Completed',
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash POS',
+            'setting_id' => $setting->id,
+        ]);
+        $checkout->update(['sale_id' => $sale->id]);
 
         $transaction = $this->createDraftTransaction($setting, $user);
         $transaction->update([
             'status' => PosTransaction::STATUS_COMPLETED,
             'customer_id' => $customer->id,
             'completed_checkout_id' => $checkout->id,
+        ]);
+
+        $line = PosTransactionLine::create([
+            'pos_transaction_id' => $transaction->id,
+            'line_no' => 1,
+            'product_id' => $product->id,
+            'product_name_snapshot' => $product->product_name,
+            'product_code_snapshot' => $product->product_code,
+            'qty' => 1,
+            'unit_price' => 100000,
+            'line_meta' => [],
+        ]);
+
+        SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'price' => 100000,
+            'unit_price' => 100000,
+            'sub_total' => 100000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'pos_transaction_line_id' => $line->id,
         ]);
 
         $this->actingAs($user)->withSession(['setting_id' => $setting->id])

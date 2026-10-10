@@ -475,10 +475,12 @@ class GlobalPosPaymentAuthorizationTest extends TestCase
             ->post(route('pos.global-payments.receipt.reprint', $this->transaction->id))
             ->assertStatus(403);
 
-        // Both permissions -> 200
+        // Both permissions pass authorization; this legacy fixture has no transaction
+        // lines or Sale details, so current-price projection safely offers the historical receipt.
         $this->actingAs($userWithBoth)
             ->post(route('pos.global-payments.receipt.reprint', $this->transaction->id))
-            ->assertStatus(200);
+            ->assertStatus(422)
+            ->assertSee('baris transaksi atau rincian penjualan tidak tersedia');
     }
 
     public function test_receipt_reprint_rejects_transaction_lacking_posted_checkout_or_resolvable_sale()

@@ -9,6 +9,7 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Validator;
 use Modules\Pos\Entities\PosActionApprovalRequest;
+use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosReceiptPrintLog;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosTransaction;
@@ -286,7 +287,11 @@ class PosTransactionController extends Controller
             PosReceiptPrintLog::TYPE_PRINT
         );
 
+        $isHistorical = (bool) $request->query('historical', false);
         $receiptData = $receiptService->getTransactionReceiptData($transaction);
+        if ($isHistorical) {
+            $receiptData['is_historical_checkout'] = true;
+        }
 
         return view('pos::receipt', compact('receiptData'));
     }
@@ -322,8 +327,12 @@ class PosTransactionController extends Controller
      * POST /pos/transactions/{transaction}/receipt/reprint
      * Reprint a transaction receipt.
      */
-    public function receiptReprint(PosTransaction $transaction, PosReceiptService $receiptService, Request $request): Renderable
-    {
+    public function receiptReprint(
+        PosTransaction $transaction,
+        PosReceiptService $receiptService,
+        \Modules\Pos\Services\PosReceiptReprintProjectionService $reprintProjectionService,
+        Request $request
+    ): \Symfony\Component\HttpFoundation\Response {
         $settingId = $this->currentSettingId();
         abort_if(
             ! $this->transactionsEnabled($settingId),
@@ -339,7 +348,33 @@ class PosTransactionController extends Controller
             'Anda tidak memiliki izin untuk mencetak ulang struk.'
         );
 
-        // Log the reprint
+        $checkout = $transaction->completedCheckout
+            ?? PosCheckout::where('pos_transaction_id', $transaction->id)->first()
+            ?? PosCheckout::find($transaction->completed_checkout_id);
+
+        $isCompleted = strtoupper((string) $transaction->status) === PosTransaction::STATUS_COMPLETED
+            || ($checkout instanceof PosCheckout && $checkout->status === PosCheckout::STATUS_POSTED);
+
+        // If completed transaction with checkout, project current Sale prices
+        if ($isCompleted && $checkout instanceof PosCheckout) {
+            try {
+                $receiptData = $reprintProjectionService->getCompletedReprintReceiptData($checkout);
+            } catch (\Modules\Pos\Exceptions\PosReprintProjectionException $e) {
+                // Do NOT log REPRINT on failure
+                return response()->view('pos::receipt-historical-ambiguous', [
+                    'message' => $e->getMessage(),
+                    'historicalReceiptUrl' => route('pos.transactions.receipt', ['transaction' => $transaction, 'historical' => 1]),
+                ], 422);
+            }
+
+            $receiptData['print_history'] = $receiptService->getTransactionPrintHistory($transaction->id);
+            $receiptData['is_draft'] = false;
+        } else {
+            // Draft / loaded / uncompleted transaction keeps snapshot preview
+            $receiptData = $receiptService->getTransactionReceiptData($transaction);
+        }
+
+        // Log the reprint only upon success
         $receiptService->logTransactionPrint(
             $settingId,
             $transaction->id,
@@ -347,9 +382,7 @@ class PosTransactionController extends Controller
             PosReceiptPrintLog::TYPE_REPRINT
         );
 
-        $receiptData = $receiptService->getTransactionReceiptData($transaction);
-
-        return view('pos::receipt', compact('receiptData'));
+        return response()->view('pos::receipt', compact('receiptData'));
     }
 
     /**

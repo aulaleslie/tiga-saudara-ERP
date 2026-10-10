@@ -17,6 +17,7 @@ use Modules\Pos\Entities\PosCheckoutSale;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosSessionCashEvent;
 use Modules\Pos\Entities\PosTerminal;
+use Modules\Pos\Entities\PosTransaction;
 use Modules\Pos\Services\Contracts\PosCheckoutPostingAdapter;
 use Modules\Pos\Services\PosCashDrawerService;
 use Modules\Pos\Services\PosTemporaryPaymentImageService;
@@ -1363,7 +1364,7 @@ class FinalizePosCheckoutService
                     throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Terminal checkout POS tidak ditemukan.');
                 }
 
-                $operationalSnapshot = $this->buildOperationalSnapshot($cartSnapshot);
+                $operationalSnapshot = $this->assignStableCartLineIds($this->buildOperationalSnapshot($cartSnapshot));
                 $resolution = $this->validateCartFulfillability($settingId, $operationalSnapshot);
 
                 /** @var PosCheckout|null $lockedCheckout */
@@ -1612,6 +1613,11 @@ class FinalizePosCheckoutService
                     );
 
                     $lockedCheckout->pos_transaction_id = (int) $completedTransaction->id;
+
+                    $this->linkSaleDetailsToTransactionLines(
+                        $completedTransaction,
+                        is_array($postingResult['sale_detail_line_ids'] ?? null) ? $postingResult['sale_detail_line_ids'] : []
+                    );
                 }
 
                 $lockedCheckout->save();
@@ -1711,6 +1717,77 @@ class FinalizePosCheckoutService
                 'Checkout finalization failed due to an internal posting error.',
                 $exception
             );
+        }
+    }
+
+    /**
+     * Give every operational cart line the same stable line_id that
+     * PosTransactionService::normalizeSnapshotLines() will persist as
+     * `cart_line_id`, so posted Sale details can be linked back exactly.
+     *
+     * @param  array<string, mixed>  $snapshot
+     * @return array<string, mixed>
+     */
+    private function assignStableCartLineIds(array $snapshot): array
+    {
+        $lines = is_array($snapshot['lines'] ?? null) ? $snapshot['lines'] : [];
+        $fallbackLineId = 1;
+
+        foreach ($lines as $key => $line) {
+            if (! is_array($line)) {
+                continue;
+            }
+
+            $lineId = (int) ($line['line_id'] ?? 0);
+            if ($lineId <= 0) {
+                $lineId = $fallbackLineId;
+                $lines[$key]['line_id'] = $lineId;
+            }
+
+            $fallbackLineId = max($fallbackLineId + 1, $lineId + 1);
+        }
+
+        $snapshot['lines'] = $lines;
+
+        return $snapshot;
+    }
+
+    /**
+     * Persist originating POS line lineage on every generated Sale detail.
+     *
+     * @param  array<int|string, int|string>  $saleDetailLineIds  sale_detail_id => cart line_id
+     */
+    private function linkSaleDetailsToTransactionLines(PosTransaction $transaction, array $saleDetailLineIds): void
+    {
+        if ($saleDetailLineIds === []) {
+            return;
+        }
+
+        $transaction->loadMissing('lines');
+        $transactionLineIdByCartLine = [];
+        foreach ($transaction->lines as $transactionLine) {
+            $cartLineId = (int) (($transactionLine->line_meta ?? [])['cart_line_id'] ?? 0);
+            if ($cartLineId > 0) {
+                $transactionLineIdByCartLine[$cartLineId] = (int) $transactionLine->id;
+            }
+        }
+
+        $detailIdsByTransactionLine = [];
+        foreach ($saleDetailLineIds as $saleDetailId => $cartLineId) {
+            $transactionLineId = $transactionLineIdByCartLine[(int) $cartLineId] ?? null;
+            if ($transactionLineId === null) {
+                throw new PosCheckoutPostingException(
+                    'POSTING_RECONCILIATION_MISMATCH',
+                    'Detail penjualan tidak dapat ditautkan ke baris transaksi POS asalnya.'
+                );
+            }
+            $detailIdsByTransactionLine[$transactionLineId][] = (int) $saleDetailId;
+        }
+
+        foreach ($detailIdsByTransactionLine as $transactionLineId => $detailIds) {
+            \Modules\Sale\Entities\SaleDetails::query()
+                ->whereIn('id', $detailIds)
+                ->update(['pos_transaction_line_id' => $transactionLineId]);
         }
     }
 

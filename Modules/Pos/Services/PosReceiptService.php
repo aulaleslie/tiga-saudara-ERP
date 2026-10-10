@@ -44,6 +44,9 @@ class PosReceiptService
         // Task 1.2 & 1.3: Prefer PosTransactionLine for accurate unit/conversion breakdown
         // Collect lines from all transactions associated with this checkout
         $allTransactions = $checkout->transactions;
+        if ($checkout->transaction && ! $allTransactions->contains('id', $checkout->transaction->id)) {
+            $allTransactions->push($checkout->transaction);
+        }
         
         if ($allTransactions->count() > 0) {
             foreach ($allTransactions as $transaction) {
@@ -98,6 +101,7 @@ class PosReceiptService
                 $composition = $bundleCompositionByLine[(int) $line->id] ?? [];
 
                 $lines[] = [
+                    'pos_transaction_line_id' => (int) $line->id,
                     'product_name' => $line->product_name_snapshot,
                     'qty' => (float)$line->qty,
                     // Unit price, row discount, bill discount, and the final
@@ -140,6 +144,9 @@ class PosReceiptService
                 }
 
                 $lines[] = [
+                    'pos_transaction_line_id' => $detail->pos_transaction_line_id
+                        ? (int) $detail->pos_transaction_line_id
+                        : null,
                     'product_name' => $detail->product_name,
                     'qty' => $detail->quantity,
                     'price' => $detail->unit_price,
@@ -665,7 +672,7 @@ class PosReceiptService
         return $unitBreakdown;
     }
 
-    private function formatReceiptCurrency(float $value): string
+    public function formatReceiptCurrency(float $value): string
     {
         $settings = settings();
         $symbol = $settings?->currency?->symbol ?? 'Rp';

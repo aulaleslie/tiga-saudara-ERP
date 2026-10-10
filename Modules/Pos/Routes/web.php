@@ -33,6 +33,8 @@ Route::group(['middleware' => ['auth', 'can:posPayments.global.access']], functi
     Route::group(['middleware' => ['can:pos.receipts.reprint']], function () {
         Route::match(['get', 'post'], '/pos/{transaction_id}/global-payments/receipt/reprint', [GlobalPosPaymentController::class, 'receiptReprint'])
             ->name('pos.global-payments.receipt.reprint');
+        Route::get('/pos/{transaction_id}/global-payments/receipt/historical', [GlobalPosPaymentController::class, 'historicalReceipt'])
+            ->name('pos.global-payments.receipt.historical');
     });
 });
 

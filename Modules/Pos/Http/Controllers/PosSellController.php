@@ -1021,21 +1021,37 @@ class PosSellController extends Controller
             abort(403, 'Akses ke struk tidak sah.');
         }
 
+        $isHistorical = (bool) request()->query('historical', false);
         $receiptData = $receiptService->getReceiptData($checkout);
+        if ($isHistorical) {
+            $receiptData['is_historical_checkout'] = true;
+        }
         $receiptService->logPrint($settingId, $checkout->id, auth()->id(), 'PRINT');
 
         return view('pos::receipt', compact('receiptData'));
     }
 
-    public function receiptReprint(PosCheckout $checkout, PosReceiptService $receiptService)
-    {
+    public function receiptReprint(
+        PosCheckout $checkout,
+        PosReceiptService $receiptService,
+        \Modules\Pos\Services\PosReceiptReprintProjectionService $reprintProjectionService
+    ) {
         $settingId = $this->currentSettingId();
         
         if ($checkout->setting_id !== $settingId) {
             abort(403, 'Unauthorized access to receipt.');
         }
 
-        $receiptData = $receiptService->getReceiptData($checkout);
+        try {
+            $receiptData = $reprintProjectionService->getCompletedReprintReceiptData($checkout);
+        } catch (\Modules\Pos\Exceptions\PosReprintProjectionException $e) {
+            // Refuse updated reprint and do not log REPRINT. Expose historical view.
+            return response()->view('pos::receipt-historical-ambiguous', [
+                'message' => $e->getMessage(),
+                'historicalReceiptUrl' => route('pos.sell.checkout.receipt', ['checkout' => $checkout, 'historical' => 1]),
+            ], 422);
+        }
+
         $receiptService->logPrint($settingId, $checkout->id, auth()->id(), 'REPRINT');
 
         return view('pos::receipt', compact('receiptData'));

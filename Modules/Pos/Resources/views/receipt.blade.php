@@ -232,6 +232,12 @@
 </div>
 
 <div class="receipt-container">
+    @if(!empty($receiptData['is_historical_checkout']))
+        <div class="centered" style="margin-bottom: 6px; padding: 4px; border: 1px dashed #444; background: #fafafa;">
+            <div style="font-size: 10px; font-weight: 700;">STRUK HISTORIS CHECKOUT</div>
+            <div class="small" style="font-weight: 400; font-size: 8px;">(Snapshot Harga & Nilai Asli Checkout)</div>
+        </div>
+    @endif
     <div id="receipt-data">
         <div class="centered">
             <h2 style="margin-bottom: 5px">{{ $receiptData['business_name'] }}</h2>
@@ -409,7 +415,8 @@
                         <th colspan="2" class="col-product" style="text-align:left">Kembalian</th>
                         <th class="col-total compact-amount" style="text-align:right; font-size: {{ $changeFontSize }};">{{ $formattedChangeAmount }}</th>
                     </tr>
-                @elseif(isset($receiptData['outstanding_debt']) && $receiptData['outstanding_debt'] > 0)
+                @endif
+                @if(isset($receiptData['outstanding_debt']) && $receiptData['outstanding_debt'] > 0)
                     @php
                         $debtVal = (float) $receiptData['outstanding_debt'];
                         $debtDecCount = fmod(round($debtVal, 2), 1.0) != 0.0 ? 2 : 0;

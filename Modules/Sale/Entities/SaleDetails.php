@@ -53,6 +53,14 @@ class SaleDetails extends BaseModel
         return $this->belongsTo(Sale::class, 'sale_id', 'id');
     }
 
+    /**
+     * Originating customer-facing POS transaction line (null for historical/non-POS rows).
+     */
+    public function posTransactionLine(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Pos\Entities\PosTransactionLine::class, 'pos_transaction_line_id', 'id');
+    }
+
     public function bundleItems(): HasMany
     {
         return $this->hasMany(SaleBundleItem::class, 'sale_detail_id', 'id');

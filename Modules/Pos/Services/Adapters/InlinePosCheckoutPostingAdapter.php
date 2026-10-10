@@ -187,6 +187,8 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
         ]);
 
         $hppWarnings = [];
+        /** @var array<int, int> $saleDetailLineIds sale_detail_id => originating cart line_id */
+        $saleDetailLineIds = [];
 
         foreach ($lines as $index => $line) {
             $productId = (int) ($line['product_id'] ?? 0);
@@ -292,6 +294,8 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 'tax_id' => $taxId,
                 'serial_number_ids' => $isSerialTracked ? $serialIds : null,
             ]);
+
+            $saleDetailLineIds[(int) $saleDetail->id] = (int) ($line['line_id'] ?? 0);
 
             // 2. Process Parent Stock Deduction (only for stock-managed products)
 
@@ -604,6 +608,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             'actual_grand_total' => (float) $totalPostedGrandTotal,
             'stage_mappings' => $stageMappings ?? [],
             'hpp_warnings' => $hppWarnings,
+            'sale_detail_line_ids' => $saleDetailLineIds,
         ];
     }
 

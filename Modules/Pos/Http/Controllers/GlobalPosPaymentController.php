@@ -295,8 +295,13 @@ class GlobalPosPaymentController extends Controller
     /**
      * Reprint transaction receipt with global authorization and originating business context.
      */
-    public function receiptReprint(Request $request, $transaction_id, PosReceiptService $receiptService, PosSettlementProjectionService $projectionService)
-    {
+    public function receiptReprint(
+        Request $request,
+        $transaction_id,
+        PosReceiptService $receiptService,
+        PosSettlementProjectionService $projectionService,
+        \Modules\Pos\Services\PosReceiptReprintProjectionService $reprintProjectionService
+    ) {
         abort_if(Gate::denies('posPayments.global.access') || Gate::denies('pos.receipts.reprint'), 403);
 
         $transaction = PosTransaction::with(['setting', 'completedCheckout'])->findOrFail($transaction_id);
@@ -314,8 +319,22 @@ class GlobalPosPaymentController extends Controller
         }
 
         $settingId = (int) $transaction->setting_id;
+        $checkout = $transaction->completedCheckout;
 
-        // Log the reprint
+        try {
+            $receiptData = $reprintProjectionService->getCompletedReprintReceiptData($checkout);
+        } catch (\Modules\Pos\Exceptions\PosReprintProjectionException $e) {
+            // Do NOT log REPRINT on failure
+            return response()->view('pos::receipt-historical-ambiguous', [
+                'message' => $e->getMessage(),
+                'historicalReceiptUrl' => route('pos.global-payments.receipt.historical', ['transaction_id' => $transaction->id]),
+            ], 422);
+        }
+
+        $receiptData['print_history'] = $receiptService->getTransactionPrintHistory($transaction->id);
+        $receiptData['is_draft'] = false;
+
+        // Log the reprint only on success
         $receiptService->logTransactionPrint(
             $settingId,
             $transaction->id,
@@ -323,8 +342,34 @@ class GlobalPosPaymentController extends Controller
             PosReceiptPrintLog::TYPE_REPRINT
         );
 
-        $receiptData = $receiptService->getTransactionReceiptData($transaction);
+        return response()->view('pos::receipt', compact('receiptData'));
+    }
 
-        return view('pos::receipt', compact('receiptData'));
+    /**
+     * Show the immutable checkout receipt when a current-price reprint is ambiguous.
+     */
+    public function historicalReceipt($transaction_id, PosReceiptService $receiptService)
+    {
+        abort_if(Gate::denies('posPayments.global.access') || Gate::denies('pos.receipts.reprint'), 403);
+
+        $transaction = PosTransaction::with('completedCheckout')->findOrFail($transaction_id);
+        $checkout = $transaction->completedCheckout
+            ?? PosCheckout::where('pos_transaction_id', $transaction->id)->first()
+            ?? PosCheckout::find($transaction->completed_checkout_id);
+
+        abort_unless(
+            $transaction->status === PosTransaction::STATUS_COMPLETED
+                && $checkout instanceof PosCheckout
+                && $checkout->status === PosCheckout::STATUS_POSTED,
+            422,
+            'Struk historis hanya tersedia untuk transaksi POS yang telah selesai.'
+        );
+
+        $receiptData = $receiptService->getReceiptData($checkout);
+        $receiptData['is_historical_checkout'] = true;
+        $receiptData['is_draft'] = false;
+        $receiptData['print_history'] = $receiptService->getTransactionPrintHistory($transaction->id);
+
+        return response()->view('pos::receipt', compact('receiptData'));
     }
 }
