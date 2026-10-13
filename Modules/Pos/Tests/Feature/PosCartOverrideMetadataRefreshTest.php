@@ -233,7 +233,7 @@ class PosCartOverrideMetadataRefreshTest extends TestCase
         $this->assertSame(3_000_000, $line['line_gross_minor']);
     }
 
-    public function test_row_total_override_is_invalidated_after_a_quantity_change(): void
+    public function test_row_total_override_converts_to_unit_price_authority_after_a_quantity_change(): void
     {
         $lineId = $this->seedLine(2);
         $this->applyRowTotalOverride($lineId, 15000.0);
@@ -244,8 +244,71 @@ class PosCartOverrideMetadataRefreshTest extends TestCase
 
         $line = $this->storedLine($lineId);
 
+        $this->assertSame('LINE_UNIT_PRICE_OVERRIDE', $line['price_source']);
+        $this->assertSame(7500.0, (float) $line['unit_price']);
+        $this->assertSame(2_250_000, $line['line_net_minor']);
+        $this->assertSame(2_250_000, $line['line_gross_minor']);
+    }
+
+    public function test_non_divisible_row_total_uses_displayed_unit_price_after_quantity_change(): void
+    {
+        $lineId = $this->seedLine(3);
+        $this->applyRowTotalOverride($lineId, 10000.0);
+
+        $this->assertSame(1_000_000, $this->storedLine($lineId)['line_net_minor']);
+
+        $this->cartService->updateLine($this->settingId, $this->sessionId, $lineId, ['qty' => 4]);
+
+        $line = $this->storedLine($lineId);
+
+        $this->assertSame('LINE_UNIT_PRICE_OVERRIDE', $line['price_source']);
+        $this->assertSame(3333.33, (float) $line['unit_price']);
+        $this->assertSame(1_333_332, $line['line_net_minor']);
+    }
+
+    public function test_adding_same_product_to_row_total_override_row_recomputes_metadata(): void
+    {
+        $lineId = $this->seedLine(2);
+        $this->applyRowTotalOverride($lineId, 15000.0);
+
+        $this->cartService->addLine($this->settingId, $this->sessionId, $this->productId, 1);
+
+        $line = $this->storedLine($lineId);
+
+        $this->assertSame(3, $line['qty']);
+        $this->assertSame('LINE_UNIT_PRICE_OVERRIDE', $line['price_source']);
+        $this->assertSame(7500.0, (float) $line['unit_price']);
+        $this->assertSame(2_250_000, $line['line_net_minor']);
+    }
+
+    public function test_adding_same_product_to_unit_price_override_row_recomputes_metadata(): void
+    {
+        $lineId = $this->seedLine(2);
+        $this->applyUnitPriceOverride($lineId, 10000.0);
+
+        $this->cartService->addLine($this->settingId, $this->sessionId, $this->productId, 1);
+
+        $line = $this->storedLine($lineId);
+
+        $this->assertSame('LINE_UNIT_PRICE_OVERRIDE', $line['price_source']);
+        $this->assertSame(3_000_000, $line['line_net_minor']);
+    }
+
+    public function test_discount_only_change_still_restores_standard_pricing_for_row_total_override(): void
+    {
+        $lineId = $this->seedLine(2);
+        $this->applyRowTotalOverride($lineId, 15000.0);
+
+        $this->cartService->updateLine($this->settingId, $this->sessionId, $lineId, [
+            'line_discount_type' => 'fixed',
+            'line_discount_value' => 1000,
+        ]);
+
+        $line = $this->storedLine($lineId);
+
         $this->assertNotSame('LINE_TOTAL_OVERRIDE', $line['price_source']);
-        $this->assertNoCanonicalMetadata($line, 'a quantity change on a row-total override');
+        $this->assertNotSame('LINE_UNIT_PRICE_OVERRIDE', $line['price_source']);
+        $this->assertSame(10000.0, (float) $line['unit_price']);
     }
 
     // ------------------------------------------------ discount changes
@@ -361,7 +424,7 @@ class PosCartOverrideMetadataRefreshTest extends TestCase
         );
     }
 
-    public function test_row_total_override_is_invalidated_by_a_quantity_increment(): void
+    public function test_row_total_override_converts_on_a_quantity_increment(): void
     {
         $lineId = $this->seedLine(1);
         $this->applyRowTotalOverride($lineId, 9000.0);
@@ -372,8 +435,8 @@ class PosCartOverrideMetadataRefreshTest extends TestCase
         $refreshed = (new \ReflectionMethod($this->cartService, 'refreshOrInvalidateRowOverride'))
             ->invoke($this->cartService, $this->settingId, $cart['lines'][$lineId], $cart);
 
-        $this->assertNotSame('LINE_TOTAL_OVERRIDE', $refreshed['price_source']);
-        $this->assertNoCanonicalMetadata($refreshed, 'a quantity increment on a row-total override');
+        $this->assertSame('LINE_UNIT_PRICE_OVERRIDE', $refreshed['price_source']);
+        $this->assertSame(1_800_000, $refreshed['line_net_minor']);
     }
 
     // -------------------------------------- standard-price restoration
@@ -550,10 +613,10 @@ class PosCartOverrideMetadataRefreshTest extends TestCase
 
         // The calculator writes its own line_total onto snapshot output, so the
         // meaningful assertion is that it reflects the new quantity rather than
-        // the invalidated override.
+        // the original total; the preserved unit price (7500) applies.
         $this->assertNotSame('LINE_TOTAL_OVERRIDE', $line['price_source']);
         $this->assertSame(
-            40000.0,
+            30000.0,
             (float) $line['line_net_before_bill'],
             'Snapshot reported a stale overridden total after the quantity changed.'
         );

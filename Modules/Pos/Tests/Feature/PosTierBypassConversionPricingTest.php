@@ -260,6 +260,81 @@ class PosTierBypassConversionPricingTest extends TestCase
     }
 
     /**
+     * Conversion-unit row, tier customer, row-total override, then a quantity
+     * increase: the displayed unit price must stay fixed and not be repacked.
+     */
+    public function test_quantity_change_after_row_total_override_keeps_unit_price_on_packed_tier_row(): void
+    {
+        $setting = $this->createSetting('OVR-QTY-PACKED-SETTING');
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'CASHIER-OVR-QTY');
+
+        Permission::findOrCreate('pos.overrides.price', 'web');
+        $cashier->givePermissionTo('pos.overrides.price');
+
+        $product = $this->createStockedProductWithTiers(
+            $setting, $location, 'SKU-OVR-QTY', 'Produk Override Qty',
+            8000.00, 7500.00, 6583.33, $cashier->id
+        );
+
+        $unit = Unit::firstOrCreate(['name' => 'BoxOvrQty', 'short_name' => 'BXQ']);
+        $conversion = ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'unit_id' => $unit->id,
+            'base_unit_id' => $product->base_unit_id,
+            'conversion_factor' => 12,
+            'barcode' => 'CONV-OVR-QTY',
+        ]);
+        ProductUnitConversionPrice::create([
+            'product_unit_conversion_id' => $conversion->id,
+            'setting_id' => $setting->id,
+            'price' => 85000.00,
+        ]);
+
+        $reseller = Customer::create([
+            'customer_name' => 'Reseller Qty',
+            'customer_email' => 'resellerqty@example.com',
+            'customer_phone' => '0812111222',
+            'tier' => 'RESELLER',
+        ]);
+
+        $lines = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $product->id,
+                'qty' => 1,
+                'conversion_id' => $conversion->id,
+            ])
+            ->assertOk()->json('cart_snapshot.lines');
+        $packed = collect($lines)->first();
+        $lineId = (int) $packed['line_id'];
+        $this->assertSame('PACKED', $packed['price_source']);
+        $this->assertEquals($conversion->id, $packed['conversion_id']);
+        $this->assertEquals(12, $packed['qty']);
+        $this->assertEquals(85000, $packed['line_total']);
+
+        $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), ['customer_id' => $reseller->id])
+            ->assertOk();
+
+        $override = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.line-total-override', ['lineId' => $lineId]), ['line_total' => 60000])
+            ->assertOk();
+        $overridden = collect($override->json('cart_snapshot.lines'))->firstWhere('line_id', $lineId);
+        $this->assertEquals('LINE_TOTAL_OVERRIDE', $overridden['price_source']);
+        $this->assertEquals(60000, $overridden['line_total']);
+        $unitPrice = (float) $overridden['unit_price'];
+        $this->assertEquals(5000, $unitPrice);
+
+        $update = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.lines.update', ['lineId' => $lineId]), ['qty' => 14])
+            ->assertOk();
+
+        $line = collect($update->json('cart_snapshot.lines'))->firstWhere('line_id', $lineId);
+        $this->assertEquals('LINE_UNIT_PRICE_OVERRIDE', $line['price_source']);
+        $this->assertEquals(5000, (float) $line['unit_price']);
+        $this->assertEquals(70000, $line['line_total']);
+    }
+
+    /**
      * Task 4.4: Formatting coverage verifying 78999.96 is rendered with two decimal places.
      */
     public function test_sell_view_formatting_contains_two_decimal_places_for_fractional_totals(): void

@@ -287,6 +287,13 @@ class PosCartService
                 $updatedLine['breakdown'] = $priceResult['breakdown'];
             }
 
+            // Overridden rows keep their price authority; stale canonical
+            // metadata from the previous quantity must be recomputed.
+            if (in_array($updatedLine['price_source'] ?? null, ['LINE_UNIT_PRICE_OVERRIDE', 'LINE_TOTAL_OVERRIDE'], true)) {
+                $updatedLine = $this->clearCanonicalOverrideMetadata($updatedLine);
+                $updatedLine = $this->refreshOrInvalidateRowOverride($settingId, $updatedLine, $cart, true);
+            }
+
             // Quantity increased on an existing row: an eligible pricing
             // interaction, so the row recalculates under the current increment.
             $updatedLine = $this->markPricingDirty($updatedLine);
@@ -465,7 +472,12 @@ class PosCartService
         // Quantity, discount, or tax context just changed. A unit-price
         // override keeps its authoritative price and gets fresh metadata; a
         // row-total override reverts to resolved standard pricing.
-        $updatedLine = $this->refreshOrInvalidateRowOverride($settingId, $updatedLine, $cart);
+        $updatedLine = $this->refreshOrInvalidateRowOverride(
+            $settingId,
+            $updatedLine,
+            $cart,
+            $qty !== (int) $line['qty']
+        );
         $priceSource = (string) ($updatedLine['price_source'] ?? $priceSource);
 
         // For packed lines, re-pack the total quantity from cached pricing_basis
@@ -1443,19 +1455,27 @@ class PosCartService
      *
      * A unit-price override stays authoritative — the cashier set a price, not a
      * total — so its metadata is recomputed against the new quantity, discount,
-     * and tax context. A row-total override cannot survive: the total the
-     * cashier approved was for the old row, so the line reverts to resolved
-     * standard pricing and every canonical field is removed.
+     * and tax context. A row-total override is converted: the total the cashier
+     * approved was for the old quantity, so the displayed two-decimal unit price
+     * becomes authoritative and the source switches to a unit-price override.
+     * Standard (tier/packed) pricing is never reapplied to an overridden row.
+     *
+     * A row-total override converts only when the quantity changed. For a
+     * discount-only change it still reverts to resolved standard pricing.
      *
      * @param  array<string, mixed>  $line
      * @param  array<string, mixed>  $cart
      * @return array<string, mixed>
      */
-    private function refreshOrInvalidateRowOverride(int $settingId, array $line, array $cart): array
+    private function refreshOrInvalidateRowOverride(int $settingId, array $line, array $cart, bool $quantityChanged = true): array
     {
         $priceSource = (string) ($line['price_source'] ?? 'BASE');
 
-        if ($priceSource === 'LINE_UNIT_PRICE_OVERRIDE') {
+        if ($priceSource === 'LINE_TOTAL_OVERRIDE' && ! $quantityChanged) {
+            return $this->restoreStandardPricing($settingId, $line, $cart);
+        }
+
+        if ($priceSource === 'LINE_UNIT_PRICE_OVERRIDE' || $priceSource === 'LINE_TOTAL_OVERRIDE') {
             $context = $this->lineFingerprintService->buildContext($settingId, $cart);
 
             $recalculated = $this->rowOverrideArithmetic->applyUnitPrice(
@@ -1477,10 +1497,6 @@ class PosCartService
                 'line_tax_minor' => (int) $recalculated['line_tax_minor'],
                 'line_taxable_base_minor' => (int) $recalculated['line_taxable_base_minor'],
             ]);
-        }
-
-        if ($priceSource === 'LINE_TOTAL_OVERRIDE') {
-            return $this->restoreStandardPricing($settingId, $line, $cart);
         }
 
         return $line;

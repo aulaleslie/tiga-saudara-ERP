@@ -317,15 +317,16 @@ class PosLineTotalOverrideTest extends TestCase
             ->assertOk()
             ->assertJsonPath('cart_snapshot.lines.0.line_total', 15000);
 
-        // Mutation 1: Update Qty on line 1 -> overrides on line 1 must be invalidated (cleared back to base)
+        // Mutation 1: Update Qty on line 1 -> the displayed unit price (7500) stays authoritative
         $updateRes = $this->actingAs($cashier)
             ->withSession(['setting_id' => $setting->id])
             ->patchJson(route('pos.sell.cart.lines.update', ['lineId' => $lineId1]), ['qty' => 3])
             ->assertOk();
 
-        $updateRes->assertJsonPath('cart_snapshot.lines.0.price_source', 'BASE')
-            ->assertJsonPath('cart_snapshot.lines.0.line_total', 30000)
-            ->assertJsonPath('cart_snapshot.totals.grand_total', 30000);
+        $updateRes->assertJsonPath('cart_snapshot.lines.0.price_source', 'LINE_UNIT_PRICE_OVERRIDE')
+            ->assertJsonPath('cart_snapshot.lines.0.unit_price', 7500)
+            ->assertJsonPath('cart_snapshot.lines.0.line_total', 22500)
+            ->assertJsonPath('cart_snapshot.totals.grand_total', 22500);
     }
 
     public function test_approval_request_constructs_payload_server_side(): void
@@ -421,6 +422,59 @@ class PosLineTotalOverrideTest extends TestCase
         $overrideRes->assertJsonPath('cart_snapshot.lines.0.line_total', 30000)
             ->assertJsonPath('cart_snapshot.lines.0.unit_price', 30000)
             ->assertJsonPath('cart_snapshot.totals.grand_total', 30000);
+    }
+
+    public function test_bundle_parent_row_total_override_keeps_unit_price_after_quantity_change(): void
+    {
+        $setting = $this->createSetting('BIZ BUNDLE LTO QTY', false);
+        [$cashier, $location] = $this->createCashierAndOpenSession($setting, 'BUNDLE LTO QTY', true);
+
+        $prodA = $this->createStockedProduct($setting, $location, 'COMP-QA', 'Komponen QA', 15000, null, $cashier->id);
+        $prodB = $this->createStockedProduct($setting, $location, 'COMP-QB', 'Komponen QB', 25000, null, $cashier->id);
+        $bundleProduct = $this->createStockedProduct($setting, $location, 'BUNDLE-QTY', 'Paket Qty', 35000, null, $cashier->id);
+
+        $bundle = ProductBundle::create([
+            'setting_id' => $setting->id,
+            'parent_product_id' => $bundleProduct->id,
+            'name' => 'Paket Qty',
+            'bundle_sale_price' => 35000,
+        ]);
+        ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $prodA->id,
+            'quantity' => 1,
+            'informational_item_price' => 15000,
+        ]);
+        ProductBundleItem::create([
+            'bundle_id' => $bundle->id,
+            'product_id' => $prodB->id,
+            'quantity' => 1,
+            'informational_item_price' => 25000,
+        ]);
+
+        $res = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.store'), [
+                'product_id' => $bundleProduct->id,
+                'qty' => 1,
+                'bundle_id' => $bundle->id,
+            ])
+            ->assertOk();
+        $lineId = (int) $res->json('cart_snapshot.lines.0.line_id');
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.cart.lines.line-total-override', ['lineId' => $lineId]), ['line_total' => 30000])
+            ->assertOk();
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.lines.update', ['lineId' => $lineId]), ['qty' => 2])
+            ->assertOk()
+            ->assertJsonPath('cart_snapshot.lines.0.price_source', 'LINE_UNIT_PRICE_OVERRIDE')
+            ->assertJsonPath('cart_snapshot.lines.0.unit_price', 30000)
+            ->assertJsonPath('cart_snapshot.lines.0.line_total', 60000)
+            ->assertJsonPath('cart_snapshot.totals.grand_total', 60000);
     }
 
     public function test_failed_override_does_not_consume_token_and_subsequent_valid_attempt_succeeds(): void
