@@ -277,16 +277,22 @@ class ExpenseService
     {
         $this->verifySettingOwnership($expense);
 
-        if ($expense->status !== Expense::STATUS_SUBMITTED) {
-            abort(403, 'Hanya pengeluaran yang diajukan yang dapat disetujui.');
-        }
+        return DB::transaction(function () use ($expense) {
+            $locked = Expense::where('id', $expense->id)->lockForUpdate()->firstOrFail();
 
-        $expense->update(['status' => Expense::STATUS_APPROVED]);
+            if ($locked->status !== Expense::STATUS_SUBMITTED) {
+                abort(403, 'Hanya pengeluaran yang diajukan yang dapat disetujui.');
+            }
 
-        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($expense);
-        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($expense);
+            $locked->update(['status' => Expense::STATUS_APPROVED]);
 
-        return $expense;
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($locked);
+            app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($locked);
+
+            $expense->refresh();
+
+            return $expense;
+        });
     }
 
     public function reject(Expense $expense, string $reason): Expense

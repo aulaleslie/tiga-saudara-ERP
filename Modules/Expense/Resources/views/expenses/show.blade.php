@@ -14,6 +14,7 @@
     <div class="container-fluid">
         <div class="row">
             <div class="col-lg-12">
+                @include('utils.alerts')
                 <div class="card">
                     <div class="card-header d-flex flex-wrap align-items-center">
                         <div>
