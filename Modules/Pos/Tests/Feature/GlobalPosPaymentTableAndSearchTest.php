@@ -735,4 +735,190 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
             ->assertSee('TRX-SN-01')
             ->assertDontSee('TRX-SN-OTHER');
     }
+
+    public function test_table_renders_transaction_with_archived_returned_zero_split_as_payable_and_excludes_all_zero_split()
+    {
+        $location1 = \Modules\Setting\Entities\Location::where('setting_id', $this->setting1->id)->first()
+            ?? \Modules\Setting\Entities\Location::create(['setting_id' => $this->setting1->id, 'name' => 'Loc ' . $this->setting1->id]);
+
+        $terminal = \Modules\Pos\Entities\PosTerminal::create([
+            'setting_id' => $this->setting1->id,
+            'name' => 'Terminal Livewire',
+            'code' => 'T-LIVE',
+            'is_active' => true,
+        ]);
+        $session = \Modules\Pos\Entities\PosSession::create([
+            'setting_id' => $this->setting1->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'status' => 'OPEN',
+            'opened_at' => now(),
+            'opening_float_total' => 0,
+        ]);
+
+        // Transaction 1: Split with archived returned-zero sale + payable sibling
+        $retSale1 = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-LIVE-RET-01',
+            'customer_id' => $this->customer1->id,
+            'customer_name' => $this->customer1->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 0,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'status' => Sale::STATUS_RETURNED,
+            'payment_status' => Sale::PAYMENT_STATUS_PAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting1->id,
+            'archived_at' => now(),
+            'archived_by' => $this->user->id,
+        ]);
+
+        $paySale1 = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-LIVE-PAY-01',
+            'customer_id' => $this->customer1->id,
+            'customer_name' => $this->customer1->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 45000,
+            'paid_amount' => 0,
+            'due_amount' => 45000,
+            'status' => Sale::STATUS_DISPATCHED,
+            'payment_status' => Sale::PAYMENT_STATUS_UNPAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        $trx1 = PosTransaction::create([
+            'setting_id' => $this->setting1->id,
+            'code' => 'TRX-LIVE-SPLIT',
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => $session->id,
+            'customer_id' => $this->customer1->id,
+            'created_at' => now(),
+        ]);
+
+        $checkout1 = PosCheckout::create([
+            'setting_id' => $this->setting1->id,
+            'pos_transaction_id' => $trx1->id,
+            'pos_session_id' => $session->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'customer_id' => $this->customer1->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => 'hash_live1',
+            'subtotal' => 45000,
+            'grand_total' => 45000,
+            'paid_total' => 0,
+            'receipt_number' => 'RCP-LIVE-01',
+        ]);
+        $trx1->update(['completed_checkout_id' => $checkout1->id]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout1->id,
+            'split_key' => '1_10_notax',
+            'source_setting_id' => 1,
+            'source_location_id' => $location1->id,
+            'tax_bucket' => 'notax',
+            'sale_id' => $retSale1->id,
+            'subtotal' => 0,
+            'grand_total' => 0,
+            'paid_total' => 0,
+        ]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout1->id,
+            'split_key' => '2_20_notax',
+            'source_setting_id' => 1,
+            'source_location_id' => $location1->id,
+            'tax_bucket' => 'notax',
+            'sale_id' => $paySale1->id,
+            'subtotal' => 45000,
+            'grand_total' => 45000,
+            'paid_total' => 0,
+        ]);
+
+        // Transaction 2: Split with all zero returned sales
+        $retSale2 = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-LIVE-ZERO-01',
+            'customer_id' => $this->customer1->id,
+            'customer_name' => $this->customer1->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 0,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'status' => Sale::STATUS_RETURNED,
+            'payment_status' => Sale::PAYMENT_STATUS_PAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        $trx2 = PosTransaction::create([
+            'setting_id' => $this->setting1->id,
+            'code' => 'TRX-LIVE-ALLZERO',
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => $session->id,
+            'customer_id' => $this->customer1->id,
+            'created_at' => now()->subMinute(),
+        ]);
+
+        $checkout2 = PosCheckout::create([
+            'setting_id' => $this->setting1->id,
+            'pos_transaction_id' => $trx2->id,
+            'pos_session_id' => $session->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'customer_id' => $this->customer1->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => 'hash_live2',
+            'subtotal' => 0,
+            'grand_total' => 0,
+            'paid_total' => 0,
+            'receipt_number' => 'RCP-LIVE-02',
+        ]);
+        $trx2->update(['completed_checkout_id' => $checkout2->id]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout2->id,
+            'split_key' => '1_10_notax',
+            'source_setting_id' => 1,
+            'source_location_id' => $location1->id,
+            'tax_bucket' => 'notax',
+            'sale_id' => $retSale2->id,
+            'subtotal' => 0,
+            'grand_total' => 0,
+            'paid_total' => 0,
+        ]);
+
+        // Livewire Table: both transactions visible on unfiltered table
+        $component = Livewire::test(GlobalPosPaymentTable::class);
+        $component->assertSee('TRX-LIVE-SPLIT');
+        $component->assertSee('TRX-LIVE-ALLZERO');
+
+        // Apply 'unpaid' card filter: only TRX-LIVE-SPLIT has live_due > 0, TRX-LIVE-ALLZERO is excluded
+        $component->call('applyCardFilter', 'unpaid');
+        $component->assertSee('TRX-LIVE-SPLIT');
+        $component->assertDontSee('TRX-LIVE-ALLZERO');
+    }
 }

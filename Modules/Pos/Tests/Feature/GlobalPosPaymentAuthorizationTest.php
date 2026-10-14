@@ -7,10 +7,14 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Gate;
 use Modules\People\Entities\Customer;
 use Modules\Pos\Entities\PosCheckout;
+use Modules\Pos\Entities\PosCheckoutSale;
+use Modules\Pos\Entities\PosReturn;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTransaction;
 use Modules\Sale\Entities\Sale;
+use Modules\Sale\Entities\SaleDetails;
+use Modules\Sale\Entities\SalePayment;
 use Modules\Setting\Entities\ChartOfAccount;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\PaymentMethod;
@@ -504,5 +508,499 @@ class GlobalPosPaymentAuthorizationTest extends TestCase
         $this->actingAs($userWithBoth)
             ->post(route('pos.global-payments.receipt.reprint', $incompleteTransaction->id))
             ->assertStatus(422);
+    }
+
+    public function test_create_form_and_candidates_allow_payable_siblings_with_archived_returned_zero_split()
+    {
+        $creatorUser = User::factory()->create();
+        $creatorUser->givePermissionTo(['posPayments.global.access', 'posPayments.global.create']);
+
+        $returnedSale = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-FORM-RET-01',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 0,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'status' => Sale::STATUS_RETURNED,
+            'payment_status' => Sale::PAYMENT_STATUS_PAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting1->id,
+            'archived_at' => now(),
+            'archived_by' => $this->user->id,
+        ]);
+
+        $payableSale = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-FORM-PAY-01',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 60000,
+            'paid_amount' => 0,
+            'due_amount' => 60000,
+            'status' => Sale::STATUS_DISPATCHED,
+            'payment_status' => Sale::PAYMENT_STATUS_UNPAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting2->id,
+        ]);
+
+        $splitTrx = PosTransaction::create([
+            'setting_id' => $this->setting1->id,
+            'code' => 'TRX-FORM-SPLIT-01',
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => $this->session->id,
+            'customer_id' => $this->customer->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $this->setting1->id,
+            'pos_transaction_id' => $splitTrx->id,
+            'pos_session_id' => $this->session->id,
+            'terminal_id' => $this->terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'customer_id' => $this->customer->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => 'hash_form_split',
+            'subtotal' => 60000,
+            'grand_total' => 60000,
+            'paid_total' => 0,
+            'receipt_number' => 'RCP-FORM-SPLIT-01',
+        ]);
+        $splitTrx->update(['completed_checkout_id' => $checkout->id]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '1_10_notax',
+            'source_setting_id' => 1,
+            'source_location_id' => 10,
+            'tax_bucket' => 'notax',
+            'sale_id' => $returnedSale->id,
+            'subtotal' => 0,
+            'grand_total' => 0,
+            'paid_total' => 0,
+        ]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '2_20_notax',
+            'source_setting_id' => 2,
+            'source_location_id' => $this->location1->id,
+            'tax_bucket' => 'notax',
+            'sale_id' => $payableSale->id,
+            'subtotal' => 60000,
+            'grand_total' => 60000,
+            'paid_total' => 0,
+        ]);
+
+        $response = $this->actingAs($creatorUser)
+            ->get(route('pos.global-payments.create', $splitTrx->id));
+
+        $response->assertStatus(200);
+        $response->assertViewHas('candidateTransactions', function ($candidates) use ($splitTrx) {
+            return $candidates->pluck('id')->contains($splitTrx->id);
+        });
+    }
+
+    public function test_create_form_excludes_all_zero_split_transaction()
+    {
+        $creatorUser = User::factory()->create();
+        $creatorUser->givePermissionTo(['posPayments.global.access', 'posPayments.global.create']);
+
+        $returnedSale1 = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-EXCL-01',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 0,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'status' => Sale::STATUS_RETURNED,
+            'payment_status' => Sale::PAYMENT_STATUS_PAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        $returnedSale2 = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-EXCL-02',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 0,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'status' => Sale::STATUS_RETURNED,
+            'payment_status' => Sale::PAYMENT_STATUS_PAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting2->id,
+        ]);
+
+        $allZeroTrx = PosTransaction::create([
+            'setting_id' => $this->setting1->id,
+            'code' => 'TRX-EXCL-01',
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => $this->session->id,
+            'customer_id' => $this->customer->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $this->setting1->id,
+            'pos_transaction_id' => $allZeroTrx->id,
+            'pos_session_id' => $this->session->id,
+            'terminal_id' => $this->terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'customer_id' => $this->customer->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => 'hash_excl',
+            'subtotal' => 0,
+            'grand_total' => 0,
+            'paid_total' => 0,
+            'receipt_number' => 'RCP-EXCL-01',
+        ]);
+        $allZeroTrx->update(['completed_checkout_id' => $checkout->id]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '1_10_notax',
+            'source_setting_id' => 1,
+            'source_location_id' => 10,
+            'tax_bucket' => 'notax',
+            'sale_id' => $returnedSale1->id,
+            'subtotal' => 0,
+            'grand_total' => 0,
+            'paid_total' => 0,
+        ]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '2_20_notax',
+            'source_setting_id' => 2,
+            'source_location_id' => $this->location1->id,
+            'tax_bucket' => 'notax',
+            'sale_id' => $returnedSale2->id,
+            'subtotal' => 0,
+            'grand_total' => 0,
+            'paid_total' => 0,
+        ]);
+
+        $this->actingAs($creatorUser)
+            ->get(route('pos.global-payments.create', $allZeroTrx->id))
+            ->assertRedirect(route('pos.global-payments.index'));
+    }
+
+    public function test_create_permission_enforcement_remains_unchanged_for_split_transactions()
+    {
+        $viewOnlyUser = User::factory()->create();
+        $viewOnlyUser->givePermissionTo('posPayments.global.access');
+
+        $returnedSale = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-PERM-RET-01',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 0,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'status' => Sale::STATUS_RETURNED,
+            'payment_status' => Sale::PAYMENT_STATUS_PAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        $payableSale = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-PERM-PAY-01',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 50000,
+            'paid_amount' => 0,
+            'due_amount' => 50000,
+            'status' => Sale::STATUS_DISPATCHED,
+            'payment_status' => Sale::PAYMENT_STATUS_UNPAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting2->id,
+        ]);
+
+        $trx = PosTransaction::create([
+            'setting_id' => $this->setting1->id,
+            'code' => 'TRX-PERM-01',
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => $this->session->id,
+            'customer_id' => $this->customer->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $this->setting1->id,
+            'pos_transaction_id' => $trx->id,
+            'pos_session_id' => $this->session->id,
+            'terminal_id' => $this->terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'customer_id' => $this->customer->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => 'hash_perm',
+            'subtotal' => 50000,
+            'grand_total' => 50000,
+            'paid_total' => 0,
+            'receipt_number' => 'RCP-PERM-01',
+        ]);
+        $trx->update(['completed_checkout_id' => $checkout->id]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '1_10_notax',
+            'source_setting_id' => 1,
+            'source_location_id' => 10,
+            'tax_bucket' => 'notax',
+            'sale_id' => $returnedSale->id,
+            'subtotal' => 0,
+            'grand_total' => 0,
+            'paid_total' => 0,
+        ]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '2_20_notax',
+            'source_setting_id' => 2,
+            'source_location_id' => $this->location1->id,
+            'tax_bucket' => 'notax',
+            'sale_id' => $payableSale->id,
+            'subtotal' => 50000,
+            'grand_total' => 50000,
+            'paid_total' => 0,
+        ]);
+
+        $this->actingAs($viewOnlyUser)
+            ->get(route('pos.global-payments.create', $trx->id))
+            ->assertStatus(403);
+    }
+
+    public function test_committed_return_corrections_allow_sibling_collection_without_return_completion_or_archive()
+    {
+        $creatorUser = User::factory()->create();
+        $creatorUser->givePermissionTo(['posPayments.global.access', 'posPayments.global.create']);
+
+        // A split Sale where return line corrections are committed:
+        // status is STATUS_RETURNED, total=0, due=0, but return header is NOT completed and Sale is NOT archived!
+        $unarchivedReturnedSale = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-UNARCH-RET-01',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 0,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'status' => Sale::STATUS_RETURNED,
+            'payment_status' => Sale::PAYMENT_STATUS_PAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting1->id,
+            'archived_at' => null, // Explicitly NOT archived!
+        ]);
+
+        // Zero-quantity SaleDetails representing committed return line corrections
+        $returnedDetail = SaleDetails::create([
+            'sale_id' => $unarchivedReturnedSale->id,
+            'product_id' => null,
+            'product_name' => 'Returned Item',
+            'product_code' => 'RET-ITEM-01',
+            'quantity' => 0,
+            'price' => 50000,
+            'unit_price' => 50000,
+            'sub_total' => 0,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $payableSibling = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-UNARCH-PAY-01',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 90000,
+            'paid_amount' => 0,
+            'due_amount' => 90000,
+            'status' => Sale::STATUS_DISPATCHED,
+            'payment_status' => Sale::PAYMENT_STATUS_UNPAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting2->id,
+        ]);
+
+        $payableDetail = SaleDetails::create([
+            'sale_id' => $payableSibling->id,
+            'product_id' => null,
+            'product_name' => 'Payable Sibling Item',
+            'product_code' => 'PAY-ITEM-01',
+            'quantity' => 1,
+            'price' => 90000,
+            'unit_price' => 90000,
+            'sub_total' => 90000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $trx = PosTransaction::create([
+            'setting_id' => $this->setting1->id,
+            'code' => 'TRX-UNARCH-01',
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => $this->session->id,
+            'customer_id' => $this->customer->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $this->setting1->id,
+            'pos_transaction_id' => $trx->id,
+            'pos_session_id' => $this->session->id,
+            'terminal_id' => $this->terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'customer_id' => $this->customer->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => 'hash_unarch',
+            'subtotal' => 90000,
+            'grand_total' => 90000,
+            'paid_total' => 0,
+            'receipt_number' => 'RCP-UNARCH-01',
+        ]);
+        $trx->update(['completed_checkout_id' => $checkout->id]);
+
+        // Linked incomplete return header
+        $posReturn = PosReturn::create([
+            'reference' => 'PR-UNARCH-01',
+            'setting_id' => $this->setting1->id,
+            'pos_transaction_id' => $trx->id,
+            'pos_checkout_id' => $checkout->id,
+            'transaction_code' => $trx->code,
+            'receipt_number' => $checkout->receipt_number,
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'status' => PosReturn::STATUS_PENDING_APPROVAL,
+            'approval_status' => PosReturn::APPROVAL_STATUS_PENDING,
+            'source_snapshot' => [],
+            'source_snapshot_hash' => 'hash_unarch_ret',
+            'total_amount' => 50000,
+            'created_by' => $this->user->id,
+            'updated_by' => $this->user->id,
+        ]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '1_10_notax',
+            'source_setting_id' => 1,
+            'source_location_id' => 10,
+            'tax_bucket' => 'notax',
+            'sale_id' => $unarchivedReturnedSale->id,
+            'subtotal' => 0,
+            'grand_total' => 0,
+            'paid_total' => 0,
+        ]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '2_20_notax',
+            'source_setting_id' => 2,
+            'source_location_id' => $this->location1->id,
+            'tax_bucket' => 'notax',
+            'sale_id' => $payableSibling->id,
+            'subtotal' => 90000,
+            'grand_total' => 90000,
+            'paid_total' => 0,
+        ]);
+
+        // 1. Form access
+        $this->actingAs($creatorUser)
+            ->get(route('pos.global-payments.create', $trx->id))
+            ->assertStatus(200);
+
+        // 2. Preview endpoint
+        $previewResponse = $this->actingAs($creatorUser)
+            ->postJson(route('pos.global-payments.preview', $trx->id), [
+                'payment_method_id' => $this->paymentMethod->id,
+                'allocations' => [$trx->id => 90000],
+            ]);
+
+        $previewResponse->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.total_planned', 90000);
+
+        // 3. Store submission
+        $storeResponse = $this->actingAs($creatorUser)
+            ->post(route('pos.global-payments.store', $trx->id), [
+                'reference' => 'PAY-UNARCH-01',
+                'date' => now()->toDateString(),
+                'payment_method_id' => $this->paymentMethod->id,
+                'allocations' => [$trx->id => 90000],
+            ]);
+
+        $storeResponse->assertRedirect(route('pos.global-payments.index'));
+
+        // Verify unarchived returned Sale remains unarchived and received no payment
+        $this->assertNull($unarchivedReturnedSale->fresh()->archived_at);
+        $this->assertEquals(0, SalePayment::where('sale_id', $unarchivedReturnedSale->id)->count());
+
+        // Verify linked return header remains incomplete (lifecycle unchanged)
+        $this->assertEquals(PosReturn::STATUS_PENDING_APPROVAL, $posReturn->fresh()->status);
+        $this->assertEquals(PosReturn::APPROVAL_STATUS_PENDING, $posReturn->fresh()->approval_status);
+
+        // Verify zero-quantity detail remains
+        $this->assertEquals(0, (int) $unarchivedReturnedSale->saleDetails()->first()->quantity);
+
+        // Verify payable sibling is settled
+        $this->assertEquals(90000.0, (float) $payableSibling->fresh()->paid_amount);
+        $this->assertEquals(0.0, (float) $payableSibling->fresh()->due_amount);
     }
 }

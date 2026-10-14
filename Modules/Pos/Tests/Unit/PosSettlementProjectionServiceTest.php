@@ -735,4 +735,291 @@ class PosSettlementProjectionServiceTest extends TestCase
         $this->assertFalse($projection['is_valid']);
         $this->assertFalse($projection['is_payable']);
     }
+
+    public function test_returned_zero_split_with_payable_sibling_is_payable(): void
+    {
+        // Sale 1: fully returned split sale (zero total, zero due), archived
+        $returnedSale = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-RET-ZERO-01',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 0,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'status' => Sale::STATUS_RETURNED,
+            'payment_status' => Sale::PAYMENT_STATUS_PAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting1->id,
+        ]);
+        $returnedSale->update(['archived_at' => now(), 'archived_by' => $this->user->id]);
+
+        // Sale 2: payable sibling with positive debt
+        $payableSale = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-PAYABLE-01',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 75000,
+            'paid_amount' => 0,
+            'due_amount' => 75000,
+            'status' => Sale::STATUS_DISPATCHED,
+            'payment_status' => Sale::PAYMENT_STATUS_UNPAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting2->id,
+        ]);
+
+        $trx = PosTransaction::create([
+            'setting_id' => $this->setting1->id,
+            'code' => 'TRX-RET-SIB-01',
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => $this->session->id,
+            'customer_id' => $this->customer->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $this->setting1->id,
+            'pos_transaction_id' => $trx->id,
+            'pos_session_id' => $this->session->id,
+            'terminal_id' => $this->terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'customer_id' => $this->customer->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => 'hash_retsib',
+            'subtotal' => 75000,
+            'grand_total' => 75000,
+            'paid_total' => 0,
+            'receipt_number' => 'RCP-RET-SIB-01',
+        ]);
+        $trx->update(['completed_checkout_id' => $checkout->id]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '1_10_notax',
+            'source_setting_id' => 1,
+            'source_location_id' => 10,
+            'tax_bucket' => 'notax',
+            'sale_id' => $returnedSale->id,
+            'subtotal' => 0,
+            'grand_total' => 0,
+            'paid_total' => 0,
+        ]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '2_20_notax',
+            'source_setting_id' => 2,
+            'source_location_id' => 20,
+            'tax_bucket' => 'notax',
+            'sale_id' => $payableSale->id,
+            'subtotal' => 75000,
+            'grand_total' => 75000,
+            'paid_total' => 0,
+        ]);
+
+        $projection = $this->service->project($trx);
+
+        $this->assertTrue($projection['is_valid']);
+        $this->assertTrue($projection['is_payable'], 'A transaction with an archived returned-zero split and a payable sibling must be payable.');
+        $this->assertEquals(75000.0, $projection['live_due']);
+        $this->assertEquals(75000.0, $projection['total_amount']);
+        $this->assertCount(2, $projection['sales'], 'Both reachable sales must remain resolved.');
+    }
+
+    public function test_all_zero_splits_are_not_payable(): void
+    {
+        $returnedSale1 = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-ZERO-01',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 0,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'status' => Sale::STATUS_RETURNED,
+            'payment_status' => Sale::PAYMENT_STATUS_PAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        $returnedSale2 = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-ZERO-02',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 0,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'status' => Sale::STATUS_RETURNED,
+            'payment_status' => Sale::PAYMENT_STATUS_PAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting2->id,
+        ]);
+
+        $trx = PosTransaction::create([
+            'setting_id' => $this->setting1->id,
+            'code' => 'TRX-ALL-ZERO-01',
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => $this->session->id,
+            'customer_id' => $this->customer->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $this->setting1->id,
+            'pos_transaction_id' => $trx->id,
+            'pos_session_id' => $this->session->id,
+            'terminal_id' => $this->terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'customer_id' => $this->customer->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => 'hash_allzero',
+            'subtotal' => 0,
+            'grand_total' => 0,
+            'paid_total' => 0,
+            'receipt_number' => 'RCP-ALL-ZERO-01',
+        ]);
+        $trx->update(['completed_checkout_id' => $checkout->id]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '1_10_notax',
+            'source_setting_id' => 1,
+            'source_location_id' => 10,
+            'tax_bucket' => 'notax',
+            'sale_id' => $returnedSale1->id,
+            'subtotal' => 0,
+            'grand_total' => 0,
+            'paid_total' => 0,
+        ]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '2_20_notax',
+            'source_setting_id' => 2,
+            'source_location_id' => 20,
+            'tax_bucket' => 'notax',
+            'sale_id' => $returnedSale2->id,
+            'subtotal' => 0,
+            'grand_total' => 0,
+            'paid_total' => 0,
+        ]);
+
+        $projection = $this->service->project($trx);
+
+        $this->assertTrue($projection['is_valid']);
+        $this->assertEquals(0.0, $projection['live_due']);
+        $this->assertFalse($projection['is_payable'], 'A transaction with all zero splits must not be payable.');
+    }
+
+    public function test_returned_zero_split_with_broken_mapping_is_not_payable(): void
+    {
+        $returnedSale = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-BROKEN-01',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 0,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'status' => Sale::STATUS_RETURNED,
+            'payment_status' => Sale::PAYMENT_STATUS_PAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        $trx = PosTransaction::create([
+            'setting_id' => $this->setting1->id,
+            'code' => 'TRX-BROKEN-01',
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => $this->session->id,
+            'customer_id' => $this->customer->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $this->setting1->id,
+            'pos_transaction_id' => $trx->id,
+            'pos_session_id' => $this->session->id,
+            'terminal_id' => $this->terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'customer_id' => $this->customer->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => 'hash_broken',
+            'subtotal' => 50000,
+            'grand_total' => 50000,
+            'paid_total' => 0,
+            'receipt_number' => 'RCP-BROKEN-01',
+        ]);
+        $trx->update(['completed_checkout_id' => $checkout->id]);
+
+        // One valid sale mapping
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '1_10_notax',
+            'source_setting_id' => 1,
+            'source_location_id' => 10,
+            'tax_bucket' => 'notax',
+            'sale_id' => $returnedSale->id,
+            'subtotal' => 0,
+            'grand_total' => 0,
+            'paid_total' => 0,
+        ]);
+
+        // Duplicate split mapping creating mapping anomaly
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '2_20_notax',
+            'source_setting_id' => 2,
+            'source_location_id' => 20,
+            'tax_bucket' => 'notax',
+            'sale_id' => $returnedSale->id,
+            'subtotal' => 50000,
+            'grand_total' => 50000,
+            'paid_total' => 0,
+        ]);
+
+        $diagnostics = $this->service->diagnose($trx);
+        $this->assertFalse($diagnostics['is_valid']);
+        $this->assertNotEmpty($diagnostics['anomalies']);
+
+        $projection = $this->service->project($trx);
+        $this->assertFalse($projection['is_valid']);
+        $this->assertFalse($projection['is_payable'], 'Broken sale mapping must remain non-payable even with a returned-zero split.');
+    }
 }

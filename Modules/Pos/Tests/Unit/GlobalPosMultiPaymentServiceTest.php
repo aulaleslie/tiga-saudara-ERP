@@ -776,4 +776,370 @@ class GlobalPosMultiPaymentServiceTest extends TestCase
             @unlink($tempFile);
         }
     }
+
+    public function test_preview_allocates_only_to_outstanding_eligible_siblings_with_returned_zero_split(): void
+    {
+        $returnedSale = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-PREV-RET-01',
+            'customer_id' => $this->customerA->id,
+            'customer_name' => $this->customerA->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 0,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'status' => Sale::STATUS_RETURNED,
+            'payment_status' => Sale::PAYMENT_STATUS_PAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting1->id,
+            'archived_at' => now(),
+            'archived_by' => $this->user->id,
+        ]);
+
+        $payableSale = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-PREV-PAY-01',
+            'customer_id' => $this->customerA->id,
+            'customer_name' => $this->customerA->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 100000,
+            'paid_amount' => 0,
+            'due_amount' => 100000,
+            'status' => Sale::STATUS_DISPATCHED,
+            'payment_status' => Sale::PAYMENT_STATUS_UNPAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting2->id,
+        ]);
+
+        $trx = PosTransaction::create([
+            'setting_id' => $this->setting1->id,
+            'code' => 'TRX-PREV-RET-01',
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => $this->session->id,
+            'customer_id' => $this->customerA->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $this->setting1->id,
+            'pos_transaction_id' => $trx->id,
+            'pos_session_id' => $this->session->id,
+            'terminal_id' => $this->terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'customer_id' => $this->customerA->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => 'hash_prev_ret',
+            'subtotal' => 100000,
+            'grand_total' => 100000,
+            'paid_total' => 0,
+            'receipt_number' => 'RCP-PREV-RET-01',
+        ]);
+        $trx->update(['completed_checkout_id' => $checkout->id]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '1_10_notax',
+            'source_setting_id' => 1,
+            'source_location_id' => 10,
+            'tax_bucket' => 'notax',
+            'sale_id' => $returnedSale->id,
+            'subtotal' => 0,
+            'grand_total' => 0,
+            'paid_total' => 0,
+        ]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '2_20_notax',
+            'source_setting_id' => 2,
+            'source_location_id' => 20,
+            'tax_bucket' => 'notax',
+            'sale_id' => $payableSale->id,
+            'subtotal' => 100000,
+            'grand_total' => 100000,
+            'paid_total' => 0,
+        ]);
+
+        $preview = $this->service->previewAllocations($this->customerA->id, [
+            $trx->id => 60000,
+        ], $this->cashMethod->id);
+
+        $this->assertEquals(60000.0, $preview['total_requested']);
+        $this->assertEquals(60000.0, $preview['total_planned']);
+        $trxPreview = $preview['transactions'][0];
+        $this->assertEquals(100000.0, $trxPreview['live_due']);
+
+        $allocMap = collect($trxPreview['planned_allocations'])->keyBy('sale_id');
+        $this->assertEquals(0.0, $allocMap[$returnedSale->id]['allocated_amount']);
+        $this->assertEquals(60000.0, $allocMap[$payableSale->id]['allocated_amount']);
+    }
+
+    public function test_submission_creates_no_payment_or_audit_for_exempt_sale(): void
+    {
+        $returnedSale = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-SUB-RET-01',
+            'customer_id' => $this->customerA->id,
+            'customer_name' => $this->customerA->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 0,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'status' => Sale::STATUS_RETURNED,
+            'payment_status' => Sale::PAYMENT_STATUS_PAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting1->id,
+            'archived_at' => now(),
+            'archived_by' => $this->user->id,
+        ]);
+
+        $payableSale = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-SUB-PAY-01',
+            'customer_id' => $this->customerA->id,
+            'customer_name' => $this->customerA->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 80000,
+            'paid_amount' => 0,
+            'due_amount' => 80000,
+            'status' => Sale::STATUS_DISPATCHED,
+            'payment_status' => Sale::PAYMENT_STATUS_UNPAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting2->id,
+        ]);
+
+        $trx = PosTransaction::create([
+            'setting_id' => $this->setting1->id,
+            'code' => 'TRX-SUB-RET-01',
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => $this->session->id,
+            'customer_id' => $this->customerA->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $this->setting1->id,
+            'pos_transaction_id' => $trx->id,
+            'pos_session_id' => $this->session->id,
+            'terminal_id' => $this->terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'customer_id' => $this->customerA->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => 'hash_sub_ret',
+            'subtotal' => 80000,
+            'grand_total' => 80000,
+            'paid_total' => 0,
+            'receipt_number' => 'RCP-SUB-RET-01',
+        ]);
+        $trx->update(['completed_checkout_id' => $checkout->id]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '1_10_notax',
+            'source_setting_id' => 1,
+            'source_location_id' => 10,
+            'tax_bucket' => 'notax',
+            'sale_id' => $returnedSale->id,
+            'subtotal' => 0,
+            'grand_total' => 0,
+            'paid_total' => 0,
+        ]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '2_20_notax',
+            'source_setting_id' => 2,
+            'source_location_id' => 20,
+            'tax_bucket' => 'notax',
+            'sale_id' => $payableSale->id,
+            'subtotal' => 80000,
+            'grand_total' => 80000,
+            'paid_total' => 0,
+        ]);
+
+        $batch = $this->service->storeMultiPayment($this->customerA->id, [
+            'allocations' => [
+                $trx->id => 50000,
+            ],
+            'reference' => 'PAY-SUB-RET-01',
+            'date' => now()->toDateString(),
+            'payment_method_id' => $this->cashMethod->id,
+        ], $this->user->id);
+
+        $this->assertEquals(50000.0, (float) $batch->total_amount);
+        $this->assertCount(1, $batch->allocations);
+
+        // Exempt Sale receives NO SalePayment and NO GlobalPosPaymentAllocation
+        $this->assertEquals(0, SalePayment::where('sale_id', $returnedSale->id)->count());
+        $this->assertEquals(0, GlobalPosPaymentAllocation::where('sale_id', $returnedSale->id)->count());
+
+        // Payable Sale receives payment and audit allocation
+        $this->assertEquals(1, SalePayment::where('sale_id', $payableSale->id)->count());
+        $this->assertEquals(50000.0, (float) $batch->allocations->first()->amount);
+        $this->assertEquals($payableSale->id, $batch->allocations->first()->sale_id);
+        $this->assertEquals(50000.0, (float) $payableSale->fresh()->paid_amount);
+        $this->assertEquals(30000.0, (float) $payableSale->fresh()->due_amount);
+    }
+
+    public function test_stale_eligibility_or_overpayment_rejects_batch_without_partial_writes(): void
+    {
+        $returnedSale = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-STALE-RET-01',
+            'customer_id' => $this->customerA->id,
+            'customer_name' => $this->customerA->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 0,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'status' => Sale::STATUS_RETURNED,
+            'payment_status' => Sale::PAYMENT_STATUS_PAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        $payableSale = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-STALE-PAY-01',
+            'customer_id' => $this->customerA->id,
+            'customer_name' => $this->customerA->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 50000,
+            'paid_amount' => 0,
+            'due_amount' => 50000,
+            'status' => Sale::STATUS_DISPATCHED,
+            'payment_status' => Sale::PAYMENT_STATUS_UNPAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting2->id,
+        ]);
+
+        $trx = PosTransaction::create([
+            'setting_id' => $this->setting1->id,
+            'code' => 'TRX-STALE-01',
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => $this->session->id,
+            'customer_id' => $this->customerA->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $this->setting1->id,
+            'pos_transaction_id' => $trx->id,
+            'pos_session_id' => $this->session->id,
+            'terminal_id' => $this->terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'customer_id' => $this->customerA->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => 'hash_stale',
+            'subtotal' => 50000,
+            'grand_total' => 50000,
+            'paid_total' => 0,
+            'receipt_number' => 'RCP-STALE-01',
+        ]);
+        $trx->update(['completed_checkout_id' => $checkout->id]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '1_10_notax',
+            'source_setting_id' => 1,
+            'source_location_id' => 10,
+            'tax_bucket' => 'notax',
+            'sale_id' => $returnedSale->id,
+            'subtotal' => 0,
+            'grand_total' => 0,
+            'paid_total' => 0,
+        ]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '2_20_notax',
+            'source_setting_id' => 2,
+            'source_location_id' => 20,
+            'tax_bucket' => 'notax',
+            'sale_id' => $payableSale->id,
+            'subtotal' => 50000,
+            'grand_total' => 50000,
+            'paid_total' => 0,
+        ]);
+
+        // Stale eligibility: returnedSale drifts to have positive residual total
+        $returnedSale->update(['total_amount' => 20000, 'due_amount' => 20000]);
+
+        $paymentsBefore = SalePayment::count();
+        $batchesBefore = GlobalPosPaymentBatch::count();
+        $allocationsBefore = GlobalPosPaymentAllocation::count();
+
+        try {
+            $this->service->storeMultiPayment($this->customerA->id, [
+                'allocations' => [
+                    $trx->id => 30000,
+                ],
+                'reference' => 'PAY-STALE',
+                'date' => now()->toDateString(),
+                'payment_method_id' => $this->cashMethod->id,
+            ]);
+            $this->fail('Expected ValidationException was not thrown on stale eligibility.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('allocations', $e->errors());
+        }
+
+        $this->assertEquals($paymentsBefore, SalePayment::count(), 'No partial payments on stale failure.');
+        $this->assertEquals($batchesBefore, GlobalPosPaymentBatch::count(), 'No batch header on stale failure.');
+        $this->assertEquals($allocationsBefore, GlobalPosPaymentAllocation::count(), 'No allocations on stale failure.');
+
+        // Reset returnedSale back to exempt state
+        $returnedSale->update(['total_amount' => 0, 'due_amount' => 0]);
+
+        // Overpayment test: attempt to pay 100,000 when only 50,000 is due
+        try {
+            $this->service->storeMultiPayment($this->customerA->id, [
+                'allocations' => [
+                    $trx->id => 100000,
+                ],
+                'reference' => 'PAY-OVER',
+                'date' => now()->toDateString(),
+                'payment_method_id' => $this->cashMethod->id,
+            ]);
+            $this->fail('Expected ValidationException was not thrown on overpayment.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('allocations', $e->errors());
+        }
+
+        $this->assertEquals($paymentsBefore, SalePayment::count(), 'No partial payments on overpayment.');
+        $this->assertEquals($batchesBefore, GlobalPosPaymentBatch::count(), 'No batch header on overpayment.');
+        $this->assertEquals($allocationsBefore, GlobalPosPaymentAllocation::count(), 'No allocations on overpayment.');
+    }
 }

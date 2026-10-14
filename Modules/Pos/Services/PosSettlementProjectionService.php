@@ -24,10 +24,14 @@ class PosSettlementProjectionService
     ];
 
     protected PosReachableSalesResolver $resolver;
+    protected PosChildSaleEligibilityService $eligibilityService;
 
-    public function __construct(?PosReachableSalesResolver $resolver = null)
-    {
+    public function __construct(
+        ?PosReachableSalesResolver $resolver = null,
+        ?PosChildSaleEligibilityService $eligibilityService = null
+    ) {
         $this->resolver = $resolver ?? new PosReachableSalesResolver();
+        $this->eligibilityService = $eligibilityService ?? new PosChildSaleEligibilityService();
     }
 
     /**
@@ -130,6 +134,9 @@ class PosSettlementProjectionService
         $today = Carbon::today()->toDateString();
         $thirtyDaysAgo = Carbon::today()->subDays(30)->toDateString();
 
+        $saleTotals = [];
+        $saleDues = [];
+
         foreach ($sales as $sale) {
             // Use the eager-loaded salePayments (and nested creditApplications) relation
             // when available to avoid an additional query per Sale for both the
@@ -155,6 +162,9 @@ class PosSettlementProjectionService
             }
 
             $saleDue = max(0.0, round($saleTotal - $salePaid, 2));
+
+            $saleTotals[$sale->id] = $saleTotal;
+            $saleDues[$sale->id] = $saleDue;
 
             $totalAmount += $saleTotal;
             $effectivePaid += $salePaid;
@@ -209,16 +219,15 @@ class PosSettlementProjectionService
         $isOverdue = ($liveDue > 0.0 && $earliestOutstandingDueDate !== null && $earliestOutstandingDueDate < $today);
 
         // Every reachable Sale must remain eligible for new payments (not archived, not in a
-        // terminal/ineligible lifecycle status such as REJECTED or fully RETURNED). A POS
+        // terminal/ineligible lifecycle status such as REJECTED or fully RETURNED, unless exempt
+        // as a fully returned split Sale with zero total and zero canonical live due). A POS
         // transaction whose Sales have drifted out of eligibility since checkout must not be
         // payable, even if its aggregate live due is still positive.
-        $allSalesEligible = $sales->every(function (Sale $sale) {
-            return $sale->archived_at === null && in_array($sale->status, [
-                Sale::STATUS_APPROVED,
-                Sale::STATUS_DISPATCHED_PARTIALLY,
-                Sale::STATUS_DISPATCHED,
-                Sale::STATUS_RETURNED_PARTIALLY,
-            ], true);
+        $allSalesEligible = $sales->every(function (Sale $sale) use ($saleDues, $saleTotals) {
+            $due = $saleDues[$sale->id] ?? null;
+            $total = $saleTotals[$sale->id] ?? null;
+
+            return $this->eligibilityService->isEligible($sale, $due, $total);
         });
 
         $isPayable = (

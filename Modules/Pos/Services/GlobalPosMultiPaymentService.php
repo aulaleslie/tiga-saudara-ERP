@@ -22,16 +22,19 @@ class GlobalPosMultiPaymentService
     protected PosReachableSalesResolver $resolver;
     protected PosSettlementProjectionService $projectionService;
     protected GlobalSalePaymentAttachmentReplicator $replicator;
+    protected PosChildSaleEligibilityService $eligibilityService;
 
     public function __construct(
         ?PosRemainingBalancePriorityPlanner $planner = null,
         ?PosReachableSalesResolver $resolver = null,
         ?PosSettlementProjectionService $projectionService = null,
-        ?GlobalSalePaymentAttachmentReplicator $replicator = null
+        ?GlobalSalePaymentAttachmentReplicator $replicator = null,
+        ?PosChildSaleEligibilityService $eligibilityService = null
     ) {
         $this->planner = $planner ?? new PosRemainingBalancePriorityPlanner();
         $this->resolver = $resolver ?? new PosReachableSalesResolver();
-        $this->projectionService = $projectionService ?? new PosSettlementProjectionService($this->resolver);
+        $this->eligibilityService = $eligibilityService ?? new PosChildSaleEligibilityService();
+        $this->projectionService = $projectionService ?? new PosSettlementProjectionService($this->resolver, $this->eligibilityService);
         $this->replicator = $replicator ?? new GlobalSalePaymentAttachmentReplicator();
     }
 
@@ -123,14 +126,7 @@ class GlobalPosMultiPaymentService
             }
 
             foreach ($diagnostics['sales'] as $sale) {
-                $isEligible = $sale->archived_at === null && in_array($sale->status, [
-                    Sale::STATUS_APPROVED,
-                    Sale::STATUS_DISPATCHED_PARTIALLY,
-                    Sale::STATUS_DISPATCHED,
-                    Sale::STATUS_RETURNED_PARTIALLY,
-                ], true);
-
-                if (!$isEligible) {
+                if (!$this->eligibilityService->isEligible($sale)) {
                     throw ValidationException::withMessages([
                         'allocations' => "Penjualan {$sale->reference} untuk transaksi {$trx->code} tidak lagi memenuhi syarat untuk pembayaran baru.",
                     ]);
@@ -348,16 +344,10 @@ class GlobalPosMultiPaymentService
 
                     // Every reachable Sale must currently be eligible for new payments.
                     // Bypassing ArchivingScope above is only for reachability/locking; it must
-                    // never allow a payment against an archived or lifecycle-ineligible Sale.
+                    // never allow a payment against an archived or lifecycle-ineligible Sale,
+                    // unless exempt as a fully returned split Sale with zero total and zero canonical live due.
                     foreach ($lockedSales as $lockedSale) {
-                        $isEligible = $lockedSale->archived_at === null && in_array($lockedSale->status, [
-                            Sale::STATUS_APPROVED,
-                            Sale::STATUS_DISPATCHED_PARTIALLY,
-                            Sale::STATUS_DISPATCHED,
-                            Sale::STATUS_RETURNED_PARTIALLY,
-                        ], true);
-
-                        if (!$isEligible) {
+                        if (!$this->eligibilityService->isEligible($lockedSale)) {
                             throw ValidationException::withMessages([
                                 'allocations' => "Penjualan {$lockedSale->reference} untuk transaksi {$trx->code} tidak lagi memenuhi syarat untuk pembayaran baru.",
                             ]);
