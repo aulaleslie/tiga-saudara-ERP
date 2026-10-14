@@ -121,7 +121,7 @@
                                             <livewire:modules.product.unit-search-dropdown
                                                 :options="$unitOptions"
                                                 :selected="$conversion['unit_id'] ?? null"
-                                                name="conversions[{{ $index }}][unit_id]"
+                                                :name="'conversions[' . $index . '][unit_id]'"
                                                 placeholder="Pilih unit..."
                                                 :allow-create="true"
                                                 :error="$errors['conversions.' . $index . '.unit_id'][0] ?? null"

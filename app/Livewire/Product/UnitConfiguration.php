@@ -82,12 +82,15 @@ class UnitConfiguration extends Component
             'purchase_enabled' => true,
         ];
         $this->displayPrices[] = '';
-        $this->rowKeys[] = uniqid('conv_', true);
+        $key = (string) uniqid('conv_', true);
+        while (in_array($key, $this->rowKeys, true)) {
+            $key = (string) uniqid('conv_', true);
+        }
+        $this->rowKeys[] = $key;
     }
 
     public function removeConversionRow(string $key): void
     {
-
         $index = array_search($key, $this->rowKeys, true);
         if ($index === false) {
             return;
@@ -153,7 +156,21 @@ class UnitConfiguration extends Component
             $this->displayPrices[$i] = ProductConversionPriceNormalizer::isCanonicalNumeric($normalizedPrice)
                 ? ProductConversionPriceNormalizer::formatDisplay($normalizedPrice)
                 : (string) $normalizedPrice;
-            $this->rowKeys[$i] = $existingRowKeys[$i] ?? ($conv['id'] ?? uniqid('conv_', true));
+
+            $rowKey = null;
+            if (isset($existingRowKeys[$i]) && trim((string) $existingRowKeys[$i]) !== '') {
+                $rowKey = (string) $existingRowKeys[$i];
+            } elseif (isset($conv['id']) && trim((string) $conv['id']) !== '') {
+                $rowKey = (string) $conv['id'];
+            } else {
+                $rowKey = (string) uniqid('conv_', true);
+            }
+
+            while (in_array($rowKey, $this->rowKeys, true)) {
+                $rowKey = (string) uniqid('conv_', true);
+            }
+
+            $this->rowKeys[$i] = $rowKey;
         }
     }
 }

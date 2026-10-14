@@ -2,12 +2,15 @@
 
 namespace Modules\Product\Livewire;
 
+use Livewire\Attributes\Reactive;
 use Livewire\Component;
 use Modules\Setting\Entities\Unit;
 
 class UnitSearchDropdown extends Component
 {
     public int|string|null $selected = null;
+
+    #[Reactive]
     public string $name = 'unit_id';
     public string $placeholder = 'Pilih unit...';
     public string $search = '';
