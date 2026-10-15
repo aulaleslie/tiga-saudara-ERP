@@ -774,7 +774,7 @@ class CreateForm extends Component
                 'options' => [
                     'product_discount' => $entered_product_discount_currency,
                     'product_discount_input' => $unitIntent['entered_product_discount_amount'],
-                    'product_discount_type' => $detail->product_discount_type,
+                    'product_discount_type' => $discountType,
                     'sub_total' => $normalizedSubTotal,
                     'sub_total_before_tax' => $subTotalBeforeTax,
                     'product_tax_amount' => $normalizedTaxAmount,
@@ -824,13 +824,17 @@ class CreateForm extends Component
     private function resolveDuplicateUnitIntent(PurchaseDetail $detail, $product): array
     {
         $baseUnitName = $product?->baseUnit?->name ?? $product?->unit?->name ?? 'UNIT';
+        $discountType = strtolower((string) ($detail->product_discount_type ?? 'fixed'));
+        $cleanDiscountAmount = $discountType === 'percentage'
+            ? (float) $detail->resolveEnteredDiscountInput()
+            : (float) $detail->product_discount_amount;
 
         $cleanBaseUnitRow = [
             'purchase_unit_id' => null,
             'product_unit_conversion_id' => null,
             'entered_quantity' => (float) $detail->quantity,
             'entered_unit_price' => (float) $detail->unit_price,
-            'entered_product_discount_amount' => (float) $detail->product_discount_amount,
+            'entered_product_discount_amount' => $cleanDiscountAmount,
             'conversion_factor' => 1.0,
             'unit_name' => $baseUnitName,
             'base_unit_name' => $baseUnitName,
@@ -878,7 +882,7 @@ class CreateForm extends Component
             'product_unit_conversion_id' => (int) $conversion->id,
             'entered_quantity' => (float) $detail->effective_entered_quantity,
             'entered_unit_price' => (float) $detail->effective_entered_unit_price,
-            'entered_product_discount_amount' => (float) $detail->effective_entered_product_discount_amount,
+            'entered_product_discount_amount' => (float) $detail->resolveEnteredDiscountInput(),
             'conversion_factor' => (float) $conversion->conversion_factor,
             'unit_name' => $conversion->unit?->name ?? $detail->effective_unit_name ?? 'UNIT',
             'base_unit_name' => $baseUnitName,

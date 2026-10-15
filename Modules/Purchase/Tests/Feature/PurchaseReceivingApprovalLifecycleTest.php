@@ -9,6 +9,7 @@ use Modules\Currency\Entities\Currency;
 use Modules\People\Entities\Supplier;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductPrice;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
 use Modules\Purchase\Entities\Purchase;
@@ -593,5 +594,183 @@ class PurchaseReceivingApprovalLifecycleTest extends TestCase
 
         $this->assertEquals(ReceivedNote::STATUS_PENDING, $rnBad->fresh()->status);
         $this->assertEquals(5, $p1->fresh()->product_quantity); // Stock remains unchanged
+    }
+
+    public function test_receiving_approval_propagates_discounted_hpp_across_three_tax_modes(): void
+    {
+        $boxUnit = Unit::create(['name' => 'BOX', 'short_name' => 'box', 'operator' => '*', 'operation_value' => 12]);
+        $tax11 = \Modules\Setting\Entities\Tax::create(['name' => 'PPN 11%', 'value' => 11.0, 'is_active' => true]);
+
+        // 1. Non-PKP mode: 1 BOX @ 12,000 with 1,200 fixed discount (canonical discount 100/PCS)
+        // Subtotal = 10,800, tax = 0 -> HPP = 10,800 / 12 = 900
+        $this->setting->update(['is_pkp' => false]);
+        $prodNonPkp = $this->createProduct('Non-PKP Product', 'PROD-NON-PKP', 0);
+
+        $poNonPkp = Purchase::create([
+            'reference' => 'PO-HPP-NON-PKP',
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'supplier_id' => $this->supplier->id,
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => Purchase::PAYMENT_STATUS_UNPAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting->id,
+            'total_amount' => 10800,
+            'paid_amount' => 0,
+            'due_amount' => 10800,
+            'is_tax_included' => false,
+        ]);
+
+        $detailNonPkp = PurchaseDetail::create([
+            'purchase_id' => $poNonPkp->id,
+            'product_id' => $prodNonPkp->id,
+            'product_name' => $prodNonPkp->product_name,
+            'product_code' => $prodNonPkp->product_code,
+            'quantity' => 12,
+            'entered_quantity' => 1,
+            'unit_price' => 1000,
+            'price' => 1000,
+            'entered_unit_price' => 12000,
+            'product_discount_amount' => 100,
+            'entered_product_discount_amount' => 1200,
+            'product_discount_type' => 'fixed',
+            'conversion_factor' => 12,
+            'sub_total' => 10800,
+            'product_tax_amount' => 0,
+            'purchase_unit_id' => $boxUnit->id,
+            'pricing_source' => 'manual',
+        ]);
+
+        $rnNonPkp = ReceivedNote::create([
+            'po_id' => $poNonPkp->id,
+            'date' => now()->toDateString(),
+            'location_id' => $this->location->id,
+            'status' => ReceivedNote::STATUS_PENDING,
+        ]);
+        ReceivedNoteDetail::create([
+            'received_note_id' => $rnNonPkp->id,
+            'po_detail_id' => $detailNonPkp->id,
+            'quantity_received' => 12,
+        ]);
+
+        $this->post(route('receivings.approve', $rnNonPkp->id));
+        $this->assertEquals(ReceivedNote::STATUS_APPROVED, $rnNonPkp->fresh()->status);
+        $priceNonPkp = ProductPrice::where('product_id', $prodNonPkp->id)->where('setting_id', $this->setting->id)->first();
+        $this->assertEquals(900.0, (float) $priceNonPkp->average_purchase_price);
+
+        // 2. PKP Tax Excluded mode: 1 BOX @ 12,000 with 1,200 fixed discount and 11% tax
+        // Subtotal = 11,988, tax = 1,188 -> DPP = 10,800 -> HPP = 10,800 / 12 = 900
+        $this->setting->update(['is_pkp' => true]);
+        $prodExcluded = $this->createProduct('Tax Excluded Product', 'PROD-TAX-EXC', 0);
+
+        $poExcluded = Purchase::create([
+            'reference' => 'PO-HPP-TAX-EXC',
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'supplier_id' => $this->supplier->id,
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => Purchase::PAYMENT_STATUS_UNPAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting->id,
+            'total_amount' => 11988,
+            'paid_amount' => 0,
+            'due_amount' => 11988,
+            'is_tax_included' => false,
+        ]);
+
+        $detailExcluded = PurchaseDetail::create([
+            'purchase_id' => $poExcluded->id,
+            'product_id' => $prodExcluded->id,
+            'product_name' => $prodExcluded->product_name,
+            'product_code' => $prodExcluded->product_code,
+            'quantity' => 12,
+            'entered_quantity' => 1,
+            'unit_price' => 1000,
+            'price' => 1000,
+            'entered_unit_price' => 12000,
+            'product_discount_amount' => 100,
+            'entered_product_discount_amount' => 1200,
+            'product_discount_type' => 'fixed',
+            'conversion_factor' => 12,
+            'sub_total' => 11988,
+            'product_tax_amount' => 1188,
+            'tax_id' => $tax11->id,
+            'purchase_unit_id' => $boxUnit->id,
+            'pricing_source' => 'manual',
+        ]);
+
+        $rnExcluded = ReceivedNote::create([
+            'po_id' => $poExcluded->id,
+            'date' => now()->toDateString(),
+            'location_id' => $this->location->id,
+            'status' => ReceivedNote::STATUS_PENDING,
+        ]);
+        ReceivedNoteDetail::create([
+            'received_note_id' => $rnExcluded->id,
+            'po_detail_id' => $detailExcluded->id,
+            'quantity_received' => 12,
+        ]);
+
+        $this->post(route('receivings.approve', $rnExcluded->id));
+        $this->assertEquals(ReceivedNote::STATUS_APPROVED, $rnExcluded->fresh()->status);
+        $priceExcluded = ProductPrice::where('product_id', $prodExcluded->id)->where('setting_id', $this->setting->id)->first();
+        $this->assertEquals(900.0, (float) $priceExcluded->average_purchase_price);
+
+        // 3. PKP Tax Included mode: 1 BOX @ 12,000 with 1,200 fixed discount and 11% included tax
+        // Subtotal = 10,800, tax = 1,070.27 -> DPP = 9,729.73 -> HPP = 9,729.73 / 12 = 810.810833...
+        $prodIncluded = $this->createProduct('Tax Included Product', 'PROD-TAX-INC', 0);
+
+        $poIncluded = Purchase::create([
+            'reference' => 'PO-HPP-TAX-INC',
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'supplier_id' => $this->supplier->id,
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => Purchase::PAYMENT_STATUS_UNPAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting->id,
+            'total_amount' => 10800,
+            'paid_amount' => 0,
+            'due_amount' => 10800,
+            'is_tax_included' => true,
+        ]);
+
+        $detailIncluded = PurchaseDetail::create([
+            'purchase_id' => $poIncluded->id,
+            'product_id' => $prodIncluded->id,
+            'product_name' => $prodIncluded->product_name,
+            'product_code' => $prodIncluded->product_code,
+            'quantity' => 12,
+            'entered_quantity' => 1,
+            'unit_price' => 1000,
+            'price' => 1000,
+            'entered_unit_price' => 12000,
+            'product_discount_amount' => 100,
+            'entered_product_discount_amount' => 1200,
+            'product_discount_type' => 'fixed',
+            'conversion_factor' => 12,
+            'sub_total' => 10800,
+            'product_tax_amount' => 1070.27,
+            'tax_id' => $tax11->id,
+            'purchase_unit_id' => $boxUnit->id,
+            'pricing_source' => 'manual',
+        ]);
+
+        $rnIncluded = ReceivedNote::create([
+            'po_id' => $poIncluded->id,
+            'date' => now()->toDateString(),
+            'location_id' => $this->location->id,
+            'status' => ReceivedNote::STATUS_PENDING,
+        ]);
+        ReceivedNoteDetail::create([
+            'received_note_id' => $rnIncluded->id,
+            'po_detail_id' => $detailIncluded->id,
+            'quantity_received' => 12,
+        ]);
+
+        $this->post(route('receivings.approve', $rnIncluded->id));
+        $this->assertEquals(ReceivedNote::STATUS_APPROVED, $rnIncluded->fresh()->status);
+        $priceIncluded = ProductPrice::where('product_id', $prodIncluded->id)->where('setting_id', $this->setting->id)->first();
+        $this->assertEqualsWithDelta(9729.73 / 12, (float) $priceIncluded->average_purchase_price, 0.01);
     }
 }

@@ -246,17 +246,24 @@
                                         </td>
 
                                         <td class="align-middle">
-                                            {{ formatRupiah($item->effective_entered_product_discount_amount) }}
-                                            @if(bccomp((string) $item->effective_conversion_factor, '1', 3) !== 0)
+                                            @if($item->isPercentageDiscount())
+                                                {{ rtrim(rtrim(number_format($item->resolveEnteredDiscountInput(), 2, '.', ''), '0'), '.') }}%
                                                 <div class="text-muted small mt-1">
-                                                    ({{ formatRupiah($item->product_discount_amount) }} / {{ $item->effective_base_unit_name }})
+                                                    ({{ formatRupiah($item->resolveEnteredCurrencyDiscount()) }})
                                                 </div>
+                                            @else
+                                                {{ formatRupiah($item->resolveEnteredCurrencyDiscount()) }}
+                                                @if(bccomp((string) $item->effective_conversion_factor, '1', 3) !== 0)
+                                                    <div class="text-muted small mt-1">
+                                                        ({{ formatRupiah($item->resolveCanonicalCurrencyDiscount()) }} / {{ $item->effective_base_unit_name }})
+                                                    </div>
+                                                @endif
                                             @endif
                                         </td>
 
                                         @if($purchase->purchaseDetails->sum('product_tax_amount') > 0)
                                             <td class="align-middle">
-                                                {{ formatRupiah($item->sub_total - $item->product_tax_amount - $item->product_discount_amount) }}
+                                                {{ formatRupiah($item->sub_total - $item->product_tax_amount) }}
                                             </td>
                                             <td class="align-middle">
                                                 {{ $item->tax ? $item->tax->value . '%' : '-' }}

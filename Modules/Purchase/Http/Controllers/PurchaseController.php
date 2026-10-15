@@ -501,20 +501,26 @@ class PurchaseController extends Controller
             $normalizedTaxAmount = $isPkp ? (float) $purchase_detail->product_tax_amount : 0.0;
             $normalizedTaxId = $isPkp ? $purchase_detail->tax_id : null;
 
+            $discountType = strtolower((string) ($purchase_detail->product_discount_type ?? 'fixed'));
+            $discountInput = $purchase_detail->resolveEnteredDiscountInput();
+            $enteredCurrencyDiscount = $purchase_detail->resolveEnteredCurrencyDiscount();
+
             $cart->add([
                 'id' => $purchase_detail->product_id,
                 'name' => $purchase_detail->product_name,
-                'qty' => $purchase_detail->quantity,
-                'price' => $purchase_detail->price,
+                'qty' => $purchase_detail->effective_entered_quantity,
+                'price' => $purchase_detail->effective_entered_unit_price,
                 'weight' => 1,
                 'options' => [
-                    'product_discount' => $purchase_detail->product_discount_amount,
-                    'product_discount_type' => $purchase_detail->product_discount_type,
+                    'product_discount' => $enteredCurrencyDiscount,
+                    'product_discount_input' => round($discountInput, 2),
+                    'product_discount_type' => $discountType,
                     'sub_total' => $normalizedSubTotal,
                     'code' => $purchase_detail->product_code,
                     'stock' => Product::findOrFail($purchase_detail->product_id)->product_quantity,
                     'product_tax' => $normalizedTaxId,
-                    'unit_price' => $purchase_detail->unit_price,
+                    'unit_price' => $purchase_detail->effective_entered_unit_price,
+                    'canonical_unit_price' => $purchase_detail->unit_price,
                     'sub_total_before_tax' => $subtotal_before_tax,
                     'product_tax_amount' => $normalizedTaxAmount,
                     'pricing_source' => $purchase_detail->pricing_source ?? 'manual',
@@ -522,7 +528,7 @@ class PurchaseController extends Controller
                     'product_unit_conversion_id' => $purchase_detail->product_unit_conversion_id,
                     'entered_quantity' => $purchase_detail->effective_entered_quantity,
                     'entered_unit_price' => $purchase_detail->effective_entered_unit_price,
-                    'entered_product_discount_amount' => $purchase_detail->effective_entered_product_discount_amount,
+                    'entered_product_discount_amount' => round($discountInput, 2),
                     'conversion_factor' => $purchase_detail->effective_conversion_factor,
                     'unit_name' => $purchase_detail->effective_unit_name,
                     'base_unit_name' => $purchase_detail->effective_base_unit_name,

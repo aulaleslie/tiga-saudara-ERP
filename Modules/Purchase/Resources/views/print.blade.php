@@ -103,11 +103,11 @@
             </td>
             <td class="text-right">{{ number_format($detail->effective_entered_unit_price, 0, ',', '.') }}</td>
             <td class="text-right">
-                {{ $detail->effective_entered_unit_price > 0
-                    ? number_format(($detail->effective_entered_product_discount_amount / $detail->effective_entered_unit_price) * 100, 1)
-                    : '0.0' }}%
+                {{ $detail->isPercentageDiscount()
+                    ? rtrim(rtrim(number_format($detail->resolveEnteredDiscountInput(), 2, '.', ''), '0'), '.') . '%'
+                    : '-' }}
             </td>
-            <td class="text-right">{{ number_format($detail->effective_entered_product_discount_amount, 0, ',', '.') }}</td>
+            <td class="text-right">{{ number_format($detail->resolveEnteredCurrencyDiscount(), 0, ',', '.') }}</td>
             <td class="text-right">{{ number_format($detail->sub_total, 0, ',', '.') }}</td>
         </tr>
     @endforeach

@@ -102,11 +102,13 @@ class PurchaseDiscountFormattingTest extends TestCase
         $this->assertNotNull($serialCartItem);
 
         $component->call('setDiscountType', $nonSerialCartItem->rowId, (string) $nonSerialProduct->id, 'percentage');
-        $component->set('item_discount.' . $nonSerialProduct->id, 10);
+        $nonSerialCartItem = Cart::instance('purchase')->content()->firstWhere('id', $nonSerialProduct->id);
+        $component->set('item_discount.' . $nonSerialCartItem->rowId, 10);
         $component->call('setProductDiscount', $nonSerialCartItem->rowId, (string) $nonSerialProduct->id);
 
         $component->call('setDiscountType', $serialCartItem->rowId, (string) $serialProduct->id, 'percentage');
-        $component->set('item_discount.' . $serialProduct->id, 10);
+        $serialCartItem = Cart::instance('purchase')->content()->firstWhere('id', $serialProduct->id);
+        $component->set('item_discount.' . $serialCartItem->rowId, 10);
         $component->call('setProductDiscount', $serialCartItem->rowId, (string) $serialProduct->id);
 
         $nonSerialCartItem = Cart::instance('purchase')->content()->firstWhere('id', $nonSerialProduct->id);
@@ -119,10 +121,10 @@ class PurchaseDiscountFormattingTest extends TestCase
 
         // Simulate component remount (e.g., refresh/reopen): input must stay in percent, not converted amount.
         Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
-            ->assertSet('discount_type.' . $nonSerialProduct->id, 'percentage')
-            ->assertSet('discount_type.' . $serialProduct->id, 'percentage')
-            ->assertSet('item_discount.' . $nonSerialProduct->id, 10.0)
-            ->assertSet('item_discount.' . $serialProduct->id, 10.0);
+            ->assertSet('discount_type.' . $nonSerialCartItem->rowId, 'percentage')
+            ->assertSet('discount_type.' . $serialCartItem->rowId, 'percentage')
+            ->assertSet('item_discount.' . $nonSerialCartItem->rowId, 10.0)
+            ->assertSet('item_discount.' . $serialCartItem->rowId, 10.0);
     }
 }
 

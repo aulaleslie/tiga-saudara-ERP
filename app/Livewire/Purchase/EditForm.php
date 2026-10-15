@@ -485,19 +485,18 @@ class EditForm extends Component
             $storedDpp = round($storedTotal - $storedTax, 2);
             $productTax = $isPkp ? $detail->tax_id : null;
 
-            $discountInput = $detail->product_discount_amount;
-            if ($detail->product_discount_type === 'percentage') {
-                $discountInput = $detail->price > 0 ? ($detail->product_discount_amount / $detail->price) * 100 : 0;
-            }
+            $discountType = strtolower((string) ($detail->product_discount_type ?? 'fixed'));
+            $discountInput = $detail->resolveEnteredDiscountInput();
+            $enteredCurrencyDiscount = $detail->resolveEnteredCurrencyDiscount();
 
             $cartOptions = [
                 // Stable identity of the persisted row. Product ID cannot serve
                 // this purpose: a document may hold several lines per product.
                 PurchaseMonetaryEditService::DETAIL_ID_OPTION => $detail->id,
                 'product_id' => $detail->product_id,
-                'product_discount' => $detail->product_discount_amount,
+                'product_discount' => $enteredCurrencyDiscount,
                 'product_discount_input' => round($discountInput, 2),
-                'product_discount_type' => $detail->product_discount_type,
+                'product_discount_type' => $discountType,
                 'code' => $detail->product_code,
                 'stock' => $detail->product->product_quantity ?? 0,
                 'product_tax' => $productTax,
@@ -511,7 +510,7 @@ class EditForm extends Component
                 'product_unit_conversion_id' => $detail->product_unit_conversion_id,
                 'entered_quantity' => $detail->effective_entered_quantity,
                 'entered_unit_price' => $detail->effective_entered_unit_price,
-                'entered_product_discount_amount' => $detail->effective_entered_product_discount_amount,
+                'entered_product_discount_amount' => round($discountInput, 2),
                 'conversion_factor' => $detail->effective_conversion_factor,
                 'unit_name' => $detail->effective_unit_name,
                 'base_unit_name' => $detail->effective_base_unit_name,

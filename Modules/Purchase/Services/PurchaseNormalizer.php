@@ -217,40 +217,33 @@ class PurchaseNormalizer
                 $uomSnapshot = $convResult->toArray();
                 $uomSnapshot['unit_price'] = number_format($unitPrice, 6, '.', '');
 
-                $discountType = strtolower((string) ($options['product_discount_type'] ?? data_get($detailInput, 'discount_type') ?? data_get($detailInput, 'product_discount_type') ?? 'fixed'));
-                // 'product_discount' is a currency amount (see ProductCart's
-                // pricing recalculation); for a percentage row the entered
-                // percentage itself lives in 'product_discount_input' or the
-                // (non-cart-item) top-level 'entered_product_discount_amount'.
-                // Prefer those for percentage rows so a currency amount is
-                // never misread as a percentage.
-                $rawDiscountInput = $this->toFloat(
-                    data_get($detailInput, 'entered_product_discount_amount')
-                    ?? ($discountType === 'percentage' ? ($options['product_discount_input'] ?? null) : null)
-                    ?? $options['product_discount']
-                    ?? data_get($detailInput, 'discount')
-                    ?? data_get($detailInput, 'product_discount_amount')
+                $discountSemantics = $this->resolveDiscountSemantics(
+                    $detailInput,
+                    $options,
+                    $unitPrice,
+                    (float) $convResult->conversionFactor
                 );
 
-                if ($discountType === 'percentage') {
-                    $discountAmount = $unitPrice * ($rawDiscountInput / 100);
-                } elseif ($discountType === 'fixed' && $convResult->conversionFactor > 1.0) {
-                    $discountAmount = $rawDiscountInput / $convResult->conversionFactor;
-                } else {
-                    $discountAmount = $rawDiscountInput;
-                }
+                $discountType = $discountSemantics['discount_type'];
+                $discountAmount = $discountSemantics['canonical_discount'];
+                $rawDiscountInput = $discountSemantics['entered_discount'];
 
                 $uomSnapshot['entered_product_discount_amount'] = number_format($rawDiscountInput, 2, '.', '');
             }
         }
 
         if (empty($uomSnapshot)) {
-            $rawDiscountInput = $this->toFloat(
-                data_get($detailInput, 'entered_product_discount_amount')
-                ?? $options['product_discount']
-                ?? data_get($detailInput, 'discount')
-                ?? data_get($detailInput, 'product_discount_amount')
+            $discountSemantics = $this->resolveDiscountSemantics(
+                $detailInput,
+                $options,
+                $unitPrice,
+                1.0
             );
+
+            $discountType = $discountSemantics['discount_type'];
+            $discountAmount = $discountSemantics['canonical_discount'];
+            $rawDiscountInput = $discountSemantics['entered_discount'];
+
             $uomSnapshot = [
                 'purchase_unit_id' => $unitId ? (int) $unitId : null,
                 'product_unit_conversion_id' => $convId ? (int) $convId : null,
@@ -334,7 +327,7 @@ class PurchaseNormalizer
             // 6-decimal `unit_price` the snapshot merges in below.
             'unit_price' => $this->roundCanonicalPrice($unitPrice),
             'price' => $this->roundCanonicalPrice($price),
-            'product_discount_type' => (string) ($options['product_discount_type'] ?? data_get($detailInput, 'discount_type') ?? data_get($detailInput, 'product_discount_type') ?? 'fixed'),
+            'product_discount_type' => $discountType,
             'product_discount_amount' => $this->roundMoney($discountAmount),
             'sub_total' => $normalizedSubTotal,
             'product_tax_amount' => $normalizedTaxAmount,
@@ -494,5 +487,150 @@ class PurchaseNormalizer
     private function roundCanonicalPrice(float $value): float
     {
         return round($value, 6);
+    }
+
+    /**
+     * Resolve discount semantics for detail normalization:
+     * - Fixed currency discounts and percentage inputs are normalized per entered unit into canonical base currency.
+     * - Respects explicit zero across request and cart options.
+     * - If legacy snapshot is absent, derives entered unit values from canonical discount and authoritative factor.
+     *
+     * @return array{discount_type: string, entered_discount: float, canonical_discount: float}
+     */
+    private function resolveDiscountSemantics(
+        mixed $detailInput,
+        array $options,
+        float $canonicalUnitPrice,
+        float $conversionFactor
+    ): array {
+        $discountType = strtolower((string) (
+            $options['product_discount_type']
+            ?? data_get($detailInput, 'discount_type')
+            ?? data_get($detailInput, 'product_discount_type')
+            ?? 'fixed'
+        ));
+
+        if ($conversionFactor <= 0) {
+            $conversionFactor = 1.0;
+        }
+
+        $enteredUnitDiscount = null;
+
+        // 1. Check explicit entered discount input candidates
+        $candidates = [
+            data_get($detailInput, 'entered_product_discount_amount'),
+            $options['entered_product_discount_amount'] ?? null,
+            $options['product_discount_input'] ?? null,
+            data_get($detailInput, 'product_discount_input'),
+            data_get($detailInput, 'discount'),
+        ];
+
+        foreach ($candidates as $cand) {
+            if ($cand !== null && $cand !== '' && is_numeric($cand)) {
+                $enteredUnitDiscount = (float) $cand;
+                break;
+            }
+        }
+
+        if ($discountType === 'percentage') {
+            if ($enteredUnitDiscount !== null) {
+                $percentage = $enteredUnitDiscount;
+                $canonicalDiscount = $canonicalUnitPrice * ($percentage / 100);
+            } else {
+                // Fallback: compatibility from currency amount or canonical discount
+                $currencyDiscount = null;
+                $compatCandidates = [
+                    $options['product_discount'] ?? null,
+                    data_get($detailInput, 'discount'),
+                    data_get($detailInput, 'product_discount_amount'),
+                ];
+                foreach ($compatCandidates as $cand) {
+                    if ($cand !== null && $cand !== '' && is_numeric($cand)) {
+                        $currencyDiscount = (float) $cand;
+                        break;
+                    }
+                }
+
+                if ($currencyDiscount !== null && $canonicalUnitPrice > 0) {
+                    $enteredUnitPrice = $canonicalUnitPrice * $conversionFactor;
+                    if (isset($options['product_discount']) && (float) $options['product_discount'] === (float) $currencyDiscount && $enteredUnitPrice > 0) {
+                        $percentage = ($currencyDiscount / $enteredUnitPrice) * 100;
+                    } else {
+                        $percentage = ($currencyDiscount / $canonicalUnitPrice) * 100;
+                    }
+                    $canonicalDiscount = $canonicalUnitPrice * ($percentage / 100);
+                } else {
+                    $percentage = 0.0;
+                    $canonicalDiscount = 0.0;
+                }
+            }
+
+            return [
+                'discount_type' => 'percentage',
+                'entered_discount' => $percentage,
+                'canonical_discount' => $canonicalDiscount,
+            ];
+        }
+
+        // Fixed discount
+        $maxEnteredDiscount = max(0.0, $canonicalUnitPrice * $conversionFactor);
+
+        $isExplicitlyCapped = !empty($options['is_discount_capped'])
+            || (bool) data_get($detailInput, 'is_discount_capped');
+
+        if ($enteredUnitDiscount !== null) {
+            if ($enteredUnitDiscount <= 0.0) {
+                $enteredUnitDiscount = 0.0;
+                $canonicalDiscount = 0.0;
+            } elseif ($isExplicitlyCapped || $enteredUnitDiscount >= $maxEnteredDiscount) {
+                $enteredUnitDiscount = $maxEnteredDiscount;
+                $canonicalDiscount = $canonicalUnitPrice;
+            } else {
+                $canonicalDiscount = $enteredUnitDiscount / $conversionFactor;
+            }
+        } else {
+            // Check fallback candidates
+            if (isset($options['product_discount']) && is_numeric($options['product_discount'])) {
+                // In cart options, product_discount is currency per entered unit
+                $enteredUnitDiscount = (float) $options['product_discount'];
+                if ($enteredUnitDiscount <= 0.0) {
+                    $enteredUnitDiscount = 0.0;
+                    $canonicalDiscount = 0.0;
+                } elseif ($isExplicitlyCapped || $enteredUnitDiscount >= $maxEnteredDiscount) {
+                    $enteredUnitDiscount = $maxEnteredDiscount;
+                    $canonicalDiscount = $canonicalUnitPrice;
+                } else {
+                    $canonicalDiscount = $enteredUnitDiscount / $conversionFactor;
+                }
+            } elseif (data_get($detailInput, 'discount') !== null && is_numeric(data_get($detailInput, 'discount'))) {
+                $enteredUnitDiscount = (float) data_get($detailInput, 'discount');
+                if ($enteredUnitDiscount <= 0.0) {
+                    $enteredUnitDiscount = 0.0;
+                    $canonicalDiscount = 0.0;
+                } elseif ($isExplicitlyCapped || $enteredUnitDiscount >= $maxEnteredDiscount) {
+                    $enteredUnitDiscount = $maxEnteredDiscount;
+                    $canonicalDiscount = $canonicalUnitPrice;
+                } else {
+                    $canonicalDiscount = $enteredUnitDiscount / $conversionFactor;
+                }
+            } elseif (data_get($detailInput, 'product_discount_amount') !== null && is_numeric(data_get($detailInput, 'product_discount_amount'))) {
+                // Legacy canonical snapshot without entered snapshot: canonical discount is authoritative
+                $canonicalDiscount = (float) data_get($detailInput, 'product_discount_amount');
+                $enteredUnitDiscount = $canonicalDiscount * $conversionFactor;
+            } else {
+                $enteredUnitDiscount = 0.0;
+                $canonicalDiscount = 0.0;
+            }
+        }
+
+        // Cap fixed discount at entered and canonical unit price
+        $enteredUnitDiscount = min($maxEnteredDiscount, max(0.0, $enteredUnitDiscount));
+        $canonicalDiscount = min($canonicalUnitPrice, max(0.0, $canonicalDiscount));
+
+        return [
+            'discount_type' => 'fixed',
+            'entered_discount' => $enteredUnitDiscount,
+            'canonical_discount' => $canonicalDiscount,
+        ];
     }
 }

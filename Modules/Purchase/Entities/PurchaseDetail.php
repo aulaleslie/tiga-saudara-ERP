@@ -192,6 +192,60 @@ class PurchaseDetail extends BaseModel
         return $this->entered_product_discount_amount !== null ? $this->entered_product_discount_amount : $this->product_discount_amount;
     }
 
+    public function isPercentageDiscount(): bool
+    {
+        return strtolower((string) ($this->product_discount_type ?? 'fixed')) === 'percentage';
+    }
+
+    /**
+     * Resolve the entered discount input (fixed currency amount per entered unit, or percentage).
+     * Respects explicit zero snapshots, derives from canonical discount when legacy snapshot is null.
+     */
+    public function resolveEnteredDiscountInput(): float
+    {
+        $discountType = strtolower((string) ($this->product_discount_type ?? 'fixed'));
+
+        if ($this->entered_product_discount_amount !== null) {
+            return (float) $this->entered_product_discount_amount;
+        }
+
+        if ($discountType === 'percentage') {
+            $canonicalPrice = (float) ($this->price > 0 ? $this->price : $this->unit_price);
+            return $canonicalPrice > 0 ? ((float) $this->product_discount_amount / $canonicalPrice) * 100 : 0.0;
+        }
+
+        $factor = (float) $this->effective_conversion_factor;
+        if ($factor <= 0) {
+            $factor = 1.0;
+        }
+
+        return (float) $this->product_discount_amount * $factor;
+    }
+
+    /**
+     * Resolve the currency discount per entered unit.
+     */
+    public function resolveEnteredCurrencyDiscount(): float
+    {
+        $discountType = strtolower((string) ($this->product_discount_type ?? 'fixed'));
+        $input = $this->resolveEnteredDiscountInput();
+
+        if ($discountType === 'percentage') {
+            $enteredPrice = (float) $this->effective_entered_unit_price;
+            return round($enteredPrice * (min(100, max(0, $input)) / 100), 2);
+        }
+
+        return round($input, 2);
+    }
+
+    /**
+     * Resolve the canonical currency discount per base unit.
+     */
+    public function resolveCanonicalCurrencyDiscount(): float
+    {
+        return round((float) ($this->product_discount_amount ?? 0), 2);
+    }
+
     public function getEffectiveConversionFactorAttribute(): string|float
     {
         return $this->conversion_factor !== null ? $this->conversion_factor : '1.000000';

@@ -73,7 +73,7 @@ class PurchaseProductCartDiscountTaxTest extends TestCase
 
     public function test_discount_off_tax_inclusive_price_option_a(): void
     {
-        Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
+        $component = Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
             ->set('setting_id', session('setting_id'))
             ->set('isPkp', true)
             ->set('is_tax_included', true)
@@ -86,11 +86,15 @@ class PurchaseProductCartDiscountTaxTest extends TestCase
                 'last_purchase_price' => 11100,
                 'average_purchase_price' => 11100,
                 'purchase_tax_id' => $this->tax->id,
-            ])
-            ->set('product_tax.' . $this->product->id, $this->tax->id)
-            ->set('discount_type.' . $this->product->id, 'fixed')
-            ->set('item_discount.' . $this->product->id, 1110)
-            ->call('setProductDiscount', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+            ]);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $component
+            ->set('product_tax.' . $rowId, $this->tax->id)
+            ->set('discount_type.' . $rowId, 'fixed')
+            ->set('item_discount.' . $rowId, 1110)
+            ->call('setProductDiscount', $rowId, $this->product->id);
 
         $cartItem = Cart::instance('purchase')->content()->first();
         
@@ -101,7 +105,7 @@ class PurchaseProductCartDiscountTaxTest extends TestCase
 
     public function test_percentage_discount_with_tax_included(): void
     {
-        Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
+        $component = Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
             ->set('setting_id', session('setting_id'))
             ->set('isPkp', true)
             ->set('is_tax_included', true)
@@ -114,11 +118,15 @@ class PurchaseProductCartDiscountTaxTest extends TestCase
                 'last_purchase_price' => 11100,
                 'average_purchase_price' => 11100,
                 'purchase_tax_id' => $this->tax->id,
-            ])
-            ->set('product_tax.' . $this->product->id, $this->tax->id)
-            ->set('discount_type.' . $this->product->id, 'percentage')
-            ->set('item_discount.' . $this->product->id, 10)
-            ->call('setProductDiscount', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+            ]);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $component
+            ->set('product_tax.' . $rowId, $this->tax->id)
+            ->set('discount_type.' . $rowId, 'percentage')
+            ->set('item_discount.' . $rowId, 10)
+            ->call('setProductDiscount', $rowId, $this->product->id);
 
         $cartItem = Cart::instance('purchase')->content()->first();
         
