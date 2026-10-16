@@ -21,7 +21,7 @@
         height: 100%;
         display: grid;
         grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
-        grid-template-rows: clamp(64px, 9dvh, 86px) clamp(104px, 16dvh, 150px) minmax(0, 1fr) clamp(128px, 15dvh, 148px) clamp(132px, 22dvh, 184px);
+        grid-template-rows: clamp(64px, 9dvh, 86px) clamp(104px, 16dvh, 150px) minmax(0, 1fr) clamp(168px, 21dvh, 218px) clamp(132px, 19dvh, 184px);
         grid-template-areas:
             "info     nav"
             "search   search"
@@ -617,18 +617,38 @@
     }
 
     .pos-cart-product {
-        max-width: 320px;
+        max-width: 240px;
     }
 
     .pos-cart-product .name {
         font-weight: 700;
-        line-height: 1.2;
+        font-size: 0.72rem;
+        line-height: 1.18;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        overflow-wrap: anywhere;
     }
 
     .pos-cart-product .meta {
         font-size: 0.69rem;
         color: #64748b;
         line-height: 1.2;
+    }
+
+    .pos-note-shell {
+        height: 100%;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .pos-transaction-note-input {
+        flex: 1 1 auto;
+        min-height: 92px;
+        max-height: 150px;
+        resize: none;
     }
 
     .pos-cart-qty {

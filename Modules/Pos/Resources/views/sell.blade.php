@@ -1544,7 +1544,7 @@
                     <tr data-line-id="${lineId}" class="${rowClass}">
                         <td class="pos-cart-product align-middle">
                             ${priceWarning}
-                            <div class="name">${productName}${serialBadge}</div>
+                            <div class="name" title="${productName}">${productName}${serialBadge}</div>
                             ${bundleInfo}
                             ${packedInfo}
                             <div class="meta">${productCode} | ${barcode}</div>
