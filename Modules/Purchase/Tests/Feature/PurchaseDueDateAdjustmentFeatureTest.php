@@ -712,6 +712,69 @@ class PurchaseDueDateAdjustmentFeatureTest extends TestCase
     }
 
     /** @test */
+    public function test_global_purchase_due_date_adjustment_updates_document_and_audits()
+    {
+        Permission::findOrCreate('purchasePayments.global.access', 'web');
+        $this->user->givePermissionTo([
+            'purchasePayments.global.access',
+            'purchases.reporting-date.override',
+            'purchases.due-date.override',
+        ]);
+
+        $supplier = \Modules\People\Entities\Supplier::create([
+            'setting_id' => $this->setting->id,
+            'supplier_name' => 'Global Purchase Date Supplier',
+            'supplier_email' => 'global-purchase-date@example.com',
+            'supplier_phone' => '12345',
+            'address' => 'Test Address',
+            'city' => 'Test City',
+            'country' => 'Test Country',
+        ]);
+
+        $purchase = Purchase::create([
+            'setting_id' => $this->setting->id,
+            'supplier_id' => $supplier->id,
+            'status' => Purchase::STATUS_RECEIVED,
+            'date' => '2026-10-01',
+            'due_date' => '2026-10-15',
+            'reference' => 'PR-GLOBAL-DATE-07',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 1000,
+            'due_amount' => 1000,
+            'paid_amount' => 0,
+        ]);
+
+        $response = $this->putJson(route('purchases.global-payments.date-adjustment.update', $purchase), [
+            'reporting_action' => 'set',
+            'reporting_date' => '2026-10-03',
+            'due_date_action' => 'set',
+            'due_date' => '2026-10-20',
+            'reason' => 'Global purchase due date verification',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson(['success' => true]);
+
+        $purchase->refresh();
+        $this->assertEquals('2026-10-03', $purchase->reporting_date->format('Y-m-d'));
+        $this->assertEquals('2026-10-20', $purchase->due_date->format('Y-m-d'));
+
+        $this->assertDatabaseHas('reporting_date_audits', [
+            'auditable_type' => Purchase::class,
+            'auditable_id' => $purchase->id,
+            'reason' => 'Global purchase due date verification',
+            'resulting_override' => '2026-10-03 00:00:00',
+        ]);
+        $this->assertDatabaseHas('due_date_audits', [
+            'auditable_type' => Purchase::class,
+            'auditable_id' => $purchase->id,
+            'reason' => 'Global purchase due date verification',
+            'resulting_due_date' => '2026-10-20 00:00:00',
+        ]);
+    }
+
+    /** @test */
     public function test_global_purchase_detail_loads_due_date_audits_without_lazy_loading_violation()
     {
         \Spatie\Permission\Models\Permission::findOrCreate('purchasePayments.global.access', 'web');
@@ -753,6 +816,6 @@ class PurchaseDueDateAdjustmentFeatureTest extends TestCase
 
         $response = $this->get(route('purchases.global-payments.show', $purchase->id));
         $response->assertStatus(200);
-        $response->assertDontSee('id="dateAdjustmentModalButton"', false);
+        $response->assertSee('id="dateAdjustmentModalButton"', false);
     }
 }

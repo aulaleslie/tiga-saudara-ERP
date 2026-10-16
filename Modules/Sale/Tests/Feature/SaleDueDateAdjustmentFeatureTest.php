@@ -712,6 +712,60 @@ class SaleDueDateAdjustmentFeatureTest extends TestCase
     }
 
     /** @test */
+    public function test_global_sale_due_date_adjustment_updates_document_and_audits()
+    {
+        Permission::findOrCreate('salePayments.global.access', 'web');
+        $this->user->givePermissionTo([
+            'salePayments.global.access',
+            'sales.reporting-date.override',
+            'sales.due-date.override',
+        ]);
+
+        $sale = Sale::create([
+            'setting_id' => $this->setting->id,
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'status' => Sale::STATUS_APPROVED,
+            'date' => '2026-10-01',
+            'due_date' => '2026-10-15',
+            'reference' => 'SL-GLOBAL-DATE-07',
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'total_amount' => 1000,
+            'due_amount' => 1000,
+            'paid_amount' => 0,
+        ]);
+
+        $response = $this->putJson(route('sales.global-payments.date-adjustment.update', $sale), [
+            'reporting_action' => 'set',
+            'reporting_date' => '2026-10-04',
+            'due_date_action' => 'set',
+            'due_date' => '2026-10-21',
+            'reason' => 'Global sale due date verification',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson(['success' => true]);
+
+        $sale->refresh();
+        $this->assertEquals('2026-10-04', $sale->reporting_date->format('Y-m-d'));
+        $this->assertEquals('2026-10-21', $sale->due_date->format('Y-m-d'));
+
+        $this->assertDatabaseHas('reporting_date_audits', [
+            'auditable_type' => Sale::class,
+            'auditable_id' => $sale->id,
+            'reason' => 'Global sale due date verification',
+            'resulting_override' => '2026-10-04 00:00:00',
+        ]);
+        $this->assertDatabaseHas('due_date_audits', [
+            'auditable_type' => Sale::class,
+            'auditable_id' => $sale->id,
+            'reason' => 'Global sale due date verification',
+            'resulting_due_date' => '2026-10-21 00:00:00',
+        ]);
+    }
+
+    /** @test */
     public function test_global_sale_detail_loads_due_date_audits_without_lazy_loading_violation()
     {
         \Spatie\Permission\Models\Permission::findOrCreate('salePayments.global.access', 'web');
@@ -744,6 +798,6 @@ class SaleDueDateAdjustmentFeatureTest extends TestCase
 
         $response = $this->get(route('sales.global-payments.show', $sale->id));
         $response->assertStatus(200);
-        $response->assertDontSee('id="dateAdjustmentModalButton"', false);
+        $response->assertSee('id="dateAdjustmentModalButton"', false);
     }
 }
