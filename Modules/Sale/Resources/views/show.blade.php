@@ -80,7 +80,9 @@
                     <div class="col-sm-4 mb-3 mb-md-0">
                         <h5 class="mb-2 border-bottom pb-2">Informasi Pelanggan:</h5>
                         <div><strong>{{ $customer->customer_name }}</strong></div>
-                        <!-- Tambahkan info lain jika ada, seperti alamat, email, dsb. -->
+                        @if(filled($customer->npwp))
+                            <div>NPWP: <strong>{{ $customer->npwp }}</strong></div>
+                        @endif
                     </div>
                     <!-- Info Faktur -->
                     <div class="col-sm-4 mb-3 mb-md-0">
