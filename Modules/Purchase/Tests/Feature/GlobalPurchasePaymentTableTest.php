@@ -410,4 +410,44 @@ class GlobalPurchasePaymentTableTest extends TestCase
             $this->assertMatchesRegularExpression('/<td[^>]*>[\s\S]*?(?:<a|<span)[^>]*>[\s\S]*?' . preg_quote($purchase->reference, '/') . '[\s\S]*?<\/(?:a|span)>[\s\S]*?<\/td>\s*<td class="document-note-cell">[\s\S]*?<div class="document-note-container/s', $html);
         }
     }
+
+    public function test_global_mode_defaults_to_document_date_desc_with_id_tie_breaker()
+    {
+        $olderCreatedNewerDate = $this->createPurchase([
+            'reference' => 'PAY09-PURCHASE-NEWER-DATE',
+            'date' => '2026-10-08',
+            'created_at' => Carbon::parse('2026-10-01 10:00:00'),
+            'updated_at' => Carbon::parse('2026-10-01 10:00:00'),
+        ]);
+
+        $newerCreatedOlderDate = $this->createPurchase([
+            'reference' => 'PAY09-PURCHASE-OLDER-DATE',
+            'date' => '2026-10-07',
+            'created_at' => Carbon::parse('2026-10-08 10:00:00'),
+            'updated_at' => Carbon::parse('2026-10-08 10:00:00'),
+        ]);
+
+        $sameDateFirst = $this->createPurchase([
+            'reference' => 'PAY09-PURCHASE-SAME-DATE-FIRST',
+            'date' => '2026-10-06',
+        ]);
+
+        $sameDateSecond = $this->createPurchase([
+            'reference' => 'PAY09-PURCHASE-SAME-DATE-SECOND',
+            'date' => '2026-10-06',
+        ]);
+
+        $component = Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => true]);
+        $html = $component->html();
+
+        $this->assertSame('date', $component->get('sortField'));
+        $this->assertSame('desc', $component->get('sortDirection'));
+        $this->assertStringContainsString($olderCreatedNewerDate->reference, $html);
+        $this->assertStringContainsString($newerCreatedOlderDate->reference, $html);
+        $this->assertStringContainsString($sameDateFirst->reference, $html);
+        $this->assertStringContainsString($sameDateSecond->reference, $html);
+        $this->assertLessThan(strpos($html, $newerCreatedOlderDate->reference), strpos($html, $olderCreatedNewerDate->reference));
+        $this->assertLessThan(strpos($html, $sameDateSecond->reference), strpos($html, $newerCreatedOlderDate->reference));
+        $this->assertLessThan(strpos($html, $sameDateFirst->reference), strpos($html, $sameDateSecond->reference));
+    }
 }

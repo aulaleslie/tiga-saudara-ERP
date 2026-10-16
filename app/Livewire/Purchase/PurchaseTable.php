@@ -84,6 +84,9 @@ class PurchaseTable extends Component
         if (!$this->globalMode) {
             $this->settingId = $settingId ?? session('setting_id');
         }
+        if ($this->globalMode && $this->sortField === 'created_at') {
+            $this->sortField = 'date';
+        }
         $this->statusFilter = $statusFilter;
         $this->purchaseId = $purchaseId;
         $this->supplierId = $supplierId;
@@ -417,7 +420,10 @@ class PurchaseTable extends Component
                     });
                 }
             })
-            ->orderBy($this->sortField, $this->sortDirection);
+            ->orderBy($this->sortField, $this->sortDirection)
+            ->when($this->sortField !== 'id', function ($q) {
+                $q->orderBy('id', $this->sortDirection);
+            });
 
         $purchases = $query->paginate($this->perPage);
 
