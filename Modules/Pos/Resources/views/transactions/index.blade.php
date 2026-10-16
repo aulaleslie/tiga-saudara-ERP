@@ -56,6 +56,7 @@
                             <th>Status</th>
                             <th>Pemilik</th>
                             <th>Pelanggan</th>
+                            <th>Catatan</th>
                             <th class="text-right">Grand Total</th>
                             <th>Diperbarui</th>
                             <th class="text-right">Aksi</th>
@@ -63,7 +64,7 @@
                         </thead>
                         <tbody id="pos-transaction-table-body">
                         <tr>
-                            <td colspan="7" class="text-center text-muted py-4">Memuat data...</td>
+                            <td colspan="8" class="text-center text-muted py-4">Memuat data...</td>
                         </tr>
                         </tbody>
                     </table>
@@ -239,15 +240,15 @@
             };
 
             const renderLoadingState = (message = 'Memuat transaksi...') => {
-                tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">${escapeHtml(message)}</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="8" class="text-center text-muted py-4">${escapeHtml(message)}</td></tr>`;
             };
 
             const renderEmptyState = (message = 'Tidak ada transaksi pada filter saat ini.') => {
-                tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">${escapeHtml(message)}</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="8" class="text-center text-muted py-4">${escapeHtml(message)}</td></tr>`;
             };
 
             const renderErrorState = (message = 'Gagal memuat transaksi. Silakan klik Muat Data untuk mencoba lagi.') => {
-                tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-danger py-4">${escapeHtml(message)}</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="8" class="text-center text-danger py-4">${escapeHtml(message)}</td></tr>`;
             };
 
             const renderRows = (rows) => {
@@ -258,6 +259,9 @@
                         ? row.snapshot_totals.grand_total
                         : 0;
                     const updatedAt = row.updated_at ? new Date(row.updated_at).toLocaleString('id-ID') : '-';
+                    const note = row.note ? String(row.note) : '';
+                    const noteExcerpt = row.note_excerpt ? String(row.note_excerpt) : '-';
+                    const noteTitle = note !== '' ? ` title="${escapeHtml(note)}"` : '';
 
                     return `
                         <tr>
@@ -265,6 +269,7 @@
                             <td><span class="badge ${statusBadgeClass(row.status)}">${escapeHtml(getStatusLabel(row.status) || '-')}</span></td>
                             <td>${escapeHtml(ownerName)}</td>
                             <td>${escapeHtml(customerName)}</td>
+                            <td class="text-break"><span${noteTitle}>${escapeHtml(noteExcerpt)}</span></td>
                             <td class="text-right">${formatCurrency(grandTotal)}</td>
                             <td>${escapeHtml(updatedAt)}</td>
                             <td class="text-right">${buildActions(row)}</td>
