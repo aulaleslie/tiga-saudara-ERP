@@ -10,9 +10,7 @@ mkdir -p \
     storage/framework/views \
     storage/logs
 
-if [ ! -f vendor/autoload.php ]; then
-    composer install --no-interaction --prefer-dist
-fi
+composer install --no-interaction --prefer-dist --no-progress
 
 install-public-assets
 
