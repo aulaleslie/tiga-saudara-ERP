@@ -583,8 +583,8 @@ class PosReprintCurrentMoneyTest extends PosLineageSchemaAndCheckoutTest
         ]);
 
         $laterReprint = $service->getCompletedReprintReceiptData($checkout);
-        // Original checkout tender remains checkout fact (40,000)
-        $this->assertEquals(40000.0, $laterReprint['amount_paid']);
+        // Reconciled paid amount reflects active payments (40,000 DP + 35,000 later payment = 75,000)
+        $this->assertEquals(75000.0, $laterReprint['amount_paid']);
         // Live due (Sisa Utang) reflects current aggregate live due: 100,000 - 75,000 = 25,000
         $this->assertEquals(25000.0, $laterReprint['outstanding_debt']);
         $this->assertEquals(100000.0, $laterReprint['grand_total']);

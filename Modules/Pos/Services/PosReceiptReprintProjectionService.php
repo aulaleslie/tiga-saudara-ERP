@@ -123,6 +123,7 @@ class PosReceiptReprintProjectionService
                 'lines.replacementSerial',
                 'lines.product',
                 'lines.posTransactionLine',
+                'lines.saleDetail',
                 'saleReturns.saleReturnPayments',
                 'saleReturns.saleReturnDetails',
             ])
@@ -141,7 +142,56 @@ class PosReceiptReprintProjectionService
             ->get();
 
         $hasCompletedReturns = $completedReturns->isNotEmpty();
-        $returnHistory = $this->buildReturnHistory($completedReturns);
+        $allReturnLines = $completedReturns->flatMap(fn ($r) => $r->lines)->values();
+
+        // Resolve proven transaction line ID on return lines before determining fully returned lines
+        $allDetails = [];
+        foreach ($sales as $sale) {
+            foreach ($sale->saleDetails as $detail) {
+                $allDetails[] = $detail;
+            }
+        }
+
+        foreach ($completedReturns as $posReturn) {
+            foreach ($posReturn->lines as $returnLine) {
+                if (empty($returnLine->pos_transaction_line_id)) {
+                    // Do not assign parent POS line ID to bundle component return rows:
+                    // component association must stay separate from customer-facing line accounting.
+                    if (! $this->isBundleComponentReturnLine($returnLine)) {
+                        $resolvedTxnLineId = $this->resolveTransactionLineIdFromReturnLine($returnLine, $receiptLines, $allDetails);
+                        if ($resolvedTxnLineId) {
+                            $resolvedLine = $receiptLines->firstWhere('id', $resolvedTxnLineId);
+                            if ($resolvedLine && (int) $resolvedLine->product_id === (int) $returnLine->product_id) {
+                                $returnLine->pos_transaction_line_id = $resolvedTxnLineId;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        $fullyReturnedLineIds = [];
+        foreach ($receiptLines as $txnLine) {
+            $lineId = (int) $txnLine->id;
+            $qty = (float) $txnLine->qty;
+            $cashReturnedQty = (float) $allReturnLines
+                ->filter(function ($l) use ($lineId, $txnLine) {
+                    if ((int) $l->pos_transaction_line_id !== $lineId) {
+                        return false;
+                    }
+                    if ($this->isBundleComponentReturnLine($l, $txnLine)) {
+                        return false;
+                    }
+                    return (int) $l->product_id === (int) $txnLine->product_id;
+                })
+                ->where('resolution', PosReturnLine::RESOLUTION_CASH_RETURN)
+                ->sum('quantity');
+            if ($cashReturnedQty >= $qty - 0.00001 && $qty > 0) {
+                $fullyReturnedLineIds[] = $lineId;
+            }
+        }
+
+        $returnHistory = $this->buildReturnHistory($completedReturns, $receiptLines, $fullyReturnedLineIds, $allDetails);
 
         // 8. Rebuild line representations with updated prices & breakdowns
         $reprintedLines = $this->buildReprintedLines(
@@ -174,7 +224,17 @@ class PosReceiptReprintProjectionService
         $reprintedData['tax'] = 0.0;
         $reprintedData['outstanding_debt'] = $currentLiveDue;
 
-        if ($hasCompletedReturns) {
+        if ($transaction && trim((string) $transaction->note) !== '') {
+            $reprintedData['note'] = (string) $transaction->note;
+        } elseif (! array_key_exists('note', $reprintedData)) {
+            $reprintedData['note'] = null;
+        }
+
+        $isDebtTransaction = (bool) ($checkout->metadata['is_debt'] ?? false)
+            || ((float) ($checkout->debt_amount ?? 0) > 0.005)
+            || ((float) ($checkout->grand_total - $checkout->paid_total) > 0.005);
+
+        if ($hasCompletedReturns || $isDebtTransaction) {
             $retainedPaidAmount = round(max(0, $currentTotal - $currentLiveDue), 2);
             $reprintedData['amount_paid'] = $retainedPaidAmount;
             $reprintedData['change'] = 0.0;
@@ -325,6 +385,34 @@ class PosReceiptReprintProjectionService
             return (int) $returnLine->pos_transaction_line_id;
         }
 
+        if (! empty($returnLine->sale_detail_id)) {
+            foreach ($allDetails as $d) {
+                if ((int) $d->id === (int) $returnLine->sale_detail_id) {
+                    if (! empty($d->pos_transaction_line_id)) {
+                        return (int) $d->pos_transaction_line_id;
+                    }
+                    $matchingLines = $lines->filter(fn ($l) => (int) $l->product_id === (int) $d->product_id);
+                    if ($matchingLines->count() === 1) {
+                        return (int) $matchingLines->first()->id;
+                    }
+                }
+            }
+
+            $saleDetail = $returnLine->relationLoaded('saleDetail') && $returnLine->saleDetail
+                ? $returnLine->saleDetail
+                : SaleDetails::query()->find($returnLine->sale_detail_id);
+
+            if ($saleDetail) {
+                if (! empty($saleDetail->pos_transaction_line_id)) {
+                    return (int) $saleDetail->pos_transaction_line_id;
+                }
+                $matchingLines = $lines->filter(fn ($l) => (int) $l->product_id === (int) $saleDetail->product_id);
+                if ($matchingLines->count() === 1) {
+                    return (int) $matchingLines->first()->id;
+                }
+            }
+        }
+
         if (! empty($returnLine->bundle_parent_sale_detail_id)) {
             foreach ($allDetails as $d) {
                 if ((int) $d->id === (int) $returnLine->bundle_parent_sale_detail_id) {
@@ -361,6 +449,30 @@ class PosReceiptReprintProjectionService
         }
 
         return null;
+    }
+
+    /**
+     * Determine if a return line is an internal bundle component row rather than a customer-facing purchase line.
+     */
+    protected function isBundleComponentReturnLine(PosReturnLine $line, ?PosTransactionLine $txnLine = null): bool
+    {
+        if ((float) ($line->component_quantity_per_bundle ?? 0) > 0) {
+            return true;
+        }
+
+        if (empty($line->bundle_parent_sale_detail_id)) {
+            return false;
+        }
+
+        if (! empty($line->sale_detail_id) && (int) $line->bundle_parent_sale_detail_id !== (int) $line->sale_detail_id) {
+            return true;
+        }
+
+        if ($txnLine && (int) $line->product_id !== (int) $txnLine->product_id) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -588,7 +700,15 @@ class PosReceiptReprintProjectionService
             })->values();
 
             $cashReturnedQty = (float) $matchingReturnLines
-                ->filter(fn ($l) => (int) $l->pos_transaction_line_id === $lineId)
+                ->filter(function ($l) use ($lineId, $txnLine) {
+                    if ((int) $l->pos_transaction_line_id !== $lineId) {
+                        return false;
+                    }
+                    if ($this->isBundleComponentReturnLine($l, $txnLine)) {
+                        return false;
+                    }
+                    return (int) $l->product_id === (int) $txnLine->product_id;
+                })
                 ->where('resolution', PosReturnLine::RESOLUTION_CASH_RETURN)
                 ->sum('quantity');
 
@@ -726,6 +846,13 @@ class PosReceiptReprintProjectionService
                 }
             }
 
+            $priceAdjustments = $this->computeLinePriceAdjustments(
+                $txnLine,
+                $baseLine,
+                $lineDetailsMap[$lineId] ?? [],
+                $effectiveQty
+            );
+
             $reprintedLine = $baseLine;
             $reprintedLine['qty'] = $effectiveQty;
             $reprintedLine['price'] = $pricePerUnit;
@@ -737,6 +864,7 @@ class PosReceiptReprintProjectionService
             $reprintedLine['unit_breakdown'] = $unitBreakdown;
             $reprintedLine['bundle_composition'] = $bundleComposition;
             $reprintedLine['assigned_serials'] = $effectiveSerials;
+            $reprintedLine['price_adjustments'] = $priceAdjustments;
 
             $reprintedLines[] = $reprintedLine;
         }
@@ -747,8 +875,12 @@ class PosReceiptReprintProjectionService
     /**
      * Build return history payload grouped by completed PosReturn reference.
      */
-    protected function buildReturnHistory(Collection $completedReturns): array
-    {
+    protected function buildReturnHistory(
+        Collection $completedReturns,
+        ?Collection $receiptLines = null,
+        array $fullyReturnedLineIds = [],
+        array $allDetails = []
+    ): array {
         $history = [];
         foreach ($completedReturns as $posReturn) {
             $items = [];
@@ -762,9 +894,38 @@ class PosReceiptReprintProjectionService
                 $returnedSerial = $line->returnedSerial?->serial_number;
                 $replacementSerial = $line->replacementSerial?->serial_number;
 
+                $priceComparison = null;
+                $txnLineId = $line->pos_transaction_line_id
+                    ? (int) $line->pos_transaction_line_id
+                    : ($receiptLines ? $this->resolveTransactionLineIdFromReturnLine($line, $receiptLines, $allDetails) : null);
+                if ($txnLineId && ! empty($receiptLines) && in_array($txnLineId, $fullyReturnedLineIds, true)) {
+                    $txnLine = $receiptLines->firstWhere('id', $txnLineId);
+                    if ($txnLine) {
+                        $priceSource = $txnLine->line_meta['price_source'] ?? 'BASE';
+                        $isBundle = ! empty($txnLine->line_meta['bundle_items'])
+                            || strtoupper((string) ($txnLine->line_meta['price_source'] ?? '')) === 'BUNDLE'
+                            || ! empty($line->bundle_parent_sale_detail_id);
+
+                        if ($priceSource !== 'PACKED' && ! $isBundle) {
+                            $origUnitPrice = (float) $txnLine->unit_price;
+                            $returnUnitPrice = (float) $line->unit_price;
+                            $origCents = (int) round($origUnitPrice * 100);
+                            $retCents = (int) round($returnUnitPrice * 100);
+
+                            if ($retCents !== $origCents && $retCents > 0) {
+                                $origDec = fmod(round($origUnitPrice, 2), 1.0) != 0.0 ? 2 : 0;
+                                $retDec = fmod(round($returnUnitPrice, 2), 1.0) != 0.0 ? 2 : 0;
+                                $origFormatted = number_format($origUnitPrice, $origDec, ',', '.');
+                                $retFormatted = number_format($returnUnitPrice, $retDec, ',', '.');
+                                $priceComparison = "Harga satuan saat retur: {$origFormatted} → {$retFormatted}";
+                            }
+                        }
+                    }
+                }
+
                 $items[] = [
                     'pos_return_line_id' => (int) $line->id,
-                    'pos_transaction_line_id' => $line->pos_transaction_line_id ? (int) $line->pos_transaction_line_id : null,
+                    'pos_transaction_line_id' => $txnLineId,
                     'product_name' => $line->product_name ?: ($line->product?->product_name ?? '-'),
                     'quantity' => (float) $line->quantity,
                     'resolution' => $resolutionLabel,
@@ -773,6 +934,7 @@ class PosReceiptReprintProjectionService
                     'line_total' => (float) $line->line_total,
                     'returned_serial' => $returnedSerial,
                     'replacement_serial' => $replacementSerial,
+                    'price_comparison' => $priceComparison,
                 ];
             }
 
@@ -980,5 +1142,106 @@ class PosReceiptReprintProjectionService
         }
 
         return $allocated;
+    }
+
+    /**
+     * Compute optional explanatory price adjustments for a reprinted POS receipt line.
+     *
+     * @param PosTransactionLine $txnLine
+     * @param array $baseLine
+     * @param array<int, SaleDetails> $mappedDetails
+     * @param float $effectiveQty
+     * @return array<int, string>
+     */
+    protected function computeLinePriceAdjustments(
+        PosTransactionLine $txnLine,
+        array $baseLine,
+        array $mappedDetails,
+        float $effectiveQty
+    ): array {
+        $adjustments = [];
+        $priceSource = $txnLine->line_meta['price_source'] ?? 'BASE';
+
+        // 1. Packed item: check for proven blended unit-price changes
+        if ($priceSource === 'PACKED') {
+            $origBlendedCents = (int) round(((float) $txnLine->unit_price) * 100);
+            $hasBlendedPriceChange = false;
+
+            foreach ($mappedDetails as $detail) {
+                if (! empty($detail->pos_transaction_line_id) && (int) $detail->pos_transaction_line_id === (int) $txnLine->id) {
+                    $detailCents = (int) round(((float) $detail->unit_price) * 100);
+                    if ($detailCents !== $origBlendedCents) {
+                        $hasBlendedPriceChange = true;
+                        break;
+                    }
+                }
+            }
+
+            if ($hasBlendedPriceChange) {
+                $adjustments[] = 'Harga penjualan diperbarui';
+            }
+
+            return $adjustments;
+        }
+
+        // 2. Bundle lines: exclude internal allocations, do not invent numeric comparisons
+        $isBundle = ! empty($txnLine->line_meta['bundle_items'])
+            || strtoupper((string) ($txnLine->line_meta['price_source'] ?? '')) === 'BUNDLE'
+            || ! empty($baseLine['bundle_composition']);
+        if ($isBundle) {
+            return [];
+        }
+
+        // 3. Standard items: compare original POS unit price against current linked SaleDetails
+        $origUnitPrice = (float) $txnLine->unit_price;
+        $origCents = (int) round($origUnitPrice * 100);
+
+        // Filter to customer purchase details
+        $customerDetails = collect($mappedDetails)->filter(function ($d) use ($txnLine) {
+            if (! empty($d->pos_transaction_line_id)) {
+                return (int) $d->pos_transaction_line_id === (int) $txnLine->id;
+            }
+            return (int) $d->product_id === (int) $txnLine->product_id;
+        })->values();
+
+        // Must have proven lineage
+        if ($customerDetails->isEmpty()) {
+            return [];
+        }
+
+        // Only active remaining details
+        $activeDetails = $customerDetails->filter(fn ($d) => (float) $d->quantity > 0.0001)->values();
+        if ($activeDetails->isEmpty()) {
+            return [];
+        }
+
+        $allDistinctPrices = $activeDetails->map(fn ($d) => (int) round(((float) $d->unit_price) * 100))->unique()->values();
+
+        // Group by current price in cents
+        $grouped = $activeDetails->groupBy(fn ($d) => (int) round(((float) $d->unit_price) * 100));
+
+        foreach ($grouped as $currCents => $detailsInGroup) {
+            $currCents = (int) $currCents;
+            if ($currCents === $origCents) {
+                continue; // No price change for this group
+            }
+
+            $groupQty = (float) $detailsInGroup->sum(fn ($d) => (float) $d->quantity);
+            $currUnitPrice = $currCents / 100;
+
+            $origDec = fmod(round($origUnitPrice, 2), 1.0) != 0.0 ? 2 : 0;
+            $currDec = fmod(round($currUnitPrice, 2), 1.0) != 0.0 ? 2 : 0;
+            $origFormatted = number_format($origUnitPrice, $origDec, ',', '.');
+            $currFormatted = number_format($currUnitPrice, $currDec, ',', '.');
+
+            if ($allDistinctPrices->count() === 1 && abs($groupQty - $effectiveQty) < 0.0001) {
+                $adjustments[] = "Harga satuan: {$origFormatted} → {$currFormatted}";
+            } else {
+                $qtyFormatted = fmod(round($groupQty, 4), 1.0) != 0.0 ? round($groupQty, 2) : (int) $groupQty;
+                $adjustments[] = "Harga satuan: {$origFormatted} → {$currFormatted} ({$qtyFormatted})";
+            }
+        }
+
+        return $adjustments;
     }
 }

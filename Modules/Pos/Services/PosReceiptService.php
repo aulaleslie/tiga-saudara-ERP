@@ -47,6 +47,15 @@ class PosReceiptService
         if ($checkout->transaction && ! $allTransactions->contains('id', $checkout->transaction->id)) {
             $allTransactions->push($checkout->transaction);
         }
+
+        $canonicalTransaction = $checkout->transaction
+            ?? $allTransactions->first()
+            ?? PosTransaction::where('completed_checkout_id', $checkout->id)->first()
+            ?? PosTransaction::find($checkout->pos_transaction_id);
+
+        $transactionNote = ($canonicalTransaction && trim((string) $canonicalTransaction->note) !== '')
+            ? (string) $canonicalTransaction->note
+            : null;
         
         if ($allTransactions->count() > 0) {
             foreach ($allTransactions as $transaction) {
@@ -182,7 +191,8 @@ class PosReceiptService
             'business_phone' => $setting->company_phone,
             'business_email' => $setting->company_email,
             'receipt_number' => $checkout->receipt_number,
-            'pos_transaction_code' => $checkout->transaction?->code ?? '-',
+            'pos_transaction_code' => $canonicalTransaction?->code ?? '-',
+            'note' => $transactionNote,
             'date' => ($checkout->finalized_at ?: $checkout->created_at)->format('d-m-Y H:i'), // Task 1.5
             'customer_name' => $customerName,
             'cashier_name' => $checkout->cashier ? $checkout->cashier->name : 'N/A',
@@ -522,6 +532,9 @@ class PosReceiptService
             $receiptData = $this->getReceiptData($transaction->completedCheckout);
             $receiptData['print_history'] = $this->getTransactionPrintHistory($transaction->id);
             $receiptData['is_draft'] = false;
+            if (trim((string) $transaction->note) !== '') {
+                $receiptData['note'] = (string) $transaction->note;
+            }
 
             return $receiptData;
         }
@@ -605,6 +618,7 @@ class PosReceiptService
 
         $totals = $transaction->snapshot_totals ?? [];
         $printHistory = $this->getTransactionPrintHistory($transaction->id);
+        $note = trim((string) $transaction->note) !== '' ? (string) $transaction->note : null;
 
         return [
             'business_name' => $setting->company_name ?? 'Business',
@@ -612,6 +626,8 @@ class PosReceiptService
             'business_phone' => $setting->company_phone,
             'business_email' => $setting->company_email,
             'receipt_number' => $transaction->code,
+            'pos_transaction_code' => $transaction->code,
+            'note' => $note,
             'date' => $transaction->created_at->format('d-m-Y H:i'), // Consistent transaction time
             'customer_name' => $customerName,
             'cashier_name' => $transaction->owner ? $transaction->owner->name : 'N/A',

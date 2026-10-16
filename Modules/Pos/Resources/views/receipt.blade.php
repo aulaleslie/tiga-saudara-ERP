@@ -304,6 +304,11 @@
                         <td class="col-qty">{{ (float) $line['qty'] }}</td>
                         <td class="col-product">
                             {{ $line['product_name'] }}
+                            @if(empty($receiptData['is_historical_checkout']) && empty($receiptData['is_draft']) && !empty($line['price_adjustments']))
+                                @foreach($line['price_adjustments'] as $adj)
+                                    <div class="small" style="font-weight: 400; color: #555;">{{ $adj }}</div>
+                                @endforeach
+                            @endif
                             @if(!empty($line['unit_breakdown']))
                                 @if(is_array($line['unit_breakdown']))
                                     @foreach($line['unit_breakdown'] as $ub)
@@ -437,6 +442,13 @@
             </tbody>
         </table>
 
+        @if(!empty(trim($receiptData['note'] ?? '')))
+            <div class="receipt-note" style="margin-top: 5px; border-top: 1px dashed #000; padding-top: 4px;">
+                <div style="font-size: 11px; font-weight: 700; margin-bottom: 2px;">Catatan:</div>
+                <div style="font-weight: 400; font-size: 10px; line-height: 13px; white-space: pre-wrap; word-break: break-word;">{{ $receiptData['note'] }}</div>
+            </div>
+        @endif
+
         @if(!empty($receiptData['return_history']))
             <div class="return-history" style="margin-top: 5px; border-top: 1px dashed #000; padding-top: 4px;">
                 <div class="centered" style="font-size: 11px; font-weight: 700; margin-bottom: 3px;">
@@ -477,6 +489,9 @@
                                         <td class="col-product small">
                                             {{ $item['product_name'] }}
                                             <div class="small" style="font-weight: 400; color: #555;">({{ $item['resolution'] }})</div>
+                                            @if(empty($receiptData['is_historical_checkout']) && empty($receiptData['is_draft']) && !empty($item['price_comparison']))
+                                                <div class="small" style="font-weight: 400; color: #555;">{{ $item['price_comparison'] }}</div>
+                                            @endif
                                             @if(!empty($item['returned_serial']) && !empty($item['replacement_serial']))
                                                 <div class="small" style="font-weight: 400; word-break: break-all;">
                                                     SN: {{ $item['returned_serial'] }} &rarr; {{ $item['replacement_serial'] }}

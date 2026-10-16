@@ -85,7 +85,7 @@ class PosReturnLine extends Model
 
     public function saleDetail()
     {
-        return $this->belongsTo(\Modules\Sale\Entities\SaleDetail::class);
+        return $this->belongsTo(\Modules\Sale\Entities\SaleDetails::class, 'sale_detail_id');
     }
 
     public function product()
