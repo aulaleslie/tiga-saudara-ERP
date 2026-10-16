@@ -52,6 +52,7 @@ class POSProductSearchScanTest extends TestCase
             'pos.access',
             'pos.sell',
             'pos.sessions.open',
+            'inventory.view_remaining_stock',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -65,7 +66,7 @@ class POSProductSearchScanTest extends TestCase
         $cashier = $this->createUserForSetting(
             $setting,
             'POS SEARCH CASHIER NO SESSION',
-            ['pos.access', 'pos.sell', 'pos.sessions.open']
+            ['pos.access', 'pos.sell', 'pos.sessions.open', 'inventory.view_remaining_stock']
         );
 
         $this->actingAs($cashier)
@@ -196,6 +197,93 @@ class POSProductSearchScanTest extends TestCase
         $nameResponse->assertJsonPath('meta.result_count', 1);
         $nameResponse->assertJsonPath('results.0.id', $alpha->id);
         $nameResponse->assertJsonPath('results.0.matched_by', 'name_partial');
+    }
+
+    public function test_name_search_matches_partial_multi_word_case_insensitive_queries_and_excludes_inactive_products(): void
+    {
+        $setting = $this->createSetting('BIZ SEARCH NAME REGRESSION');
+        [$cashier, $allowedLocation] = $this->createCashierAndOpenSession($setting, 'POS SEARCH NAME REGRESSION');
+
+        $matched = $this->createStockedProduct(
+            setting: $setting,
+            location: $allowedLocation,
+            code: 'SKU-KOPI-SUSU-01',
+            name: 'Kopi Susu Gula Aren Premium',
+            barcode: 'BC-KOPI-SUSU-01',
+            availableQty: 8,
+            salePrice: 18000,
+            serialRequired: false,
+            createdBy: $cashier->id
+        );
+
+        $inactive = $this->createStockedProduct(
+            setting: $setting,
+            location: $allowedLocation,
+            code: 'SKU-KOPI-SUSU-INACTIVE',
+            name: 'Kopi Susu Gula Aren Nonaktif',
+            barcode: 'BC-KOPI-SUSU-INACTIVE',
+            availableQty: 8,
+            salePrice: 18000,
+            serialRequired: false,
+            createdBy: $cashier->id
+        );
+        $inactive->update(['is_active' => false]);
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.products.search', ['q' => 'SUSU premium']));
+
+        $response->assertOk();
+
+        $resultIds = collect($response->json('results'))->pluck('id')->all();
+
+        $this->assertContains($matched->id, $resultIds);
+        $this->assertNotContains($inactive->id, $resultIds);
+        $response->assertJsonPath('results.0.id', $matched->id);
+        $response->assertJsonPath('results.0.matched_by', 'name_partial');
+        $response->assertJsonPath('meta.auto_select_product_id', null);
+    }
+
+    public function test_exact_barcode_match_is_prioritized_over_name_matches(): void
+    {
+        $setting = $this->createSetting('BIZ SEARCH BARCODE PRIORITY');
+        [$cashier, $allowedLocation] = $this->createCashierAndOpenSession($setting, 'POS SEARCH BARCODE PRIORITY');
+
+        $nameOnlyMatch = $this->createStockedProduct(
+            setting: $setting,
+            location: $allowedLocation,
+            code: 'SKU-NAME-BARCODE-PRIORITY',
+            name: 'PRIORITY-EXACT Display Name Match',
+            barcode: 'BC-OTHER-PRIORITY',
+            availableQty: 5,
+            salePrice: 21000,
+            serialRequired: false,
+            createdBy: $cashier->id
+        );
+
+        $barcodeMatch = $this->createStockedProduct(
+            setting: $setting,
+            location: $allowedLocation,
+            code: 'SKU-BARCODE-PRIORITY',
+            name: 'Different Display Name',
+            barcode: 'PRIORITY-EXACT',
+            availableQty: 5,
+            salePrice: 23000,
+            serialRequired: false,
+            createdBy: $cashier->id
+        );
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->getJson(route('pos.sell.products.search', ['q' => 'priority-exact']));
+
+        $response->assertOk();
+        $response->assertJsonPath('results.0.id', $barcodeMatch->id);
+        $response->assertJsonPath('results.0.matched_by', 'barcode_exact');
+        $response->assertJsonPath('meta.auto_select_product_id', $barcodeMatch->id);
+
+        $resultIds = collect($response->json('results'))->pluck('id')->all();
+        $this->assertContains($nameOnlyMatch->id, $resultIds);
     }
 
     /**
@@ -437,7 +525,7 @@ class POSProductSearchScanTest extends TestCase
         $cashier = $this->createUserForSetting(
             $setting,
             $roleSuffix . ' CASHIER',
-            ['pos.access', 'pos.sell', 'pos.sessions.open']
+            ['pos.access', 'pos.sell', 'pos.sessions.open', 'inventory.view_remaining_stock']
         );
 
         $terminal = $this->createTerminalForSetting($setting);
