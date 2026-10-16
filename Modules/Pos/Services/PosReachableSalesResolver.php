@@ -6,7 +6,10 @@ use App\Scopes\ArchivingScope;
 use Illuminate\Support\Collection;
 use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosCheckoutSale;
+use Modules\Pos\Entities\PosReturn;
+use Modules\Pos\Entities\PosReturnLine;
 use Modules\Pos\Entities\PosTransaction;
+use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\Sale;
 
 class PosReachableSalesResolver
@@ -99,7 +102,7 @@ class PosReachableSalesResolver
             // transaction when this resolver runs in a loop over a list of transactions.
             // tenantSetting is loaded lazily below only when the fast path is not available,
             // to keep behavior identical to the query-based path's eager loading.
-            $allSaleRelationsLoaded = $checkoutSales->every(fn ($cs) => $cs->relationLoaded('sale'));
+            $allSaleRelationsLoaded = $checkoutSales->every(fn ($cs) => $cs->relationLoaded('sale') && $cs->sale !== null);
 
             if ($allSaleRelationsLoaded) {
                 $sales = $checkoutSales->pluck('sale')->filter()->keyBy('id');
@@ -135,6 +138,13 @@ class PosReachableSalesResolver
                 if ($cs->sale_id && $sales->has($cs->sale_id)) {
                     $orderedSales->push($sales->get($cs->sale_id));
                 }
+            }
+
+            // Include cross-owner replacement sales linked to completed returns
+            $replacementSales = $this->resolveReplacementSales($checkout, $saleIds, $anomalies);
+            if ($replacementSales->isNotEmpty()) {
+                $orderedSales = $orderedSales->concat($replacementSales);
+                $sales = $sales->union($replacementSales->keyBy('id'));
             }
 
             return [
@@ -173,8 +183,14 @@ class PosReachableSalesResolver
                 $anomalies[] = "Inline sale {$sale->id} customer ({$sale->customer_id}) does not match checkout customer ({$checkout->customer_id}).";
             }
 
+            $orderedSales = new \Illuminate\Database\Eloquent\Collection([$sale]);
+            $replacementSales = $this->resolveReplacementSales($checkout, [(int) $sale->id], $anomalies);
+            if ($replacementSales->isNotEmpty()) {
+                $orderedSales = $orderedSales->concat($replacementSales);
+            }
+
             return [
-                'sales' => new \Illuminate\Database\Eloquent\Collection([$sale]),
+                'sales' => $orderedSales,
                 'has_split_mapping' => false,
                 'is_inline_fallback' => true,
                 'is_valid' => empty($anomalies),
@@ -209,5 +225,65 @@ class PosReachableSalesResolver
         }
 
         return PosCheckout::where('pos_transaction_id', $record->id)->first();
+    }
+
+    /**
+     * Resolve cross-owner replacement sales linked via completed returns for this checkout.
+     *
+     * @param PosCheckout $checkout
+     * @param array<int> $existingSaleIds
+     * @param array<string> $anomalies
+     * @return Collection<int, Sale>
+     */
+    protected function resolveReplacementSales(PosCheckout $checkout, array $existingSaleIds, array &$anomalies): Collection
+    {
+        $completedReturnIds = PosReturn::query()
+            ->where('status', PosReturn::STATUS_COMPLETED)
+            ->where('is_reversed', false)
+            ->where(function ($q) use ($checkout) {
+                $q->where('pos_checkout_id', $checkout->id);
+                if (! empty($checkout->pos_transaction_id)) {
+                    $q->orWhere('pos_transaction_id', $checkout->pos_transaction_id);
+                }
+            })
+            ->pluck('id');
+
+        if ($completedReturnIds->isEmpty()) {
+            return new \Illuminate\Database\Eloquent\Collection();
+        }
+
+        $completedReturnLineIds = PosReturnLine::query()
+            ->whereIn('pos_return_id', $completedReturnIds)
+            ->where('resolution', PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT)
+            ->pluck('id');
+
+        if ($completedReturnLineIds->isEmpty()) {
+            return new \Illuminate\Database\Eloquent\Collection();
+        }
+
+        $replacementSaleIds = DispatchDetail::query()
+            ->whereIn('pos_return_line_id', $completedReturnLineIds)
+            ->whereNotNull('sale_id')
+            ->pluck('sale_id')
+            ->unique()
+            ->values()
+            ->all();
+
+        $newReplacementSaleIds = array_values(array_diff($replacementSaleIds, $existingSaleIds));
+        if (empty($newReplacementSaleIds)) {
+            return new \Illuminate\Database\Eloquent\Collection();
+        }
+
+        $replacementSales = Sale::withoutGlobalScope(ArchivingScope::class)
+            ->with(['tenantSetting', 'salePayments.creditApplications', 'salePayments.paymentMethod'])
+            ->whereIn('id', $newReplacementSaleIds)
+            ->get();
+
+        $missingSaleIds = array_diff($newReplacementSaleIds, $replacementSales->pluck('id')->all());
+        if (! empty($missingSaleIds)) {
+            $anomalies[] = 'Referenced replacement sales missing in database: ' . implode(', ', $missingSaleIds) . '.';
+        }
+
+        return $replacementSales;
     }
 }

@@ -294,6 +294,11 @@
                 </tr>
             </thead>
             <tbody>
+                @if(empty($receiptData['lines']))
+                    <tr>
+                        <td colspan="3" class="centered small" style="padding: 6px 0; font-style: italic;">(Semua barang telah diretur)</td>
+                    </tr>
+                @endif
                 @foreach($receiptData['lines'] as $line)
                     <tr>
                         <td class="col-qty">{{ (float) $line['qty'] }}</td>
@@ -431,6 +436,98 @@
                 @endif
             </tbody>
         </table>
+
+        @if(!empty($receiptData['return_history']))
+            <div class="return-history" style="margin-top: 5px; border-top: 1px dashed #000; padding-top: 4px;">
+                <div class="centered" style="font-size: 11px; font-weight: 700; margin-bottom: 3px;">
+                    RIWAYAT RETUR
+                </div>
+                @foreach($receiptData['return_history'] as $ret)
+                    <div style="margin-bottom: 4px; padding-bottom: 3px; border-bottom: 1px dotted #ccc;">
+                        <table class="meta-table" style="width: 100%;">
+                            <tr>
+                                <td class="meta-label" style="width: 22mm;">No. Retur</td>
+                                <td class="meta-separator">:</td>
+                                <td style="word-break: break-all;">{{ $ret['reference'] }}</td>
+                            </tr>
+                            <tr>
+                                <td class="meta-label">Tanggal</td>
+                                <td class="meta-separator">:</td>
+                                <td>{{ $ret['date'] }}</td>
+                            </tr>
+                            <tr>
+                                <td class="meta-label">Status</td>
+                                <td class="meta-separator">:</td>
+                                <td>{{ $ret['status'] }}</td>
+                            </tr>
+                        </table>
+
+                        <table class="items-table" style="margin-top: 2px;">
+                            <thead>
+                                <tr>
+                                    <th class="col-qty" style="font-size: 10px;">Qty</th>
+                                    <th class="col-product" style="font-size: 10px;">Barang (Retur)</th>
+                                    <th class="col-total" style="font-size: 10px;">Nilai</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach($ret['items'] as $item)
+                                    <tr>
+                                        <td class="col-qty small">{{ (float) $item['quantity'] }}</td>
+                                        <td class="col-product small">
+                                            {{ $item['product_name'] }}
+                                            <div class="small" style="font-weight: 400; color: #555;">({{ $item['resolution'] }})</div>
+                                            @if(!empty($item['returned_serial']) && !empty($item['replacement_serial']))
+                                                <div class="small" style="font-weight: 400; word-break: break-all;">
+                                                    SN: {{ $item['returned_serial'] }} &rarr; {{ $item['replacement_serial'] }}
+                                                </div>
+                                            @elseif(!empty($item['returned_serial']))
+                                                <div class="small" style="font-weight: 400; word-break: break-all;">
+                                                    SN: {{ $item['returned_serial'] }}
+                                                </div>
+                                            @endif
+                                        </td>
+                                        @php
+                                            $itemTotal = (float) $item['line_total'];
+                                            $decCount = fmod(round($itemTotal, 2), 1.0) != 0.0 ? 2 : 0;
+                                            $formattedItemTotal = number_format($itemTotal, $decCount, ',', '.');
+                                        @endphp
+                                        <td class="col-total compact-amount small" style="text-align: right;">{{ $formattedItemTotal }}</td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+
+                        <table class="meta-table" style="width: 100%; margin-top: 2px;">
+                            @if(($ret['debt_reduction'] ?? 0) > 0)
+                                @php
+                                    $debtRed = (float) $ret['debt_reduction'];
+                                    $debtRedDec = fmod(round($debtRed, 2), 1.0) != 0.0 ? 2 : 0;
+                                @endphp
+                                <tr>
+                                    <td style="font-size: 10px;">Potong Utang:</td>
+                                    <td class="compact-amount" style="text-align: right; font-size: 10px;">
+                                        {{ number_format($debtRed, $debtRedDec, ',', '.') }}
+                                    </td>
+                                </tr>
+                            @endif
+                            @if(($ret['actual_refund'] ?? 0) > 0)
+                                @php
+                                    $refundAmt = (float) $ret['actual_refund'];
+                                    $refundDec = fmod(round($refundAmt, 2), 1.0) != 0.0 ? 2 : 0;
+                                @endphp
+                                <tr>
+                                    <td style="font-size: 10px;">Kembali Kas:</td>
+                                    <td class="compact-amount" style="text-align: right; font-size: 10px;">
+                                        {{ number_format($refundAmt, $refundDec, ',', '.') }}
+                                    </td>
+                                </tr>
+                            @endif
+                        </table>
+                    </div>
+                @endforeach
+            </div>
+        @endif
 
         <div class="receipt-tail-space"></div>
         <div class="receipt-tail-line"></div>

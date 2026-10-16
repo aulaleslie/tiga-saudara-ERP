@@ -107,4 +107,9 @@ class PosReturnLine extends Model
     {
         return $this->belongsTo(\Modules\Pos\Entities\PosTransactionLine::class, 'pos_transaction_line_id');
     }
+
+    public function bundleParentSaleDetail()
+    {
+        return $this->belongsTo(\Modules\Sale\Entities\SaleDetails::class, 'bundle_parent_sale_detail_id');
+    }
 }

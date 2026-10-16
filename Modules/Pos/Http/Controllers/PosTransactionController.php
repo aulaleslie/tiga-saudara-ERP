@@ -269,8 +269,12 @@ class PosTransactionController extends Controller
      * GET /pos/transactions/{transaction}/receipt
      * Show draft receipt for a transaction.
      */
-    public function receipt(PosTransaction $transaction, PosReceiptService $receiptService, Request $request): Renderable
-    {
+    public function receipt(
+        PosTransaction $transaction,
+        PosReceiptService $receiptService,
+        Request $request,
+        \Modules\Pos\Services\PosReceiptReprintProjectionService $reprintProjectionService
+    ): \Symfony\Component\HttpFoundation\Response {
         $settingId = $this->currentSettingId();
         abort_if(
             ! $this->transactionsEnabled($settingId),
@@ -279,7 +283,34 @@ class PosTransactionController extends Controller
         );
         $this->assertSettingScope($transaction, $settingId);
 
-        // Log the initial print
+        $isHistorical = (bool) $request->query('historical', false);
+
+        $checkout = $transaction->completedCheckout
+            ?? PosCheckout::where('pos_transaction_id', $transaction->id)->first()
+            ?? PosCheckout::find($transaction->completed_checkout_id);
+
+        $isCompleted = strtoupper((string) $transaction->status) === PosTransaction::STATUS_COMPLETED
+            || ($checkout instanceof PosCheckout && $checkout->status === PosCheckout::STATUS_POSTED);
+
+        if ($isCompleted && $checkout instanceof PosCheckout && ! $isHistorical) {
+            try {
+                $receiptData = $reprintProjectionService->getCompletedReceiptData($checkout);
+            } catch (\Modules\Pos\Exceptions\PosReprintProjectionException $e) {
+                return response()->view('pos::receipt-historical-ambiguous', [
+                    'message' => $e->getMessage(),
+                    'historicalReceiptUrl' => route('pos.transactions.receipt', ['transaction' => $transaction, 'historical' => 1]),
+                ], 422);
+            }
+            $receiptData['print_history'] = $receiptService->getTransactionPrintHistory($transaction->id);
+            $receiptData['is_draft'] = false;
+        } else {
+            $receiptData = $receiptService->getTransactionReceiptData($transaction);
+            if ($isHistorical) {
+                $receiptData['is_historical_checkout'] = true;
+            }
+        }
+
+        // Log the initial print only upon success
         $receiptService->logTransactionPrint(
             $settingId,
             $transaction->id,
@@ -287,13 +318,7 @@ class PosTransactionController extends Controller
             PosReceiptPrintLog::TYPE_PRINT
         );
 
-        $isHistorical = (bool) $request->query('historical', false);
-        $receiptData = $receiptService->getTransactionReceiptData($transaction);
-        if ($isHistorical) {
-            $receiptData['is_historical_checkout'] = true;
-        }
-
-        return view('pos::receipt', compact('receiptData'));
+        return response()->view('pos::receipt', compact('receiptData'));
     }
 
     /**
@@ -302,8 +327,12 @@ class PosTransactionController extends Controller
      * authorized by the current-transaction print permissions instead of
      * pos.transactions.view.
      */
-    public function printCurrentReceipt(PosTransaction $transaction, PosReceiptService $receiptService, Request $request): Renderable
-    {
+    public function printCurrentReceipt(
+        PosTransaction $transaction,
+        PosReceiptService $receiptService,
+        Request $request,
+        \Modules\Pos\Services\PosReceiptReprintProjectionService $reprintProjectionService
+    ): \Symfony\Component\HttpFoundation\Response {
         $settingId = $this->currentSettingId();
         $posSession = $request->attributes->get('pos_active_session');
         abort_unless($posSession instanceof PosSession, 403, 'Sesi POS tidak aktif.');
@@ -320,7 +349,7 @@ class PosTransactionController extends Controller
             'Transaksi tidak lagi aktif dan struknya tidak dapat dicetak.'
         );
 
-        return $this->receipt($transaction, $receiptService, $request);
+        return $this->receipt($transaction, $receiptService, $request, $reprintProjectionService);
     }
 
     /**

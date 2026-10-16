@@ -28,6 +28,7 @@ The receipt SHALL display the correct non-zero nominal amount for every payment 
 
 #### Scenario: Multi-payment nominal verification
 - **WHEN** a checkout has multiple payments (e.g., CASH and QRIS)
+
 ### Requirement: Bolder Font Legibility for Thermal Printers
 The receipt layout CSS SHALL be updated to use bolder font weight for global body text and headers to improve legibility on physical thermal printers.
 
@@ -35,13 +36,14 @@ The receipt layout CSS SHALL be updated to use bolder font weight for global bod
 - **WHEN** the thermal receipt is rendered
 - **THEN** it MUST use a `font-weight` of at least 600 or equivalent bold style for most text elements
 - **AND** headers SHOULD be even bolder if feasible (e.g., `font-weight: 700+`)
+
 ### Requirement: Receipt shows bundle composition without component prices
 The POS receipt SHALL show complete bundle component information beneath bundled parent item lines when bundle composition context is available, while keeping receipt totals based only on the parent customer-facing line totals.
 
 #### Scenario: Completed split bundle receipt shows full component set
 - **WHEN** a completed POS receipt or reprint receipt is rendered for a checkout that split bundle revenue across multiple Sales documents
 - **THEN** the receipt MUST show every component that belongs to the bundled parent item line
-- **AND** each component row MUST include the component name and customer quantity
+- **AND** each component row MUST include the component name and remaining customer quantity for ordinary completed receipts, or original quantity for historical receipts
 - **AND** each component row MUST NOT include component price, subtotal, allocation amount, source owner, or split Sales document identifiers
 
 #### Scenario: Receipt includes component-only ownership groups
@@ -56,12 +58,21 @@ The POS receipt SHALL show complete bundle component information beneath bundled
 
 #### Scenario: Bundle component does not affect receipt totals
 - **WHEN** a receipt renders bundle component rows beneath a bundled parent item
-- **THEN** the receipt grand total, payment rows, and change rows MUST remain equal to the original POS checkout totals
+- **THEN** the receipt grand total, payment rows, and change rows MUST remain consistent with the current purchase projection for ordinary completed receipts, or equal to original checkout totals for explicit historical receipts
 - **AND** component rows MUST NOT be summed as separate billable lines
 
 #### Scenario: Receipt with no bundle context remains unchanged
 - **WHEN** a receipt line has no bundle composition context
 - **THEN** the receipt MUST render the line using the existing item, quantity, discount, unit breakdown, and total behavior
+
+#### Scenario: Returned bundle presentation
+- **WHEN** a completed cash return reduces a bundle parent quantity
+- **THEN** the main bundle and nested component quantities reflect the remaining purchase and the returned bundle appears in return details
+- **AND** a fully returned bundle appears only in return details
+
+#### Scenario: Return section fits thermal width
+- **WHEN** return references, serial pairs, and large monetary values are printed
+- **THEN** descriptions and serials wrap within the thermal width and monetary values remain intact and right aligned
 
 ### Requirement: Receipt footer tax notice is below tail dash
 The POS receipt SHALL render `Harga sudah termasuk PPN CV TIGA COMPUTER © 2021` below the receipt tail dash line in a very small font.

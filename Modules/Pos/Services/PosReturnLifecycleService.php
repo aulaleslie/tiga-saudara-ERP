@@ -338,16 +338,24 @@ class PosReturnLifecycleService
                 ->reject(fn ($detail) => $this->shouldSkipCommercialCashCorrection($detail))
                 ->values();
 
+            $correction = null;
             if ($commercialCashReturnDetails->isNotEmpty()) {
                 $this->applyCashReturnSaleDetailCorrections($commercialCashReturnDetails);
-                $this->recalculateCashCorrectedSourceSale($saleReturn);
+                $correction = $this->recalculateCashCorrectedSourceSale($saleReturn);
             }
 
-            $cashSettlementAmount = $commercialCashReturnDetails
-                ->sum(fn ($detail) => $this->resolveCashSettlementAmount($detail));
+            $cashSettlementAmount = $correction !== null
+                ? (float) ($correction['actual_refund'] ?? 0.0)
+                : (float) $commercialCashReturnDetails->sum(fn ($detail) => $this->resolveCashSettlementAmount($detail));
+
+            $debtReduction = $correction !== null
+                ? (float) ($correction['debt_reduction'] ?? 0.0)
+                : 0.0;
 
             if ($cashSettlementAmount > 0) {
-                $this->applyCashSettlementForSaleReturn($saleReturn, $cashSettlementAmount, $executedAt, $actorId);
+                $this->applyCashSettlementForSaleReturn($saleReturn, $cashSettlementAmount, $executedAt, $actorId, $debtReduction);
+            } elseif ($debtReduction > 0) {
+                $this->applyZeroRefundSettlementForSaleReturn($saleReturn, $executedAt, $actorId, $debtReduction);
             }
 
             $replacementDetails = $details
@@ -541,7 +549,8 @@ class PosReturnLifecycleService
         \Modules\SalesReturn\Entities\SaleReturn $saleReturn,
         float $settlementAmount,
         \Illuminate\Support\Carbon $settledAt,
-        ?int $actorId
+        ?int $actorId,
+        float $debtReduction = 0.0
     ): void {
         if ($settlementAmount <= 0) {
             return;
@@ -557,10 +566,29 @@ class PosReturnLifecycleService
         ]);
 
         $newPaidAmount = (float) $saleReturn->paid_amount + $settlementAmount;
-        $newDueAmount = max(0, (float) $saleReturn->total_amount - $newPaidAmount);
+        $settledTotal = $newPaidAmount + $debtReduction;
+        $newDueAmount = max(0, (float) $saleReturn->total_amount - $settledTotal);
 
         $saleReturn->update([
             'paid_amount' => $newPaidAmount,
+            'due_amount' => $newDueAmount,
+            'payment_status' => $newDueAmount <= 0 ? 'Paid' : 'Partial',
+            'settled_at' => $settledAt,
+            'settled_by' => $actorId,
+        ]);
+    }
+
+    protected function applyZeroRefundSettlementForSaleReturn(
+        \Modules\SalesReturn\Entities\SaleReturn $saleReturn,
+        \Illuminate\Support\Carbon $settledAt,
+        ?int $actorId,
+        float $debtReduction = 0.0
+    ): void {
+        $settledTotal = (float) $saleReturn->paid_amount + $debtReduction;
+        $newDueAmount = max(0, (float) $saleReturn->total_amount - $settledTotal);
+
+        $saleReturn->update([
+            'paid_amount' => (float) $saleReturn->paid_amount,
             'due_amount' => $newDueAmount,
             'payment_status' => $newDueAmount <= 0 ? 'Paid' : 'Partial',
             'settled_at' => $settledAt,
@@ -685,11 +713,16 @@ class PosReturnLifecycleService
         return round(max(0, $currentAmount - $reductionAmount), 2);
     }
 
-    protected function recalculateCashCorrectedSourceSale(\Modules\SalesReturn\Entities\SaleReturn $saleReturn): void
+    protected function recalculateCashCorrectedSourceSale(\Modules\SalesReturn\Entities\SaleReturn $saleReturn): array
     {
         $saleId = (int) ($saleReturn->sale_id ?? 0);
         if ($saleId <= 0) {
-            return;
+            return [
+                'actual_refund' => 0.0,
+                'debt_reduction' => 0.0,
+                'corrected_paid' => 0.0,
+                'corrected_due' => 0.0,
+            ];
         }
 
         $sale = \Modules\Sale\Entities\Sale::query()
@@ -738,6 +771,12 @@ class PosReturnLifecycleService
         }
 
         $correctedDueAmount = round(max((float) $header['total_amount'] - $correctedPaidAmount, 0), 2);
+        $previousDue = round(max(
+            (float) ($sale->due_amount ?? 0),
+            (float) ($sale->total_amount ?? 0) - $activePaidAmount
+        ), 2);
+        $actualRefund = round(max(0, $activePaidAmount - (float) $header['total_amount']), 2);
+        $debtReduction = round(max(0, $previousDue - $correctedDueAmount), 2);
 
         $sale->update([
             'tax_id' => $header['tax_id'],
@@ -755,6 +794,13 @@ class PosReturnLifecycleService
                 (string) ($sale->payment_status ?? '')
             ),
         ]);
+
+        return [
+            'actual_refund' => $actualRefund,
+            'debt_reduction' => $debtReduction,
+            'corrected_paid' => $correctedPaidAmount,
+            'corrected_due' => $correctedDueAmount,
+        ];
     }
 
     protected function resolveSalePaymentStatus(float $totalAmount, float $dueAmount, string $existingStatus = ''): string
@@ -836,6 +882,7 @@ class PosReturnLifecycleService
             $dispatchDetail = \Modules\Sale\Entities\DispatchDetail::create([
                 'dispatch_id' => $dispatch->id,
                 'sale_id' => $saleReturn->sale_id,
+                'sale_detail_id' => $detail->sale_detail_id ?? $detail->posReturnLine?->sale_detail_id,
                 'product_id' => $detail->product_id,
                 'dispatched_quantity' => (int) $detail->quantity,
                 'location_id' => $detail->location_id,
@@ -1071,8 +1118,16 @@ class PosReturnLifecycleService
 
         $product = \Modules\Product\Entities\Product::query()->find((int) $detail->product_id);
 
+        $replacementLineId = $line?->pos_transaction_line_id;
+        if (! $replacementLineId && ! empty($line?->bundle_parent_sale_detail_id)) {
+            $replacementLineId = SaleDetails::query()
+                ->where('id', $line->bundle_parent_sale_detail_id)
+                ->value('pos_transaction_line_id');
+        }
+
         $replacementSaleDetail = SaleDetails::query()->create([
             'sale_id' => $replacementSale->id,
+            'pos_transaction_line_id' => $replacementLineId,
             'product_id' => $detail->product_id,
             'product_name' => $product?->product_name ?? $detail->product_name ?? '',
             'product_code' => $product?->product_code ?? $detail->product_code ?? '',
@@ -1119,6 +1174,7 @@ class PosReturnLifecycleService
         $replacementDispatchDetail = DispatchDetail::query()->create([
             'dispatch_id' => $replacementDispatch->id,
             'sale_id' => $replacementSale->id,
+            'sale_detail_id' => $replacementSaleDetail->id,
             'product_id' => $detail->product_id,
             'dispatched_quantity' => $dispatchQuantity,
             'location_id' => $replacementLocationId,

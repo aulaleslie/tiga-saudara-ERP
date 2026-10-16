@@ -1013,8 +1013,11 @@ class PosSellController extends Controller
         return response()->json($result['payload'], (int) $result['http_status'], [], JSON_PRESERVE_ZERO_FRACTION);
     }
 
-    public function receiptView(PosCheckout $checkout, PosReceiptService $receiptService)
-    {
+    public function receiptView(
+        PosCheckout $checkout,
+        PosReceiptService $receiptService,
+        \Modules\Pos\Services\PosReceiptReprintProjectionService $reprintProjectionService
+    ) {
         $settingId = $this->currentSettingId();
 
         if ($checkout->setting_id !== $settingId) {
@@ -1022,10 +1025,20 @@ class PosSellController extends Controller
         }
 
         $isHistorical = (bool) request()->query('historical', false);
-        $receiptData = $receiptService->getReceiptData($checkout);
         if ($isHistorical) {
+            $receiptData = $receiptService->getReceiptData($checkout);
             $receiptData['is_historical_checkout'] = true;
+        } else {
+            try {
+                $receiptData = $reprintProjectionService->getCompletedReceiptData($checkout);
+            } catch (\Modules\Pos\Exceptions\PosReprintProjectionException $e) {
+                return response()->view('pos::receipt-historical-ambiguous', [
+                    'message' => $e->getMessage(),
+                    'historicalReceiptUrl' => route('pos.sell.checkout.receipt', ['checkout' => $checkout, 'historical' => 1]),
+                ], 422);
+            }
         }
+
         $receiptService->logPrint($settingId, $checkout->id, auth()->id(), 'PRINT');
 
         return view('pos::receipt', compact('receiptData'));
