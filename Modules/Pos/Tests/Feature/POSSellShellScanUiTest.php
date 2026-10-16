@@ -542,4 +542,24 @@ class POSSellShellScanUiTest extends TestCase
         $this->assertStringContainsString("if (op.source !== 'scan' && searchInput)", $html);
         $this->assertStringNotContainsString("clearSearchInput({ keepFocus: false });\n                        // Task 3.1", $html);
     }
+
+    public function test_sell_shell_preserves_cart_scroll_when_full_cart_rerenders(): void
+    {
+        $setting = $this->createSetting('SCAN UI TEST SCROLL');
+        [$cashier] = $this->createCashierAndOpenSession($setting, 'SCAN UI CASHIER SCROLL');
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sell'));
+
+        $response->assertOk();
+
+        $html = $response->getContent();
+
+        $this->assertStringContainsString('function captureCartScrollState()', $html);
+        $this->assertStringContainsString('cartBody.closest(".pos-cart-table-wrap")', $html);
+        $this->assertStringContainsString('const scrollState = captureCartScrollState();', $html);
+        $this->assertStringContainsString('restoreCartScrollState(scrollState);', $html);
+        $this->assertStringContainsString('window.requestAnimationFrame(() => {', $html);
+    }
 }
