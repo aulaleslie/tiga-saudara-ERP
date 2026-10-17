@@ -619,6 +619,189 @@ class SaleMonetaryEditTest extends TestCase
         $this->assertSame(10000.0, (float) $sale->fresh()->total_amount);
     }
 
+    public function test_authorized_user_edits_returned_partially_sale_remaining_quantity_in_place(): void
+    {
+        $sale = $this->makeDispatchedSale([
+            ['product' => $this->productA, 'quantity' => 5, 'price' => 1000.0],
+        ], Sale::STATUS_RETURNED_PARTIALLY);
+
+        // Simulate that 1 pc was returned via cash return: remaining 4 pcs, 1000 refund recorded
+        $detail = $sale->saleDetails->first();
+        $detailId = $detail->id;
+        $detail->update([
+            'quantity' => 4,
+            'sub_total' => 4000.0,
+        ]);
+        $sale->update([
+            'total_amount' => 4000.0,
+            'paid_amount' => 4000.0,
+            'due_amount' => 0.0,
+            'payment_status' => 'Paid',
+        ]);
+        $this->addActivePayment($sale, 4000.0);
+
+        // Record a completed return record to verify refund evidence is untouched
+        $returnId = DB::table('sale_returns')->insertGetId([
+            'date' => now()->toDateString(),
+            'reference' => 'SR-TEST',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 1000.0,
+            'paid_amount' => 1000.0,
+            'due_amount' => 0,
+            'status' => 'Completed',
+            'payment_status' => 'Paid',
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting->id,
+            'sale_id' => $sale->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->assertSame(Sale::EDIT_MODE_MONETARY_ONLY, $sale->resolveEditMode());
+
+        // Authorized user reprices remaining 4 pcs from 1000 to 1200
+        app(SaleMonetaryEditService::class)->apply($sale, $this->cartFrom($sale, [
+            $detailId => ['unit_price' => 1200.0, 'sub_total' => 4800.0],
+        ]), ['is_pkp' => false]);
+
+        $sale->refresh();
+
+        // 4 pcs * 1200 = 4800 total, 4000 paid, 800 due, Partial payment status
+        $this->assertSame(4800.0, (float) $sale->total_amount);
+        $this->assertSame(4000.0, (float) $sale->paid_amount);
+        $this->assertSame(800.0, (float) $sale->due_amount);
+        $this->assertSame('PARTIAL', $sale->payment_status);
+
+        // Detail updated in place with primary key and quantity preserved
+        $after = SaleDetails::find($detailId);
+        $this->assertSame(1200.0, (float) $after->unit_price);
+        $this->assertSame(4, (int) $after->quantity);
+        $this->assertSame(4800.0, (float) $after->sub_total);
+
+        // Completed return refund remains unchanged
+        $returnAfter = DB::table('sale_returns')->where('id', $returnId)->first();
+        $this->assertSame(1000.0, (float) $returnAfter->total_amount);
+        $this->assertSame(1000.0, (float) $returnAfter->paid_amount);
+    }
+
+    public function test_fully_returned_sale_is_refused_monetary_edit(): void
+    {
+        $sale = $this->makeDispatchedSale([
+            ['product' => $this->productA, 'quantity' => 5, 'price' => 1000.0],
+        ], Sale::STATUS_RETURNED);
+
+        $this->assertSame(Sale::EDIT_MODE_NONE, $sale->resolveEditMode());
+
+        $this->assertRejected($sale, $this->cartFrom($sale, []), 'Penjualan ini tidak dapat diubah secara moneter');
+
+        $this->get(route('sales.edit', $sale->id))->assertStatus(403);
+    }
+
+    public function test_fully_returned_zero_quantity_audit_line_stays_uncharged_when_another_line_is_edited(): void
+    {
+        $sale = $this->makeDispatchedSale([
+            ['product' => $this->productA, 'quantity' => 4, 'price' => 1000.0],
+            ['product' => $this->productB, 'quantity' => 0, 'price' => 2000.0],
+        ], Sale::STATUS_RETURNED_PARTIALLY);
+
+        [$activeDetail, $zeroDetail] = $sale->saleDetails->all();
+        $zeroDetail->update([
+            'sub_total' => 0,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        // Edit active line 1: reprice to 1500 (4 * 1500 = 6000)
+        app(SaleMonetaryEditService::class)->apply($sale, $this->cartFrom($sale, [
+            $activeDetail->id => ['unit_price' => 1500.0, 'sub_total' => 6000.0],
+        ]), ['is_pkp' => false]);
+
+        $sale->refresh();
+        $this->assertSame(6000.0, (float) $sale->total_amount);
+
+        // Zero-quantity audit row remains uncharged and intact
+        $zeroAfter = SaleDetails::find($zeroDetail->id);
+        $this->assertSame(0, (int) $zeroAfter->quantity);
+        $this->assertSame(0.0, (float) $zeroAfter->sub_total);
+        $this->assertSame(0.0, (float) $zeroAfter->product_tax_amount);
+        $this->assertSame(0.0, (float) $zeroAfter->product_discount_amount);
+    }
+
+    public function test_tampering_with_protected_fields_on_returned_partially_sale_is_rejected(): void
+    {
+        $sale = $this->makeDispatchedSale([
+            ['product' => $this->productA, 'quantity' => 4, 'price' => 1000.0],
+            ['product' => $this->productB, 'quantity' => 0, 'price' => 2000.0],
+        ], Sale::STATUS_RETURNED_PARTIALLY);
+
+        $activeDetail = $sale->saleDetails->firstWhere('quantity', 4);
+        $zeroDetail = $sale->saleDetails->firstWhere('quantity', 0);
+
+        // Attempting to change quantity of active line
+        $this->assertRejected($sale, $this->cartFrom($sale, [$activeDetail->id => ['qty' => 5]]), 'Kuantitas');
+
+        // Attempting to change product ID
+        $this->assertRejected($sale, $this->cartFrom($sale, [$activeDetail->id => ['product_id' => $this->productB->id]]), 'Produk');
+
+        // Attempting to submit the zero-quantity detail
+        $cartWithZero = $this->cartFrom($sale, [])
+            ->push($this->cartRow($zeroDetail->id, $this->productB->id, 1, 2000.0, 2000.0));
+        $this->assertRejected($sale, $cartWithZero, 'Jumlah baris');
+    }
+
+    public function test_returned_partially_sale_denied_without_monetary_permission(): void
+    {
+        $this->user->revokePermissionTo('sales.dispatched.monetary.edit');
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+
+        $sale = $this->makeDispatchedSale([
+            ['product' => $this->productA, 'quantity' => 4, 'price' => 1000.0],
+        ], Sale::STATUS_RETURNED_PARTIALLY);
+
+        $this->assertSame(Sale::EDIT_MODE_NONE, $sale->resolveEditMode());
+        $this->get(route('sales.edit', $sale->id))->assertStatus(403);
+    }
+
+    public function test_edit_screen_renders_in_monetary_only_mode_for_returned_partially_sale(): void
+    {
+        $sale = $this->makeDispatchedSale([
+            ['product' => $this->productA, 'quantity' => 4, 'price' => 1000.0],
+            ['product' => $this->productB, 'quantity' => 0, 'price' => 2000.0],
+        ], Sale::STATUS_RETURNED_PARTIALLY);
+
+        $this->get(route('sales.edit', $sale->id))
+            ->assertOk()
+            ->assertSee('Mode Edit Moneter');
+    }
+
+    public function test_legacy_http_update_cannot_reach_destructive_path_for_returned_partially_sale(): void
+    {
+        $sale = $this->makeDispatchedSale([
+            ['product' => $this->productA, 'quantity' => 4, 'price' => 1000.0],
+        ], Sale::STATUS_RETURNED_PARTIALLY, true);
+
+        $response = $this->put(route('sales.update', $sale->id), [
+            'customer_id' => $this->customer->id,
+            'date' => now()->toDateString(),
+            'reference' => $sale->reference,
+            'tax_percentage' => 0,
+            'discount_percentage' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 4000,
+            'paid_amount' => 0,
+            'status' => Sale::STATUS_RETURNED_PARTIALLY,
+            'payment_method' => 'Cash',
+        ]);
+
+        $response->assertStatus(422);
+    }
+
     /**
      * Build cart rows mirroring the persisted details, applying per-detail overrides.
      *
@@ -629,6 +812,7 @@ class SaleMonetaryEditTest extends TestCase
     private function cartFrom(Sale $sale, array $overrides): Collection
     {
         return $sale->fresh('saleDetails')->saleDetails
+            ->filter(fn (SaleDetails $detail) => (float) $detail->quantity > 0.0001)
             ->map(function (SaleDetails $detail) use ($overrides) {
                 $o = $overrides[$detail->id] ?? [];
 

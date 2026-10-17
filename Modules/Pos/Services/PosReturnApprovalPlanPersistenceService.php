@@ -121,6 +121,31 @@ class PosReturnApprovalPlanPersistenceService
 
         // Check parent return lines for competing active claims on the SAME serial + SAME source dispatch occurrence
         if ($parentClaims->isNotEmpty()) {
+            foreach ($parentClaims as $claim) {
+                $dispatchDetailId = (int) $claim['dispatch_detail_id'];
+                $serialId = (int) $claim['serial_id'];
+                if ($dispatchDetailId > 0 && $serialId > 0) {
+                    $originalSerialIds = app(\Modules\Pos\Services\PosReturnSubmissionService::class)->resolveOriginalSerialIdsForDispatch($dispatchDetailId);
+                    if (! empty($originalSerialIds)) {
+                        $heldSerialIds = [];
+                        foreach ($originalSerialIds as $origId) {
+                            try {
+                                $heldSerialIds[] = app(\Modules\Pos\Services\PosReturnSerialReplacementChainResolver::class)->resolveCurrentHeldSerial(
+                                    (int) $origId,
+                                    $posReturn->pos_checkout_id,
+                                    $posReturn->pos_transaction_id,
+                                    $dispatchDetailId
+                                );
+                            } catch (\Exception $e) {
+                            }
+                        }
+                        if (! empty($heldSerialIds) && ! in_array($serialId, $heldSerialIds, true)) {
+                            throw new \RuntimeException('Serial yang diretur sudah diganti oleh serial lain dan tidak lagi dipegang oleh pelanggan.');
+                        }
+                    }
+                }
+            }
+
             $claimed = PosReturnLine::query()
                 ->where('pos_return_id', '!=', $posReturn->id)
                 ->where(function ($query) use ($parentClaims) {
@@ -131,8 +156,22 @@ class PosReturnApprovalPlanPersistenceService
                         });
                     }
                 })
-                ->whereHas('posReturn', function ($q) {
-                    $q->active()->whereNotIn('status', [PosReturn::STATUS_DRAFT, PosReturn::STATUS_REJECTED]);
+                ->where(function ($lineQuery) {
+                    $lineQuery->whereHas('posReturn', function ($q) {
+                        $q->active()->whereIn('status', [
+                            PosReturn::STATUS_PENDING_APPROVAL,
+                            PosReturn::STATUS_APPROVED,
+                            PosReturn::STATUS_AWAITING_RECEIVING,
+                            PosReturn::STATUS_AWAITING_SETTLEMENT,
+                            PosReturn::STATUS_AWAITING_DISPATCH,
+                            PosReturn::STATUS_MANUAL_CORRECTION_REQUIRED,
+                        ]);
+                    })->orWhere(function ($compQuery) {
+                        $compQuery->where('resolution', PosReturnLine::RESOLUTION_CASH_RETURN)
+                            ->whereHas('posReturn', function ($q) {
+                                $q->active()->where('status', PosReturn::STATUS_COMPLETED);
+                            });
+                    });
                 })
                 ->exists();
 
@@ -150,7 +189,19 @@ class PosReturnApprovalPlanPersistenceService
                 ->whereHas('saleReturn', function ($q) use ($posReturn) {
                     $q->where('pos_return_id', '!=', $posReturn->id)
                         ->whereHas('posReturn', function ($qq) {
-                            $qq->active()->whereNotIn('status', [PosReturn::STATUS_DRAFT, PosReturn::STATUS_REJECTED]);
+                            $qq->active()->where(function ($statusQuery) {
+                                $statusQuery->whereIn('status', [
+                                    PosReturn::STATUS_PENDING_APPROVAL,
+                                    PosReturn::STATUS_APPROVED,
+                                    PosReturn::STATUS_AWAITING_RECEIVING,
+                                    PosReturn::STATUS_AWAITING_SETTLEMENT,
+                                    PosReturn::STATUS_AWAITING_DISPATCH,
+                                    PosReturn::STATUS_MANUAL_CORRECTION_REQUIRED,
+                                ])->orWhere(function ($comp) {
+                                    $comp->where('status', PosReturn::STATUS_COMPLETED)
+                                        ->where('return_option', PosReturn::OPTION_CASH_RETURN);
+                                });
+                            });
                         });
                 })
                 ->where(function ($query) use ($componentClaims) {

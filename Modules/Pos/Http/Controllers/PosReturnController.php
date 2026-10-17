@@ -279,6 +279,21 @@ class PosReturnController extends Controller
         return back();
     }
 
+    public function acceptMonetaryReview(Request $request, PosReturn $return)
+    {
+        abort_if(Gate::denies('pos.returns.approve') && Gate::denies('pos.returns.edit'), 403);
+
+        try {
+            $this->lifecycleService->acceptRenewedMonetaryReview($return->id, Auth::id());
+            toast('Peninjauan ulang nilai moneter berhasil diterima.', 'success');
+        } catch (\Throwable $throwable) {
+            report($throwable);
+            toast($throwable->getMessage(), 'error');
+        }
+
+        return redirect()->route('pos.returns.approval-preview', $return);
+    }
+
     public function receive(PosReturn $return)
     {
         abort_if(Gate::denies('pos.returns.receive'), 403);

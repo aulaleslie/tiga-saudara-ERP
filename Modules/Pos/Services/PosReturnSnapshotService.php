@@ -112,12 +112,7 @@ class PosReturnSnapshotService
         
         // If no SN IDs in detail, check dispatch detail
         if (empty($snIds) && $dispatchDetailId) {
-            $dispatchDetail = \Modules\Sale\Entities\DispatchDetail::find($dispatchDetailId);
-            if ($dispatchDetail && !empty($dispatchDetail->serial_numbers)) {
-                $snIds = is_array($dispatchDetail->serial_numbers) 
-                    ? $dispatchDetail->serial_numbers 
-                    : explode(',', $dispatchDetail->serial_numbers);
-            }
+            $snIds = app(\Modules\Pos\Services\PosReturnSubmissionService::class)->resolveOriginalSerialIdsForDispatch((int) $dispatchDetailId);
         }
 
         $serialNumbers = [];
@@ -140,10 +135,24 @@ class PosReturnSnapshotService
         if ($isTracked && count($serialNumbers) > 0) {
             // Build one row per serial number
             foreach ($serialNumbers as $sn) {
-                // Find pos_transaction_line_id
+                // Find pos_transaction_line_id based on original serial
                 $ptlId = \Modules\Pos\Entities\PosTransactionLineSerial::where('serial_number', $sn['serial_number'])
                     ->whereHas('line', fn($q) => $q->where('pos_transaction_id', $transaction->id))
                     ->value('pos_transaction_line_id');
+
+                $heldSerialId = app(\Modules\Pos\Services\PosReturnSerialReplacementChainResolver::class)->resolveCurrentHeldSerial(
+                    (int) $sn['id'],
+                    $checkoutSale->pos_checkout_id,
+                    $transaction->id,
+                    $dispatchDetailId
+                );
+
+                if ($heldSerialId !== (int) $sn['id']) {
+                    $heldSerial = \Modules\Product\Entities\ProductSerialNumber::find($heldSerialId);
+                    if ($heldSerial) {
+                        $sn = ['id' => $heldSerial->id, 'serial_number' => $heldSerial->serial_number];
+                    }
+                }
 
                 $ptl = $ptlId ? \Modules\Pos\Entities\PosTransactionLine::find($ptlId) : null;
                 
@@ -268,10 +277,33 @@ class PosReturnSnapshotService
                     }
                 }
 
-                // Returned qty is either 0 or 1 for a serial
-                $returnedQty = (float) PosReturnLine::whereHas('posReturn', function ($q) {
-                    $q->consumesReturnQuantity();
-                })->where('sale_detail_id', $detail->id)->where('returned_serial_id', $sn['id'])->sum('quantity');
+                // Serial line returned and returnable calculation
+                $isCashReturned = PosReturnLine::whereHas('posReturn', function ($q) {
+                    $q->where('is_reversed', false)->where('status', PosReturn::STATUS_COMPLETED);
+                })->where('sale_detail_id', $detail->id)->where('returned_serial_id', $sn['id'])->where('resolution', PosReturnLine::RESOLUTION_CASH_RETURN)->exists();
+
+                $hasInFlightClaim = PosReturnLine::whereHas('posReturn', function ($q) {
+                    $q->where('is_reversed', false)
+                      ->whereIn('status', [
+                          PosReturn::STATUS_PENDING_APPROVAL,
+                          PosReturn::STATUS_APPROVED,
+                          PosReturn::STATUS_AWAITING_RECEIVING,
+                          PosReturn::STATUS_AWAITING_SETTLEMENT,
+                          PosReturn::STATUS_AWAITING_DISPATCH,
+                          PosReturn::STATUS_MANUAL_CORRECTION_REQUIRED,
+                      ]);
+                })->where('returned_serial_id', $sn['id'])->exists();
+
+                if ($isCashReturned) {
+                    $returnedQty = 1.0;
+                    $returnableQty = 0.0;
+                } elseif ($hasInFlightClaim) {
+                    $returnedQty = 0.0;
+                    $returnableQty = 0.0;
+                } else {
+                    $returnedQty = 0.0;
+                    $returnableQty = 1.0;
+                }
 
                 $results[] = [
                     'checkout_sale_id' => $checkoutSale->id,
@@ -284,7 +316,7 @@ class PosReturnSnapshotService
                     'product_code' => $detail->product->product_code,
                     'original_quantity' => 1.0,
                     'returned_quantity' => $returnedQty,
-                    'returnable_quantity' => max(0, 1.0 - $returnedQty),
+                    'returnable_quantity' => $returnableQty,
                     'unit_price' => $serialUnitPrice,
                     'line_total' => $serialUnitPrice, // For 1 qty, line total is unit price
                     'tax_id' => $detail->tax_id,
@@ -339,9 +371,13 @@ class PosReturnSnapshotService
             }
 
             // Non-serial tracked, one row for the whole sale detail
-            $returnedQty = (float) PosReturnLine::whereHas('posReturn', function ($q) {
-                $q->consumesReturnQuantity();
-            })->where('sale_detail_id', $detail->id)->sum('quantity');
+            $completedCashReturns = (float) PosReturnLine::whereHas('posReturn', function ($q) {
+                $q->where('is_reversed', false)
+                  ->where('status', PosReturn::STATUS_COMPLETED);
+            })->where('sale_detail_id', $detail->id)->where('resolution', PosReturnLine::RESOLUTION_CASH_RETURN)->sum('quantity');
+
+            $trueOriginalQuantity = (float) $detail->quantity + $completedCashReturns;
+            $returnableQty = app(\App\Support\PosReturn\PosReturnQuantityGuard::class)->getReturnableQuantity($dispatchDetailId, $detail->id);
 
             $results[] = [
                 'checkout_sale_id' => $checkoutSale->id,
@@ -352,9 +388,9 @@ class PosReturnSnapshotService
                 'product_id' => $detail->product_id,
                 'product_name' => $detail->product->product_name,
                 'product_code' => $detail->product->product_code,
-                'original_quantity' => $originalQuantity,
-                'returned_quantity' => $returnedQty,
-                'returnable_quantity' => max(0, $originalQuantity - $returnedQty),
+                'original_quantity' => $trueOriginalQuantity,
+                'returned_quantity' => $completedCashReturns,
+                'returnable_quantity' => $returnableQty,
                 'unit_price' => $unitPrice,
                 'line_total' => $lineTotal,
                 'tax_id' => $detail->tax_id,
@@ -554,12 +590,10 @@ class PosReturnSnapshotService
             // never the component's real quantity) — the component's real
             // originally-fulfilled quantity is the bundle item's own quantity.
             $originalQty = $bundleItem ? (float) $bundleItem->quantity : 0.0;
-            $returnedQty = $carrierDetail
-                ? (float) PosReturnLine::whereHas('posReturn', function ($q) {
-                    $q->consumesReturnQuantity();
-                })->where('sale_detail_id', $carrierDetail->id)->sum('quantity')
+            $returnableQty = $carrierDetail
+                ? app(\App\Support\PosReturn\PosReturnQuantityGuard::class)->getRefundableQuantity($carrierDetail->id, null, $originalQty)
                 : 0.0;
-            $entry['returnable_quantity'] = max(0, $originalQty - $returnedQty);
+            $entry['returnable_quantity'] = $returnableQty;
 
             return $entry;
         }
@@ -583,16 +617,38 @@ class PosReturnSnapshotService
 
         $serialEntries = [];
         foreach ($serials as $serial) {
-            $returnedQty = $carrierDetail
-                ? (float) PosReturnLine::whereHas('posReturn', function ($q) {
-                    $q->consumesReturnQuantity();
-                })->where('sale_detail_id', $carrierDetail->id)->where('returned_serial_id', $serial->id)->sum('quantity')
-                : 0.0;
+            $heldSerialId = app(\Modules\Pos\Services\PosReturnSerialReplacementChainResolver::class)->resolveCurrentHeldSerial(
+                (int) $serial->id,
+                $checkoutSale ? $checkoutSale->pos_checkout_id : null,
+                null,
+                $dispatchDetailId
+            );
+            $effectiveSerial = ($heldSerialId !== (int) $serial->id)
+                ? (\Modules\Product\Entities\ProductSerialNumber::find($heldSerialId) ?? $serial)
+                : $serial;
+
+            $isCashReturned = $carrierDetail ? PosReturnLine::whereHas('posReturn', function ($q) {
+                $q->where('is_reversed', false)->where('status', PosReturn::STATUS_COMPLETED);
+            })->where('sale_detail_id', $carrierDetail->id)->where('returned_serial_id', $effectiveSerial->id)->where('resolution', PosReturnLine::RESOLUTION_CASH_RETURN)->exists() : false;
+
+            $hasInFlightClaim = PosReturnLine::whereHas('posReturn', function ($q) {
+                $q->where('is_reversed', false)
+                  ->whereIn('status', [
+                      PosReturn::STATUS_PENDING_APPROVAL,
+                      PosReturn::STATUS_APPROVED,
+                      PosReturn::STATUS_AWAITING_RECEIVING,
+                      PosReturn::STATUS_AWAITING_SETTLEMENT,
+                      PosReturn::STATUS_AWAITING_DISPATCH,
+                      PosReturn::STATUS_MANUAL_CORRECTION_REQUIRED,
+                  ]);
+            })->where('returned_serial_id', $effectiveSerial->id)->exists();
+
+            $returnableQty = ($isCashReturned || $hasInFlightClaim) ? 0.0 : 1.0;
 
             $serialEntries[] = [
-                'id' => $serial->id,
-                'serial_number' => $serial->serial_number,
-                'returnable_quantity' => max(0, 1.0 - $returnedQty),
+                'id' => $effectiveSerial->id,
+                'serial_number' => $effectiveSerial->serial_number,
+                'returnable_quantity' => $returnableQty,
             ];
         }
 

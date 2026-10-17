@@ -2,6 +2,7 @@
 
 namespace App\Support\PosReturn;
 
+use Modules\Pos\Entities\PosReturn;
 use Modules\Pos\Entities\PosReturnLine;
 use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\SaleDetails;
@@ -29,8 +30,36 @@ class PosReturnQuantityGuard
             $originalQty = (float) ($saleDetail->quantity ?? 0);
         }
 
-        $alreadyReturned = (float) PosReturnLine::whereHas('posReturn', function ($q) use ($excludeReturnId) {
-                $q->consumesReturnQuantity();
+        // If an excluded return is completed, its cash return reduction was already applied
+        // to the live quantity in DB, so add it back to compute available entitlement excluding it.
+        $completedCashReduction = 0;
+        if ($excludeReturnId) {
+            $excludedReturn = PosReturn::find($excludeReturnId);
+            if ($excludedReturn && $excludedReturn->status === PosReturn::STATUS_COMPLETED && !$excludedReturn->is_reversed) {
+                $completedCashReduction = (float) PosReturnLine::where('pos_return_id', $excludeReturnId)
+                    ->where('resolution', PosReturnLine::RESOLUTION_CASH_RETURN)
+                    ->when($dispatchDetailId, function ($q) use ($dispatchDetailId) {
+                        $q->where('dispatch_detail_id', $dispatchDetailId);
+                    }, function ($q) use ($saleDetailId) {
+                        $q->where('sale_detail_id', $saleDetailId);
+                    })
+                    ->sum('quantity');
+            }
+        }
+
+        // In-flight claims: active returns that have not yet executed/completed.
+        // Completed returns have already reduced live quantity (for cash returns)
+        // or preserved the held unit (for product replacements).
+        $inFlightQty = (float) PosReturnLine::whereHas('posReturn', function ($q) use ($excludeReturnId) {
+                $q->where('is_reversed', false)
+                  ->whereIn('status', [
+                      PosReturn::STATUS_PENDING_APPROVAL,
+                      PosReturn::STATUS_APPROVED,
+                      PosReturn::STATUS_AWAITING_RECEIVING,
+                      PosReturn::STATUS_AWAITING_SETTLEMENT,
+                      PosReturn::STATUS_AWAITING_DISPATCH,
+                      PosReturn::STATUS_MANUAL_CORRECTION_REQUIRED,
+                  ]);
                 if ($excludeReturnId) {
                     $q->where('id', '!=', $excludeReturnId);
                 }
@@ -42,7 +71,7 @@ class PosReturnQuantityGuard
             })
             ->sum('quantity');
 
-        return max(0, $originalQty - $alreadyReturned);
+        return max(0, ($originalQty + $completedCashReduction) - $inFlightQty);
     }
 
     /**
@@ -88,8 +117,27 @@ class PosReturnQuantityGuard
             $originalQty = (float) ($saleDetail->quantity ?? 0);
         }
 
-        $alreadyCashReturned = (float) PosReturnLine::whereHas('posReturn', function ($q) use ($excludeReturnId) {
-                $q->consumesReturnQuantity();
+        $completedCashReduction = 0;
+        if ($excludeReturnId && $componentOriginalQuantity === null) {
+            $excludedReturn = PosReturn::find($excludeReturnId);
+            if ($excludedReturn && $excludedReturn->status === PosReturn::STATUS_COMPLETED && !$excludedReturn->is_reversed) {
+                $completedCashReduction = (float) PosReturnLine::where('pos_return_id', $excludeReturnId)
+                    ->where('sale_detail_id', $saleDetailId)
+                    ->where('resolution', PosReturnLine::RESOLUTION_CASH_RETURN)
+                    ->sum('quantity');
+            }
+        }
+
+        $inFlightCashReturns = (float) PosReturnLine::whereHas('posReturn', function ($q) use ($excludeReturnId) {
+                $q->where('is_reversed', false)
+                  ->whereIn('status', [
+                      PosReturn::STATUS_PENDING_APPROVAL,
+                      PosReturn::STATUS_APPROVED,
+                      PosReturn::STATUS_AWAITING_RECEIVING,
+                      PosReturn::STATUS_AWAITING_SETTLEMENT,
+                      PosReturn::STATUS_AWAITING_DISPATCH,
+                      PosReturn::STATUS_MANUAL_CORRECTION_REQUIRED,
+                  ]);
                 if ($excludeReturnId) {
                     $q->where('id', '!=', $excludeReturnId);
                 }
@@ -98,7 +146,7 @@ class PosReturnQuantityGuard
             ->where('resolution', PosReturnLine::RESOLUTION_CASH_RETURN)
             ->sum('quantity');
 
-        return max(0, $originalQty - $alreadyCashReturned);
+        return max(0, ($originalQty + $completedCashReduction) - $inFlightCashReturns);
     }
 
     /**

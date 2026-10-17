@@ -57,6 +57,7 @@ class PosReturnLifecycleService
 
                 $this->assertBundleExecutionGuards($posReturn);
                 $this->lockApprovalExecutionDependencies($posReturn);
+                $this->revalidateApprovalClaimsUnderLock($posReturn);
 
                 $actorId = \Illuminate\Support\Facades\Auth::id();
                 $approvedAt = now();
@@ -68,6 +69,77 @@ class PosReturnLifecycleService
                 $this->executeResolvedLineEffects($posReturn, $actorId, $approvedAt);
                 $this->finalizeApprovalExecution($posReturn, $actorId, $approvedAt);
             });
+        });
+    }
+
+    /**
+     * Explicitly accept updated monetary basis for a pending POS return after source Sale edit.
+     */
+    public function acceptRenewedMonetaryReview(int $posReturnId, ?int $actorId = null): void
+    {
+        $actorId = $actorId ?? \Illuminate\Support\Facades\Auth::id();
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId, $actorId) {
+            $posReturn = \Modules\Pos\Entities\PosReturn::query()
+                ->whereKey($posReturnId)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if (! in_array($posReturn->status, [
+                \Modules\Pos\Entities\PosReturn::STATUS_DRAFT,
+                \Modules\Pos\Entities\PosReturn::STATUS_PENDING_APPROVAL,
+            ], true)) {
+                throw new \RuntimeException('Hanya retur berstatus draft atau menunggu persetujuan yang dapat ditinjau ulang nilai moneternya.');
+            }
+
+            $lines = $posReturn->lines()->lockForUpdate()->get();
+            $saleDetailIds = $lines->pluck('sale_detail_id')->filter()->unique()->values();
+            $saleDetails = \Modules\Sale\Entities\SaleDetails::query()
+                ->whereIn('id', $saleDetailIds)
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
+            $checkoutSales = \Modules\Pos\Entities\PosCheckoutSale::query()
+                ->where('pos_checkout_id', $posReturn->pos_checkout_id)
+                ->get()
+                ->keyBy('sale_id');
+
+            $totalAmount = 0.0;
+            $now = now();
+
+            foreach ($lines as $line) {
+                $saleDetail = $saleDetails->get((int) $line->sale_detail_id);
+                if (! $saleDetail) {
+                    continue;
+                }
+
+                $currentUnitPrice = $this->resolveEffectiveUnitFinancialBasis($saleDetail, $line, $checkoutSales);
+
+                $originalUnitPrice = (float) $line->unit_price;
+                $lineMeta = $line->line_meta ?? [];
+
+                $lineMeta['previous_unit_price'] = $originalUnitPrice;
+                $lineMeta['reviewed_unit_price'] = $currentUnitPrice;
+                $lineMeta['monetary_review_accepted_at'] = $now->toIso8601String();
+                $lineMeta['monetary_review_accepted_by'] = $actorId;
+
+                $lineTotal = round($currentUnitPrice * (float) $line->quantity, 2);
+
+                $line->forceFill([
+                    'unit_price' => $currentUnitPrice,
+                    'line_total' => $lineTotal,
+                    'expected_cash_amount' => $line->resolution === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN ? $lineTotal : $line->expected_cash_amount,
+                    'line_meta' => $lineMeta,
+                ])->save();
+
+                $totalAmount += $lineTotal;
+            }
+
+            $posReturn->forceFill([
+                'total_amount' => round($totalAmount, 2),
+                'updated_by' => $actorId,
+            ])->save();
         });
     }
 
@@ -545,6 +617,170 @@ class PosReturnLifecycleService
         }
     }
 
+    protected function revalidateApprovalClaimsUnderLock(\Modules\Pos\Entities\PosReturn $posReturn): void
+    {
+        $quantityGuard = app(\App\Support\PosReturn\PosReturnQuantityGuard::class);
+        $serialResolver = app(PosReturnSerialReplacementChainResolver::class);
+
+        foreach ($posReturn->lines as $line) {
+            if (! in_array((string) $line->resolution, [
+                \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN,
+                \Modules\Pos\Entities\PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+            ], true)) {
+                continue;
+            }
+
+            $saleDetail = \Modules\Sale\Entities\SaleDetails::find($line->sale_detail_id);
+            if (! $saleDetail) {
+                throw new \RuntimeException('Sumber penjualan tidak ditemukan saat mengeksekusi persetujuan.');
+            }
+
+            // Financial basis stability
+            $currentUnitPrice = $this->resolveEffectiveUnitFinancialBasis($saleDetail, $line);
+
+            if (abs((float) $line->unit_price - $currentUnitPrice) > 0.01) {
+                throw new \RuntimeException('Nilai moneter pada dokumen sumber telah berubah (harga, diskon, atau alokasi pajak). Diperlukan peninjauan ulang sebelum persetujuan.');
+            }
+
+            // Serial claims
+            if ($line->returned_serial_id) {
+                if ($serialResolver->hasInFlightReplacement((int) $line->returned_serial_id, $posReturn->id, $posReturn->pos_checkout_id, (int) $line->dispatch_detail_id)) {
+                    throw new \RuntimeException('Serial yang diretur sedang dalam proses retur lain.');
+                }
+                $this->assertReturnedSerialIsCurrentHeldOccurrenceUnderLock($line, $posReturn);
+            } else {
+                // Quantity claims
+                $isTaggedComponentLine = (bool) $line->bundle_parent_sale_detail_id && (int) $line->bundle_parent_sale_detail_id !== (int) $line->sale_detail_id;
+                $componentOriginalQuantity = null;
+                if ($isTaggedComponentLine && $line->component_quantity_per_bundle !== null) {
+                    $parentRefundableQty = $quantityGuard->getRefundableQuantity((int) $line->bundle_parent_sale_detail_id, $posReturn->id);
+                    $componentOriginalQuantity = (float) $line->component_quantity_per_bundle * $parentRefundableQty;
+                }
+
+                $availableQty = $line->resolution === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN
+                    ? $quantityGuard->getRefundableQuantity($line->sale_detail_id, $posReturn->id, $componentOriginalQuantity)
+                    : $quantityGuard->getReturnableQuantity($line->dispatch_detail_id, $line->sale_detail_id, $posReturn->id);
+
+                if ((float) $line->quantity > $availableQty) {
+                    throw new \RuntimeException("Kuantitas retur melebihi batas yang diizinkan untuk produk {$saleDetail->product_name}.");
+                }
+            }
+        }
+    }
+
+    public function resolveEffectiveUnitFinancialBasis(
+        \Modules\Sale\Entities\SaleDetails $saleDetail,
+        ?\Modules\Pos\Entities\PosReturnLine $line = null,
+        mixed $checkoutSales = null
+    ): float {
+        if ($saleDetail->bundleItems->isNotEmpty() && (float) $saleDetail->unit_price == 0.0 && (float) $saleDetail->quantity > 0) {
+            $checkoutSale = null;
+            if ($checkoutSales instanceof \Illuminate\Support\Collection) {
+                $checkoutSale = $checkoutSales->get((int) ($line?->sale_id ?? $saleDetail->sale_id));
+            } elseif ($line && $line->posReturn?->pos_checkout_id) {
+                $checkoutSale = \Modules\Pos\Entities\PosCheckoutSale::where('pos_checkout_id', $line->posReturn->pos_checkout_id)
+                    ->where('sale_id', $saleDetail->sale_id)
+                    ->first();
+            }
+            if ($checkoutSale) {
+                return round((float) $checkoutSale->subtotal / (float) $saleDetail->quantity, 2);
+            }
+        }
+
+        $qty = (float) $saleDetail->quantity;
+        if ($qty <= 0.0001) {
+            return (float) $saleDetail->unit_price;
+        }
+
+        $lineSubtotal = (float) ($saleDetail->sub_total ?? 0);
+        $sale = $saleDetail->relationLoaded('sale') ? $saleDetail->sale : \Modules\Sale\Entities\Sale::find($saleDetail->sale_id);
+
+        $globalDiscountShare = 0.0;
+        if ($sale && ((float) $sale->discount_amount > 0 || (float) $sale->discount_percentage > 0)) {
+            $totalSaleSubtotal = (float) \Modules\Sale\Entities\SaleDetails::query()
+                ->where('sale_id', $sale->id)
+                ->where('quantity', '>', 0.0001)
+                ->sum('sub_total');
+            if ($totalSaleSubtotal <= 0) {
+                $totalSaleSubtotal = (float) \Modules\Sale\Entities\SaleDetails::query()
+                    ->where('sale_id', $sale->id)
+                    ->sum('sub_total');
+            }
+
+            $globalDiscountAmount = (float) $sale->discount_amount > 0
+                ? (float) $sale->discount_amount
+                : round($totalSaleSubtotal * ((float) $sale->discount_percentage / 100), 2);
+
+            if ($totalSaleSubtotal > 0) {
+                $globalDiscountShare = round($globalDiscountAmount * ($lineSubtotal / $totalSaleSubtotal), 2);
+            }
+        }
+
+        $effectiveSubtotal = max(0, $lineSubtotal - $globalDiscountShare);
+
+        return round($effectiveSubtotal / $qty, 2);
+    }
+
+    protected function assertReturnedSerialIsCurrentHeldOccurrenceUnderLock(
+        \Modules\Pos\Entities\PosReturnLine $line,
+        \Modules\Pos\Entities\PosReturn $posReturn
+    ): void {
+        $dispatchDetailId = (int) $line->dispatch_detail_id;
+        $returnedSerialId = (int) $line->returned_serial_id;
+
+        if ($dispatchDetailId <= 0 || $returnedSerialId <= 0) {
+            return;
+        }
+
+        $competingClaim = \Modules\Pos\Entities\PosReturnLine::query()
+            ->where('pos_return_id', '!=', $posReturn->id)
+            ->where('returned_serial_id', $returnedSerialId)
+            ->where('dispatch_detail_id', $dispatchDetailId)
+            ->where(function ($lineQuery) {
+                $lineQuery->whereHas('posReturn', function ($q) {
+                    $q->active()->whereIn('status', [
+                        \Modules\Pos\Entities\PosReturn::STATUS_PENDING_APPROVAL,
+                        \Modules\Pos\Entities\PosReturn::STATUS_APPROVED,
+                        \Modules\Pos\Entities\PosReturn::STATUS_AWAITING_RECEIVING,
+                        \Modules\Pos\Entities\PosReturn::STATUS_AWAITING_SETTLEMENT,
+                        \Modules\Pos\Entities\PosReturn::STATUS_AWAITING_DISPATCH,
+                        \Modules\Pos\Entities\PosReturn::STATUS_MANUAL_CORRECTION_REQUIRED,
+                    ]);
+                })->orWhere(function ($compQuery) {
+                    $compQuery->where('resolution', \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN)
+                        ->whereHas('posReturn', function ($q) {
+                            $q->active()->where('status', \Modules\Pos\Entities\PosReturn::STATUS_COMPLETED);
+                        });
+                });
+            })
+            ->exists();
+
+        if ($competingClaim) {
+            throw new \RuntimeException('Serial yang diretur sudah diklaim oleh retur lain yang sedang diproses atau selesai.');
+        }
+
+        $originalSerialIds = app(\Modules\Pos\Services\PosReturnSubmissionService::class)->resolveOriginalSerialIdsForDispatch($dispatchDetailId);
+        if (! empty($originalSerialIds)) {
+            $resolver = app(PosReturnSerialReplacementChainResolver::class);
+            $heldSerialIds = [];
+            foreach ($originalSerialIds as $origId) {
+                try {
+                    $heldSerialIds[] = $resolver->resolveCurrentHeldSerial(
+                        (int) $origId,
+                        $posReturn->pos_checkout_id,
+                        $posReturn->pos_transaction_id,
+                        $dispatchDetailId
+                    );
+                } catch (\Exception $e) {
+                }
+            }
+
+            if (! empty($heldSerialIds) && ! in_array($returnedSerialId, $heldSerialIds, true)) {
+                throw new \RuntimeException('Serial yang diretur sudah diganti oleh serial lain dan tidak lagi dipegang oleh pelanggan.');
+            }
+        }
+    }
+
     protected function applyCashSettlementForSaleReturn(
         \Modules\SalesReturn\Entities\SaleReturn $saleReturn,
         float $settlementAmount,
@@ -631,13 +867,7 @@ class PosReturnLifecycleService
 
                 $reductionRatio = min(1, $returnedQuantity / $currentQuantity);
                 $quantityReduction = (int) round($returnedQuantity);
-                $subtotalReduction = round((float) $detailGroup->sum(
-                    fn ($detail) => $this->resolveCashSettlementAmount($detail)
-                ), 2);
-
-                if ($subtotalReduction <= 0) {
-                    $subtotalReduction = round((float) ($saleDetail->sub_total ?? 0) * $reductionRatio, 2);
-                }
+                $subtotalReduction = round((float) ($saleDetail->sub_total ?? 0) * $reductionRatio, 2);
 
                 $saleDetail->forceFill([
                     'quantity' => max(0, (int) $saleDetail->quantity - $quantityReduction),
@@ -680,13 +910,7 @@ class PosReturnLifecycleService
 
                 $reductionRatio = min(1, $returnedQuantity / $currentQuantity);
                 $quantityReduction = (int) round($returnedQuantity);
-                $subtotalReduction = round((float) $detailGroup->sum(
-                    fn ($detail) => $this->resolveCashSettlementAmount($detail)
-                ), 2);
-
-                if ($subtotalReduction <= 0) {
-                    $subtotalReduction = round((float) ($bundleItem->sub_total ?? 0) * $reductionRatio, 2);
-                }
+                $subtotalReduction = round((float) ($bundleItem->sub_total ?? 0) * $reductionRatio, 2);
 
                 $remainingQuantity = max(0, (int) $bundleItem->quantity - $quantityReduction);
                 $remainingSubTotal = round(max(0, (float) ($bundleItem->sub_total ?? 0) - $subtotalReduction), 2);
@@ -739,11 +963,53 @@ class PosReturnLifecycleService
             ->whereKey((int) $sale->setting_id)
             ->value('is_pkp') ?? false);
 
+        $discountAmount = (float) ($sale->discount_amount ?? 0);
+        if ($discountAmount > 0) {
+            $commercialCashReturnDetails = $saleReturn->saleReturnDetails
+                ->filter(fn ($detail) => $this->resolveDetailResolution($detail) === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN)
+                ->reject(fn ($detail) => $this->shouldSkipCommercialCashCorrection($detail));
+
+            $totalReturnedDiscountShare = 0.0;
+            foreach ($commercialCashReturnDetails as $detail) {
+                $detailQty = (float) ($detail->quantity ?? 0);
+                if ($detailQty <= 0) {
+                    continue;
+                }
+
+                $settlementAmount = $this->resolveCashSettlementAmount($detail);
+                $grossAmount = 0.0;
+
+                if ($detail->saleDetail) {
+                    $unitBasis = (float) ($detail->saleDetail->quantity > 0
+                        ? ($detail->saleDetail->sub_total / $detail->saleDetail->quantity)
+                        : ($detail->saleDetail->price ?? $detail->saleDetail->unit_price ?? $detail->price ?? 0));
+                    $grossAmount = round($unitBasis * $detailQty, 2);
+                } elseif ($detail->price) {
+                    $grossAmount = round((float) $detail->price * $detailQty, 2);
+                } else {
+                    $grossAmount = $settlementAmount;
+                }
+
+                $discountShare = max(0.0, round($grossAmount - $settlementAmount, 2));
+                $totalReturnedDiscountShare += $discountShare;
+            }
+
+            $discountAmount = max(0.0, round($discountAmount - $totalReturnedDiscountShare, 2));
+        }
+
+        $remainingSubtotal = (float) $sale->saleDetails
+            ->filter(fn ($d) => (float) ($d->quantity ?? 0) > 0.0001)
+            ->sum(fn ($d) => (float) ($d->sub_total ?? 0));
+
+        if ($remainingSubtotal <= 0.0001) {
+            $discountAmount = 0.0;
+        }
+
         $normalizedSale = app(\Modules\Sale\Services\SaleNormalizer::class)->normalize([
             'tax_id' => $sale->tax_id,
             'tax_percentage' => $sale->tax_percentage,
             'discount_percentage' => $sale->discount_percentage,
-            'discount_amount' => $sale->discount_amount,
+            'discount_amount' => $discountAmount,
             'shipping_amount' => $sale->shipping_amount,
             'paid_amount' => 0,
         ], $this->buildCashCorrectionNormalizerInputs($sale), $isPkp);

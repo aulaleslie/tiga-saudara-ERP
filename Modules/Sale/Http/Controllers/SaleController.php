@@ -230,6 +230,10 @@ class SaleController extends Controller
 
         // Iterate over each sale detail to rebuild the cart item.
         foreach ($sale->saleDetails as $saleDetail) {
+            if ((float) $saleDetail->quantity <= 0.0001) {
+                continue;
+            }
+
             $product = $saleDetail->product ?? Product::findOrFail($saleDetail->product_id);
             $resolvedPricing = $this->resolveSaleDetailPricing($saleDetail, $product);
 

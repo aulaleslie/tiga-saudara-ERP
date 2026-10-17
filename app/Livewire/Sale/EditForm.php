@@ -138,6 +138,10 @@ class EditForm extends Component
         Cart::instance('sale')->destroy();
 
         foreach ($sale->saleDetails as $detail) {
+            if ((float) $detail->quantity <= 0.0001) {
+                continue;
+            }
+
             $product   = $detail->product;
             $stockData = $product
                 ? ProductStock::where('product_id', $product->id)

@@ -4,6 +4,7 @@ namespace Modules\Sale\Services;
 
 use App\Services\MonetaryEdit\AbstractMonetaryEditService;
 use App\Services\MonetaryEdit\MonetaryEditException;
+use App\Services\MonetaryEdit\MonetaryEditRow;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Modules\Sale\Entities\Sale;
@@ -94,6 +95,69 @@ class SaleMonetaryEditService extends AbstractMonetaryEditService
             throw new MonetaryEditException(
                 "Kuantitas produk '{$detail->product_name}' tidak boleh diubah setelah barang dikirim."
             );
+        }
+    }
+
+    protected function mapRows(Collection $cartItems, Collection $details): array
+    {
+        $activeDetails = $details->filter(fn ($d) => (float) $d->quantity > 0.0001);
+
+        if ($cartItems->count() !== $activeDetails->count()) {
+            throw new MonetaryEditException(
+                'Jumlah baris produk tidak sesuai dengan dokumen asli. Penambahan atau penghapusan baris tidak diizinkan.'
+            );
+        }
+
+        $rows = [];
+        $seen = [];
+
+        foreach ($cartItems as $cartItem) {
+            $detailId = $this->resolveSubmittedDetailId($cartItem);
+
+            if ($detailId === null) {
+                throw new MonetaryEditException('Baris produk tidak memiliki identitas detail yang valid.');
+            }
+
+            if (isset($seen[$detailId])) {
+                throw new MonetaryEditException('Baris detail duplikat tidak diizinkan.');
+            }
+
+            if (! $details->has($detailId)) {
+                throw new MonetaryEditException('Baris detail tidak dikenali pada dokumen ini.');
+            }
+
+            $detail = $details->get($detailId);
+
+            if ((float) $detail->quantity <= 0.0001) {
+                throw new MonetaryEditException(
+                    "Baris produk '{$detail->product_name}' telah diretur sepenuhnya dan tidak dapat diubah."
+                );
+            }
+
+            $this->assertProtectedRowValues($detail, $cartItem);
+
+            $seen[$detailId] = true;
+            $rows[] = new MonetaryEditRow($detailId, $detail, $cartItem);
+        }
+
+        return $rows;
+    }
+
+    protected function persistDetails(array $rows, array $normalized): void
+    {
+        parent::persistDetails($rows, $normalized);
+
+        // Ensure fully returned zero-quantity audit rows remain uncharged
+        if (! empty($rows)) {
+            $firstDetail = $rows[0]->detail;
+            SaleDetails::query()
+                ->where('sale_id', $firstDetail->sale_id)
+                ->where('quantity', '<=', 0.0001)
+                ->update([
+                    'sub_total' => 0,
+                    'product_discount_amount' => 0,
+                    'product_tax_amount' => 0,
+                ]);
         }
     }
 

@@ -57,6 +57,27 @@
             </div>
         @endif
 
+        @php
+            $hasRenewedReview = collect($previewPlan['blockers'] ?? [])
+                ->contains(fn ($b) => !empty($b['renewed_review_required']) || str_contains($b['message'] ?? '', 'peninjauan ulang'));
+        @endphp
+        @if($hasRenewedReview)
+            <div class="card border-warning mb-3">
+                <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
+                    <strong><i class="bi bi-exclamation-triangle mr-1"></i> Peninjauan Ulang Nilai Moneter Diperlukan</strong>
+                </div>
+                <div class="card-body">
+                    <p class="mb-3">Nilai moneter atau harga produk pada dokumen sumber telah diperbarui. Harap tinjau dan setujui penyesuaian nilai retur terbaru sebelum persetujuan final dapat dijalankan.</p>
+                    <form method="POST" action="{{ route('pos.returns.accept-monetary-review', $return) }}">
+                        @csrf
+                        <button type="submit" class="btn btn-warning">
+                            <i class="bi bi-check-circle"></i> Terima Pembaruan Nilai Moneter
+                        </button>
+                    </form>
+                </div>
+            </div>
+        @endif
+
         @if(! empty($previewPlan['blockers']))
             <div class="alert alert-danger" role="alert">
                 <div class="fw-semibold mb-2">Preview diblokir</div>

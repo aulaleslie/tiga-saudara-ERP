@@ -58,6 +58,12 @@ class PosReturnSubmissionService
                 throw new \Exception("Transaction has no completed checkout.");
             }
 
+            if (!empty($data['source_snapshot']) && !empty($data['source_snapshot_hash'])) {
+                if ($this->snapshotService->hash($data['source_snapshot']) !== $data['source_snapshot_hash']) {
+                    throw new \Exception('Source snapshot is stale. Please refresh the page.');
+                }
+            }
+
             $currentSnapshot = $this->snapshotService->build($transaction->id);
             $validatedLines = $this->validateDraftLines(
                 $data['lines'] ?? [],
@@ -66,6 +72,9 @@ class PosReturnSubmissionService
                 null,
                 $data['return_option'] ?? null
             );
+
+            $snapshotToSave = !empty($data['source_snapshot']) ? $data['source_snapshot'] : $currentSnapshot;
+            $snapshotHashToSave = !empty($data['source_snapshot_hash']) ? $data['source_snapshot_hash'] : $currentSnapshot['hash'];
 
             // 3. Create POS Return header as Draft
             $posReturn = PosReturn::create([
@@ -80,8 +89,8 @@ class PosReturnSubmissionService
                 'return_option' => PosReturn::OPTION_CASH_RETURN, // Keep standard option logic or defer to line-level
                 'status' => PosReturn::STATUS_DRAFT,
                 'approval_status' => PosReturn::APPROVAL_STATUS_DRAFT,
-                'source_snapshot' => $currentSnapshot,
-                'source_snapshot_hash' => $currentSnapshot['hash'],
+                'source_snapshot' => $snapshotToSave,
+                'source_snapshot_hash' => $snapshotHashToSave,
                 'total_amount' => 0, // Will be updated
                 'created_by' => Auth::id(),
             ]);
@@ -706,6 +715,12 @@ class PosReturnSubmissionService
                 throw new \Exception('Hanya retur draft yang dapat diajukan untuk persetujuan.');
             }
 
+            if ($lockedReturn->source_snapshot && !empty($lockedReturn->source_snapshot_hash)) {
+                if ($this->snapshotService->hash($lockedReturn->source_snapshot) !== $lockedReturn->source_snapshot_hash) {
+                    throw new \Exception('Source snapshot is stale. Please refresh the page.');
+                }
+            }
+
             $transaction = $lockedReturn->posTransaction()->with(['customer', 'completedCheckout'])->firstOrFail();
             $currentSnapshot = $this->snapshotService->build($transaction->id);
 
@@ -749,13 +764,18 @@ class PosReturnSubmissionService
                 true
             );
 
-            $lockedReturn->update([
+            $updatePayload = [
                 'status' => PosReturn::STATUS_PENDING_APPROVAL,
                 'approval_status' => PosReturn::APPROVAL_STATUS_PENDING,
-                'source_snapshot' => $currentSnapshot,
-                'source_snapshot_hash' => $currentSnapshot['hash'],
                 'updated_by' => Auth::id(),
-            ]);
+            ];
+
+            if (empty($lockedReturn->source_snapshot)) {
+                $updatePayload['source_snapshot'] = $currentSnapshot;
+                $updatePayload['source_snapshot_hash'] = $currentSnapshot['hash'];
+            }
+
+            $lockedReturn->update($updatePayload);
 
             return $lockedReturn->refresh();
         });
@@ -768,10 +788,6 @@ class PosReturnSubmissionService
      */
     protected function validateDraftLines(array $lines, array $currentSnapshot, ?string $expectedSnapshotHash, ?int $ignorePosReturnId = null, ?string $defaultReturnOption = null, bool $enforceReturnedSerialExclusivity = false): array
     {
-        if (($currentSnapshot['hash'] ?? null) !== $expectedSnapshotHash) {
-            throw new \Exception('Source snapshot is stale. Please refresh the page.');
-        }
-
         $validatedLines = [];
         $usedReplacementSerialIds = [];
 
@@ -803,7 +819,20 @@ class PosReturnSubmissionService
                 $quantity = 1;
             }
 
-            $saleDetail = SaleDetails::with(['bundleItems.product', 'product'])->findOrFail($lineData['sale_detail_id']);
+            $saleDetail = SaleDetails::with(['bundleItems.product', 'product'])->find($lineData['sale_detail_id']);
+            if (! $saleDetail) {
+                throw new \Exception("Sale detail dengan ID {$lineData['sale_detail_id']} tidak ditemukan.");
+            }
+
+            $checkoutId = $currentSnapshot['header']['checkout_id'] ?? null;
+            if ($checkoutId) {
+                $belongsToCheckout = PosCheckoutSale::where('pos_checkout_id', $checkoutId)
+                    ->where('sale_id', $saleDetail->sale_id)
+                    ->exists();
+                if (! $belongsToCheckout) {
+                    throw new \Exception('Sale detail tidak sesuai dengan transaksi.');
+                }
+            }
 
             $effectiveProductId = $isSerial && $returnedSerialId
                 ? (int) (ProductSerialNumber::find($returnedSerialId)->product_id ?? $saleDetail->product_id)
@@ -912,6 +941,12 @@ class PosReturnSubmissionService
                 if ($resolvedDispatchDetailId <= 0) {
                     throw new \Exception('Lineage pengiriman sumber untuk serial tidak valid.');
                 }
+                $this->assertReturnedSerialIsCurrentHeldOccurrence(
+                    (int) $returnedSerialId,
+                    $resolvedDispatchDetailId,
+                    $checkoutSale->pos_checkout_id ?? null,
+                    $saleDetail->sale->pos_transaction_id ?? null
+                );
                 if ($enforceReturnedSerialExclusivity) {
                     $this->assertReturnedSerialNotClaimedElsewhere((int) $returnedSerialId, $resolvedDispatchDetailId, $ignorePosReturnId);
                 }
@@ -1608,7 +1643,12 @@ class PosReturnSubmissionService
         $seenLeafIds = [];
 
         foreach ($originalSerialIds as $originalSerialId) {
-            $leafSerialId = $this->resolveCurrentHeldSerial((int) $originalSerialId);
+            $leafSerialId = $this->resolveCurrentHeldSerial(
+                (int) $originalSerialId,
+                $componentDetail->sale?->posCheckoutSales?->first()?->pos_checkout_id ?? null,
+                null,
+                (int) ($componentDispatchDetailId ?? 0)
+            );
 
             if (in_array($leafSerialId, $seenLeafIds, true)) {
                 continue;
@@ -1702,9 +1742,13 @@ class PosReturnSubmissionService
      *
      * @throws \Exception if an in-flight replacement blocks resolution
      */
-    protected function resolveCurrentHeldSerial(int $originalSerialId): int
-    {
-        return $this->serialChainResolver->resolveCurrentHeldSerial($originalSerialId);
+    protected function resolveCurrentHeldSerial(
+        int $originalSerialId,
+        ?int $posCheckoutId = null,
+        ?int $posTransactionId = null,
+        ?int $dispatchDetailId = null
+    ): int {
+        return $this->serialChainResolver->resolveCurrentHeldSerial($originalSerialId, $posCheckoutId, $posTransactionId, $dispatchDetailId);
     }
 
     /**
@@ -2118,6 +2162,131 @@ class PosReturnSubmissionService
         })->values();
     }
 
+    public function resolveOriginalSerialIdsForDispatch(int $dispatchDetailId): array
+    {
+        $dd = \Modules\Sale\Entities\DispatchDetail::find($dispatchDetailId);
+        if (! $dd) {
+            return [];
+        }
+
+        $serialIds = [];
+
+        if (! empty($dd->serial_numbers)) {
+            $rawValues = is_array($dd->serial_numbers)
+                ? $dd->serial_numbers
+                : (json_decode($dd->serial_numbers, true) ?: explode(',', $dd->serial_numbers));
+
+            $explicitIds = [];
+            $serialNumberStrings = [];
+
+            foreach ((array) $rawValues as $val) {
+                if (is_array($val)) {
+                    if (isset($val['id']) && is_numeric($val['id'])) {
+                        $explicitIds[] = (int) $val['id'];
+                    }
+                    if (isset($val['serial_number']) && trim((string) $val['serial_number']) !== '') {
+                        $serialNumberStrings[] = trim((string) $val['serial_number']);
+                    }
+                } elseif (is_int($val)) {
+                    $explicitIds[] = $val;
+                } elseif (is_string($val)) {
+                    $trimmed = trim($val);
+                    if ($trimmed !== '') {
+                        $serialNumberStrings[] = $trimmed;
+                    }
+                }
+            }
+
+            if (! empty($explicitIds) || ! empty($serialNumberStrings)) {
+                $query = ProductSerialNumber::query();
+                if ($dd->product_id) {
+                    $query->where('product_id', $dd->product_id);
+                }
+
+                $query->where(function ($q) use ($explicitIds, $serialNumberStrings) {
+                    if (! empty($explicitIds) && ! empty($serialNumberStrings)) {
+                        $q->whereIn('id', $explicitIds)
+                            ->orWhereIn('serial_number', $serialNumberStrings);
+                    } elseif (! empty($explicitIds)) {
+                        $q->whereIn('id', $explicitIds);
+                    } else {
+                        $q->whereIn('serial_number', $serialNumberStrings);
+                    }
+                });
+
+                $serialIds = $query->pluck('id')->all();
+            }
+        }
+
+        if (empty($serialIds)) {
+            $serialIds = ProductSerialNumber::where('dispatch_detail_id', $dispatchDetailId)
+                ->pluck('id')
+                ->all();
+        }
+
+        if (empty($serialIds)) {
+            $firstRepl = PosReturnLine::query()
+                ->join('pos_returns', 'pos_return_lines.pos_return_id', '=', 'pos_returns.id')
+                ->where('pos_return_lines.dispatch_detail_id', $dispatchDetailId)
+                ->where('pos_return_lines.resolution', PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT)
+                ->where('pos_returns.status', PosReturn::STATUS_COMPLETED)
+                ->where('pos_returns.is_reversed', false)
+                ->orderBy('pos_return_lines.id', 'ASC')
+                ->first();
+
+            if ($firstRepl && $firstRepl->returned_serial_id) {
+                $serialIds = [(int) $firstRepl->returned_serial_id];
+            }
+        }
+
+        return array_values(array_unique(array_filter($serialIds)));
+    }
+
+    protected function assertReturnedSerialIsCurrentHeldOccurrence(
+        int $returnedSerialId,
+        int $dispatchDetailId,
+        ?int $posCheckoutId = null,
+        ?int $posTransactionId = null
+    ): void {
+        if ($returnedSerialId <= 0 || $dispatchDetailId <= 0) {
+            return;
+        }
+
+        $originalSerialIds = $this->resolveOriginalSerialIdsForDispatch($dispatchDetailId);
+
+        if (! empty($originalSerialIds)) {
+            $heldSerialIds = [];
+            foreach ($originalSerialIds as $origId) {
+                try {
+                    $heldSerialIds[] = $this->serialChainResolver->resolveCurrentHeldSerial(
+                        (int) $origId,
+                        $posCheckoutId,
+                        $posTransactionId,
+                        $dispatchDetailId
+                    );
+                } catch (\Exception $e) {
+                }
+            }
+
+            if (! empty($heldSerialIds) && ! in_array($returnedSerialId, $heldSerialIds, true)) {
+                throw new \Exception('Serial yang diretur sudah diganti oleh serial lain dan tidak lagi dipegang oleh pelanggan.');
+            }
+        } else {
+            $hasBeenReplaced = PosReturnLine::query()
+                ->join('pos_returns', 'pos_return_lines.pos_return_id', '=', 'pos_returns.id')
+                ->where('pos_return_lines.returned_serial_id', $returnedSerialId)
+                ->where('pos_return_lines.dispatch_detail_id', $dispatchDetailId)
+                ->where('pos_return_lines.resolution', PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT)
+                ->where('pos_returns.status', PosReturn::STATUS_COMPLETED)
+                ->where('pos_returns.is_reversed', false)
+                ->exists();
+
+            if ($hasBeenReplaced) {
+                throw new \Exception('Serial yang diretur sudah diganti oleh serial lain dan tidak lagi dipegang oleh pelanggan.');
+            }
+        }
+    }
+
     protected function assertReturnedSerialNotClaimedElsewhere(int $returnedSerialId, int $dispatchDetailId, ?int $ignorePosReturnId = null): void
     {
         if ($returnedSerialId <= 0 || $dispatchDetailId <= 0) {
@@ -2126,16 +2295,22 @@ class PosReturnSubmissionService
 
         $query = PosReturnLine::where('returned_serial_id', $returnedSerialId)
             ->where('dispatch_detail_id', $dispatchDetailId)
-            ->whereHas('posReturn', function ($q) {
-                $q->active()->whereIn('status', [
-                    PosReturn::STATUS_PENDING_APPROVAL,
-                    PosReturn::STATUS_APPROVED,
-                    PosReturn::STATUS_AWAITING_RECEIVING,
-                    PosReturn::STATUS_AWAITING_SETTLEMENT,
-                    PosReturn::STATUS_AWAITING_DISPATCH,
-                    PosReturn::STATUS_MANUAL_CORRECTION_REQUIRED,
-                    PosReturn::STATUS_COMPLETED,
-                ]);
+            ->where(function ($lineQuery) {
+                $lineQuery->whereHas('posReturn', function ($q) {
+                    $q->active()->whereIn('status', [
+                        PosReturn::STATUS_PENDING_APPROVAL,
+                        PosReturn::STATUS_APPROVED,
+                        PosReturn::STATUS_AWAITING_RECEIVING,
+                        PosReturn::STATUS_AWAITING_SETTLEMENT,
+                        PosReturn::STATUS_AWAITING_DISPATCH,
+                        PosReturn::STATUS_MANUAL_CORRECTION_REQUIRED,
+                    ]);
+                })->orWhere(function ($compQuery) {
+                    $compQuery->where('resolution', PosReturnLine::RESOLUTION_CASH_RETURN)
+                        ->whereHas('posReturn', function ($q) {
+                            $q->active()->where('status', PosReturn::STATUS_COMPLETED);
+                        });
+                });
             });
 
         if ($ignorePosReturnId) {

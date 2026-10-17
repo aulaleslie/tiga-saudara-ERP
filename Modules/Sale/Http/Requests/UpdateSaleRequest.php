@@ -99,7 +99,7 @@ class UpdateSaleRequest extends FormRequest
         $sale = $this->route('sale');
 
         if ($sale && $sale->resolveEditMode() === Sale::EDIT_MODE_MONETARY_ONLY) {
-            abort(422, 'Penjualan yang sudah dikirim hanya dapat diubah melalui mode edit moneter.');
+            abort(422, 'Penjualan pada status saat ini hanya dapat diubah melalui mode edit moneter.');
         }
 
         return true;

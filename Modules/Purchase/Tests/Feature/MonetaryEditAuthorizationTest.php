@@ -249,6 +249,10 @@ class MonetaryEditAuthorizationTest extends TestCase
             Sale::EDIT_MODE_MONETARY_ONLY,
             $this->makeSale(Sale::STATUS_DISPATCHED_PARTIALLY)->resolveEditMode()
         );
+        $this->assertSame(
+            Sale::EDIT_MODE_MONETARY_ONLY,
+            $this->makeSale(Sale::STATUS_RETURNED_PARTIALLY)->resolveEditMode()
+        );
     }
 
     public function test_approved_undispatched_sale_keeps_full_edit(): void

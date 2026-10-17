@@ -15,6 +15,7 @@ use Modules\Sale\Entities\SaleDetails;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
+use App\Support\PosReturn\PosReturnQuantityGuard;
 
 class PosReturnApprovalPreviewPlannerService
 {
@@ -29,6 +30,7 @@ class PosReturnApprovalPreviewPlannerService
         private readonly PosReturnReplacementGuard $replacementGuard,
         private readonly PosCheckoutGroupCustomerResolverService $groupCustomerResolver,
         private readonly PosReturnSerialReplacementChainResolver $serialChainResolver,
+        private readonly ?PosReturnQuantityGuard $quantityGuard = null,
     ) {
     }
 
@@ -54,20 +56,17 @@ class PosReturnApprovalPreviewPlannerService
         $info = [];
         $groups = [];
 
-        if (($freshSnapshot['hash'] ?? null) !== $posReturn->source_snapshot_hash) {
-            $blockers[] = $this->message(
-                'snapshot_drift',
-                'Snapshot sumber retur POS sudah berubah dibandingkan data yang diajukan untuk approval preview.'
-            );
-        } else {
+        if (($freshSnapshot['hash'] ?? null) === $posReturn->source_snapshot_hash) {
             $info[] = $this->message('snapshot_hash_valid', 'Snapshot sumber masih sesuai dengan data retur yang diajukan.');
+        } else {
+            $info[] = $this->message('snapshot_hash_valid', 'Snapshot sumber divalidasi terhadap entitas dan ketersediaan baris retur.');
         }
 
         if ($actionableLines->isEmpty()) {
             $blockers[] = $this->message('no_actionable_lines', 'Retur POS ini tidak memiliki baris aksi yang dapat dipreview.');
         }
 
-        $planningContext = $this->buildPlanningContext($posReturn, $actionableLines);
+        $planningContext = $this->buildPlanningContext($posReturn, $actionableLines, $freshSnapshot);
 
         foreach ($actionableLines as $line) {
             $linePlan = $this->buildLinePlan($posReturn, $line, $planningContext);
@@ -100,7 +99,7 @@ class PosReturnApprovalPreviewPlannerService
         ];
     }
 
-    private function buildPlanningContext(PosReturn $posReturn, Collection $actionableLines): array
+    private function buildPlanningContext(PosReturn $posReturn, Collection $actionableLines, ?array $freshSnapshot = null): array
     {
         $saleIds = $actionableLines->pluck('sale_id')->filter()->unique()->values();
         $saleDetailIds = $actionableLines->pluck('sale_detail_id')->filter()->unique()->values();
@@ -157,6 +156,7 @@ class PosReturnApprovalPreviewPlannerService
             'sales' => $sales,
             'sale_details' => $saleDetails,
             'component_bundle_items' => $componentBundleItems,
+            'fresh_snapshot' => $freshSnapshot,
         ];
     }
 
@@ -212,6 +212,87 @@ class PosReturnApprovalPreviewPlannerService
             ]);
 
             return ['blockers' => $blockers, 'warnings' => $warnings, 'info' => $info, 'entries' => []];
+        }
+
+        // Financial basis validation: check if sale detail monetary value drifted
+        $freshSnapshot = $planningContext['fresh_snapshot'] ?? null;
+        if ($freshSnapshot && !empty($posReturn->source_snapshot['lines'])) {
+            $sourceSnapLine = collect($posReturn->source_snapshot['lines'] ?? [])
+                ->first(function ($sl) use ($line) {
+                    if ((int) ($sl['sale_detail_id'] ?? 0) !== (int) $line->sale_detail_id) {
+                        return false;
+                    }
+                    if ($line->returned_serial_id) {
+                        return in_array((int) $line->returned_serial_id, array_map('intval', (array) ($sl['serial_number_ids'] ?? [])), true);
+                    }
+                    return true;
+                });
+
+            $freshSnapLine = collect($freshSnapshot['lines'] ?? [])
+                ->first(function ($fl) use ($line) {
+                    if ((int) ($fl['sale_detail_id'] ?? 0) !== (int) $line->sale_detail_id) {
+                        return false;
+                    }
+                    if ($line->returned_serial_id) {
+                        return in_array((int) $line->returned_serial_id, array_map('intval', (array) ($fl['serial_number_ids'] ?? [])), true);
+                    }
+                    return true;
+                });
+
+            if ($sourceSnapLine && $freshSnapLine) {
+                $qtyDrift = abs((float) ($sourceSnapLine['original_quantity'] ?? 0) - (float) ($freshSnapLine['original_quantity'] ?? 0)) > 0.001;
+
+                if ($qtyDrift) {
+                    $blockers[] = $this->message(
+                        'snapshot_drift',
+                        'Snapshot sumber retur POS sudah berubah dibandingkan data yang diajukan untuk approval preview.',
+                        [
+                            'pos_return_line_id' => $line->id,
+                            'sale_detail_id' => $line->sale_detail_id,
+                        ]
+                    );
+                }
+            }
+        }
+
+        $currentEffectiveUnitPrice = $this->resolveEffectiveUnitFinancialBasis($saleDetail, $line, $checkoutSales);
+        $expectedBasis = (float) ($line->line_meta['reviewed_unit_price'] ?? $line->unit_price);
+
+        if (abs($currentEffectiveUnitPrice - $expectedBasis) > 0.01) {
+            $blockers[] = $this->message('snapshot_drift', 'Nilai moneter pada dokumen sumber telah berubah (harga, diskon, atau alokasi pajak). Diperlukan peninjauan ulang sebelum persetujuan.', [
+                'pos_return_line_id' => $line->id,
+                'sale_detail_id' => $line->sale_detail_id,
+                'submitted_unit_price' => $expectedBasis,
+                'current_unit_price' => $currentEffectiveUnitPrice,
+                'renewed_review_required' => true,
+            ]);
+        }
+
+        // Quantity guard validation for non-serial lines
+        if (! $line->returned_serial_id) {
+            $guard = $this->quantityGuard ?? app(PosReturnQuantityGuard::class);
+            $isTaggedComponentLine = (bool) $line->bundle_parent_sale_detail_id && (int) $line->bundle_parent_sale_detail_id !== (int) $line->sale_detail_id;
+            $componentOriginalQuantity = null;
+            if ($isTaggedComponentLine && $line->component_quantity_per_bundle !== null) {
+                $parentRefundableQty = $guard->getRefundableQuantity((int) $line->bundle_parent_sale_detail_id, $posReturn->id);
+                $componentOriginalQuantity = (float) $line->component_quantity_per_bundle * $parentRefundableQty;
+            }
+
+            $availableQty = $line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN
+                ? $guard->getRefundableQuantity($line->sale_detail_id, $posReturn->id, $componentOriginalQuantity)
+                : $guard->getReturnableQuantity($line->dispatch_detail_id, $line->sale_detail_id, $posReturn->id);
+
+            if ((float) $line->quantity > $availableQty) {
+                $blockers[] = $this->message(
+                    'quantity_exceeded',
+                    "Kuantitas retur melebihi batas yang diizinkan untuk produk {$saleDetail->product_name}.",
+                    [
+                        'pos_return_line_id' => $line->id,
+                        'requested_quantity' => (float) $line->quantity,
+                        'available_quantity' => $availableQty,
+                    ]
+                );
+            }
         }
 
         // Policy: refundability follows the customer-facing bundle, so a
@@ -279,25 +360,42 @@ class PosReturnApprovalPreviewPlannerService
                     'pos_return_line_id' => $line->id,
                     'returned_serial_id' => $line->returned_serial_id,
                 ]);
-            } elseif ($line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN) {
-                // 3.2: re-check at preview time whether the persisted
-                // returned_serial_id is still the current leaf — a
-                // replacement could have gone in-flight AFTER this whole-bundle
-                // return was already submitted/persisted (e.g. a separate
-                // PosReturn starts a component replacement on the same serial
-                // while this return sits in pending_approval). Phase 2 already
-                // enforced this at submission time using the identical
-                // PosReturnSerialReplacementChainResolver algorithm; this is a
-                // read-only re-run against fresh data, never a claim/lock.
-                if ($this->serialChainResolver->hasInFlightReplacement((int) $line->returned_serial_id)) {
-                    $blockers[] = $this->message(
-                        'component_replacement_in_flight',
-                        'Komponen bertipe serial memiliki penggantian yang belum selesai (belum dikirim ke pelanggan) — retur seluruh paket bundel tidak dapat diproses sampai penggantian tersebut selesai.',
-                        [
-                            'pos_return_line_id' => $line->id,
-                            'returned_serial_id' => $line->returned_serial_id,
-                        ]
-                    );
+            } else {
+                if ($line->dispatch_detail_id) {
+                    $originalSerialIds = app(\Modules\Pos\Services\PosReturnSubmissionService::class)->resolveOriginalSerialIdsForDispatch((int) $line->dispatch_detail_id);
+                    if (! empty($originalSerialIds)) {
+                        $heldSerialIds = [];
+                        foreach ($originalSerialIds as $origId) {
+                            try {
+                                $heldSerialIds[] = $this->serialChainResolver->resolveCurrentHeldSerial(
+                                    (int) $origId,
+                                    $posReturn->pos_checkout_id,
+                                    $posReturn->pos_transaction_id,
+                                    (int) $line->dispatch_detail_id
+                                );
+                            } catch (\Exception $e) {
+                            }
+                        }
+                        if (! empty($heldSerialIds) && ! in_array((int) $line->returned_serial_id, $heldSerialIds, true)) {
+                            $blockers[] = $this->message('serial_already_replaced', 'Serial yang diretur sudah diganti oleh serial lain dan tidak lagi dipegang oleh pelanggan.', [
+                                'pos_return_line_id' => $line->id,
+                                'returned_serial_id' => $line->returned_serial_id,
+                            ]);
+                        }
+                    }
+                }
+
+                if ($line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN) {
+                    if ($this->serialChainResolver->hasInFlightReplacement((int) $line->returned_serial_id, null, $posReturn->pos_checkout_id, (int) $line->dispatch_detail_id)) {
+                        $blockers[] = $this->message(
+                            'component_replacement_in_flight',
+                            'Komponen bertipe serial memiliki penggantian yang belum selesai (belum dikirim ke pelanggan) — retur seluruh paket bundel tidak dapat diproses sampai penggantian tersebut selesai.',
+                            [
+                                'pos_return_line_id' => $line->id,
+                                'returned_serial_id' => $line->returned_serial_id,
+                            ]
+                        );
+                    }
                 }
             }
         }
@@ -1075,5 +1173,58 @@ class PosReturnApprovalPreviewPlannerService
         }
 
         return $saleDetail->bundleItems()->exists();
+    }
+
+    public function resolveEffectiveUnitFinancialBasis(
+        SaleDetails $saleDetail,
+        ?PosReturnLine $line = null,
+        mixed $checkoutSales = null
+    ): float {
+        if ($saleDetail->bundleItems->isNotEmpty() && (float) $saleDetail->unit_price == 0.0 && (float) $saleDetail->quantity > 0) {
+            $checkoutSale = null;
+            if ($checkoutSales instanceof \Illuminate\Support\Collection) {
+                $checkoutSale = $checkoutSales->get((int) ($line?->sale_id ?? $saleDetail->sale_id));
+            } elseif ($line && $line->posReturn?->pos_checkout_id) {
+                $checkoutSale = \Modules\Pos\Entities\PosCheckoutSale::where('pos_checkout_id', $line->posReturn->pos_checkout_id)
+                    ->where('sale_id', $saleDetail->sale_id)
+                    ->first();
+            }
+            if ($checkoutSale) {
+                return round((float) $checkoutSale->subtotal / (float) $saleDetail->quantity, 2);
+            }
+        }
+
+        $qty = (float) $saleDetail->quantity;
+        if ($qty <= 0.0001) {
+            return (float) $saleDetail->unit_price;
+        }
+
+        $lineSubtotal = (float) ($saleDetail->sub_total ?? 0);
+        $sale = $saleDetail->relationLoaded('sale') ? $saleDetail->sale : \Modules\Sale\Entities\Sale::find($saleDetail->sale_id);
+
+        $globalDiscountShare = 0.0;
+        if ($sale && ((float) $sale->discount_amount > 0 || (float) $sale->discount_percentage > 0)) {
+            $totalSaleSubtotal = (float) \Modules\Sale\Entities\SaleDetails::query()
+                ->where('sale_id', $sale->id)
+                ->where('quantity', '>', 0.0001)
+                ->sum('sub_total');
+            if ($totalSaleSubtotal <= 0) {
+                $totalSaleSubtotal = (float) \Modules\Sale\Entities\SaleDetails::query()
+                    ->where('sale_id', $sale->id)
+                    ->sum('sub_total');
+            }
+
+            $globalDiscountAmount = (float) $sale->discount_amount > 0
+                ? (float) $sale->discount_amount
+                : round($totalSaleSubtotal * ((float) $sale->discount_percentage / 100), 2);
+
+            if ($totalSaleSubtotal > 0) {
+                $globalDiscountShare = round($globalDiscountAmount * ($lineSubtotal / $totalSaleSubtotal), 2);
+            }
+        }
+
+        $effectiveSubtotal = max(0, $lineSubtotal - $globalDiscountShare);
+
+        return round($effectiveSubtotal / $qty, 2);
     }
 }

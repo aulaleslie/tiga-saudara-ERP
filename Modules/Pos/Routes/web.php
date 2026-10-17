@@ -66,6 +66,7 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
         Route::get('/pos/returns/{return}/approval-preview', [PosReturnController::class, 'approvalPreview'])->name('pos.returns.approval-preview')->whereNumber('return');
         Route::post('/pos/returns/{return}/approve', [PosReturnController::class, 'approve'])->name('pos.returns.approve')->whereNumber('return');
         Route::post('/pos/returns/{return}/reject', [PosReturnController::class, 'reject'])->name('pos.returns.reject')->whereNumber('return');
+        Route::post('/pos/returns/{return}/accept-monetary-review', [PosReturnController::class, 'acceptMonetaryReview'])->name('pos.returns.accept-monetary-review')->whereNumber('return');
     });
 
     Route::group(['middleware' => ['can:pos.returns.receive']], function () {

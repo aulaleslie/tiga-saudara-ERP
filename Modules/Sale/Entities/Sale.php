@@ -118,7 +118,7 @@ class Sale extends BaseModel implements HasMedia
             return $user->can('sales.approved.edit') ? self::EDIT_MODE_FULL : self::EDIT_MODE_NONE;
         }
 
-        if (in_array($this->status, [self::STATUS_DISPATCHED_PARTIALLY, self::STATUS_DISPATCHED])) {
+        if (in_array($this->status, [self::STATUS_DISPATCHED_PARTIALLY, self::STATUS_DISPATCHED, self::STATUS_RETURNED_PARTIALLY])) {
             return $user->can('sales.dispatched.monetary.edit') ? self::EDIT_MODE_MONETARY_ONLY : self::EDIT_MODE_NONE;
         }
 
