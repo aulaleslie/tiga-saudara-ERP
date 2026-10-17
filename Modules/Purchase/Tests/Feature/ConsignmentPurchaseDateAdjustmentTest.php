@@ -3,11 +3,13 @@
 namespace Modules\Purchase\Tests\Feature;
 
 use App\DTOs\DateAdjustmentCommand;
+use App\Livewire\Reports\PurchaseReport;
 use App\Models\User;
 use App\Services\DocumentDateAdjustmentService;
 use App\Services\ReportingDateOverrideService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
 use Modules\Consignment\Entities\ConsignmentBillingConfirmation;
 use Modules\Consignment\Entities\ConsignmentBillingConfirmationLine;
 use Modules\Consignment\Entities\ConsignmentPurchaseDetailLineage;
@@ -62,6 +64,8 @@ class ConsignmentPurchaseDateAdjustmentTest extends TestCase
         Permission::firstOrCreate(['name' => 'purchases.reporting-date.override', 'guard_name' => 'web']);
         Permission::firstOrCreate(['name' => 'purchases.due-date.override', 'guard_name' => 'web']);
         Permission::firstOrCreate(['name' => 'purchasePayments.global.access', 'guard_name' => 'web']);
+        Permission::firstOrCreate(['name' => 'purchasePayments.create', 'guard_name' => 'web']);
+        Permission::firstOrCreate(['name' => 'purchaseReports.access', 'guard_name' => 'web']);
         Permission::firstOrCreate(['name' => 'purchases.received.correct', 'guard_name' => 'web']);
         Permission::firstOrCreate(['name' => 'purchases.received.monetary.edit', 'guard_name' => 'web']);
         Permission::firstOrCreate(['name' => 'purchases.approved.edit', 'guard_name' => 'web']);
@@ -300,6 +304,7 @@ class ConsignmentPurchaseDateAdjustmentTest extends TestCase
         $roleGlobal->syncPermissions([
             'purchases.show',
             'purchasePayments.global.access',
+            'purchasePayments.create',
             'purchases.reporting-date.override',
             'purchases.due-date.override',
         ]);
@@ -658,10 +663,32 @@ class ConsignmentPurchaseDateAdjustmentTest extends TestCase
         );
         $this->service->adjustDates($this->consignmentPurchase, $command, $this->userBothPermissions);
 
+        // 1. Direct database query consumer
         $matches = Purchase::where('setting_id', $this->setting1->id)
             ->whereDate('due_date', '2026-10-25')
             ->get();
 
         $this->assertTrue($matches->contains($this->consignmentPurchase));
+
+        // 2. Real payment view consumer (global payment candidate list displays replacement due date)
+        $this->actingAs($this->globalUser);
+        session(['setting_id' => $this->setting2->id]);
+
+        $response = $this->get(route('purchases.global-payments.create', ['supplier' => $this->supplier->id]));
+        $response->assertOk();
+        $response->assertSee(Carbon::parse($newDueDate)->format('d M Y'));
+
+        // 3. Real report consumer (PurchaseReport with dateBasis = 'due_date')
+        session(['setting_id' => $this->setting1->id]);
+        Livewire::test(PurchaseReport::class)
+            ->set('settingId', $this->setting1->id)
+            ->set('dateBasis', 'due_date')
+            ->set('startDate', '2026-10-01')
+            ->set('endDate', '2026-10-31')
+            ->call('applyFilters')
+            ->assertViewHas('purchases', function ($purchases) {
+                $ids = $purchases->pluck('purchase_id')->toArray();
+                return in_array($this->consignmentPurchase->id, $ids);
+            });
     }
 }
