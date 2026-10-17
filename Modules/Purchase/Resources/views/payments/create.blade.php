@@ -27,7 +27,7 @@
                                     @if($purchase->consignmentBillingConfirmation->supplier_invoice_number)
                                         &middot; Faktur Pemasok: {{ $purchase->consignmentBillingConfirmation->supplier_invoice_number }}
                                     @endif
-                                    &middot; Nilai komersial bersifat read-only; pembayaran tetap dapat dicatat.
+                                    &middot; Nilai komersial bersifat read-only; data administratif dan pembayaran tetap dapat dikelola.
                                 </div>
                             @endif
                             <div class="form-row">

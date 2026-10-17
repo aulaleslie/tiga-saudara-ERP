@@ -84,12 +84,12 @@ class PurchaseSourceGuard
     /**
      * Assert that reporting-date overrides are allowed.
      *
+     * Consignment-billing Purchases are allowed standard reporting date overrides.
+     *
      * @throws PurchaseSourceOperationNotAllowedException
      */
     public static function assertReportingDateOverrideAllowed(Purchase $purchase): void
     {
-        if ($purchase->isConsignmentBilling()) {
-            throw new PurchaseSourceOperationNotAllowedException("Reporting date overrides are not permitted for consignment-billing Purchase #{$purchase->id} ({$purchase->reference}).");
-        }
+        // Consignment-billing Purchases now support standard administrative date maintenance.
     }
 }

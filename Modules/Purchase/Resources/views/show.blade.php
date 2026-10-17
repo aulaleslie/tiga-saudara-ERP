@@ -79,7 +79,7 @@
                                     #{{ $purchase->consignmentBillingConfirmation->confirmation_number }}
                                 </a>
                                 pada {{ $purchase->consignmentBillingConfirmation->billed_at?->format('d/m/Y H:i') }}.
-                                Item dan nilai komersial bersifat read-only.
+                                Item dan nilai komersial bersifat read-only, sedangkan informasi administratif (tanggal, referensi, catatan, dan lampiran) dapat dikelola.
                             </div>
                         @endif
 
@@ -383,15 +383,15 @@
                                                 $displayName = $media->getCustomProperty('original_name') ?: $media->file_name;
                                                 $mimeType = $media->mime_type ?? '';
                                                 $isImage = Str::startsWith($mimeType, 'image/');
-                                                $isImmutable = $media->getCustomProperty('source') === 'CONSIGNMENT_BILLING';
+                                                $isConsignmentBilling = $media->getCustomProperty('source') === 'CONSIGNMENT_BILLING';
                                             @endphp
                                             <li class="list-group-item d-flex flex-wrap justify-content-between align-items-center">
                                                 <div>
                                                     <div>
                                                         {{ $displayName }}
-                                                        @if($isImmutable)
-                                                            <span class="badge badge-info ml-1" title="Faktur Supplier Konsinyasi (Bukti Permanen)">
-                                                                <i class="bi bi-shield-check"></i> Faktur Konsinyasi (Permanen)
+                                                        @if($isConsignmentBilling)
+                                                            <span class="badge badge-info ml-1" title="Faktur Supplier Konsinyasi">
+                                                                <i class="bi bi-file-earmark-text"></i> Faktur Konsinyasi
                                                             </span>
                                                         @endif
                                                     </div>
@@ -410,7 +410,7 @@
                                                         Download
                                                     </a>
                                                     @can('purchases.update')
-                                                        @if(!$purchase->isArchived() && !(isset($globalMode) && $globalMode) && !$isImmutable)
+                                                        @if(!$purchase->isArchived() && !(isset($globalMode) && $globalMode))
                                                             <form method="POST"
                                                                   action="{{ route('purchases.attachments.destroy', [$purchase->id, $media->id]) }}"
                                                                   onsubmit="return confirm('Hapus lampiran ini?');"

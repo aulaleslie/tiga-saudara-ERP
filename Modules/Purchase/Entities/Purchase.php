@@ -292,12 +292,22 @@ class Purchase extends BaseModel implements HasMedia
         static::updating(function ($model) {
             if ($model->getOriginal('source_type') === self::SOURCE_CONSIGNMENT_BILLING) {
                 $dirty = array_keys($model->getDirty());
-                $allowed = ['paid_amount', 'due_amount', 'payment_status', 'updated_at'];
+                $allowed = [
+                    'paid_amount',
+                    'due_amount',
+                    'payment_status',
+                    'reporting_date',
+                    'due_date',
+                    'note',
+                    'supplier_purchase_number',
+                    'tax_ref_no',
+                    'updated_at',
+                ];
                 $forbidden = array_diff($dirty, $allowed);
 
                 if (!empty($forbidden)) {
                     $forbiddenStr = implode(', ', $forbidden);
-                    throw new \DomainException("Commercial header fields [{$forbiddenStr}] on consignment-billing Purchase #{$model->id} ({$model->reference}) are immutable. Only settlement balances may be updated.");
+                    throw new \DomainException("Commercial header fields [{$forbiddenStr}] on consignment-billing Purchase #{$model->id} ({$model->reference}) are immutable. Only administrative fields and settlement balances may be updated.");
                 }
             }
         });

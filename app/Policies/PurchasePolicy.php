@@ -35,10 +35,6 @@ class PurchasePolicy
 
     public function overrideReportingDate(User $user, Purchase $purchase, bool $isGlobal = false): bool
     {
-        if ($purchase->isConsignmentBilling()) {
-            return false;
-        }
-
         // Verify purchase is in an eligible post-approval status
         if (!in_array($purchase->status, [
             Purchase::STATUS_APPROVED,
@@ -68,10 +64,6 @@ class PurchasePolicy
 
     public function overrideDueDate(User $user, Purchase $purchase, bool $isGlobal = false): bool
     {
-        if ($purchase->isConsignmentBilling()) {
-            return false;
-        }
-
         // Verify purchase is in an eligible post-approval status
         if (!in_array($purchase->status, [
             Purchase::STATUS_APPROVED,

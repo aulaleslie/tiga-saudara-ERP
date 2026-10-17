@@ -76,7 +76,7 @@ class PurchaseDetailAttachmentTest extends TestCase
     public function test_purchase_detail_attachment_upload_remains_available(): void
     {
         $response = $this->post(route('purchases.attachments.store', $this->purchase), [
-            'attachment' => UploadedFile::fake()->create('purchase-proof.pdf', 10, 'application/pdf'),
+            'attachment' => UploadedFile::fake()->createWithContent('purchase-proof.pdf', "%PDF-1.4\n%DUMMY\n"),
         ]);
 
         $response->assertRedirect();
@@ -90,7 +90,7 @@ class PurchaseDetailAttachmentTest extends TestCase
     public function test_purchase_detail_attachment_deletion_remains_available(): void
     {
         $this->purchase
-            ->addMedia(UploadedFile::fake()->create('purchase-proof.pdf', 10, 'application/pdf'))
+            ->addMedia(UploadedFile::fake()->createWithContent('purchase-proof.pdf', "%PDF-1.4\n%DUMMY\n"))
             ->toMediaCollection('attachments');
         $media = $this->purchase->getFirstMedia('attachments');
 

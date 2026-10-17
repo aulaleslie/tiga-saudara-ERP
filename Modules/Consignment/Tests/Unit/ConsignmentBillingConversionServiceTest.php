@@ -1051,7 +1051,7 @@ class ConsignmentBillingConversionServiceTest extends TestCase
     }
 
     /** @test */
-    public function it_blocks_direct_media_deletion_for_conversion_attachments()
+    public function it_allows_direct_media_deletion_for_conversion_attachments_while_preserving_source_evidence()
     {
         $confirmation = $this->createApprovedConfirmation();
         $file = \Illuminate\Http\UploadedFile::fake()->createWithContent('supplier_invoice.pdf', "%PDF-1.4\n%PROVENANCE-TEST-PDF-CONTENT\n");
@@ -1070,51 +1070,22 @@ class ConsignmentBillingConversionServiceTest extends TestCase
 
         $media = $purchase->getFirstMedia('attachments');
         $this->assertNotNull($media);
-
-        $this->expectException(\DomainException::class);
-        $this->expectExceptionMessage('immutable and cannot be deleted');
+        $mediaId = $media->id;
 
         $media->delete();
-    }
 
-    /** @test */
-    public function it_ensures_compensating_deletion_authorization_for_one_media_cannot_delete_different_immutable_attachment()
-    {
-        $confirmation = $this->createApprovedConfirmation();
-        $file1 = \Illuminate\Http\UploadedFile::fake()->createWithContent('inv_a.pdf', "%PDF-1.4\n%CONTENT-A\n");
-        $file2 = \Illuminate\Http\UploadedFile::fake()->createWithContent('inv_b.pdf', "%PDF-1.4\n%CONTENT-B\n");
+        $this->assertDatabaseMissing('media', ['id' => $mediaId]);
+        $this->assertCount(0, $purchase->fresh()->getMedia('attachments'));
 
-        $purchase = $this->conversionService->convert(
-            $confirmation->id,
-            $this->setting->id,
-            $this->user->id,
-            [
-                'supplier_invoice_number' => 'INV-INSTANCE-ISOLATION',
-                'invoice_date' => '2026-08-28',
-                'due_date' => '2026-09-28',
-            ],
-            [$file1, $file2]
-        );
-
-        $mediaItems = $purchase->getMedia('attachments');
-        $this->assertCount(2, $mediaItems);
-
-        $mediaA = $mediaItems[0];
-        $mediaB = $mediaItems[1];
-
-        // Authorize ONLY mediaA for compensating rollback deletion
-        $mediaA->isAuthorizedCompensatingRollback = true;
-
-        // Deleting mediaA should succeed because its specific instance was authorized
-        $mediaAId = $mediaA->id;
-        $mediaA->delete();
-        $this->assertDatabaseMissing('media', ['id' => $mediaAId]);
-
-        // Attempting to delete mediaB (unauthorized instance) MUST still throw DomainException
-        $this->expectException(\DomainException::class);
-        $this->expectExceptionMessage('immutable and cannot be deleted');
-
-        $mediaB->delete();
+        // Confirmation and conversion audit log remain intact
+        $this->assertDatabaseHas('consignment_billing_confirmations', [
+            'id' => $confirmation->id,
+            'purchase_id' => $purchase->id,
+        ]);
+        $this->assertDatabaseHas('consignment_allocation_audit_logs', [
+            'consignment_billing_confirmation_id' => $confirmation->id,
+            'action' => 'BILLING_CONVERTED',
+        ]);
     }
 
     /** @test */

@@ -629,20 +629,26 @@ class ConsignmentPurchaseLifecycleGuardTest extends TestCase
     }
 
     /** @test */
-    public function it_denies_reporting_date_override_policy_and_service_for_consignment_billing_purchase()
+    public function it_allows_reporting_date_override_policy_and_service_for_consignment_billing_purchase()
     {
+        \Spatie\Permission\Models\Permission::findOrCreate('purchases.reporting-date.override', 'web');
         $user = \App\Models\User::factory()->create();
+        $user->givePermissionTo('purchases.reporting-date.override');
+        session(['setting_id' => $this->setting->id]);
 
-        // 1. Policy check returns false
+        // 1. Policy check returns true
         $canOverride = $user->can('overrideReportingDate', $this->consignmentPurchase);
-        $this->assertFalse($canOverride);
+        $this->assertTrue($canOverride);
 
-        // 2. Service check throws PurchaseSourceOperationNotAllowedException
+        // 2. Service check succeeds and sets override
         $service = app(\App\Services\ReportingDateOverrideService::class);
-        $this->expectException(\Modules\Purchase\Exceptions\PurchaseSourceOperationNotAllowedException::class);
-        $this->expectExceptionMessage('Reporting date overrides are not permitted');
+        $audit = $service->setOverride($this->consignmentPurchase, '2026-10-01', 'Reason for change', $user);
 
-        $service->setOverride($this->consignmentPurchase, '2026-10-01', 'Reason for change', $user);
+        $this->consignmentPurchase->refresh();
+        $this->assertEquals('2026-10-01', $this->consignmentPurchase->reporting_date?->format('Y-m-d'));
+        $this->assertEquals('2026-10-01', $this->consignmentPurchase->effective_date?->format('Y-m-d'));
+        $this->assertNotNull($audit);
+        $this->assertEquals('Reason for change', $audit->reason);
     }
 
     /** @test */
@@ -686,5 +692,46 @@ class ConsignmentPurchaseLifecycleGuardTest extends TestCase
         $this->assertEquals(5000.0, $this->consignmentPurchase->paid_amount);
         $this->assertEquals(5000.0, $this->consignmentPurchase->due_amount);
         $this->assertEquals(Purchase::PAYMENT_STATUS_PARTIAL, $this->consignmentPurchase->payment_status);
+    }
+
+    /** @test */
+    public function it_allows_administrative_header_updates_on_consignment_billing_purchase()
+    {
+        $this->consignmentPurchase->update([
+            'reporting_date' => '2026-10-15',
+            'due_date' => '2026-11-15',
+            'note' => 'Updated administrative note',
+            'supplier_purchase_number' => 'SPN-UPDATED-001',
+            'tax_ref_no' => 'TAX-UPDATED-001',
+        ]);
+
+        $this->consignmentPurchase->refresh();
+        $this->assertEquals('2026-10-15', $this->consignmentPurchase->reporting_date?->format('Y-m-d'));
+        $this->assertEquals('2026-11-15', $this->consignmentPurchase->due_date?->format('Y-m-d'));
+        $this->assertEquals('Updated administrative note', $this->consignmentPurchase->note);
+        $this->assertEquals('SPN-UPDATED-001', $this->consignmentPurchase->supplier_purchase_number);
+        $this->assertEquals('TAX-UPDATED-001', $this->consignmentPurchase->tax_ref_no);
+    }
+
+    /** @test */
+    public function it_rejects_mixed_administrative_and_commercial_updates_without_partial_persistence()
+    {
+        $originalNote = $this->consignmentPurchase->note;
+        $originalTotal = $this->consignmentPurchase->total_amount;
+
+        try {
+            $this->consignmentPurchase->update([
+                'note' => 'Illicit mixed note update',
+                'total_amount' => 999999.0,
+            ]);
+            $this->fail('Mixed administrative and commercial update must throw DomainException.');
+        } catch (\DomainException $e) {
+            $this->assertStringContainsString('immutable', $e->getMessage());
+            $this->assertStringContainsString('total_amount', $e->getMessage());
+        }
+
+        $this->consignmentPurchase->refresh();
+        $this->assertEquals($originalNote, $this->consignmentPurchase->note);
+        $this->assertEquals($originalTotal, $this->consignmentPurchase->total_amount);
     }
 }

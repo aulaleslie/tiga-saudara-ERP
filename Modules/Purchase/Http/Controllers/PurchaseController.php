@@ -435,10 +435,6 @@ class PurchaseController extends Controller
             abort(404);
         }
 
-        if ($media->getCustomProperty('source') === 'CONSIGNMENT_BILLING') {
-            abort(403, 'Lampiran tagihan konsinyasi bersifat permanen dan tidak dapat dihapus.');
-        }
-
         $media->delete();
         toast('Lampiran dihapus.', 'success');
         return redirect()->back();
