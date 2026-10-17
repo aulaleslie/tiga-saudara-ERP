@@ -420,7 +420,11 @@ class PurchaseTable extends Component
                     });
                 }
             })
-            ->orderBy($this->sortField, $this->sortDirection)
+            ->when($this->sortField === 'date', function ($q) {
+                $q->orderByRaw('COALESCE(purchases.reporting_date, purchases.date) ' . ($this->sortDirection === 'asc' ? 'asc' : 'desc'));
+            }, function ($q) {
+                $q->orderBy($this->sortField, $this->sortDirection);
+            })
             ->when($this->sortField !== 'id', function ($q) {
                 $q->orderBy('id', $this->sortDirection);
             });
