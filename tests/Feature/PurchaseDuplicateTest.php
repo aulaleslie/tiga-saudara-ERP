@@ -20,6 +20,7 @@ use Modules\Purchase\Entities\PurchaseDetail;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
+use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 class PurchaseDuplicateTest extends TestCase
@@ -940,6 +941,12 @@ class PurchaseDuplicateTest extends TestCase
 
         $originalPurchase = $this->createConversionPurchase($supplier, $paymentTerm);
 
+        $originalPurchase->update(['status' => Purchase::STATUS_RECEIVED]);
+        foreach (['purchases.update', 'purchases.received.monetary.edit'] as $permission) {
+            auth()->user()->givePermissionTo(Permission::firstOrCreate(['name' => $permission, 'guard_name' => 'web']));
+        }
+        $this->assertSame(Purchase::EDIT_MODE_MONETARY_ONLY, $originalPurchase->resolveEditMode());
+
         PurchaseDetail::create([
             'purchase_id' => $originalPurchase->id,
             'product_id' => $product->id,
@@ -992,8 +999,10 @@ class PurchaseDuplicateTest extends TestCase
 
         $cartComponent = Livewire::test(ProductCart::class, [
             'cartInstance' => 'purchase',
-            'selectedSettingId' => session('setting_id'),
-        ]);
+            'data' => $form->get('duplicatePurchase'),
+            'selectedSettingId' => $form->get('selectedSettingId'),
+            'isDuplicate' => true,
+        ])->assertSet('monetaryOnly', false);
 
         $cartComponent
             ->set('quantity.' . $editableRow->rowId, 3)
