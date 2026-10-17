@@ -1867,4 +1867,417 @@ class POSReceiptReturnProjectionTest extends PosLineageSchemaAndCheckoutTest
         $this->expectException(\Modules\Pos\Exceptions\PosReprintAmbiguityException::class);
         $method->invoke($service, collect([$remainingLine]), [], [$unrelatedDetail], false);
     }
+
+    /**
+     * Regression for Transaction 6878: A laptop replacement followed by a photo-paper cash return
+     * with an uninvolved serialized 'none' context row must omit the no-action row from receipt return history.
+     */
+    public function test_receipt_return_history_omits_uninvolved_none_resolution_rows_while_retaining_effective_returns(): void
+    {
+        $setting = $this->createSetting('NONE CONTEXT STORE');
+        $cashier = $this->createUserForSetting($setting, 'cashier', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment', 'pos.receipts.reprint',
+        ]);
+        $loc = Location::create(['name' => 'LOC NONE CTX', 'setting_id' => $setting->id]);
+        $this->createTerminalAndSaleLocations($setting, [$loc]);
+        $customer = $this->assignDefaultWalkInCustomer($setting);
+
+        if (\Modules\Setting\Entities\PaymentMethod::query()->where('name', 'CASH')->doesntExist()) {
+            $this->seedPaymentMethods($setting, true);
+        }
+
+        $terminal = PosTerminal::where('setting_id', $setting->id)->first();
+        $this->openSession($setting, $terminal, $cashier);
+        $session = \Modules\Pos\Entities\PosSession::where('terminal_id', $terminal->id)->latest('id')->first();
+
+        // 1. Create products: Serialized Laptop and Non-serialized Photo Paper
+        $laptopProduct = $this->createStockedProduct($setting, $loc, 'LAPTOP-ACER', 10000000, 5, null, true);
+        $laptopProduct->update(['product_name' => 'Acer Aspire Laptop']);
+
+        $paperProduct = $this->createStockedProduct($setting, $loc, 'PHOTO-PAPER', 20000, 20, null, false);
+        $paperProduct->update(['product_name' => 'Photo Paper Glossy']);
+
+        $snLaptopOrig = ProductSerialNumber::create([
+            'product_id' => $laptopProduct->id,
+            'serial_number' => 'SN-ACER-001',
+            'status' => 'sold',
+            'location_id' => $loc->id,
+        ]);
+        $snLaptopRepl = ProductSerialNumber::create([
+            'product_id' => $laptopProduct->id,
+            'serial_number' => 'SN-ACER-002',
+            'status' => 'available',
+            'location_id' => $loc->id,
+        ]);
+
+        // 2. Checkout & Transaction: 1 Laptop (10,000,000) + 5 Photo Paper (5 x 20,000 = 100,000) = 10,100,000
+        $checkout = PosCheckout::create([
+            'setting_id' => $setting->id,
+            'pos_session_id' => $session->id,
+            'terminal_id' => $terminal->id,
+            'receipt_number' => 'RCP-CTX-' . uniqid(),
+            'idempotency_key' => 'IDEM-' . uniqid(),
+            'payload_hash' => 'HASH-' . uniqid(),
+            'subtotal' => 10100000,
+            'grand_total' => 10100000,
+            'paid_total' => 10100000,
+            'change_total' => 0,
+            'cashier_user_id' => $cashier->id,
+            'customer_id' => $customer->id,
+            'payment_method_id' => \Modules\Setting\Entities\PaymentMethod::where('name', 'CASH')->value('id'),
+            'status' => PosCheckout::STATUS_POSTED,
+        ]);
+
+        $transaction = PosTransaction::create([
+            'setting_id' => $setting->id,
+            'code' => 'TXN-CTX-' . uniqid(),
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'completed_checkout_id' => $checkout->id,
+            'created_by' => $cashier->id,
+            'owner_user_id' => $cashier->id,
+            'last_saved_by' => $cashier->id,
+            'source_pos_session_id' => $session->id,
+        ]);
+        $checkout->update(['pos_transaction_id' => $transaction->id]);
+
+        $txnLineLaptop = PosTransactionLine::create([
+            'pos_transaction_id' => $transaction->id,
+            'line_no' => 1,
+            'product_id' => $laptopProduct->id,
+            'product_name_snapshot' => $laptopProduct->product_name,
+            'qty' => 1,
+            'unit_price' => 10000000,
+            'line_total' => 10000000,
+            'line_total_minor' => 1000000000,
+            'line_meta' => ['price_source' => 'BASE', 'assigned_serials' => ['SN-ACER-001']],
+        ]);
+        PosTransactionLineSerial::create([
+            'pos_transaction_line_id' => $txnLineLaptop->id,
+            'serial_number' => 'SN-ACER-001',
+        ]);
+
+        $txnLinePaper = PosTransactionLine::create([
+            'pos_transaction_id' => $transaction->id,
+            'line_no' => 2,
+            'product_id' => $paperProduct->id,
+            'product_name_snapshot' => $paperProduct->product_name,
+            'qty' => 5,
+            'unit_price' => 20000,
+            'line_total' => 100000,
+            'line_total_minor' => 10000000,
+            'line_meta' => ['price_source' => 'BASE'],
+        ]);
+
+        $sale = Sale::create([
+            'setting_id' => $setting->id,
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'total_amount' => 10100000,
+            'paid_amount' => 10100000,
+            'due_amount' => 0,
+            'date' => now()->toDateString(),
+            'status' => 'DISPATCHED',
+            'payment_status' => 'PAID',
+            'payment_method' => 'CASH',
+            'reference' => 'SO-' . uniqid(),
+        ]);
+
+        $saleDetailLaptop = SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $laptopProduct->id,
+            'pos_transaction_line_id' => $txnLineLaptop->id,
+            'quantity' => 1,
+            'price' => 10000000,
+            'unit_price' => 10000000,
+            'sub_total' => 10000000,
+            'product_name' => $laptopProduct->product_name,
+            'product_code' => $laptopProduct->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $saleDetailPaper = SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $paperProduct->id,
+            'pos_transaction_line_id' => $txnLinePaper->id,
+            'quantity' => 5,
+            'price' => 20000,
+            'unit_price' => 20000,
+            'sub_total' => 100000,
+            'product_name' => $paperProduct->product_name,
+            'product_code' => $paperProduct->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $checkoutSale = PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'sale_id' => $sale->id,
+            'source_setting_id' => $setting->id,
+            'source_location_id' => $loc->id,
+            'grand_total' => 10100000,
+            'split_key' => 'SPLIT-' . uniqid(),
+            'tax_bucket' => 'NON_TAX',
+        ]);
+
+        $salePayment = SalePayment::create([
+            'sale_id' => $sale->id,
+            'amount' => 10100000,
+            'date' => now()->toDateString(),
+            'reference' => 'PAY-CTX',
+            'payment_method' => 'CASH',
+            'status' => SalePayment::STATUS_ACTIVE,
+        ]);
+
+        $dispatch = Dispatch::create(['sale_id' => $sale->id, 'dispatch_date' => now(), 'status' => Dispatch::STATUS_APPROVED]);
+        $dispatchDetailLaptop = DispatchDetail::create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetailLaptop->id,
+            'product_id' => $laptopProduct->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $loc->id,
+            'serial_numbers' => json_encode(['SN-ACER-001']),
+        ]);
+        $dispatchDetailPaper = DispatchDetail::create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetailPaper->id,
+            'product_id' => $paperProduct->id,
+            'dispatched_quantity' => 5,
+            'location_id' => $loc->id,
+        ]);
+
+        // 3. Return 1: Replacement of Laptop (SN-ACER-001 -> SN-ACER-002)
+        $return1 = PosReturn::create([
+            'setting_id' => $setting->id,
+            'pos_transaction_id' => $transaction->id,
+            'pos_checkout_id' => $checkout->id,
+            'transaction_code' => $transaction->code,
+            'receipt_number' => $checkout->receipt_number,
+            'return_option' => PosReturn::OPTION_PRODUCT_REPLACEMENT,
+            'status' => PosReturn::STATUS_COMPLETED,
+            'approval_status' => PosReturn::APPROVAL_STATUS_APPROVED,
+            'total_amount' => 0,
+            'settled_at' => now()->subMinutes(15),
+            'approved_at' => now()->subMinutes(15),
+            'reference' => 'PR-RET-REPL-01',
+            'source_snapshot' => [],
+            'source_snapshot_hash' => 'h-repl-1',
+            'created_by' => $cashier->id,
+            'updated_by' => $cashier->id,
+        ]);
+
+        PosReturnLine::create([
+            'pos_return_id' => $return1->id,
+            'pos_checkout_sale_id' => $checkoutSale->id,
+            'pos_transaction_line_id' => $txnLineLaptop->id,
+            'source_setting_id' => $setting->id,
+            'source_location_id' => $loc->id,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetailLaptop->id,
+            'dispatch_detail_id' => $dispatchDetailLaptop->id,
+            'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+            'product_id' => $laptopProduct->id,
+            'product_name' => $laptopProduct->product_name,
+            'product_code' => $laptopProduct->product_code,
+            'quantity' => 1,
+            'unit_price' => 10000000,
+            'line_total' => 0,
+            'returned_serial_id' => $snLaptopOrig->id,
+            'replacement_serial_id' => $snLaptopRepl->id,
+        ]);
+
+        // 4. Return 2: Cash return of 1 Photo Paper (20,000) containing an uninvolved serialized 'none' laptop row
+        $return2 = PosReturn::create([
+            'setting_id' => $setting->id,
+            'pos_transaction_id' => $transaction->id,
+            'pos_checkout_id' => $checkout->id,
+            'transaction_code' => $transaction->code,
+            'receipt_number' => $checkout->receipt_number,
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'status' => PosReturn::STATUS_COMPLETED,
+            'approval_status' => PosReturn::APPROVAL_STATUS_APPROVED,
+            'total_amount' => 20000,
+            'settled_at' => now()->subMinutes(5),
+            'approved_at' => now()->subMinutes(5),
+            'reference' => 'PR-RET-CASH-02',
+            'source_snapshot' => [],
+            'source_snapshot_hash' => 'h-cash-2',
+            'created_by' => $cashier->id,
+            'updated_by' => $cashier->id,
+        ]);
+
+        // Effective cash return line: 1 photo paper unit
+        $paperReturnLine = PosReturnLine::create([
+            'pos_return_id' => $return2->id,
+            'pos_checkout_sale_id' => $checkoutSale->id,
+            'pos_transaction_line_id' => $txnLinePaper->id,
+            'source_setting_id' => $setting->id,
+            'source_location_id' => $loc->id,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetailPaper->id,
+            'dispatch_detail_id' => $dispatchDetailPaper->id,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            'product_id' => $paperProduct->id,
+            'product_name' => $paperProduct->product_name,
+            'product_code' => $paperProduct->product_code,
+            'quantity' => 1,
+            'unit_price' => 20000,
+            'line_total' => 20000,
+            'expected_cash_amount' => 20000,
+        ]);
+
+        // Uninvolved context row: Laptop with resolution 'none', quantity 1, serialized with replacement serial
+        $contextReturnLine = PosReturnLine::create([
+            'pos_return_id' => $return2->id,
+            'pos_checkout_sale_id' => $checkoutSale->id,
+            'pos_transaction_line_id' => $txnLineLaptop->id,
+            'source_setting_id' => $setting->id,
+            'source_location_id' => $loc->id,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetailLaptop->id,
+            'dispatch_detail_id' => $dispatchDetailLaptop->id,
+            'resolution' => PosReturnLine::RESOLUTION_NONE,
+            'product_id' => $laptopProduct->id,
+            'product_name' => $laptopProduct->product_name,
+            'product_code' => $laptopProduct->product_code,
+            'quantity' => 1,
+            'unit_price' => 10000000,
+            'line_total' => 0,
+            'returned_serial_id' => $snLaptopRepl->id,
+        ]);
+
+        // SalesReturn & payment evidence for the 20,000 cash return
+        $saleReturn = SaleReturn::create([
+            'setting_id' => $setting->id,
+            'location_id' => $loc->id,
+            'pos_return_id' => $return2->id,
+            'sale_id' => $sale->id,
+            'sale_reference' => $sale->reference,
+            'return_type' => 'Cash Return',
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'reference' => 'SR-RET-02',
+            'total_amount' => 20000,
+            'paid_amount' => 20000,
+            'due_amount' => 0,
+            'status' => 'Completed',
+            'approval_status' => 'Approved',
+            'payment_status' => 'Paid',
+            'payment_method' => 'CASH',
+            'date' => now()->toDateString(),
+        ]);
+
+        SaleReturnDetail::create([
+            'sale_return_id' => $saleReturn->id,
+            'pos_return_line_id' => $paperReturnLine->id,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetailPaper->id,
+            'dispatch_detail_id' => $dispatchDetailPaper->id,
+            'product_id' => $paperProduct->id,
+            'product_name' => $paperProduct->product_name,
+            'product_code' => $paperProduct->product_code,
+            'location_id' => $loc->id,
+            'quantity' => 1,
+            'price' => 20000,
+            'unit_price' => 20000,
+            'sub_total' => 20000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        SaleReturnPayment::create([
+            'sale_return_id' => $saleReturn->id,
+            'amount' => 20000,
+            'date' => now()->toDateString(),
+            'reference' => 'SRPAY-02',
+            'payment_method' => 'CASH',
+        ]);
+
+        // Reflect cash return on active sale & sale detail (5 bought - 1 returned = 4 remaining)
+        $saleDetailPaper->update(['quantity' => 4, 'sub_total' => 80000]);
+        $salePayment->update(['amount' => 10080000]);
+        $sale->update(['total_amount' => 10080000, 'paid_amount' => 10080000]);
+
+        // 5. Project completed receipt data
+        $projectedData = app(PosReceiptReprintProjectionService::class)->getCompletedReceiptData($checkout->fresh());
+
+        // Verify main purchase list shows four photo-paper units and the laptop with replacement serial
+        $this->assertCount(2, $projectedData['lines']);
+        $projectedLaptop = collect($projectedData['lines'])->firstWhere('product_name', 'Acer Aspire Laptop');
+        $this->assertNotNull($projectedLaptop);
+        $this->assertEquals(1.0, (float) $projectedLaptop['qty']);
+        $this->assertEquals(['SN-ACER-002'], $projectedLaptop['assigned_serials']);
+        $this->assertEquals(10000000.0, (float) $projectedLaptop['sub_total']);
+
+        $projectedPaper = collect($projectedData['lines'])->firstWhere('product_name', 'Photo Paper Glossy');
+        $this->assertNotNull($projectedPaper);
+        $this->assertEquals(4.0, (float) $projectedPaper['qty']);
+        $this->assertEquals(80000.0, (float) $paperProduct->product_price * 4);
+        $this->assertEquals(80000.0, (float) $projectedPaper['sub_total']);
+
+        $this->assertEquals(10080000.0, (float) $projectedData['grand_total']);
+        $this->assertEquals(10080000.0, (float) $projectedData['subtotal']);
+        $this->assertEquals(10080000.0, (float) $projectedData['amount_paid']);
+        $this->assertEquals(0.0, (float) $projectedData['outstanding_debt']);
+
+        // Return history assertions
+        $this->assertCount(2, $projectedData['return_history']);
+
+        // Return 1: Laptop replacement preserved with serial lineage
+        $returnHistory1 = $projectedData['return_history'][0];
+        $this->assertSame('PR-RET-REPL-01', $returnHistory1['reference']);
+        $this->assertSame('Selesai', $returnHistory1['status']);
+        $this->assertCount(1, $returnHistory1['items']);
+        $this->assertSame('Acer Aspire Laptop', $returnHistory1['items'][0]['product_name']);
+        $this->assertSame('Ganti Barang', $returnHistory1['items'][0]['resolution']);
+        $this->assertSame('SN-ACER-001', $returnHistory1['items'][0]['returned_serial']);
+        $this->assertSame('SN-ACER-002', $returnHistory1['items'][0]['replacement_serial']);
+
+        // Return 2: Photo Paper cash return (WITHOUT the uninvolved laptop context row)
+        $returnHistory2 = $projectedData['return_history'][1];
+        $this->assertSame('PR-RET-CASH-02', $returnHistory2['reference']);
+        $this->assertSame('Selesai', $returnHistory2['status']);
+        $this->assertEquals(20000.0, (float) $returnHistory2['total_amount']);
+        $this->assertEquals(20000.0, (float) $returnHistory2['actual_refund']);
+        $this->assertEquals(0.0, (float) $returnHistory2['debt_reduction']);
+
+        // Core regression assertion: only 1 item (Photo paper) in second return entry!
+        $this->assertCount(1, $returnHistory2['items']);
+        $this->assertSame('Photo Paper Glossy', $returnHistory2['items'][0]['product_name']);
+        $this->assertSame('Retur Kas', $returnHistory2['items'][0]['resolution']);
+        $this->assertEquals(1.0, (float) $returnHistory2['items'][0]['quantity']);
+        $this->assertEquals(20000.0, (float) $returnHistory2['items'][0]['line_total']);
+
+        // Stored database records remain intact (no-action context line is unchanged)
+        $persistedContextLine = PosReturnLine::query()->find($contextReturnLine->id);
+        $this->assertNotNull($persistedContextLine);
+        $this->assertSame(PosReturnLine::RESOLUTION_NONE, $persistedContextLine->resolution);
+        $this->assertEquals(1.0, (float) $persistedContextLine->quantity);
+        $this->assertEquals($snLaptopRepl->id, $persistedContextLine->returned_serial_id);
+
+        // Render Blade view and assert second return block
+        $html = view('pos::receipt', ['receiptData' => $projectedData])->render();
+
+        // Main purchase list has laptop
+        $this->assertStringContainsString('Acer Aspire Laptop', $html);
+        $this->assertStringContainsString('SN-ACER-002', $html);
+
+        // First return has laptop replacement
+        $this->assertStringContainsString('PR-RET-REPL-01', $html);
+        $this->assertStringContainsString('SN-ACER-001 &rarr; SN-ACER-002', $html);
+
+        // Second return block: isolate the block for PR-RET-CASH-02
+        $this->assertStringContainsString('PR-RET-CASH-02', $html);
+        $secondReturnBlock = substr($html, strpos($html, 'PR-RET-CASH-02'));
+        $this->assertStringContainsString('Photo Paper Glossy', $secondReturnBlock);
+        $this->assertStringContainsString('Retur Kas', $secondReturnBlock);
+        $this->assertStringNotContainsString('Acer Aspire Laptop', $secondReturnBlock);
+        $this->assertStringNotContainsString('Lainnya', $secondReturnBlock);
+    }
 }

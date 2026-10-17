@@ -885,6 +885,10 @@ class PosReceiptReprintProjectionService
         foreach ($completedReturns as $posReturn) {
             $items = [];
             foreach ($posReturn->lines as $line) {
+                if ($line->resolution === PosReturnLine::RESOLUTION_NONE) {
+                    continue;
+                }
+
                 $resolutionLabel = match ($line->resolution) {
                     PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT => 'Ganti Barang',
                     PosReturnLine::RESOLUTION_CASH_RETURN => 'Retur Kas',

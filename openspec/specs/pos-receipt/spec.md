@@ -237,7 +237,7 @@ Completed product replacements SHALL preserve customer-facing purchased quantity
 - **AND** a subsequent completed cash return for C removes C from main items and records C in return details
 
 ### Requirement: Receipt return history includes completed effective returns
-The receipt SHALL list every completed, non-reversed return in execution order with a stable tie-break, including reference, completion date, completed status, product, returned quantity, resolution, and actual cash-refund amount or replacement details. Serial replacements SHALL identify both returned and replacement serials. Cash-return details SHALL distinguish the purchase-value reduction, debt reduction, and actual refund so a debt offset is not described as cash paid. Draft, pending, approval-only, incomplete, rejected, cancelled, archived, reversed, and deleted returns SHALL NOT contribute return adjustments or appear as completed history.
+The receipt SHALL list every completed, non-reversed return in execution order with a stable tie-break, including reference, completion date, completed status, product, returned quantity, resolution, and actual cash-refund amount or replacement details. Rows with no return action (`resolution = none`) SHALL NOT appear as returned items, even when they retain a positive quantity or serial identity. This exclusion SHALL apply to existing persisted records as well as future records and SHALL NOT change stored return evidence, purchase quantities, serial replacement lineage, or settlement amounts. Serial replacements SHALL identify both returned and replacement serials. Cash-return details SHALL distinguish the purchase-value reduction, debt reduction, and actual refund so a debt offset is not described as cash paid. Draft, pending, approval-only, incomplete, rejected, cancelled, archived, reversed, and deleted returns SHALL NOT contribute return adjustments or appear as completed history.
 
 #### Scenario: Multiple mixed returns
 - **WHEN** a receipt has multiple completed cash returns and replacements alongside a pending return
@@ -247,6 +247,19 @@ The receipt SHALL list every completed, non-reversed return in execution order w
 #### Scenario: Approval alone is insufficient
 - **WHEN** a return is approved but its execution is not completed
 - **THEN** no completed return history or corresponding quantity or serial adjustment is shown
+
+#### Scenario: Replacement followed by an unrelated partial cash return
+- **WHEN** a completed laptop replacement is followed by a completed one-unit photo-paper cash return whose saved lines also contain the laptop with no return action
+- **THEN** the first history entry shows the laptop replacement with its returned and replacement serials
+- **AND** the second entry shows only the one-unit photo-paper cash return with its saved settlement values
+- **AND** five originally purchased photo-paper units leave four in the main purchase list
+- **AND** the laptop remains in the main purchase list with its effective replacement serial
+
+#### Scenario: Positive quantity and serial do not establish a return action
+- **WHEN** an existing completed return contains a no-action row with positive quantity and a serial alongside actual cash-return or replacement rows
+- **THEN** that no-action row is omitted from receipt return-history items
+- **AND** the actual return rows retain their quantities, values, and serial details
+- **AND** receipt generation leaves persisted return records unchanged
 
 ### Requirement: Current receipt payment presentation offsets debt before cash refund
 Current receipts SHALL display current purchase total, retained paid amount, and current outstanding debt reconciled with persisted authoritative payment and return execution evidence, including later payments. A return SHALL reduce unpaid debt first; only value exceeding the unpaid debt SHALL be a cash refund. Paid amount SHALL exclude refunded money and SHALL NOT exceed current purchase total. Original checkout tender and change MUST NOT be presented as current paid or change after returns; adjusted payment-method rows SHALL reconcile to current retained paid amount, and refunds SHALL be explained in return details. Receipt generation MUST NOT create refunds, rewrite checkout snapshots, or silently conceal contradictory execution evidence; an unreconcilable current receipt SHALL be refused with an actionable explanation and access to the historical receipt.
