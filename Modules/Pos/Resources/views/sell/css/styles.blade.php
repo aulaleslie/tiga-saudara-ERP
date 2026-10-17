@@ -1046,6 +1046,10 @@
     }
 
     @media (max-height: 780px) {
+        .pos-transaction-note-input {
+            min-height: 0;
+        }
+
         .pos-shell {
             padding: 0.4rem;
         }
