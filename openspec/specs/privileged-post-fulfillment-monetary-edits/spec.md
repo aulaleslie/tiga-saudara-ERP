@@ -16,7 +16,7 @@ The system SHALL allow an approved Purchase that has not been received and an ap
 - **THEN** the system SHALL allow the existing full document edit behavior, including quantity changes
 
 ### Requirement: Privileged users can edit fulfilled document monetary values in place
-The system SHALL allow a user with ordinary edit authority plus `purchases.received.monetary.edit` to edit a Purchase in `RECEIVED` or `RECEIVED PARTIALLY` status, and a user with ordinary edit authority plus `sales.dispatched.monetary.edit` to edit a Sale in `DISPATCHED` or `DISPATCHED PARTIALLY` status, within the active setting. The edit SHALL persist supported monetary values directly to the existing document header and detail rows.
+The system SHALL allow a user with ordinary edit authority plus `purchases.received.monetary.edit` to edit a Purchase in `RECEIVED` or `RECEIVED PARTIALLY` status, and a user with ordinary edit authority plus `sales.dispatched.monetary.edit` to edit a Sale in `DISPATCHED`, `DISPATCHED PARTIALLY`, or `RETURNED PARTIALLY` status, within the active setting. The edit SHALL persist supported monetary values directly to the existing document header and detail rows.
 
 #### Scenario: Authorized user changes a received purchase line price
 - **WHEN** an authorized user saves a monetary edit for an eligible received Purchase
@@ -32,6 +32,29 @@ The system SHALL allow a user with ordinary edit authority plus `purchases.recei
 - **WHEN** a user lacks either ordinary edit authority or the applicable post-fulfillment monetary permission and attempts to open or save an eligible document
 - **THEN** the system SHALL deny the action at the backend
 - **AND** the system SHALL not change the document
+
+#### Scenario: Authorized user edits a partially returned sale
+- **WHEN** an authorized user opens or saves a monetary edit for a Sale in RETURNED PARTIALLY status
+- **THEN** ordinary and existing global monetary-edit entry points SHALL support the remaining sale under their existing authorization and setting rules
+- **AND** fully returned Sales SHALL not gain edit eligibility from this change
+
+### Requirement: Partially returned monetary edits preserve completed return evidence
+A monetary edit after a partial return SHALL apply supported monetary adjustments only to the remaining sale and reconcile current totals, retained payments and debt using existing payment rules. It MUST preserve completed refund amounts and settlement evidence, return history, detail identities, quantities, serials, dispatches, stock and cost snapshots. Fully returned zero-quantity audit rows MUST NOT gain charges.
+
+#### Scenario: Remaining quantity is repriced
+- **GIVEN** a Sale originally contains 5 pcs and a completed cash return has reduced it to 4 pcs
+- **WHEN** an authorized user changes its remaining unit price
+- **THEN** the new line value SHALL use 4 pcs
+- **AND** the completed refund and original return evidence SHALL remain unchanged
+- **AND** current totals and debt SHALL reconcile under existing payment rules
+
+#### Scenario: Protected execution inputs are tampered with
+- **WHEN** a monetary edit attempts to change quantity, serials, product identity or protected row membership
+- **THEN** the backend SHALL reject the edit without changing the Sale or its execution history
+
+#### Scenario: Fully returned audit line stays uncharged
+- **WHEN** another remaining item is monetarily edited on a partially returned Sale
+- **THEN** a fully returned zero-quantity audit line SHALL remain preserved and uncharged
 
 ### Requirement: Fulfilled document monetary edits preserve execution facts
 For post-fulfillment monetary editing, the system SHALL prohibit changes to quantity, product identity, row membership, bundle composition, counterparty, document date, reference, payment method, business/setting, receipt or dispatch records, locations, serials, and stock movements. The UI SHALL not offer those changes, and the backend SHALL reject altered values or a non-one-to-one line mapping.
