@@ -243,6 +243,9 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'pos.trans
     Route::get('/pos/transactions/{transaction}', [PosTransactionController::class, 'show'])->name('pos.transactions.show');
     Route::get('/pos/transactions/{transaction}/receipt', [PosTransactionController::class, 'receipt'])->name('pos.transactions.receipt');
     Route::post('/pos/transactions/{transaction}/cancel', [PosTransactionController::class, 'cancel'])->name('pos.transactions.cancel');
+    Route::post('/pos/transactions/{transaction}/reset-to-draft', [PosTransactionController::class, 'resetToDraft'])
+        ->middleware('can:pos.transactions.load')
+        ->name('pos.transactions.reset-to-draft');
 
     Route::group(['middleware' => ['can:pos.receipts.reprint']], function () {
         Route::match(['get', 'post'], '/pos/transactions/{transaction}/receipt/reprint', [PosTransactionController::class, 'receiptReprint'])->name('pos.transactions.receipt.reprint');

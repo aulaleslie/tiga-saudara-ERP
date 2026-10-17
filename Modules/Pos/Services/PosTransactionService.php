@@ -425,6 +425,42 @@ class PosTransactionService
     }
 
     /**
+     * Manually recover an abandoned LOADED transaction back to DRAFT.
+     * Unlike unload(), this rechecks the status under a row lock and rejects ineligible transactions.
+     *
+     * @throws PosTransactionValidationException('TRANSACTION_NOT_FOUND', ...)
+     * @throws PosTransactionValidationException('TRANSACTION_NOT_LOADED', ...)
+     */
+    public function resetLoadedToDraft(int $settingId, int $transactionId): PosTransaction
+    {
+        return DB::transaction(function () use ($settingId, $transactionId) {
+            $transaction = PosTransaction::query()
+                ->where('setting_id', $settingId)
+                ->whereKey($transactionId)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $transaction) {
+                throw new PosTransactionValidationException(
+                    'TRANSACTION_NOT_FOUND',
+                    'Transaksi tidak ditemukan.'
+                );
+            }
+
+            if ($transaction->status !== PosTransaction::STATUS_LOADED) {
+                throw new PosTransactionValidationException(
+                    'TRANSACTION_NOT_LOADED',
+                    'Hanya transaksi berstatus dimuat yang dapat dikembalikan ke draf.'
+                );
+            }
+
+            $transaction->update(['status' => PosTransaction::STATUS_DRAFT]);
+
+            return $transaction;
+        });
+    }
+
+    /**
      * Ensure checkout completion is always represented in POS transaction history.
      * If cart comes from loaded draft, update that transaction; otherwise create a completed transaction.
      *

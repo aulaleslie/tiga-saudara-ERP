@@ -525,6 +525,39 @@ class PosTransactionController extends Controller
     }
 
     /**
+     * Manually return an abandoned LOADED transaction to DRAFT so it can be loaded again.
+     */
+    public function resetToDraft(PosTransaction $transaction, Request $request): JsonResponse
+    {
+        $settingId = $this->currentSettingId();
+        if ($guardResponse = $this->transactionsDisabledResponse($request, $settingId)) {
+            return $guardResponse;
+        }
+
+        if ($transaction->setting_id !== $settingId) {
+            abort(403, 'Transaksi ini tidak termasuk dalam setting Anda.');
+        }
+
+        try {
+            $transaction = $this->transactionService->resetLoadedToDraft($settingId, $transaction->id);
+        } catch (PosTransactionValidationException $e) {
+            return response()->json([
+                'code' => $e->errorCode(),
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+
+        return response()->json([
+            'message' => 'Transaksi dikembalikan ke draf.',
+            'transaction' => [
+                'id' => $transaction->id,
+                'code' => $transaction->code,
+                'status' => $transaction->status,
+            ],
+        ], 200);
+    }
+
+    /**
      * Assert transaction belongs to current setting.
      */
     private function assertSettingScope(PosTransaction $transaction, int $settingId): void

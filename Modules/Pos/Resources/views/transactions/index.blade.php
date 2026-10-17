@@ -99,6 +99,7 @@
             const approvalRequestsBaseUrl = @json(url('/pos/sell/approval-requests'));
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
             const canLoad = @json(auth()->user()->can('pos.sell') && auth()->user()->can('pos.transactions.load'));
+            const canResetToDraft = @json(auth()->user()->can('pos.transactions.view') && auth()->user()->can('pos.transactions.load'));
             const canRequestCancel = @json(auth()->user()->can('pos.sell'));
             const canReprint = @json(auth()->user()->can('pos.receipts.reprint'));
             const defaultStatusMessage = 'Draft dapat dimuat untuk kolaborasi bila Anda memiliki izin muat. Pembatalan draft memerlukan otorisasi void atau persetujuan supervisor.';
@@ -228,6 +229,10 @@
 
                 if (canLoad && row.status === 'DRAFT') {
                     actions.push(`<button type="button" class="btn btn-sm btn-primary js-load-transaction" data-id="${row.id}">Muat</button>`);
+                }
+
+                if (canResetToDraft && row.status === 'LOADED') {
+                    actions.push(`<button type="button" class="btn btn-sm btn-outline-warning js-reset-transaction" data-id="${row.id}">Kembalikan ke Draf</button>`);
                 }
 
                 if (canCancelRow(row)) {
@@ -438,7 +443,7 @@
                 try {
                     const response = await jsonRequest(buildQueryUrl(), 'GET');
                     if (loadToken !== latestLoadToken) {
-                        return;
+                        return null;
                     }
                     pagination = response.pagination || null;
                     const rows = Array.isArray(response.data) ? response.data : [];
@@ -454,9 +459,10 @@
                         const total = Number(pagination?.total || rows.length);
                         setStatus(`Menampilkan ${rows.length} transaksi (total ${total}). ${defaultStatusMessage}`, 'success');
                     }
+                    return true;
                 } catch (error) {
                     if (loadToken !== latestLoadToken) {
-                        return;
+                        return null;
                     }
                     pagination = {
                         current_page: 1,
@@ -466,6 +472,7 @@
                     renderErrorState();
                     updatePaginationState();
                     setStatus(error.message || 'Gagal memuat transaksi.', 'danger');
+                    return false;
                 } finally {
                     if (loadToken === latestLoadToken) {
                         setLoadingControls(false);
@@ -538,6 +545,42 @@
                         }
                     } finally {
                         loadButton.disabled = false;
+                    }
+                    return;
+                }
+
+                const resetButton = event.target.closest('.js-reset-transaction');
+                if (resetButton) {
+                    const id = Number(resetButton.getAttribute('data-id') || 0);
+                    if (id <= 0 || resetButton.disabled) return;
+
+                    const result = await Swal.fire({
+                        title: 'Kembalikan ke Draf?',
+                        text: 'Gunakan hanya jika keranjang yang memuat transaksi ini sudah ditinggalkan. Perubahan yang belum disimpan pada keranjang tersebut tidak akan ikut tersimpan.',
+                        icon: 'warning',
+                        showCancelButton: true,
+                        confirmButtonText: 'Kembalikan',
+                        cancelButtonText: 'Tutup',
+                    });
+
+                    if (!result.isConfirmed) {
+                        return;
+                    }
+
+                    resetButton.disabled = true;
+                    try {
+                        const response = await jsonRequest(`${transactionsBaseUrl}/${id}/reset-to-draft`, 'POST', {});
+                        const successMessage = (response && response.message) || 'Transaksi dikembalikan ke draf.';
+                        const refreshed = await loadRows({ showLoading: false });
+                        if (refreshed === false) {
+                            setStatus(`${successMessage} Namun daftar transaksi gagal dimuat ulang. Silakan klik Muat Data untuk mencoba lagi.`, 'danger');
+                        } else if (refreshed === true) {
+                            setStatus(successMessage, 'success');
+                        }
+                    } catch (error) {
+                        setStatus(error.message || 'Gagal mengembalikan transaksi ke draf.', 'danger');
+                    } finally {
+                        resetButton.disabled = false;
                     }
                     return;
                 }
