@@ -220,7 +220,7 @@ class POSProductSearchScanTest extends TestCase
             setting: $setting,
             location: $allowedLocation,
             code: 'SKU-KOPI-SUSU-INACTIVE',
-            name: 'Kopi Susu Gula Aren Nonaktif',
+            name: 'Kopi Susu Gula Aren Premium Nonaktif',
             barcode: 'BC-KOPI-SUSU-INACTIVE',
             availableQty: 8,
             salePrice: 18000,
