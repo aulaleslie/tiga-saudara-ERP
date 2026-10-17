@@ -7,6 +7,7 @@ use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosCheckoutPayment;
 use Modules\Pos\Entities\PosReceiptPrintLog;
 use Modules\Pos\Entities\PosTransaction;
+use Modules\Setting\Entities\Setting;
 
 class PosReceiptService
 {
@@ -32,7 +33,10 @@ class PosReceiptService
             'checkoutSales.sale.dispatchDetails',
         ]);
 
-        $setting = $checkout->setting;
+        $settingId = (int) ($checkout->setting_id ?? $checkout->setting?->id);
+        $freshSetting = $settingId > 0 ? Setting::find($settingId) : null;
+        $setting = $freshSetting ?? $checkout->setting;
+        $receiptVisibility = $this->resolveReceiptVisibility($settingId, $setting);
         $sale = $checkout->sale;
         $session = $checkout->session;
         $terminal = $checkout->terminal;
@@ -209,6 +213,7 @@ class PosReceiptService
             'outstanding_debt' => $checkout->debt_amount ?? max(0, $checkout->grand_total - $checkout->paid_total),
             'footer_text' => $setting->footer_text ?? 'Terima Kasih',
             'currency_symbol' => $setting->currency ? $setting->currency->symbol : 'Rp',
+            'receipt_visibility' => $receiptVisibility,
         ];
     }
 
@@ -539,7 +544,10 @@ class PosReceiptService
             return $receiptData;
         }
 
-        $setting = $transaction->setting;
+        $settingId = (int) ($transaction->setting_id ?? $transaction->setting?->id);
+        $freshSetting = $settingId > 0 ? Setting::find($settingId) : null;
+        $setting = $freshSetting ?? $transaction->setting;
+        $receiptVisibility = $this->resolveReceiptVisibility($settingId, $setting);
         $lines = [];
         $customerName = $transaction->customer?->display_name ?? '-';
 
@@ -645,6 +653,7 @@ class PosReceiptService
             'currency_symbol' => $setting->currency ? $setting->currency->symbol : 'Rp',
             'is_draft' => in_array($transaction->status, [PosTransaction::STATUS_DRAFT, PosTransaction::STATUS_LOADED], true),
             'print_history' => $printHistory,
+            'receipt_visibility' => $receiptVisibility,
         ];
     }
 
@@ -697,5 +706,27 @@ class PosReceiptService
         $decimalsCount = fmod(round($value, 2), 1.0) != 0.0 ? 2 : 0;
 
         return $symbol . '. ' . number_format($value, $decimalsCount, $decimals, $thousands);
+    }
+
+    public function resolveReceiptVisibility(?int $settingId, ?Setting $fallback = null): array
+    {
+        $setting = $settingId ? Setting::find($settingId) : $fallback;
+
+        if ($setting instanceof Setting) {
+            return $setting->getReceiptVisibility();
+        }
+
+        return [
+            'show_note' => false,
+            'show_return_history' => false,
+            'show_price_adjustments' => false,
+            'show_ppn' => false,
+            'show_signature_space' => true,
+            'pos_receipt_show_note' => false,
+            'pos_receipt_show_return_history' => false,
+            'pos_receipt_show_price_adjustments' => false,
+            'pos_receipt_show_ppn' => false,
+            'pos_receipt_show_signature_space' => true,
+        ];
     }
 }

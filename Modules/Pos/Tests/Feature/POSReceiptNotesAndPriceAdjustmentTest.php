@@ -27,6 +27,7 @@ use Modules\Sale\Entities\SalePayment;
 use Modules\Sale\Services\SaleMonetaryEditService;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\PaymentMethod;
+use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
 use Spatie\Permission\Models\Permission;
@@ -46,6 +47,18 @@ class POSReceiptNotesAndPriceAdjustmentTest extends PosLineageSchemaAndCheckoutT
         Permission::findOrCreate('sales.edit', 'web');
         Permission::findOrCreate('sales.dispatched.monetary.edit', 'web');
         Permission::findOrCreate('salePayments.global.access', 'web');
+    }
+
+    protected function createSetting(string $name): Setting
+    {
+        $setting = parent::createSetting($name);
+        $setting->update([
+            'pos_receipt_show_note' => true,
+            'pos_receipt_show_return_history' => true,
+            'pos_receipt_show_price_adjustments' => true,
+        ]);
+
+        return $setting->fresh();
     }
 
     /**
@@ -944,6 +957,13 @@ class POSReceiptNotesAndPriceAdjustmentTest extends PosLineageSchemaAndCheckoutT
             ],
             'footer_text' => 'Barang yang sudah dibeli tidak dapat ditukar kecuali ada perjanjian. Terima kasih.',
             'currency_symbol' => 'Rp',
+            'receipt_visibility' => [
+                'show_note' => true,
+                'show_return_history' => true,
+                'show_price_adjustments' => true,
+                'show_ppn' => true,
+                'show_signature_space' => true,
+            ],
         ];
 
         $html = view('pos::receipt', compact('receiptData'))->render();

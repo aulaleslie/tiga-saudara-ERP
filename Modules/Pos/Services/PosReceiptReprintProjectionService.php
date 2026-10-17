@@ -250,6 +250,8 @@ class PosReceiptReprintProjectionService
         }
 
         $reprintedData['is_reprint_projected'] = true;
+        $reprintedData['receipt_visibility'] = $baseReceiptData['receipt_visibility']
+            ?? $this->receiptService->resolveReceiptVisibility($checkout->setting_id, $checkout->setting);
 
         return $reprintedData;
     }

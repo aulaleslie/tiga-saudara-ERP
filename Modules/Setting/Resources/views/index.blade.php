@@ -93,7 +93,7 @@
                             </div>
 
                             <div class="form-row">
-                                <div class="col-lg-4">
+                                <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="is_pkp">Status PKP</label>
                                         <div class="form-check mt-2">
@@ -105,27 +105,45 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div class="col-lg-4">
+                                <div class="col-lg-6">
+                                    <div class="form-group">
+                                        <label for="row_total_rounding_increment">Kelipatan Pembulatan Total Baris (Rp) <span class="text-danger">*</span></label>
+                                        <input type="number" step="0.01" min="0" class="form-control" name="row_total_rounding_increment"
+                                               value="{{ old('row_total_rounding_increment', sprintf('%.2f', $settings->row_total_rounding_increment ?? 100.00)) }}" required>
+                                        <small class="form-text text-muted">
+                                            Isi 0 untuk menonaktifkan pembulatan otomatis total baris komersial. Default: 100.00
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <hr class="my-4">
+                            <h5 class="font-weight-bold text-primary mb-3">Pengaturan POS</h5>
+
+                            <div class="form-row">
+                                <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="pos_enabled">Aktifkan POS</label>
                                         <div class="form-check mt-2">
+                                            <input type="hidden" name="pos_enabled" value="0">
                                             <input class="form-check-input" type="checkbox" id="pos_enabled" name="pos_enabled" value="1"
-                                                   {{ old('pos_enabled', (bool) ($settings->pos_enabled ?? false)) ? 'checked' : '' }}>
+                                                   {{ filter_var(old('pos_enabled', $settings->pos_enabled ?? false), FILTER_VALIDATE_BOOLEAN) ? 'checked' : '' }}>
                                             <label class="form-check-label" for="pos_enabled">
                                                 Izinkan akses modul POS untuk bisnis ini.
                                             </label>
                                         </div>
 
-                                        <div class="form-check mt-2" id="pos_transactions_wrapper" style="display: {{ old('pos_enabled', (bool) ($settings->pos_enabled ?? false)) ? 'block' : 'none' }};">
+                                        <div class="form-check mt-2" id="pos_transactions_wrapper" style="display: {{ filter_var(old('pos_enabled', $settings->pos_enabled ?? false), FILTER_VALIDATE_BOOLEAN) ? 'block' : 'none' }};">
+                                            <input type="hidden" name="pos_transactions_enabled" value="0">
                                             <input class="form-check-input" type="checkbox" id="pos_transactions_enabled" name="pos_transactions_enabled" value="1"
-                                                   {{ old('pos_transactions_enabled', (bool) ($settings->pos_transactions_enabled ?? false)) ? 'checked' : '' }}>
+                                                   {{ filter_var(old('pos_transactions_enabled', $settings->pos_transactions_enabled ?? false), FILTER_VALIDATE_BOOLEAN) ? 'checked' : '' }}>
                                             <label class="form-check-label" for="pos_transactions_enabled">
                                                 Aktifkan Transaksi POS (Simpan & Buka Baru)
                                             </label>
                                         </div>
                                     </div>
                                 </div>
-                                <div class="col-lg-4">
+                                <div class="col-lg-6">
                                     <div class="form-group">
                                         <label for="pos_walk_in_customer_id">Pelanggan Walk-In POS</label>
                                         <select class="form-control" id="pos_walk_in_customer_id" name="pos_walk_in_customer_id" style="width: 100%;">
@@ -146,17 +164,79 @@
                                         </small>
                                     </div>
                                 </div>
-                                <div class="col-lg-4">
-                                    <div class="form-group">
-                                        <label for="row_total_rounding_increment">Kelipatan Pembulatan Total Baris (Rp) <span class="text-danger">*</span></label>
-                                        <input type="number" step="0.01" min="0" class="form-control" name="row_total_rounding_increment"
-                                               value="{{ old('row_total_rounding_increment', sprintf('%.2f', $settings->row_total_rounding_increment ?? 100.00)) }}" required>
-                                        <small class="form-text text-muted">
-                                            Isi 0 untuk menonaktifkan pembulatan otomatis total baris komersial. Default: 100.00
-                                        </small>
+                            </div>
+
+                            <div class="mt-3">
+                                <h6 class="font-weight-bold text-secondary mb-3">Tampilan Struk POS</h6>
+                                <div class="form-row">
+                                    <div class="col-lg-4">
+                                        <div class="form-group">
+                                            <div class="form-check">
+                                                <input type="hidden" name="pos_receipt_show_note" value="0">
+                                                <input class="form-check-input" type="checkbox" id="pos_receipt_show_note" name="pos_receipt_show_note" value="1"
+                                                       {{ filter_var(old('pos_receipt_show_note', $settings->pos_receipt_show_note ?? false), FILTER_VALIDATE_BOOLEAN) ? 'checked' : '' }}>
+                                                <label class="form-check-label" for="pos_receipt_show_note">
+                                                    Tampilkan Catatan Transaksi
+                                                </label>
+                                            </div>
+                                            <small class="form-text text-muted">Menampilkan catatan transaksi pada struk POS.</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-lg-4">
+                                        <div class="form-group">
+                                            <div class="form-check">
+                                                <input type="hidden" name="pos_receipt_show_return_history" value="0">
+                                                <input class="form-check-input" type="checkbox" id="pos_receipt_show_return_history" name="pos_receipt_show_return_history" value="1"
+                                                       {{ filter_var(old('pos_receipt_show_return_history', $settings->pos_receipt_show_return_history ?? false), FILTER_VALIDATE_BOOLEAN) ? 'checked' : '' }}>
+                                                <label class="form-check-label" for="pos_receipt_show_return_history">
+                                                    Tampilkan Riwayat Retur
+                                                </label>
+                                            </div>
+                                            <small class="form-text text-muted">Menampilkan riwayat retur yang diselesaikan pada struk POS.</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-lg-4">
+                                        <div class="form-group">
+                                            <div class="form-check">
+                                                <input type="hidden" name="pos_receipt_show_price_adjustments" value="0">
+                                                <input class="form-check-input" type="checkbox" id="pos_receipt_show_price_adjustments" name="pos_receipt_show_price_adjustments" value="1"
+                                                       {{ filter_var(old('pos_receipt_show_price_adjustments', $settings->pos_receipt_show_price_adjustments ?? false), FILTER_VALIDATE_BOOLEAN) ? 'checked' : '' }}>
+                                                <label class="form-check-label" for="pos_receipt_show_price_adjustments">
+                                                    Tampilkan Penyesuaian Harga
+                                                </label>
+                                            </div>
+                                            <small class="form-text text-muted">Menampilkan informasi penyesuaian harga satuan.</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-lg-4">
+                                        <div class="form-group">
+                                            <div class="form-check">
+                                                <input type="hidden" name="pos_receipt_show_ppn" value="0">
+                                                <input class="form-check-input" type="checkbox" id="pos_receipt_show_ppn" name="pos_receipt_show_ppn" value="1"
+                                                       {{ filter_var(old('pos_receipt_show_ppn', $settings->pos_receipt_show_ppn ?? false), FILTER_VALIDATE_BOOLEAN) ? 'checked' : '' }}>
+                                                <label class="form-check-label" for="pos_receipt_show_ppn">
+                                                    Tampilkan Keterangan PPN
+                                                </label>
+                                            </div>
+                                            <small class="form-text text-muted">Menampilkan teks PPN pada footer struk.</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-lg-4">
+                                        <div class="form-group">
+                                            <div class="form-check">
+                                                <input type="hidden" name="pos_receipt_show_signature_space" value="0">
+                                                <input class="form-check-input" type="checkbox" id="pos_receipt_show_signature_space" name="pos_receipt_show_signature_space" value="1"
+                                                       {{ filter_var(old('pos_receipt_show_signature_space', $settings->pos_receipt_show_signature_space ?? true), FILTER_VALIDATE_BOOLEAN) ? 'checked' : '' }}>
+                                                <label class="form-check-label" for="pos_receipt_show_signature_space">
+                                                    Tampilkan Ruang Tanda Tangan / Cap
+                                                </label>
+                                            </div>
+                                            <small class="form-text text-muted">Menyediakan ruang kosong 28 mm untuk cap toko atau tanda tangan.</small>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
+                            <hr class="my-4">
 
                             <div class="form-row">
                                 <div class="col-lg-12">

@@ -73,6 +73,11 @@ class SettingController extends Controller
                 ? (int) $request->input('pos_walk_in_customer_id')
                 : null,
             'row_total_rounding_increment' => (float) $request->input('row_total_rounding_increment', 100.00),
+            'pos_receipt_show_note' => $request->boolean('pos_receipt_show_note'),
+            'pos_receipt_show_return_history' => $request->boolean('pos_receipt_show_return_history'),
+            'pos_receipt_show_price_adjustments' => $request->boolean('pos_receipt_show_price_adjustments'),
+            'pos_receipt_show_ppn' => $request->boolean('pos_receipt_show_ppn'),
+            'pos_receipt_show_signature_space' => $request->boolean('pos_receipt_show_signature_space'),
         ];
 
         // Uppercase text-type columns
@@ -120,6 +125,11 @@ class SettingController extends Controller
                 'pos_transactions_enabled',
                 'pos_walk_in_customer_id',
                 'row_total_rounding_increment',
+                'pos_receipt_show_note',
+                'pos_receipt_show_return_history',
+                'pos_receipt_show_price_adjustments',
+                'pos_receipt_show_ppn',
+                'pos_receipt_show_signature_space',
             ];
 
             $current = session('user_settings');

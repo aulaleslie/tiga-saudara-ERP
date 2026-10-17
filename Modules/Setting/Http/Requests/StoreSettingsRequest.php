@@ -35,6 +35,11 @@ class StoreSettingsRequest extends FormRequest
                 Rule::exists('customers', 'id'),
             ],
             'row_total_rounding_increment' => 'required|numeric|min:0|max:100000',
+            'pos_receipt_show_note' => 'nullable|boolean',
+            'pos_receipt_show_return_history' => 'nullable|boolean',
+            'pos_receipt_show_price_adjustments' => 'nullable|boolean',
+            'pos_receipt_show_ppn' => 'nullable|boolean',
+            'pos_receipt_show_signature_space' => 'nullable|boolean',
             'footer_text' => 'nullable|string|max:255',
         ];
     }

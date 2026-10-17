@@ -68,13 +68,67 @@ class Setting extends BaseModel
 
     protected $guarded = [];
 
+    protected $attributes = [
+        'pos_receipt_show_note' => false,
+        'pos_receipt_show_return_history' => false,
+        'pos_receipt_show_price_adjustments' => false,
+        'pos_receipt_show_ppn' => false,
+        'pos_receipt_show_signature_space' => true,
+    ];
+
     protected $casts = [
         'is_pkp' => 'boolean',
         'pos_enabled' => 'boolean',
         'pos_transactions_enabled' => 'boolean',
         'pos_walk_in_customer_id' => 'integer',
         'row_total_rounding_increment' => 'float',
+        'pos_receipt_show_note' => 'boolean',
+        'pos_receipt_show_return_history' => 'boolean',
+        'pos_receipt_show_price_adjustments' => 'boolean',
+        'pos_receipt_show_ppn' => 'boolean',
+        'pos_receipt_show_signature_space' => 'boolean',
     ];
+
+    public function getPosReceiptShowNoteAttribute($value): bool
+    {
+        return (bool) $value;
+    }
+
+    public function getPosReceiptShowReturnHistoryAttribute($value): bool
+    {
+        return (bool) $value;
+    }
+
+    public function getPosReceiptShowPriceAdjustmentsAttribute($value): bool
+    {
+        return (bool) $value;
+    }
+
+    public function getPosReceiptShowPpnAttribute($value): bool
+    {
+        return (bool) $value;
+    }
+
+    public function getPosReceiptShowSignatureSpaceAttribute($value): bool
+    {
+        return $value === null ? true : (bool) $value;
+    }
+
+    public function getReceiptVisibility(): array
+    {
+        return [
+            'show_note' => (bool) ($this->pos_receipt_show_note ?? false),
+            'show_return_history' => (bool) ($this->pos_receipt_show_return_history ?? false),
+            'show_price_adjustments' => (bool) ($this->pos_receipt_show_price_adjustments ?? false),
+            'show_ppn' => (bool) ($this->pos_receipt_show_ppn ?? false),
+            'show_signature_space' => $this->pos_receipt_show_signature_space ?? true,
+            'pos_receipt_show_note' => (bool) ($this->pos_receipt_show_note ?? false),
+            'pos_receipt_show_return_history' => (bool) ($this->pos_receipt_show_return_history ?? false),
+            'pos_receipt_show_price_adjustments' => (bool) ($this->pos_receipt_show_price_adjustments ?? false),
+            'pos_receipt_show_ppn' => (bool) ($this->pos_receipt_show_ppn ?? false),
+            'pos_receipt_show_signature_space' => $this->pos_receipt_show_signature_space ?? true,
+        ];
+    }
 
     protected $with = ['currency'];
 

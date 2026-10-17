@@ -29,6 +29,7 @@ use Modules\SalesReturn\Entities\SaleReturn;
 use Modules\SalesReturn\Entities\SaleReturnDetail;
 use Modules\SalesReturn\Entities\SaleReturnPayment;
 use Modules\Setting\Entities\Location;
+use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 use Spatie\Permission\Models\Permission;
 
@@ -43,6 +44,16 @@ class POSReceiptReturnProjectionTest extends PosLineageSchemaAndCheckoutTest
         Permission::findOrCreate('posPayments.global.access', 'web');
         Permission::findOrCreate('pos.returns.create', 'web');
         Permission::findOrCreate('pos.returns.approve', 'web');
+    }
+
+    protected function createSetting(string $name): Setting
+    {
+        $setting = parent::createSetting($name);
+        $setting->update([
+            'pos_receipt_show_return_history' => true,
+        ]);
+
+        return $setting->fresh();
     }
 
     /**

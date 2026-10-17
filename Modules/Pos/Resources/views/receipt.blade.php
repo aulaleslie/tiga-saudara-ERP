@@ -225,6 +225,16 @@
 @php
     $displayDate = \Carbon\Carbon::parse($receiptData['date'])->translatedFormat('d M, Y H:i');
     $hasPrintHistory = !empty($receiptData['print_history']) && ($receiptData['print_history']['count'] ?? 0) > 0;
+    $visibility = $receiptData['receipt_visibility'] ?? [];
+    $showNote = (bool) ($visibility['show_note'] ?? $visibility['pos_receipt_show_note'] ?? false);
+    $showReturnHistory = (bool) ($visibility['show_return_history'] ?? $visibility['pos_receipt_show_return_history'] ?? false);
+    $showPriceAdjustments = (bool) ($visibility['show_price_adjustments'] ?? $visibility['pos_receipt_show_price_adjustments'] ?? false);
+    $showPpn = (bool) ($visibility['show_ppn'] ?? $visibility['pos_receipt_show_ppn'] ?? false);
+    $showSignatureSpace = array_key_exists('show_signature_space', $visibility)
+        ? (bool) $visibility['show_signature_space']
+        : (array_key_exists('pos_receipt_show_signature_space', $visibility)
+            ? (bool) $visibility['pos_receipt_show_signature_space']
+            : true);
 @endphp
 
 <div class="no-print">
@@ -304,7 +314,7 @@
                         <td class="col-qty">{{ (float) $line['qty'] }}</td>
                         <td class="col-product">
                             {{ $line['product_name'] }}
-                            @if(empty($receiptData['is_historical_checkout']) && empty($receiptData['is_draft']) && !empty($line['price_adjustments']))
+                            @if($showPriceAdjustments && empty($receiptData['is_historical_checkout']) && empty($receiptData['is_draft']) && !empty($line['price_adjustments']))
                                 @foreach($line['price_adjustments'] as $adj)
                                     <div class="small" style="font-weight: 400; color: #555;">{{ $adj }}</div>
                                 @endforeach
@@ -442,14 +452,14 @@
             </tbody>
         </table>
 
-        @if(!empty(trim($receiptData['note'] ?? '')))
+        @if($showNote && !empty(trim($receiptData['note'] ?? '')))
             <div class="receipt-note" style="margin-top: 5px; border-top: 1px dashed #000; padding-top: 4px;">
                 <div style="font-size: 11px; font-weight: 700; margin-bottom: 2px;">Catatan:</div>
                 <div style="font-weight: 400; font-size: 10px; line-height: 13px; white-space: pre-wrap; word-break: break-word;">{{ $receiptData['note'] }}</div>
             </div>
         @endif
 
-        @if(!empty($receiptData['return_history']))
+        @if($showReturnHistory && !empty($receiptData['return_history']))
             <div class="return-history" style="margin-top: 5px; border-top: 1px dashed #000; padding-top: 4px;">
                 <div class="centered" style="font-size: 11px; font-weight: 700; margin-bottom: 3px;">
                     RIWAYAT RETUR
@@ -489,7 +499,7 @@
                                         <td class="col-product small">
                                             {{ $item['product_name'] }}
                                             <div class="small" style="font-weight: 400; color: #555;">({{ $item['resolution'] }})</div>
-                                            @if(empty($receiptData['is_historical_checkout']) && empty($receiptData['is_draft']) && !empty($item['price_comparison']))
+                                            @if($showPriceAdjustments && empty($receiptData['is_historical_checkout']) && empty($receiptData['is_draft']) && !empty($item['price_comparison']))
                                                 <div class="small" style="font-weight: 400; color: #555;">{{ $item['price_comparison'] }}</div>
                                             @endif
                                             @if(!empty($item['returned_serial']) && !empty($item['replacement_serial']))
@@ -544,13 +554,17 @@
             </div>
         @endif
 
-        <div class="receipt-tail-space"></div>
-        <div class="receipt-tail-line"></div>
+        @if($showSignatureSpace)
+            <div class="receipt-tail-space"></div>
+            <div class="receipt-tail-line"></div>
+        @endif
         
         {{-- Task 2.3, 2.4, 2.5: Footer updates --}}
         <div class="tail-print-history" style="margin-top: 2mm;">
-            Harga sudah termasuk PPN
-            <br>
+            @if($showPpn)
+                Harga sudah termasuk PPN
+                <br>
+            @endif
             Terima Kasih Telah Berbelanja
         </div>
         <div style="text-align: right; font-size: 7px; color: #888; margin-top: 2mm;">

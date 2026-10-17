@@ -284,6 +284,7 @@ class SettingsWalkInCustomerMappingTest extends TestCase
             'company_address' => $setting->company_address,
             'is_pkp' => $setting->is_pkp ? '1' : '0',
             'pos_enabled' => $setting->pos_enabled ? '1' : '0',
+            'row_total_rounding_increment' => 100.00,
             'footer_text' => $setting->footer_text,
         ], $overrides);
     }
