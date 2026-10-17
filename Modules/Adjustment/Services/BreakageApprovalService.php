@@ -348,6 +348,7 @@ class BreakageApprovalService
                 $movement = $plan['movement'];
 
                 $beforeGood = (int) round((float) ($stock->quantity_tax ?? 0)) + (int) round((float) ($stock->quantity_non_tax ?? 0));
+                $beforeGlobalGood = max(0, (float) $product->product_quantity - (float) ($product->broken_quantity ?? 0));
                 $beforeBad = (int) round((float) ($stock->broken_quantity_tax ?? 0)) + (int) round((float) ($stock->broken_quantity_non_tax ?? 0));
                 $beforeTotal = $beforeGood + $beforeBad;
 
@@ -413,14 +414,14 @@ class BreakageApprovalService
                     $product->save();
                 }
 
-                // Stock alerts are computed against SELLABLE (good) stock,
-                // not physical total (which breakage intentionally never
-                // changes) -- feed checkLocationStock() the good-stock
-                // before/after so a breakage that pushes good stock at or
-                // below the alert threshold still notifies.
                 $stockNotificationChecks["location:{$stock->id}"] = [
                     'scope' => 'location', 'stock' => $stock,
                     'before' => $beforeGood, 'after' => $afterGood,
+                ];
+                $stockNotificationChecks["global:{$product->id}"] = [
+                    'scope' => 'global', 'product' => $product,
+                    'before' => $beforeGlobalGood,
+                    'after' => max(0, (float) $product->product_quantity - (float) $product->broken_quantity),
                 ];
 
                 $appliedProducts[] = [
@@ -438,7 +439,11 @@ class BreakageApprovalService
 
             foreach ($stockNotificationChecks as $check) {
                 if ((int) $check['before'] !== (int) $check['after']) {
-                    app(StockNotificationService::class)->checkLocationStock($check['stock'], $check['before'], $check['after']);
+                    if ($check['scope'] === 'location') {
+                        app(StockNotificationService::class)->checkLocationStock($check['stock'], $check['before'], $check['after']);
+                    } else {
+                        app(StockNotificationService::class)->checkGlobalStock($check['product'], $check['before'], $check['after']);
+                    }
                 }
             }
 

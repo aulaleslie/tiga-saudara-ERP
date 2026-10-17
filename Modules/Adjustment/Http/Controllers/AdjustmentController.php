@@ -1208,6 +1208,9 @@ class AdjustmentController extends Controller
                 $prev_broken_tax = $productStock->broken_quantity_tax ?? 0;
                 $prev_broken_non_tax = $productStock->broken_quantity_non_tax ?? 0;
                 $prev_quantity_at_location = (int) ($productStock->quantity ?? ($prev_quantity_tax + $prev_quantity_non_tax));
+                $previousBrokenAtLocation = (float) $prev_broken_tax + (float) $prev_broken_non_tax;
+                $previousSellableAtLocation = max(0, $prev_quantity_at_location - $previousBrokenAtLocation);
+                $previousSellableGlobal = max(0, (float) $product->product_quantity - (float) ($product->broken_quantity ?? 0));
 
                 $quantityTax = 0;
                 $quantityNonTax = 0;
@@ -1291,14 +1294,28 @@ class AdjustmentController extends Controller
 
                     if ($updatedTotalQuantity !== $currentProductQuantity) {
                         $product->product_quantity = $updatedTotalQuantity;
-                        $product->save();
-                        app(\App\Services\Notification\StockNotificationService::class)
-                            ->checkGlobalStock($product, $currentProductQuantity, $updatedTotalQuantity);
                     }
                 }
 
-                app(\App\Services\Notification\StockNotificationService::class)
-                    ->checkLocationStock($productStock, $prev_quantity_at_location, $new_quantity_at_location);
+                $product->broken_quantity = max(
+                    0,
+                    (float) ($product->broken_quantity ?? 0) + (float) $productStock->broken_quantity - $previousBrokenAtLocation
+                );
+                if ($product->isDirty()) {
+                    $product->save();
+                }
+
+                $stockNotifications = app(\App\Services\Notification\StockNotificationService::class);
+                $stockNotifications->checkGlobalStock(
+                    $product,
+                    $previousSellableGlobal,
+                    $stockNotifications->thresholdQuantityForProduct($product)
+                );
+                $stockNotifications->checkLocationStock(
+                    $productStock,
+                    $previousSellableAtLocation,
+                    $stockNotifications->thresholdQuantityForLocation($productStock)
+                );
 
                 // 🧾 Log the transaction
                 Transaction::create([
