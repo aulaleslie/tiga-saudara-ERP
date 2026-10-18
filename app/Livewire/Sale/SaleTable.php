@@ -75,6 +75,9 @@ class SaleTable extends Component
         abort_if($globalMode && !\auth()->user()->can('salePayments.global.access'), 403);
 
         $this->globalMode = $globalMode;
+        if ($this->globalMode && $this->sortField === 'created_at') {
+            $this->sortField = 'date';
+        }
         $this->customerId = $customerId;
         $this->settingId = $globalMode ? null : ($settingId ?? session('setting_id'));
         $this->statusFilter = $statusFilter;
@@ -416,7 +419,14 @@ class SaleTable extends Component
                     });
                 }
             })
-            ->orderBy($this->sortField, $this->sortDirection);
+            ->when($this->sortField === 'date', function ($q) {
+                $q->orderByRaw('COALESCE(sales.reporting_date, sales.date) ' . ($this->sortDirection === 'asc' ? 'asc' : 'desc'));
+            }, function ($q) {
+                $q->orderBy($this->sortField, $this->sortDirection);
+            })
+            ->when($this->sortField !== 'id', function ($q) {
+                $q->orderBy('id', $this->sortDirection);
+            });
 
         $sales = $query->paginate($this->perPage);
 
