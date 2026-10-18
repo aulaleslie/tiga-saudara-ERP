@@ -2,6 +2,7 @@
 
 namespace Modules\Purchase\Tests\Feature;
 
+use App\Models\Notification;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -186,6 +187,69 @@ class PurchaseReceivingApprovalLifecycleTest extends TestCase
         ]);
 
         return [$purchase, [$detail1, $detail2], [$p1, $p2]];
+    }
+
+    public function test_receiving_resolves_low_stock_only_when_sellable_stock_recovers(): void
+    {
+        [$purchase, [$detail], [$product]] = $this->createPurchase();
+        $product->update([
+            'product_quantity' => 12,
+            'broken_quantity' => 8,
+            'product_stock_alert' => 5,
+        ]);
+        $stock = ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location->id,
+            'quantity' => 12,
+            'quantity_non_tax' => 12,
+            'quantity_tax' => 0,
+            'broken_quantity' => 8,
+            'broken_quantity_non_tax' => 8,
+            'broken_quantity_tax' => 0,
+        ]);
+
+        $notifications = collect([
+            [Product::class, $product->id, null, 'global_low_stock'],
+            [ProductStock::class, $stock->id, $this->location->id, 'location_low_stock'],
+        ])->map(function (array $source) {
+            return Notification::create([
+                'user_id' => $this->user->id,
+                'setting_id' => $this->setting->id,
+                'location_id' => $source[2],
+                'category' => 'stock',
+                'type' => $source[3],
+                'title' => 'Low stock',
+                'message' => 'Low stock',
+                'source_type' => $source[0],
+                'source_id' => $source[1],
+                'fingerprint' => 'stock:receiving:' . $source[3],
+            ]);
+        });
+
+        foreach ([1, 1] as $quantity) {
+            $note = ReceivedNote::create([
+                'po_id' => $purchase->id,
+                'date' => now()->toDateString(),
+                'location_id' => $this->location->id,
+                'status' => ReceivedNote::STATUS_PENDING,
+            ]);
+            ReceivedNoteDetail::create([
+                'received_note_id' => $note->id,
+                'po_detail_id' => $detail->id,
+                'quantity_received' => $quantity,
+            ]);
+
+            $this->post(route('receivings.approve', $note->id));
+            $this->assertEquals(ReceivedNote::STATUS_APPROVED, $note->fresh()->status);
+
+            $resolved = $product->fresh()->product_quantity - $product->broken_quantity > 5;
+            foreach ($notifications as $notification) {
+                $this->assertEquals($resolved, $notification->fresh()->resolved_at !== null);
+            }
+        }
+
+        $this->assertEquals(14, $product->fresh()->product_quantity);
+        $this->assertEquals(14, $stock->fresh()->quantity);
     }
 
     /**

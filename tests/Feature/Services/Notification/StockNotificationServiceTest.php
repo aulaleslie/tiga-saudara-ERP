@@ -138,6 +138,28 @@ class StockNotificationServiceTest extends TestCase
         $this->assertEquals(0, Notification::unresolved()->count());
     }
 
+    public function test_realtime_global_low_stock_displays_sellable_quantity()
+    {
+        $product = Product::create([
+            'setting_id' => $this->setting1->id,
+            'product_name' => 'Broken Item',
+            'product_code' => 'BROKEN-LOW',
+            'product_cost' => 0,
+            'product_price' => 0,
+            'product_stock_alert' => 5,
+            'product_quantity' => 12,
+            'broken_quantity' => 8,
+        ]);
+
+        $this->stockService->checkGlobalStock($product, 10, 4);
+
+        $notification = Notification::where('type', 'global_low_stock')
+            ->where('source_id', $product->id)
+            ->firstOrFail();
+        $this->assertStringContainsString('(4 / 5)', $notification->message);
+        $this->assertEquals(4, $notification->metadata['current_quantity']);
+    }
+
     public function test_location_stock_threshold_crossing()
     {
         $product = Product::create([

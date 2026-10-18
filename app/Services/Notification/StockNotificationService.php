@@ -21,23 +21,22 @@ class StockNotificationService
         $alert = (float) $product->product_stock_alert;
 
         if ($currentQuantity <= $alert && $previousQuantity > $alert) {
-            $this->createGlobalStockNotifications($product);
+            $this->createGlobalStockNotifications($product, $currentQuantity);
         } elseif ($currentQuantity > $alert && $previousQuantity <= $alert) {
             $this->resolveGlobalStockNotifications($product);
         }
     }
 
-    /**
-     * @param float $previousQuantity The quantity the threshold decision is based on, BEFORE the change.
-     * @param float $currentQuantity The quantity the threshold decision is based on, AFTER the change.
-     *   For most callers this is the same figure as $stock->quantity (physical
-     *   good+broken total). Breakage intentionally holds $stock->quantity
-     *   invariant and instead passes the SELLABLE (good-only) quantity here,
-     *   so the displayed "current / threshold" figure must reflect that same
-     *   sellable quantity, not $stock->quantity -- otherwise a low-stock
-     *   notification can render an unrelated, always-above-threshold physical
-     *   total next to the alert.
-     */
+    public function thresholdQuantityForProduct(Product $product): float
+    {
+        return max(0.0, (float) $product->product_quantity - (float) ($product->broken_quantity ?? 0));
+    }
+
+    public function thresholdQuantityForLocation(ProductStock $stock): float
+    {
+        return max(0.0, (float) $stock->quantity - (float) ($stock->broken_quantity ?? 0));
+    }
+
     public function checkLocationStock(ProductStock $stock, float $previousQuantity, float $currentQuantity): void
     {
         $product = $stock->product;
@@ -54,9 +53,10 @@ class StockNotificationService
         }
     }
 
-    public function createGlobalStockNotifications(Product $product): void
+    public function createGlobalStockNotifications(Product $product, ?float $currentQuantity = null): void
     {
         $recipients = $this->permissionResolver->getLowStockRecipients($product->setting_id);
+        $displayQuantity = $currentQuantity ?? $this->thresholdQuantityForProduct($product);
 
         foreach ($recipients as $user) {
             $this->notificationService->write([
@@ -66,13 +66,13 @@ class StockNotificationService
                 'category' => 'stock',
                 'type' => 'global_low_stock',
                 'title' => 'Stok Global Menipis',
-                'message' => "Stok untuk produk {$product->product_name} menipis secara global ({$product->product_quantity} / {$product->product_stock_alert}).",
+                'message' => "Stok untuk produk {$product->product_name} menipis secara global ({$displayQuantity} / {$product->product_stock_alert}).",
                 'source_type' => Product::class,
                 'source_id' => $product->id,
                 'fingerprint' => "stock:global:{$product->id}:user:{$user->id}",
                 'action_url' => route('products.show', $product->id, false),
                 'metadata' => [
-                    'current_quantity' => $product->product_quantity,
+                    'current_quantity' => $displayQuantity,
                     'threshold' => $product->product_stock_alert,
                 ]
             ]);
@@ -89,17 +89,11 @@ class StockNotificationService
         );
     }
 
-    /**
-     * @param float|null $currentQuantity The quantity that actually crossed
-     *   the threshold (per checkLocationStock's doc comment). Defaults to
-     *   $stock->quantity for callers that check against the physical total,
-     *   preserving their existing behavior.
-     */
     public function createLocationStockNotifications(ProductStock $stock, ?float $currentQuantity = null): void
     {
         $product = $stock->product;
         $recipients = $this->permissionResolver->getLowStockRecipients($product->setting_id);
-        $displayQuantity = $currentQuantity ?? (float) $stock->quantity;
+        $displayQuantity = $currentQuantity ?? $this->thresholdQuantityForLocation($stock);
 
         $locationName = $stock->location->location_name ?? 'Lokasi';
 

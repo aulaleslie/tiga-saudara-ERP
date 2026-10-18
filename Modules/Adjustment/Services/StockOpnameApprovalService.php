@@ -746,8 +746,8 @@ class StockOpnameApprovalService
             $stockNotificationChecks["location:{$stock->id}"] = [
                 'scope' => 'location',
                 'stock' => $stock,
-                'before' => $previousStockTotal,
-                'after' => $afterStockTotal,
+                'before' => max(0, $previousStockTotal - $previousStockBroken),
+                'after' => max(0, $afterStockTotal - $afterStockBroken),
             ];
 
             Transaction::create([
@@ -790,8 +790,8 @@ class StockOpnameApprovalService
         $stockNotificationChecks["global:{$product->id}"] = [
             'scope' => 'global',
             'product' => $product,
-            'before' => $previousProductQuantity,
-            'after' => (float) $product->product_quantity,
+            'before' => max(0, $previousProductQuantity - $previousProductBroken),
+            'after' => max(0, (float) $product->product_quantity - (float) $product->broken_quantity),
         ];
 
         $appliedGood = $plan['applied_good_tax'] + $plan['applied_good_non_tax'];
@@ -1169,7 +1169,8 @@ class StockOpnameApprovalService
 
             $stockNotificationChecks["location:{$stock->id}"] = [
                 'scope' => 'location', 'stock' => $stock,
-                'before' => $beforeTotal, 'after' => $afterTotal,
+                'before' => max(0, $beforeTotal - $data['before_broken']),
+                'after' => max(0, $afterTotal - (float) $stock->broken_quantity),
             ];
         }
 
@@ -1224,7 +1225,8 @@ class StockOpnameApprovalService
 
         $stockNotificationChecks["global:{$product->id}"] = [
             'scope' => 'global', 'product' => $product,
-            'before' => $previousProductQuantity, 'after' => $afterProductQuantity,
+            'before' => max(0, $previousProductQuantity - $previousProductBroken),
+            'after' => max(0, $afterProductQuantity - (float) $product->broken_quantity),
         ];
 
         $primaryLoc = $selectedLocations->first();

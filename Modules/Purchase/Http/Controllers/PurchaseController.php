@@ -1325,10 +1325,17 @@ class PurchaseController extends Controller
                             $after_quantity_at_location = $productStock->quantity;
                             $after_quantity_for_setting = $previous_quantity_for_setting + $receivedQuantity;
 
-                            app(\App\Services\Notification\StockNotificationService::class)
-                                ->checkGlobalStock($product, $previous_quantity, $after_quantity);
-                            app(\App\Services\Notification\StockNotificationService::class)
-                                ->checkLocationStock($productStock, $previous_quantity_at_location, $after_quantity_at_location);
+                            $stockNotifications = app(\App\Services\Notification\StockNotificationService::class);
+                            $stockNotifications->checkGlobalStock(
+                                $product,
+                                max(0, (float) $previous_quantity - (float) ($product->broken_quantity ?? 0)),
+                                $stockNotifications->thresholdQuantityForProduct($product)
+                            );
+                            $stockNotifications->checkLocationStock(
+                                $productStock,
+                                max(0, (float) $previous_quantity_at_location - (float) ($productStock->broken_quantity ?? 0)),
+                                $stockNotifications->thresholdQuantityForLocation($productStock)
+                            );
 
                             // Update Last Purchase Price
                             $product->update(['last_purchase_price' => $purchaseDetail->price]);
