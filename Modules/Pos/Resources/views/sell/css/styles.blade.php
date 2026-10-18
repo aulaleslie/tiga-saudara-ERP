@@ -21,7 +21,7 @@
         height: 100%;
         display: grid;
         grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
-        grid-template-rows: clamp(64px, 9dvh, 86px) clamp(104px, 16dvh, 150px) minmax(0, 1fr) clamp(128px, 15dvh, 148px) clamp(132px, 22dvh, 184px);
+        grid-template-rows: clamp(64px, 9dvh, 86px) clamp(104px, 16dvh, 150px) minmax(0, 1fr) auto clamp(132px, 19dvh, 184px);
         grid-template-areas:
             "info     nav"
             "search   search"
@@ -115,6 +115,14 @@
 
     .pos-area-note {
         grid-area: note;
+    }
+
+    .pos-area-note .pos-card {
+        height: auto;
+    }
+
+    .pos-area-note .card-body {
+        overflow: visible;
     }
 
     .pos-area-payment {
@@ -617,18 +625,38 @@
     }
 
     .pos-cart-product {
-        max-width: 320px;
+        max-width: 240px;
     }
 
     .pos-cart-product .name {
         font-weight: 700;
-        line-height: 1.2;
+        font-size: 0.72rem;
+        line-height: 1.18;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        overflow-wrap: anywhere;
     }
 
     .pos-cart-product .meta {
         font-size: 0.69rem;
         color: #64748b;
         line-height: 1.2;
+    }
+
+    .pos-note-shell {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .pos-transaction-note-input {
+        flex: none;
+        height: clamp(92px, 18dvh, 160px);
+        min-height: 92px;
+        max-height: min(35dvh, 270px);
+        overflow-y: auto;
+        resize: vertical;
     }
 
     .pos-cart-qty {
@@ -1026,13 +1054,19 @@
     }
 
     @media (max-height: 780px) {
+        .pos-transaction-note-input {
+            height: clamp(64px, 13dvh, 100px);
+            min-height: 56px;
+            max-height: min(24dvh, 190px);
+        }
+
         .pos-shell {
             padding: 0.4rem;
         }
 
         .pos-viewport {
             gap: 0.4rem;
-            grid-template-rows: clamp(58px, 8dvh, 76px) clamp(92px, 14dvh, 126px) minmax(0, 1fr) clamp(110px, 13dvh, 130px) clamp(118px, 21dvh, 164px);
+            grid-template-rows: clamp(58px, 8dvh, 76px) clamp(92px, 14dvh, 126px) minmax(0, 1fr) auto clamp(118px, 21dvh, 164px);
         }
 
         .pos-card .card-header {
@@ -1079,17 +1113,28 @@
         }
     }
 
+    @media (max-height: 650px) {
+        .pos-shell {
+            overflow-y: auto;
+        }
+
+        .pos-viewport {
+            height: auto;
+            min-height: 650px;
+        }
+    }
+
     @media (max-width: 991.98px) {
         .pos-viewport {
             grid-template-columns: minmax(0, 6fr) minmax(0, 4fr);
-            grid-template-rows: clamp(64px, 10dvh, 88px) clamp(96px, 15dvh, 132px) minmax(0, 1fr) clamp(124px, 15dvh, 144px) clamp(128px, 22dvh, 176px);
+            grid-template-rows: clamp(64px, 10dvh, 88px) clamp(96px, 15dvh, 132px) minmax(0, 1fr) auto clamp(128px, 22dvh, 176px);
         }
     }
 
     @media (max-width: 767.98px) and (orientation: landscape) {
         .pos-viewport {
             grid-template-columns: minmax(0, 58fr) minmax(0, 42fr);
-            grid-template-rows: clamp(60px, 12dvh, 76px) clamp(92px, 18dvh, 124px) minmax(0, 1fr) clamp(108px, 14dvh, 128px) clamp(118px, 24dvh, 160px);
+            grid-template-rows: clamp(60px, 12dvh, 76px) clamp(92px, 18dvh, 124px) minmax(0, 1fr) auto clamp(118px, 24dvh, 160px);
             gap: 0.35rem;
         }
 
