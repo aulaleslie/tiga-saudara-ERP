@@ -45,6 +45,7 @@ class SaleDetailCustomerNumberPresentationTest extends TestCase
 
         Permission::firstOrCreate(['name' => 'sales.show', 'guard_name' => 'web']);
         Permission::firstOrCreate(['name' => 'sales.reporting-date.override', 'guard_name' => 'web']);
+        Permission::firstOrCreate(['name' => 'sales.due-date.override', 'guard_name' => 'web']);
         $this->user = User::factory()->create(['is_active' => 1]);
         $this->user->givePermissionTo('sales.show');
         $this->user->givePermissionTo('sales.reporting-date.override');
@@ -174,4 +175,77 @@ class SaleDetailCustomerNumberPresentationTest extends TestCase
         $response->assertStatus(200);
         $response->assertSee('INV/SAL-004');
     }
+
+    public function test_sale_detail_view_displays_customer_npwp_when_present(): void
+    {
+        $this->customer->update(["npwp" => "09.123.456.7-890.000"]);
+
+        $sale = Sale::create([
+            "date" => now(),
+            "reference" => "SAL-NPWP-001",
+            "setting_id" => $this->setting->id,
+            "customer_name" => $this->customer->customer_name,
+            "customer_id" => $this->customer->id,
+            "tax_percentage" => 0,
+            "tax_amount" => 0,
+            "discount_percentage" => 0,
+            "discount_amount" => 0,
+            "shipping_amount" => 0,
+            "total_amount" => 1000,
+            "paid_amount" => 0,
+            "due_amount" => 1000,
+            "status" => Sale::STATUS_DISPATCHED,
+            "payment_status" => "Unpaid",
+            "payment_method" => "Cash",
+        ]);
+
+        $this->actingAs($this->user);
+        session(["setting_id" => $this->setting->id]);
+
+        $response = $this->get(route("sales.show", $sale->id));
+
+        $response->assertStatus(200);
+        $response->assertSee("NPWP");
+        $response->assertSee("09.123.456.7-890.000");
+    }
+
+    public function test_sale_invoice_print_view_displays_customer_npwp_when_present(): void
+    {
+        $this->customer->update(["npwp" => "09.123.456.7-890.000"]);
+
+        $sale = Sale::create([
+            "date" => now(),
+            "reference" => "SAL-NPWP-002",
+            "setting_id" => $this->setting->id,
+            "customer_name" => $this->customer->customer_name,
+            "customer_id" => $this->customer->id,
+            "tax_percentage" => 0,
+            "tax_amount" => 0,
+            "discount_percentage" => 0,
+            "discount_amount" => 0,
+            "shipping_amount" => 0,
+            "total_amount" => 1000,
+            "paid_amount" => 0,
+            "due_amount" => 1000,
+            "status" => Sale::STATUS_DISPATCHED,
+            "payment_status" => "Unpaid",
+            "payment_method" => "Cash",
+        ]);
+
+        $html = view("sale::print.invoice", [
+            "sale" => $sale,
+            "customer" => $this->customer,
+            "details" => collect(),
+            "invoiceNumber" => $sale->reference,
+            "tanggal" => now(),
+            "jatuhTempo" => now(),
+            "total" => 1000,
+            "paid" => 0,
+            "due" => 1000,
+        ])->render();
+
+        $this->assertStringContainsString("NPWP", $html);
+        $this->assertStringContainsString("09.123.456.7-890.000", $html);
+    }
+
 }
