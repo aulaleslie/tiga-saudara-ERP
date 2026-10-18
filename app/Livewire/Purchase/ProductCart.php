@@ -65,7 +65,7 @@ class ProductCart extends Component
         Log::info($message, $context);
     }
 
-    public function mount($cartInstance, $data = null, ?int $selectedSettingId = null): void
+    public function mount($cartInstance, $data = null, ?int $selectedSettingId = null, bool $isDuplicate = false): void
     {
         $this->cart_instance = $cartInstance;
         $cart_items = Cart::instance($this->cart_instance)->content();
@@ -95,7 +95,7 @@ class ProductCart extends Component
 
         if ($data) {
             $this->data = $data;
-            $this->monetaryOnly = $data instanceof \Modules\Purchase\Entities\Purchase
+            $this->monetaryOnly = ! $isDuplicate && $data instanceof \Modules\Purchase\Entities\Purchase
                 && $data->resolveEditMode() === \Modules\Purchase\Entities\Purchase::EDIT_MODE_MONETARY_ONLY;
 
             if ($data->discount_percentage > 0) {

@@ -105,7 +105,7 @@
 
         <!-- Product Cart -->
         <div class="my-3">
-            <livewire:purchase.product-cart :cartInstance="'purchase'" :data="$duplicatePurchase" :selectedSettingId="$selectedSettingId" wire:key="purchase-product-cart-{{ $selectedSettingId }}" />
+            <livewire:purchase.product-cart :cartInstance="'purchase'" :data="$duplicatePurchase" :selectedSettingId="$selectedSettingId" :isDuplicate="$duplicatePurchase !== null" wire:key="purchase-product-cart-{{ $selectedSettingId }}" />
         </div>
 
         <!-- Catatan -->
@@ -136,6 +136,5 @@
         </div>
     </div>
 </div>
-
 
 
