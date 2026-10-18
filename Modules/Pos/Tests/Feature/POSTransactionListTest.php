@@ -3,6 +3,7 @@
 namespace Modules\Pos\Tests\Feature;
 
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 use Modules\Pos\Entities\PosTransaction;
 use Modules\Pos\Tests\Feature\Support\PosTransactionFeatureTestCase;
 
@@ -49,6 +50,68 @@ class POSTransactionListTest extends PosTransactionFeatureTestCase
 
         $this->assertContains($txnA, $ids);
         $this->assertNotContains($txnB, $ids);
+    }
+
+
+    public function test_transaction_list_data_returns_note_and_excerpt(): void
+    {
+        $setting = $this->createSetting('BIZ POS TXN LIST NOTE');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TXN LIST NOTE USER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+            'pos.transactions.view',
+        ]);
+        $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
+
+        $product = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-LS-NOTE']);
+        $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
+        $transactionId = (int) $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->json('transaction.id');
+
+        $note = 'Kirim pagi <b>tanpa plastik</b> dan konfirmasi ulang sebelum barang keluar gudang utama.';
+        PosTransaction::whereKey($transactionId)->update(['note' => "  Kirim pagi\n<b>tanpa plastik</b> dan konfirmasi ulang sebelum barang keluar gudang utama.  "]);
+
+        $response = $this->getJson(route('pos.transactions.data'));
+
+        $response->assertOk();
+        $row = collect($response->json('data'))->firstWhere('id', $transactionId);
+
+        $this->assertSame($note, $row['note']);
+        $this->assertSame(Str::limit($note, 80), $row['note_excerpt']);
+    }
+
+    public function test_transaction_list_data_returns_null_note_fields_for_empty_note(): void
+    {
+        $setting = $this->createSetting('BIZ POS TXN LIST EMPTY NOTE');
+        [$terminal, $location] = $this->createTerminalWithLocation($setting);
+        $user = $this->createUserForSetting($setting, 'POS TXN LIST EMPTY NOTE USER', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.save',
+            'pos.transactions.view',
+        ]);
+        $this->openSession($setting, $terminal, $user);
+        $this->actingAsInSetting($user, $setting);
+
+        $product = $this->createStockedProduct($setting, $location, ['product_code' => 'SKU-TXN-LS-NONOTE']);
+        $this->postJson(route('pos.sell.cart.lines.store'), ['product_id' => $product->id, 'qty' => 1])
+            ->assertOk();
+        $transactionId = (int) $this->postJson(route('pos.sell.transactions.save-and-new'))
+            ->json('transaction.id');
+
+        $response = $this->getJson(route('pos.transactions.data'));
+
+        $response->assertOk();
+        $row = collect($response->json('data'))->firstWhere('id', $transactionId);
+
+        $this->assertNull($row['note']);
+        $this->assertNull($row['note_excerpt']);
     }
 
     public function test_transaction_list_data_requires_pos_transactions_view_permission(): void
@@ -127,7 +190,8 @@ class POSTransactionListTest extends PosTransactionFeatureTestCase
         $this->get(route('pos.transactions.index'))
             ->assertOk()
             ->assertViewIs('pos::transactions.index')
-            ->assertSee('Transaksi POS');
+            ->assertSee('Transaksi POS')
+            ->assertSee('Catatan');
     }
 
     public function test_transaction_list_page_includes_client_bootstrap_script(): void
