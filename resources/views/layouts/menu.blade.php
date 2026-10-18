@@ -602,8 +602,8 @@
 
 <li class="c-sidebar-nav-divider"></li>
 
-@canany(['settings.access', 'businesses.access', 'journals.access', 'taxes.access', 'paymentMethods.access', 'paymentTerms.access', 'saleLocations.access'])
-    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('settings*') ? 'c-show' : '' }}">
+@canany(['settings.access', 'businesses.access', 'journals.access', 'taxes.access', 'paymentMethods.access', 'paymentTerms.access', 'saleLocations.access', 'cashDenominations.access'])
+    <li class="c-sidebar-nav-item c-sidebar-nav-dropdown {{ request()->routeIs('settings*') || request()->routeIs('cash-denomination-configurations*') ? 'c-show' : '' }}">
         <a class="c-sidebar-nav-link c-sidebar-nav-dropdown-toggle" href="#">
             <i class="c-sidebar-nav-icon bi bi-gear-fill" style="line-height: 1;"></i> Pengaturan
         </a>
@@ -664,6 +664,16 @@
                        href="{{ route('pos-payment-configurations.index') }}">
                         <i class="c-sidebar-nav-icon bi bi-credit-card" style="line-height: 1;"></i>
                         Konfigurasi Pembayaran POS
+                    </a>
+                </li>
+            @endcan
+
+            @can('cashDenominations.access')
+                <li class="c-sidebar-nav-item">
+                    <a class="c-sidebar-nav-link {{ request()->routeIs('cash-denomination-configurations*') ? 'c-active' : '' }}"
+                       href="{{ route('cash-denomination-configurations.index') }}">
+                        <i class="c-sidebar-nav-icon bi bi-cash-coin" style="line-height: 1;"></i>
+                        Konfigurasi Pecahan Uang
                     </a>
                 </li>
             @endcan
