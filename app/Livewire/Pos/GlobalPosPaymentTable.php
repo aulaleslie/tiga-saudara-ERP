@@ -136,6 +136,19 @@ class GlobalPosPaymentTable extends Component
 
     public function applyFilter()
     {
+        $draftBusiness = $this->draftGlobalBusinessFilters ?? [];
+        $currentBusiness = $this->globalBusinessFilters ?? [];
+        sort($draftBusiness);
+        sort($currentBusiness);
+
+        $summaryInputsChanged = (
+            $draftBusiness !== $currentBusiness
+            || $this->transactionDateFrom !== $this->draftTransactionDateFrom
+            || $this->transactionDateTo !== $this->draftTransactionDateTo
+            || $this->dueDateFrom !== $this->draftDueDateFrom
+            || $this->dueDateTo !== $this->draftDueDateTo
+        );
+
         $this->globalBusinessFilters = $this->draftGlobalBusinessFilters ?? [];
         $this->transactionDateFrom = $this->draftTransactionDateFrom;
         $this->transactionDateTo = $this->draftTransactionDateTo;
@@ -148,14 +161,17 @@ class GlobalPosPaymentTable extends Component
         $this->normalizeDateRanges();
         $this->resetPage();
 
-        $this->dispatch('global-pos-filters-changed',
-            globalBusinessFilters: $this->globalBusinessFilters,
-            transactionDateFrom: $this->transactionDateFrom,
-            transactionDateTo: $this->transactionDateTo,
-            dueDateFrom: $this->dueDateFrom,
-            dueDateTo: $this->dueDateTo,
-            selectedCardFilter: $this->selectedCardFilter
-        );
+        if ($summaryInputsChanged) {
+            $this->dispatch('global-pos-filters-changed',
+                globalBusinessFilters: $this->globalBusinessFilters,
+                transactionDateFrom: $this->transactionDateFrom,
+                transactionDateTo: $this->transactionDateTo,
+                dueDateFrom: $this->dueDateFrom,
+                dueDateTo: $this->dueDateTo,
+                selectedCardFilter: $this->selectedCardFilter,
+                forceRefresh: false
+            );
+        }
     }
 
     public function resetFilters()
@@ -187,7 +203,8 @@ class GlobalPosPaymentTable extends Component
             transactionDateTo: null,
             dueDateFrom: null,
             dueDateTo: null,
-            selectedCardFilter: null
+            selectedCardFilter: null,
+            forceRefresh: true
         );
     }
 
@@ -222,16 +239,7 @@ class GlobalPosPaymentTable extends Component
         $projectionService = app(PosSettlementProjectionService::class);
 
         $query = $projectionService->baseEligibleQuery()
-            ->with(array_merge(
-                PosSettlementProjectionService::reachableSalesEagerLoad(),
-                [
-                    'setting',
-                    'customer',
-                    'creator',
-                    'completedCheckout.terminal',
-                    'completedCheckout.cashier',
-                ]
-            ));
+            ->with(PosSettlementProjectionService::reachableSalesEagerLoad());
 
         // Customer filter
         if (!empty($this->customerId)) {
@@ -291,35 +299,43 @@ class GlobalPosPaymentTable extends Component
         // complete filtered set first and constrain the query to the matching IDs before
         // paginating. Otherwise pagination would run on the unfiltered set and produce
         // partial/empty pages and incorrect totals.
-        if ($this->selectedCardFilter || $this->paymentStatusFilter || $this->dueDateFrom || $this->dueDateTo) {
+        $isProjectionFilterActive = (bool) ($this->selectedCardFilter || $this->paymentStatusFilter || $this->dueDateFrom || $this->dueDateTo);
+        $projectionsByTrxId = [];
+
+        if ($isProjectionFilterActive) {
             $allMatching = (clone $query)->get();
 
-            $matchingIds = $allMatching->filter(function ($trx) use ($projectionService) {
-                $proj = $projectionService->project($trx);
+            // Prepare replacement sales in batch for all candidate transactions
+            $replacementContext = $projectionService->prepareReplacementSales($allMatching);
+
+            $matchingIds = [];
+            foreach ($allMatching as $trx) {
+                $proj = $projectionService->project($trx, $replacementContext);
+                $projectionsByTrxId[$trx->id] = $proj;
 
                 if ($this->paymentStatusFilter && strtolower($proj['payment_status']) !== strtolower($this->paymentStatusFilter)) {
-                    return false;
+                    continue;
                 }
 
                 if ($this->selectedCardFilter === 'unpaid' && $proj['live_due'] <= 0) {
-                    return false;
+                    continue;
                 }
-                if ($this->selectedCardFilter === 'overdue' && !$proj['is_overdue']) {
-                    return false;
+                if ($this->selectedCardFilter === 'overdue' && ! $proj['is_overdue']) {
+                    continue;
                 }
-                if ($this->selectedCardFilter === 'paid' && !$proj['has_recent_payment_30d']) {
-                    return false;
+                if ($this->selectedCardFilter === 'paid' && ! $proj['has_recent_payment_30d']) {
+                    continue;
                 }
 
                 if (!empty($this->dueDateFrom) && ($proj['effective_due_date'] === null || $proj['effective_due_date'] < $this->dueDateFrom)) {
-                    return false;
+                    continue;
                 }
                 if (!empty($this->dueDateTo) && ($proj['effective_due_date'] === null || $proj['effective_due_date'] > $this->dueDateTo)) {
-                    return false;
+                    continue;
                 }
 
-                return true;
-            })->pluck('id')->all();
+                $matchingIds[] = $trx->id;
+            }
 
             $query->whereIn('pos_transactions.id', $matchingIds ?: [0]);
         }
@@ -327,11 +343,30 @@ class GlobalPosPaymentTable extends Component
         // Fetch paginated results
         $paginator = $query->paginate($this->perPage);
 
-        // Map projections to paginated items
+        // Map projections to paginated items and load presentation-only relations
         $items = $paginator->getCollection();
-        foreach ($items as $trx) {
-            $trx->projection = $projectionService->project($trx);
+
+        if ($isProjectionFilterActive) {
+            // Reuse projection maps from pre-pagination filtering; do not re-project!
+            foreach ($items as $trx) {
+                $trx->projection = $projectionsByTrxId[$trx->id] ?? $projectionService->project($trx);
+            }
+        } else {
+            // No projection filter was active: batch prepare replacement sales ONLY on visible page rows
+            $pageReplacementContext = $projectionService->prepareReplacementSales($items);
+            foreach ($items as $trx) {
+                $trx->projection = $projectionService->project($trx, $pageReplacementContext);
+            }
         }
+
+        // Restrict presentation-only eager loads to visible page rows
+        $items->loadMissing([
+            'setting',
+            'customer',
+            'creator',
+            'completedCheckout.terminal',
+            'completedCheckout.cashier',
+        ]);
 
         $availableSettings = Setting::query()
             ->orderBy('company_name')

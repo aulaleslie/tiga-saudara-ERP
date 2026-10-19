@@ -25,6 +25,12 @@ class PosSettlementProjectionService
 
     protected PosReachableSalesResolver $resolver;
     protected PosChildSaleEligibilityService $eligibilityService;
+    public static int $projectionCount = 0;
+
+    public static function resetProjectionCount(): void
+    {
+        self::$projectionCount = 0;
+    }
 
     public function __construct(
         ?PosReachableSalesResolver $resolver = null,
@@ -61,25 +67,37 @@ class PosSettlementProjectionService
     }
 
     /**
+     * Batch prepare replacement sales for a collection/array of PosTransaction or PosCheckout records.
+     *
+     * @param iterable<PosTransaction|PosCheckout> $records
+     * @return array
+     */
+    public function prepareReplacementSales(iterable $records): array
+    {
+        return $this->resolver->prepareReplacementSales($records);
+    }
+
+    /**
      * Resolve reachable sales.
      */
-    public function resolveSales(PosTransaction|PosCheckout $record): Collection
+    public function resolveSales(PosTransaction|PosCheckout $record, ?array $preparedReplacementContext = null): Collection
     {
-        return $this->resolver->resolveSales($record);
+        return $this->resolver->resolveSales($record, $preparedReplacementContext);
     }
 
     /**
      * Run diagnostics on mapping.
      */
-    public function diagnose(PosTransaction|PosCheckout $record): array
+    public function diagnose(PosTransaction|PosCheckout $record, ?array $preparedReplacementContext = null): array
     {
-        return $this->resolver->resolveWithDiagnostics($record);
+        return $this->resolver->resolveWithDiagnostics($record, $preparedReplacementContext);
     }
 
     /**
      * Project settlement for a single POS transaction.
      *
      * @param PosTransaction $transaction
+     * @param array|null $preparedReplacementContext
      * @return array{
      *     total_amount: float,
      *     effective_paid: float,
@@ -96,9 +114,10 @@ class PosSettlementProjectionService
      *     sales: Collection<int, Sale>
      * }
      */
-    public function project(PosTransaction $transaction): array
+    public function project(PosTransaction $transaction, ?array $preparedReplacementContext = null): array
     {
-        $diagnostics = $this->resolver->resolveWithDiagnostics($transaction);
+        self::$projectionCount++;
+        $diagnostics = $this->resolver->resolveWithDiagnostics($transaction, $preparedReplacementContext);
         $sales = $diagnostics['sales'];
         $isValid = $diagnostics['is_valid'] && $sales->isNotEmpty();
         $anomalies = $diagnostics['anomalies'];
@@ -318,6 +337,8 @@ class PosSettlementProjectionService
 
         $transactions = $query->get();
 
+        $replacementContext = $this->prepareReplacementSales($transactions);
+
         $outstandingCount = 0;
         $outstandingTotal = 0.0;
 
@@ -328,7 +349,7 @@ class PosSettlementProjectionService
         $paid30dTotal = 0.0;
 
         foreach ($transactions as $trx) {
-            $projection = $this->project($trx);
+            $projection = $this->project($trx, $replacementContext);
 
             // Apply due date filters if specified
             if (!empty($dueDateFrom) && ($projection['effective_due_date'] === null || $projection['effective_due_date'] < $dueDateFrom)) {

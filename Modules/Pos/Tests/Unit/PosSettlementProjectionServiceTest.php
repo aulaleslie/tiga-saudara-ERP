@@ -565,9 +565,11 @@ class PosSettlementProjectionServiceTest extends TestCase
             ->with(PosSettlementProjectionService::reachableSalesEagerLoad())
             ->findOrFail($trx->id);
 
+        $context = $this->service->prepareReplacementSales([$eagerTrx]);
+
         \Illuminate\Support\Facades\DB::enableQueryLog();
         \Illuminate\Support\Facades\DB::flushQueryLog();
-        $eagerProjection = $this->service->project($eagerTrx);
+        $eagerProjection = $this->service->project($eagerTrx, $context);
         $queryLog = \Illuminate\Support\Facades\DB::getQueryLog();
         \Illuminate\Support\Facades\DB::disableQueryLog();
 

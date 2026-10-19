@@ -21,6 +21,7 @@ use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SalePayment;
 use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
+use Modules\Pos\Services\PosSettlementProjectionService;
 use Modules\Setting\Entities\Unit;
 use Tests\TestCase;
 
@@ -920,5 +921,130 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
         $component->call('applyCardFilter', 'unpaid');
         $component->assertSee('TRX-LIVE-SPLIT');
         $component->assertDontSee('TRX-LIVE-ALLZERO');
+    }
+
+    public function test_projection_filtering_projects_each_candidate_at_most_once_per_render(): void
+    {
+        for ($i = 1; $i <= 5; $i++) {
+            $this->createCompletedPosTransaction($this->setting1, $this->customer1, 10000 * $i, "POS-PROJ-REUSE-{$i}");
+        }
+
+        $component = Livewire::test(GlobalPosPaymentTable::class);
+
+        PosSettlementProjectionService::resetProjectionCount();
+
+        $component->call('applyCardFilter', 'unpaid');
+
+        // With 5 records, each record must be projected at most once per render (count <= 5, not 10)
+        $this->assertLessThanOrEqual(5, PosSettlementProjectionService::$projectionCount);
+        $this->assertGreaterThan(0, PosSettlementProjectionService::$projectionCount);
+    }
+
+    public function test_unfiltered_table_projects_only_visible_page_rows(): void
+    {
+        for ($i = 1; $i <= 15; $i++) {
+            $this->createCompletedPosTransaction($this->setting1, $this->customer1, 10000 * $i, "POS-VIS-PAGE-{$i}");
+        }
+
+        PosSettlementProjectionService::resetProjectionCount();
+
+        // Default perPage is 10, so mount renders page 1 with 10 records
+        Livewire::test(GlobalPosPaymentTable::class);
+
+        // Only the 10 items on page 1 must be projected, not all 15
+        $this->assertSame(10, PosSettlementProjectionService::$projectionCount);
+    }
+
+    public function test_card_selection_updates_highlight_without_recalculating_summary_totals(): void
+    {
+        $this->createCompletedPosTransaction($this->setting1, $this->customer1, 10000, 'POS-CARD-OPT-01');
+
+        $component = Livewire::test(PosSummaryCards::class);
+
+        // Track queries during card filter toggling
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+        \Illuminate\Support\Facades\DB::flushQueryLog();
+
+        $component->call('toggleCardFilter', 'unpaid');
+        $component->assertSet('selectedCardFilter', 'unpaid');
+        $component->assertDispatched('pos-filter', type: 'unpaid');
+
+        $queryLog = \Illuminate\Support\Facades\DB::getQueryLog();
+        $queryCount = count($queryLog);
+        \Illuminate\Support\Facades\DB::disableQueryLog();
+
+        // Print queries for inspection
+        // dump(array_column($queryLog, 'query'));
+        $posTrxQueries = array_filter($queryLog, fn($q) => str_contains($q['query'], 'pos_transactions') || str_contains($q['query'], 'pos_settlement') || str_contains($q['query'], 'sales'));
+        $this->assertEmpty($posTrxQueries, 'No settlement or transaction queries should execute during card filter toggle.');
+    }
+
+    public function test_table_filter_dispatch_distinguishes_table_only_filters_from_summary_inputs(): void
+    {
+        $this->createCompletedPosTransaction($this->setting1, $this->customer1, 10000, 'POS-DISPATCH-01');
+
+        $component = Livewire::test(GlobalPosPaymentTable::class);
+
+        // 1. Table-only filter change (payment status): should NOT dispatch global-pos-filters-changed
+        $component->set('draftPaymentStatusFilter', 'Paid');
+        $component->call('applyFilter');
+        $component->assertNotDispatched('global-pos-filters-changed');
+
+        // 2. Summary input change (transactionDateFrom): MUST dispatch global-pos-filters-changed
+        $component->set('draftTransactionDateFrom', '2026-01-01');
+        $component->call('applyFilter');
+        $component->assertDispatched('global-pos-filters-changed');
+
+        // 3. Reset filters: MUST dispatch global-pos-filters-changed with forceRefresh: true
+        $component->call('resetFilters');
+        $component->assertDispatched('global-pos-filters-changed');
+    }
+
+    public function test_explicit_reset_forces_summary_recalculation_after_settlement_data_change(): void
+    {
+        // Trx: 10,000 Unpaid
+        $t = $this->createCompletedPosTransaction($this->setting1, $this->customer1, 10000, 'POS-RESET-STALE');
+
+        // Mount summary cards with default filters
+        $summary = Livewire::test(PosSummaryCards::class);
+        $this->assertSame(1, $summary->get('summary')['outstanding']['count']);
+        $this->assertEquals(10000.0, $summary->get('summary')['outstanding']['total']);
+        $this->assertSame(0, $summary->get('summary')['paid_within_30_days']['count']);
+        $this->assertEquals(0.0, $summary->get('summary')['paid_within_30_days']['total']);
+
+        // Simulate committed payment changing settlement data in database while workspace is open
+        SalePayment::create([
+            'sale_id' => $t['sale']->id,
+            'amount' => 10000,
+            'date' => now()->toDateString(),
+            'status' => SalePayment::STATUS_ACTIVE,
+            'payment_method_id' => $this->cashMethod->id,
+            'payment_method' => 'Cash',
+            'reference' => 'PAY-RESET-STALE',
+        ]);
+        $t['sale']->reconcileFromActivePayments();
+
+        // 1. Without forceRefresh (normal filter changed event with identical inputs): summary stays cached and stale
+        $summary->call('handleFiltersChanged', [], null, null, null, null, null, false);
+        $this->assertSame(1, $summary->get('summary')['outstanding']['count'], 'Summary should remain cached when inputs hash has not changed.');
+        $this->assertEquals(10000.0, $summary->get('summary')['outstanding']['total']);
+
+        // 2. Table reset is called with already-default filters: dispatches forceRefresh: true
+        $table = Livewire::test(GlobalPosPaymentTable::class);
+        $table->call('resetFilters');
+        $table->assertDispatched('global-pos-filters-changed', forceRefresh: true);
+
+        // 3. Summary cards receive reset event with forceRefresh: true and already-default filters
+        $summary->call('handleFiltersChanged', [], null, null, null, null, null, true);
+
+        // Must display fresh financial totals (0 outstanding, 10,000 paid within 30 days)
+        $this->assertSame(0, $summary->get('summary')['outstanding']['count']);
+        $this->assertEquals(0.0, $summary->get('summary')['outstanding']['total']);
+        $this->assertSame(1, $summary->get('summary')['paid_within_30_days']['count']);
+        $this->assertEquals(10000.0, $summary->get('summary')['paid_within_30_days']['total']);
+        $summary->assertSet('summary.outstanding.total', 0);
+        $summary->assertSet('summary.outstanding.count', 0);
+        $summary->assertSet('summary.paid_within_30_days.total', 10000);
+        $summary->assertSet('summary.paid_within_30_days.count', 1);
     }
 }
