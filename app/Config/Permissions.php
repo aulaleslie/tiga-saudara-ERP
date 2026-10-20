@@ -355,6 +355,7 @@ return [
         'pos.overrides.discount' => 'Ubah Diskon',
         'pos.overrides.total-price' => 'Ubah Total Keranjang',
         'pos.checkout.debt' => 'Checkout sebagai Utang',
+        'pos.kasBon.collect' => 'Bayar Kas Bon',
         'pos.void' => 'Batal Transaksi',
         'pos.supervisor.approval' => 'Persetujuan Supervisor',
         'pos.monitor.access' => 'Akses Monitor',

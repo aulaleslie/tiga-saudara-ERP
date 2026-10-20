@@ -74,6 +74,7 @@
     @include('pos::sell.modals.line_unit_price_override')
     @include('pos::sell.modals.line_total_override')
     @include('pos::sell.modals.checkout_mismatch')
+    @include('pos::sell.modals.kas_bon_collection')
 
 @push('page_scripts')
     <!-- Task 3.1: Include staged payment module -->
@@ -82,6 +83,10 @@
     <script src="{{ asset('vendor/html5-qrcode/html5-qrcode.min.js') }}"></script>
     <!-- Camera scanner module (must load after html5-qrcode library) -->
     <script src="{{ asset('js/pos-camera-scanner.js') }}"></script>
+    <!-- Shared financial input formatter -->
+    <script src="{{ asset('js/financial-input.js') }}?v={{ file_exists(public_path('js/financial-input.js')) ? filemtime(public_path('js/financial-input.js')) : '1.0' }}"></script>
+    <!-- Kas Bon Collection module -->
+    <script src="{{ asset('js/pos-kas-bon-collection.js') }}?v={{ file_exists(public_path('js/pos-kas-bon-collection.js')) ? filemtime(public_path('js/pos-kas-bon-collection.js')) : '1.0' }}"></script>
     <script>
         (function () {
             const searchInput = document.getElementById('pos-shell-search');

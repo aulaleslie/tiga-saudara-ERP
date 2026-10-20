@@ -46,6 +46,24 @@
                         </div>
                     </div>
 
+                    <div class="mb-3" id="finalizeKasBonSection" style="display: none;">
+                        <h6 class="mb-2 text-success"><i class="bi bi-wallet2"></i> Ringkasan Pembayaran Kas Bon</h6>
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label class="form-label small text-muted">Total Kas Bon</label>
+                                <div id="finalizeKasBonTotal" class="fw-bold text-success"></div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small text-muted">Kas Bon Tunai (Net)</label>
+                                <div id="finalizeKasBonCash" class="fw-bold"></div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small text-muted">Kas Bon Non-Tunai</label>
+                                <div id="finalizeKasBonNonCash" class="fw-bold"></div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="mb-3">
                         <h6 class="mb-3"><i class="bi bi-wallet2"></i> Perhitungan Ekspektasi Kas</h6>
                         <div class="table-responsive">
@@ -62,6 +80,10 @@
                                     <tr>
                                         <td class="text-muted ps-4 text-secondary"><small>Penjualan Kas (net)</small></td>
                                         <td class="text-end text-secondary" id="finalizeCashSalesAmount"></td>
+                                    </tr>
+                                    <tr id="finalizeKasBonCashRow" style="display: none;">
+                                        <td class="text-muted ps-4 text-secondary"><small>+ Kas Bon Tunai (net)</small></td>
+                                        <td class="text-end text-secondary" id="finalizeKasBonCashAmount"></td>
                                     </tr>
                                     <tr>
                                         <td class="text-muted ps-4 text-secondary"><small>- Kembalian</small></td>

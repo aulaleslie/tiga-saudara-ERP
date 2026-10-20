@@ -215,6 +215,32 @@ function populateFinalizeModal(session, fallbackSessionCode = NON_TERMINAL_LABEL
     document.getElementById('finalizeChangeReturned').textContent = formatCurrency(changeReturned);
     document.getElementById('finalizeSafeDrops').textContent = formatCurrency(safeDrops);
 
+    const kasBonTotal = parseFloat(session.kas_bon_collection_total ?? session.pos_kas_bon_collection_total ?? 0);
+    const kasBonNetCash = parseFloat(session.kas_bon_net_cash_total ?? session.pos_kas_bon_cash_total ?? 0);
+    const kasBonNonCash = parseFloat(session.kas_bon_non_cash_total ?? session.pos_kas_bon_non_cash_total ?? 0);
+
+    const finalizeKasBonSection = document.getElementById('finalizeKasBonSection');
+    const finalizeKasBonCashRow = document.getElementById('finalizeKasBonCashRow');
+    if (kasBonTotal > 0 || kasBonNetCash > 0) {
+        if (finalizeKasBonSection) {
+            finalizeKasBonSection.style.display = 'block';
+            const elTotal = document.getElementById('finalizeKasBonTotal');
+            if (elTotal) elTotal.textContent = formatCurrency(kasBonTotal);
+            const elCash = document.getElementById('finalizeKasBonCash');
+            if (elCash) elCash.textContent = formatCurrency(kasBonNetCash);
+            const elNonCash = document.getElementById('finalizeKasBonNonCash');
+            if (elNonCash) elNonCash.textContent = formatCurrency(kasBonNonCash);
+        }
+        if (finalizeKasBonCashRow) {
+            finalizeKasBonCashRow.style.display = 'table-row';
+            const elCashAmt = document.getElementById('finalizeKasBonCashAmount');
+            if (elCashAmt) elCashAmt.textContent = formatCurrency(kasBonNetCash);
+        }
+    } else {
+        if (finalizeKasBonSection) finalizeKasBonSection.style.display = 'none';
+        if (finalizeKasBonCashRow) finalizeKasBonCashRow.style.display = 'none';
+    }
+
     // Use backend expected_cash_total as the single source of truth
     const expectedCash = (session.expected_cash_total != null) ? parseFloat(session.expected_cash_total) : calculateExpectedCash(session);
     const varianceThreshold = session.threshold_value ?? (session.terminal?.policy?.close_variance_approval_threshold ?? 0);

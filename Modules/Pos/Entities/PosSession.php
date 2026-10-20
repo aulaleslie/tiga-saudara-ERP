@@ -100,6 +100,11 @@ class PosSession extends BaseModel
         return $this->hasMany(PosTransaction::class, 'source_pos_session_id');
     }
 
+    public function kasBonCollections(): HasMany
+    {
+        return $this->hasMany(PosKasBonCollection::class, 'pos_session_id');
+    }
+
     public function scopeActive(Builder $query): Builder
     {
         return $query->whereNotNull('active_marker');

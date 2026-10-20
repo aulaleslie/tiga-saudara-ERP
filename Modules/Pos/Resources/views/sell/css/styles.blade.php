@@ -185,10 +185,19 @@
         white-space: nowrap;
     }
 
+    .pos-nav-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        flex-wrap: wrap;
+        min-width: 0;
+    }
+
     .pos-nav-strip .btn {
         padding-top: 0.28rem;
         padding-bottom: 0.28rem;
         font-size: 0.74rem;
+        white-space: nowrap;
     }
 
     .pos-nav-strip .dropdown-menu {
@@ -208,6 +217,10 @@
 
     #pos-shell-posting-note {
         margin: 0;
+    }
+
+    #pos-shell-posting-note:empty {
+        display: none;
     }
 
     .pos-search-grid {
@@ -1158,6 +1171,10 @@
 
         .pos-nav-strip {
             grid-template-columns: auto auto;
+        }
+
+        .pos-nav-actions {
+            gap: 0.25rem;
         }
 
         .pos-nav-note {

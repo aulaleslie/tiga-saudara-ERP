@@ -12,6 +12,8 @@ class PosSessionCashEvent extends BaseModel
 
     public const EVENT_CASH_SALE_IN = 'CASH_SALE_IN';
 
+    public const EVENT_KAS_BON_COLLECTION_IN = 'KAS_BON_COLLECTION_IN';
+
     public const EVENT_SAFE_DROP_OUT = 'SAFE_DROP_OUT';
 
     public const EVENT_CHANGE_OUT = 'CHANGE_OUT';

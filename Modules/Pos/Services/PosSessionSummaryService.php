@@ -158,6 +158,28 @@ class PosSessionSummaryService
             ? round($cashTenderedTotalRounded - $changeTotalRounded, 2)
             : null;
 
+        // Calculate Kas Bon collection totals attributed to this receiving session
+        $kasBonCollections = \Modules\Pos\Entities\PosKasBonCollection::query()
+            ->with(['methods.paymentMethod'])
+            ->where('pos_session_id', $sessionId)
+            ->get();
+
+        $kasBonCollectionsCount = $kasBonCollections->count();
+        $kasBonCollectionTotal = round((float) $kasBonCollections->sum('amount'), 2);
+        $kasBonCashTenderedTotal = round((float) $kasBonCollections->sum('cash_tender_amount'), 2);
+        $kasBonChangeTotal = round((float) $kasBonCollections->sum('change_amount'), 2);
+        $kasBonNetCashTotal = round($kasBonCashTenderedTotal - $kasBonChangeTotal, 2);
+
+        $kasBonNonCashTotal = 0.0;
+        foreach ($kasBonCollections as $col) {
+            foreach ($col->methods as $m) {
+                if ($m->paymentMethod && ! $m->paymentMethod->is_cash) {
+                    $kasBonNonCashTotal += (float) $m->amount;
+                }
+            }
+        }
+        $kasBonNonCashTotal = round($kasBonNonCashTotal, 2);
+
         // Load cash event timeline
         $cashEvents = $session->cashEvents
             ->sortByDesc('occurred_at')
@@ -200,6 +222,13 @@ class PosSessionSummaryService
             'cash_tendered_total' => $cashTenderedTotalRounded,
             'change_total' => $changeTotalRounded,
             'net_cash_sales_total' => $netCashSalesTotalRounded,
+            'kas_bon_collections_count' => (int) $kasBonCollectionsCount,
+            'kas_bon_collection_total' => $kasBonCollectionTotal,
+            'kas_bon_cash_tendered_total' => $kasBonCashTenderedTotal,
+            'kas_bon_change_total' => $kasBonChangeTotal,
+            'kas_bon_net_cash_total' => $kasBonNetCashTotal,
+            'kas_bon_cash_total' => $kasBonNetCashTotal,
+            'kas_bon_non_cash_total' => $kasBonNonCashTotal,
         ];
     }
 }

@@ -5,6 +5,7 @@ namespace Modules\Pos\Services;
 use DateTime;
 use Illuminate\Support\Facades\DB;
 use Modules\Pos\Entities\PosCheckout;
+use Modules\Pos\Entities\PosKasBonCollection;
 use Modules\Pos\Entities\PosSession;
 use Modules\Pos\Entities\PosSessionCashEvent;
 use Modules\Sale\Entities\Sale;
@@ -134,6 +135,13 @@ class PosReconciliationService
             ->get()
             ->keyBy('pos_session_id');
 
+        // 5. Get Kas Bon Collection Totals
+        $collectionTotals = PosKasBonCollection::query()
+            ->with(['methods.paymentMethod', 'allocations'])
+            ->whereIn('pos_session_id', $sessionIds)
+            ->get()
+            ->groupBy('pos_session_id');
+
         $result = [];
 
         foreach ($sessions as $session) {
@@ -143,6 +151,7 @@ class PosReconciliationService
             $legacySales = $legacySalesTotals->get($session->id);
             $mappedPayments = $mappedPaymentsTotals->get($session->id);
             $legacyPayments = $legacyPaymentsTotals->get($session->id);
+            $sessionCollections = $collectionTotals->get($session->id) ?? collect();
 
             $posCheckoutTotal = $cTotals ? (float) $cTotals->pos_checkout_total : 0.0;
             $posCashSalesTotal = $cTotals ? (float) $cTotals->pos_cash_sales_total : 0.0;
@@ -153,6 +162,26 @@ class PosReconciliationService
                 + ($legacySales ? (float) $legacySales->posted_sales_total : 0.0);
             $postedPaymentsTotal = ($mappedPayments ? (float) $mappedPayments->posted_payments_total : 0.0)
                 + ($legacyPayments ? (float) $legacyPayments->posted_payments_total : 0.0);
+
+            $collectionTotal = round((float) $sessionCollections->sum('amount'), 2);
+            $collectionCashTendered = round((float) $sessionCollections->sum('cash_tender_amount'), 2);
+            $collectionChange = round((float) $sessionCollections->sum('change_amount'), 2);
+            $collectionNetCash = round($collectionCashTendered - $collectionChange, 2);
+
+            $collectionNonCash = 0.0;
+            $collectionAllocatedTotal = 0.0;
+            foreach ($sessionCollections as $col) {
+                foreach ($col->methods as $m) {
+                    if ($m->paymentMethod && ! $m->paymentMethod->is_cash) {
+                        $collectionNonCash += (float) $m->amount;
+                    }
+                }
+                foreach ($col->allocations as $alloc) {
+                    $collectionAllocatedTotal += (float) $alloc->amount;
+                }
+            }
+            $collectionNonCash = round($collectionNonCash, 2);
+            $collectionAllocatedTotal = round($collectionAllocatedTotal, 2);
 
             $hasMismatch = false;
             $mismatchDetails = [];
@@ -165,6 +194,11 @@ class PosReconciliationService
             if (round($posCheckoutTotal, 2) !== round($postedPaymentsTotal, 2)) {
                 $hasMismatch = true;
                 $mismatchDetails[] = "POS totals do not match posted payments (POS: {$posCheckoutTotal}, Payments: {$postedPaymentsTotal})";
+            }
+
+            if (round($collectionTotal, 2) !== round($collectionAllocatedTotal, 2)) {
+                $hasMismatch = true;
+                $mismatchDetails[] = "Kas Bon collection totals do not match allocations (Collection: {$collectionTotal}, Allocations: {$collectionAllocatedTotal})";
             }
 
             $result[] = [
@@ -182,6 +216,10 @@ class PosReconciliationService
                 'pos_non_cash_sales_total' => round($posNonCashSalesTotal, 2),
                 'posted_sales_total' => round($postedSalesTotal, 2),
                 'posted_payments_total' => round($postedPaymentsTotal, 2),
+                'pos_kas_bon_collection_total' => $collectionTotal,
+                'pos_kas_bon_cash_total' => $collectionNetCash,
+                'pos_kas_bon_non_cash_total' => $collectionNonCash,
+                'pos_kas_bon_allocated_total' => $collectionAllocatedTotal,
                 'safe_drop_total' => round($safeDropTotal, 2),
                 'has_mismatch' => $hasMismatch,
                 'mismatch_details' => $hasMismatch ? implode('; ', $mismatchDetails) : null,

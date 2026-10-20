@@ -67,6 +67,18 @@
                             <span class="text-muted">Total Penjualan</span>
                             <span class="fw-bold text-primary">{{ format_currency($sales_total) }}</span>
                         </div>
+                        <div class="d-flex justify-content-between mb-3 border-bottom pb-2">
+                            <span class="text-muted">Total Bayar Kas Bon</span>
+                            <span class="fw-bold text-success">{{ format_currency($kas_bon_collection_total ?? 0) }}</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2 ps-3 small text-muted">
+                            <span>└ Kas Bon Tunai (Net)</span>
+                            <span class="fw-semibold text-dark">{{ format_currency($kas_bon_net_cash_total ?? 0) }}</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-3 border-bottom pb-2 ps-3 small text-muted">
+                            <span>└ Kas Bon Non-Tunai</span>
+                            <span class="fw-semibold text-dark">{{ format_currency($kas_bon_non_cash_total ?? 0) }}</span>
+                        </div>
 
                         @if($terminal_id)
                             {{-- Terminal session: Show cash-related fields --}}
@@ -121,6 +133,7 @@
                             <div class="btn-group btn-group-sm rounded-pill p-1 bg-light border" role="group">
                                 <button type="button" class="btn btn-sm btn-dark rounded-pill filter-btn active" data-filter="all">Semua</button>
                                 <button type="button" class="btn btn-sm rounded-pill filter-btn" data-filter="CASH_SALE_IN">Penjualan</button>
+                                <button type="button" class="btn btn-sm rounded-pill filter-btn" data-filter="KAS_BON_COLLECTION_IN">Kas Bon</button>
                                 <button type="button" class="btn btn-sm rounded-pill filter-btn" data-filter="SAFE_DROP_OUT">Pickup</button>
                                 <button type="button" class="btn btn-sm rounded-pill filter-btn" data-filter="OPEN_FLOAT">Modal</button>
                                 <button type="button" class="btn btn-sm rounded-pill filter-btn" data-filter="CHANGE_OUT">Kembalian</button>

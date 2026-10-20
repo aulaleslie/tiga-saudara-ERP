@@ -43,18 +43,18 @@ The cashier SHALL review one POS transaction's customer, identifiers, notes, cur
 - **THEN** submission is rejected without writes and requires refreshed review
 
 ### Requirement: Checkout-style single-transaction payment
-The payment UI SHALL accept one selected POS transaction and an amount to pay greater than zero and no greater than live due, defaulting to full due. It SHALL support existing cash, non-cash, and mixed payment methods with applicable evidence rules, localized monetary inputs, tender and change. It SHALL provide no finish-as-Kas-Bon option.
+The payment UI SHALL accept one selected POS transaction and derive the payment amount directly from the sum of payment method amounts (Jumlah), which must be greater than zero and no greater than live due. It SHALL support existing cash, non-cash, and mixed payment methods with applicable evidence rules, localized monetary inputs for Jumlah, and free-text Keterangan for every method (including CASH). In the Keterangan column, every method row SHALL accept optional free text without monetary formatting or tender calculations. For Transfer and non-cash methods, the UI SHALL provide a separate Nomor Referensi text input, required according to the payment method's existing rules, while preserving evidence upload. Method Keterangan and transfer reference SHALL be persisted separately without mutual substitution. Uang Tunai Diterima and Kembalian Tunai SHALL be removed from this flow; the entered cash Jumlah SHALL be treated as cash received and applied, with zero change. Adding or removing payment method rows SHALL preserve all previously entered amounts, descriptions, references, and uploaded evidence. The UI SHALL display Total Pembayaran and Sisa Hutang Setelah Pembayaran without requiring a separate payment amount input. It SHALL provide no finish-as-Kas-Bon option.
 
-#### Scenario: Partial payment with change
-- **WHEN** live due is Rp150,000, amount to pay is Rp50,000, and cash tender is Rp100,000
-- **THEN** change is Rp50,000, the debt reduces by Rp50,000, and remaining debt is Rp100,000
+#### Scenario: Partial cash payment with free-text Keterangan
+- **WHEN** live due is Rp150,000, cash Jumlah is Rp50,000, and Keterangan is "Cicilan kedua"
+- **THEN** the debt reduces by Rp50,000, remaining debt is Rp100,000, change is zero, drawer cash increases by exactly Rp50,000, and the description "Cicilan kedua" is recorded without affecting calculations
 
-#### Scenario: Mixed payment
-- **WHEN** Rp100,000 is collected with Rp60,000 cash and Rp40,000 transfer
-- **THEN** settlement records both methods and only Rp60,000 increases expected drawer cash
+#### Scenario: Mixed payment with separate description and transfer reference
+- **WHEN** Rp100,000 is collected with Rp60,000 cash (Keterangan: "Cicilan tunai") and Rp40,000 transfer (Keterangan: "Titipan BCA", Nomor Referensi: "TRF-987654")
+- **THEN** settlement records both methods, stores Keterangan and reference separately without substitution, and only Rp60,000 increases expected drawer cash
 
-#### Scenario: Invalid amount or tender
-- **WHEN** amount to pay is non-positive, exceeds live due, or payment tender cannot cover it under existing method rules
+#### Scenario: Invalid amount or missing required reference
+- **WHEN** amount to pay is non-positive, exceeds live due, or a method requiring reference lacks a valid reference
 - **THEN** submission is rejected without settlement or session entries
 
 ### Requirement: Collection is atomic and idempotent

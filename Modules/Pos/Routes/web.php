@@ -14,6 +14,7 @@ use Modules\Pos\Http\Controllers\PosTransactionController;
 use Modules\Pos\Http\Controllers\PosReturnController;
 use Modules\Pos\Http\Controllers\PosPaymentImageController;
 use Modules\Pos\Http\Controllers\GlobalPosPaymentController;
+use Modules\Pos\Http\Controllers\PosKasBonCollectionController;
 
 Route::group(['middleware' => ['auth', 'can:posPayments.global.access']], function () {
     Route::get('/pos/global-payments', [GlobalPosPaymentController::class, 'index'])->name('pos.global-payments.index');
@@ -268,3 +269,21 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
         ->whereNumber('session')
         ->name('pos.sessions.finalize');
 });
+
+Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.access', 'can:pos.kasBon.collect']], function () {
+    Route::get('/pos/kas-bon/candidates', [PosKasBonCollectionController::class, 'candidates'])
+        ->name('pos.kas-bon.candidates');
+    Route::get('/pos/kas-bon/payment-methods', [PosKasBonCollectionController::class, 'paymentMethods'])
+        ->name('pos.kas-bon.payment-methods');
+    Route::get('/pos/kas-bon/{transaction_id}/review', [PosKasBonCollectionController::class, 'review'])
+        ->name('pos.kas-bon.review');
+    Route::post('/pos/kas-bon/{transaction_id}/collect', [PosKasBonCollectionController::class, 'collect'])
+        ->name('pos.kas-bon.collect');
+    Route::get('/pos/kas-bon/collections/{collection_id}/receipt', [PosKasBonCollectionController::class, 'receipt'])
+        ->name('pos.kas-bon.collections.receipt');
+    Route::group(['middleware' => ['can:pos.receipts.reprint']], function () {
+        Route::match(['get', 'post'], '/pos/kas-bon/collections/{collection_id}/receipt/reprint', [PosKasBonCollectionController::class, 'receiptReprint'])
+            ->name('pos.kas-bon.collections.receipt.reprint');
+    });
+});
+

@@ -145,6 +145,13 @@ document.addEventListener('DOMContentLoaded', function () {
                                 <i class="fas fa-money-bill"></i> ${formatCurrency(row.pos_cash_sales_total)}<br>
                                 <i class="fas fa-credit-card"></i> ${formatCurrency(row.pos_non_cash_sales_total)}
                             </span>
+                            ${(row.pos_kas_bon_collection_total > 0 || row.pos_kas_bon_cash_total > 0) ? `
+                                <div class="mt-1 pt-1 border-top small text-success text-nowrap">
+                                    <span class="badge bg-success text-white">Kas Bon: ${formatCurrency(row.pos_kas_bon_collection_total || 0)}</span><br>
+                                    <span class="text-muted"><i class="fas fa-money-bill"></i> ${formatCurrency(row.pos_kas_bon_cash_total || 0)}</span> | 
+                                    <span class="text-muted"><i class="fas fa-credit-card"></i> ${formatCurrency(row.pos_kas_bon_non_cash_total || 0)}</span>
+                                </div>
+                            ` : ''}
                         </td>
                         <td class="text-end ${row.has_mismatch && row.pos_checkout_total !== row.posted_sales_total ? 'text-danger fw-bold' : ''}">
                             ${formatCurrency(row.posted_sales_total)}

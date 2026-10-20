@@ -63,6 +63,7 @@ final class PosPermissionMatrix
                     'pos.returns.settle',
                     'pos.returns.dispatch',
                     'pos.checkout.debt',
+                    'pos.kasBon.collect',
                 ],
             ],
             'cashier' => [
@@ -74,6 +75,7 @@ final class PosPermissionMatrix
                     'pos.sessions.open',
                     'pos.sessions.close',
                     'pos.checkout.payment',
+                    'pos.kasBon.collect',
                     'pos.safeDrops.create',
                     'pos.transactions.view',
                     'pos.transactions.save',
@@ -116,7 +118,7 @@ final class PosPermissionMatrix
             ],
             'checkout' => [
                 'label' => 'Pembayaran & Checkout',
-                'permissions' => ['pos.checkout.payment', 'pos.receipts.reprint'],
+                'permissions' => ['pos.checkout.payment', 'pos.kasBon.collect', 'pos.receipts.reprint'],
             ],
             'oversight' => [
                 'label' => 'Pengawasan & Manajerial',
