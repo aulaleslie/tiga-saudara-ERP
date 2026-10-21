@@ -70,7 +70,7 @@ The debt path SHALL allow an optional down payment where `0 ≤ down_payment < g
 - **THEN** the system MUST reject the debt checkout (the transaction is a normal full payment, not debt)
 
 ### Requirement: Debt sale SHALL be collectible from the Sales document
-A debt checkout SHALL post one or more Sales whose outstanding balances can be collected later through the existing Sale-level payment workflows or the authorized global POS payment workspace. Every later collection SHALL remain represented by ordinary Sale settlement records rather than a separate POS financial ledger.
+A debt checkout SHALL post one or more Sales whose outstanding balances can be collected later through the existing Sale-level payment workflows the authorized global POS payment workspace, or the dedicated authorized active-session POS Kas Bon collection flow. Every later collection SHALL remain represented by ordinary Sale settlement records rather than a separate POS financial ledger.
 
 #### Scenario: Later collection recomputes status
 - **WHEN** a later payment is recorded against a debt sale from the Sales document
@@ -86,6 +86,11 @@ A debt checkout SHALL post one or more Sales whose outstanding balances can be c
 - **WHEN** a debt Sale is posted with an outstanding balance
 - **THEN** it MUST appear in existing outstanding-receivables views
 - **AND** its completed POS transaction MUST appear as payable in the authorized global POS payment workspace
+
+#### Scenario: Cashier collects through active POS session
+- **WHEN** an authorized cashier collects an outstanding Kas Bon from POS
+- **THEN** ordinary Sale payments settle the selected transaction's generated Sales
+- **AND** received funds are attributed to the collecting session without rewriting the originating checkout or session
 
 ### Requirement: Debt checkout SHALL reconcile session cash and split allocation by actual paid amount
 The debt path SHALL feed session cash reconciliation and split-sale allocation using the actual down-payment amount, not the grand total.
