@@ -330,6 +330,26 @@ class ProductListDisplayTest extends TestCase
     }
 
     /** @test */
+    public function product_status_handler_uses_fetch_without_full_page_navigation_and_rolls_back_on_error()
+    {
+        $response = $this->actingAs($this->user)
+            ->get(route('products.index'));
+
+        $response->assertSuccessful();
+
+        $content = $response->getContent();
+
+        $this->assertStringContainsString('event.preventDefault();', $content);
+        $this->assertStringContainsString('await fetch(form.action', $content);
+        $this->assertStringContainsString("'X-Requested-With': 'XMLHttpRequest'", $content);
+        $this->assertStringContainsString('reloadProductTableAfterStatusChange();', $content);
+        $this->assertStringContainsString("showFeedback(error.message || 'Status produk gagal diperbarui.', 'danger')", $content);
+        $this->assertStringContainsString('submitButton.disabled = false;', $content);
+        $this->assertStringNotContainsString('window.location.reload', $content);
+        $this->assertStringNotContainsString('window.location.href', $content);
+    }
+
+    /** @test */
     public function inactive_product_uses_the_shared_ajax_status_handler()
     {
         Permission::findOrCreate('products.edit', 'web');
