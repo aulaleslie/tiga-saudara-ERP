@@ -96,13 +96,20 @@ class PosReturnSnapshotService
             ->where('product_id', $detail->product_id)
             ->value('id');
 
-        $isBundle = $detail->bundleItems->isNotEmpty();
+        $bundleContext = $this->bundleComponentResolver->resolveOriginalBundleContext($detail, $allCheckoutSales, $transaction);
+        $isBundle = $bundleContext !== null && ($bundleContext['is_bundle'] ?? false);
         $originalQuantity = (float) $detail->quantity;
 
-        // Bundle details store price=0; derive per-bundle unit price from the checkout_sale subtotal.
+        // Bundle details store price=0 or allocated price; derive customer bundle unit price from original POS transaction line or checkout_sale subtotal.
         $unitPrice = (float) $detail->unit_price;
         $lineTotal = (float) $detail->sub_total;
-        if ($isBundle && $unitPrice == 0.0 && $originalQuantity > 0) {
+        if ($isBundle && !empty($bundleContext['pos_transaction_line_id'])) {
+            $ptl = \Modules\Pos\Entities\PosTransactionLine::find($bundleContext['pos_transaction_line_id']);
+            if ($ptl && (float) $ptl->unit_price > 0) {
+                $unitPrice = (float) $ptl->unit_price;
+                $lineTotal = $unitPrice * ($originalQuantity > 0 ? $originalQuantity : 1.0);
+            }
+        } elseif ($isBundle && $unitPrice == 0.0 && $originalQuantity > 0) {
             $checkoutSubtotal = (float) $checkoutSale->subtotal;
             $unitPrice = $checkoutSubtotal / $originalQuantity;
             $lineTotal = $checkoutSubtotal;
@@ -140,12 +147,16 @@ class PosReturnSnapshotService
                     ->whereHas('line', fn($q) => $q->where('pos_transaction_id', $transaction->id))
                     ->value('pos_transaction_line_id');
 
-                $heldSerialId = app(\Modules\Pos\Services\PosReturnSerialReplacementChainResolver::class)->resolveCurrentHeldSerial(
-                    (int) $sn['id'],
-                    $checkoutSale->pos_checkout_id,
-                    $transaction->id,
-                    $dispatchDetailId
-                );
+                try {
+                    $heldSerialId = app(\Modules\Pos\Services\PosReturnSerialReplacementChainResolver::class)->resolveCurrentHeldSerial(
+                        (int) $sn['id'],
+                        $checkoutSale->pos_checkout_id,
+                        $transaction->id,
+                        $dispatchDetailId
+                    );
+                } catch (\Throwable $e) {
+                    $heldSerialId = (int) $sn['id'];
+                }
 
                 if ($heldSerialId !== (int) $sn['id']) {
                     $heldSerial = \Modules\Product\Entities\ProductSerialNumber::find($heldSerialId);
@@ -334,8 +345,22 @@ class PosReturnSnapshotService
         } else {
             // Non-serial tracked line: resolve bundle items ONLY if persisted bundle evidence exists
             $nonSerialBundleItems = [];
-            if ($isBundle) {
-                $persistedBundleId = $detail->bundleItems->first()->bundle_id ? (int) $detail->bundleItems->first()->bundle_id : null;
+            if ($isBundle && !empty($bundleContext['components'])) {
+                foreach ($bundleContext['components'] as $c) {
+                    $nonSerialBundleItems[] = $this->buildComponentBundleItemEntry(
+                        $checkoutSale,
+                        $c['product_id'],
+                        (float) $c['quantity_per_bundle'],
+                        $c['product_name'] ?? null,
+                        $c['product_code'] ?? null,
+                        $detail->id,
+                        $allCheckoutSales,
+                        $bundleContext['bundle_id'],
+                        $c['bundle_item_id']
+                    );
+                }
+            } elseif ($isBundle) {
+                $persistedBundleId = $detail->bundleItems->isNotEmpty() ? ($detail->bundleItems->first()->bundle_id ? (int) $detail->bundleItems->first()->bundle_id : null) : null;
                 $catalogItems = $this->resolveCatalogBundleComponents((int) $detail->product_id, $persistedBundleId);
 
                 if ($catalogItems->isNotEmpty()) {
@@ -384,7 +409,7 @@ class PosReturnSnapshotService
                 'sale_id' => $detail->sale_id,
                 'sale_detail_id' => $detail->id,
                 'dispatch_detail_id' => $dispatchDetailId,
-                'pos_transaction_line_id' => null, // Requirement only mandates it for serialized lines
+                'pos_transaction_line_id' => $bundleContext['pos_transaction_line_id'] ?? null,
                 'product_id' => $detail->product_id,
                 'product_name' => $detail->product->product_name,
                 'product_code' => $detail->product->product_code,
@@ -398,7 +423,10 @@ class PosReturnSnapshotService
                 'serial_number_ids' => [],
                 'serial_numbers' => [],
                 'is_bundle' => $isBundle,
+                'bundle_id' => $bundleContext['bundle_id'] ?? null,
+                'bundle_name' => $bundleContext['bundle_name'] ?? null,
                 'bundle_items' => $nonSerialBundleItems,
+                'parent_allocated_price' => (float) $detail->unit_price > 0 ? (float) $detail->unit_price : (float) $unitPrice,
                 'is_zero_qty_component' => $isZeroQtyComponent,
             ];
         }
@@ -581,6 +609,7 @@ class PosReturnSnapshotService
             'sale_bundle_item_id' => $bundleItem?->id,
             'bundle_id' => $bundleItem?->bundle_id,
             'bundle_item_id' => $bundleItem?->bundle_item_id,
+            'allocated_price' => $bundleItem ? (float) ($bundleItem->price > 0 ? $bundleItem->price : ($bundleItem->sub_total > 0 ? $bundleItem->sub_total / max(1, $bundleItem->quantity) : 0.0)) : 0.0,
         ];
 
         if (!$isTracked) {
@@ -617,12 +646,16 @@ class PosReturnSnapshotService
 
         $serialEntries = [];
         foreach ($serials as $serial) {
-            $heldSerialId = app(\Modules\Pos\Services\PosReturnSerialReplacementChainResolver::class)->resolveCurrentHeldSerial(
-                (int) $serial->id,
-                $checkoutSale ? $checkoutSale->pos_checkout_id : null,
-                null,
-                $dispatchDetailId
-            );
+            try {
+                $heldSerialId = app(\Modules\Pos\Services\PosReturnSerialReplacementChainResolver::class)->resolveCurrentHeldSerial(
+                    (int) $serial->id,
+                    $checkoutSale ? $checkoutSale->pos_checkout_id : null,
+                    null,
+                    $dispatchDetailId
+                );
+            } catch (\Throwable $e) {
+                $heldSerialId = (int) $serial->id;
+            }
             $effectiveSerial = ($heldSerialId !== (int) $serial->id)
                 ? (\Modules\Product\Entities\ProductSerialNumber::find($heldSerialId) ?? $serial)
                 : $serial;

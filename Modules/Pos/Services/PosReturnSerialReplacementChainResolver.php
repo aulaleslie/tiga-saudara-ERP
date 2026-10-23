@@ -122,7 +122,10 @@ class PosReturnSerialReplacementChainResolver
         }
 
         if ($dispatchDetailId !== null && $dispatchDetailId > 0) {
-            $query->where('dispatch_detail_id', $dispatchDetailId);
+            $query->where(function ($q) use ($dispatchDetailId) {
+                $q->where('dispatch_detail_id', $dispatchDetailId)
+                    ->orWhereNull('dispatch_detail_id');
+            });
         }
 
         return $query->exists();
@@ -149,7 +152,10 @@ class PosReturnSerialReplacementChainResolver
         }
 
         if ($dispatchDetailId !== null && $dispatchDetailId > 0) {
-            $query->where('pos_return_lines.dispatch_detail_id', $dispatchDetailId);
+            $query->where(function ($q) use ($dispatchDetailId) {
+                $q->where('pos_return_lines.dispatch_detail_id', $dispatchDetailId)
+                    ->orWhereNull('pos_return_lines.dispatch_detail_id');
+            });
         }
 
         if ($posCheckoutId !== null) {

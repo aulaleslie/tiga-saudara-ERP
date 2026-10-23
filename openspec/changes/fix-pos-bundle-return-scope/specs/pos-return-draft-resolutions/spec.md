@@ -55,3 +55,11 @@ New bundle cash-return selections SHALL default to `whole_bundle`. Users SHALL b
 - **WHEN** a pending legacy bundle return has no explicit scope
 - **THEN** final approval is blocked until an authorized user reviews and resubmits explicit scope
 - **AND** completed historical returns remain unchanged
+
+#### Scenario: Whole-bundle vs parent-only charge consequences
+- **GIVEN** a bundled sale with customer bundle price Rp890,000 comprising parent camera (allocated Rp630,000) and component microSD (allocated Rp260,000)
+- **WHEN** `whole_bundle` scope is selected for cash return
+- **THEN** the expected reduction/refund equals the full Rp890,000 customer bundle amount and all components are reversed
+- **WHEN** `parent_only` scope is selected for cash return
+- **THEN** the expected reduction/refund equals the parent allocated amount of Rp630,000
+- **AND** the component microSD charge of Rp260,000 is retained without reversal

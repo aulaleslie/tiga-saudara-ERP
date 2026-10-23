@@ -18,6 +18,9 @@ class PosReturnLine extends Model
     public const RESOLUTION_PRODUCT_REPLACEMENT = 'product_replacement';
     public const RESOLUTION_CASH_RETURN = 'cash_return';
 
+    public const BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE = 'whole_bundle';
+    public const BUNDLE_RETURN_SCOPE_PARENT_ONLY = 'parent_only';
+
     protected $fillable = [
         'pos_return_id',
         'pos_checkout_sale_id',
@@ -43,6 +46,7 @@ class PosReturnLine extends Model
         'replacement_serial_id',
         'bundle_group_key',
         'bundle_parent_sale_detail_id',
+        'bundle_return_scope',
         'bundle_quantity',
         'component_quantity_per_bundle',
         'stock_behavior',

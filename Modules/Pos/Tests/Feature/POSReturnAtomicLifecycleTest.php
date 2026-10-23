@@ -588,7 +588,7 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
     {
         $this->actingAsInSetting($this->actor, $this->setting);
 
-        [$posReturn, $parentProduct, $componentProduct, $stocklessProduct] = $this->createPendingApprovalBundleCashReturnWithStocklessComponent();
+        [$posReturn, $parentProduct, $componentProduct, $stocklessProduct, $pkpLocation] = $this->createPendingApprovalBundleCashReturnWithStocklessComponent();
 
         app(PosReturnLifecycleService::class)->executeApprovalFromPreview($posReturn->id);
 
@@ -598,7 +598,7 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
 
         $parentStock = ProductStock::query()
             ->where('product_id', $parentProduct->id)
-            ->where('location_id', $this->location->id)
+            ->where('location_id', $pkpLocation->id)
             ->firstOrFail();
         $componentStock = ProductStock::query()
             ->where('product_id', $componentProduct->id)
@@ -1943,7 +1943,10 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'is_default' => true,
         ]);
 
-        $parentProduct = $this->createStockedProduct($this->setting, $this->location, [
+        $pkpSetting = $this->createSetting('POS Return Atomic PKP Parent', true);
+        [, $pkpLocation] = $this->createTerminalWithLocation($pkpSetting);
+
+        $parentProduct = $this->createStockedProduct($pkpSetting, $pkpLocation, [
             'product_code' => 'BUNDLE-PARENT-' . uniqid(),
             'sale_price' => 300,
             'stock_qty' => 0,
@@ -1951,7 +1954,7 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
         ]);
         ProductStock::query()
             ->where('product_id', $parentProduct->id)
-            ->where('location_id', $this->location->id)
+            ->where('location_id', $pkpLocation->id)
             ->update(['tax_id' => $tax->id]);
 
         $componentProduct = $this->createStockedProduct($this->setting, $this->location, [
@@ -2027,7 +2030,7 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'sale_id' => $sale->id,
             'product_id' => $parentProduct->id,
             'dispatched_quantity' => 1,
-            'location_id' => $this->location->id,
+            'location_id' => $pkpLocation->id,
             'tax_id' => $tax->id,
         ]);
         $componentDispatchDetail = DispatchDetail::query()->create([
@@ -2065,8 +2068,8 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'sale_id' => $sale->id,
             'sale_detail_id' => $parentSaleDetail->id,
             'dispatch_detail_id' => $parentDispatchDetail->id,
-            'source_setting_id' => $this->setting->id,
-            'source_location_id' => $this->location->id,
+            'source_setting_id' => $pkpSetting->id,
+            'source_location_id' => $pkpLocation->id,
             'tax_id' => $tax->id,
             'product_id' => $parentProduct->id,
             'product_name' => $parentProduct->product_name,
@@ -2080,6 +2083,7 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
             'bundle_quantity' => 1,
             'component_quantity_per_bundle' => null,
+            'bundle_return_scope' => PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE,
             'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
             'replacement_product_id' => null,
             'replacement_quantity' => null,
@@ -2147,7 +2151,7 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'product_id' => $parentProduct->id,
             'product_name' => $parentProduct->product_name,
             'product_code' => $parentProduct->product_code,
-            'location_id' => $this->location->id,
+            'location_id' => $pkpLocation->id,
             'tax_id' => $tax->id,
             'quantity' => 1,
             'price' => 300,
@@ -2200,7 +2204,7 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_STOCKLESS,
         ]);
 
-        return [$posReturn, $parentProduct, $componentProduct, $stocklessProduct];
+        return [$posReturn, $parentProduct, $componentProduct, $stocklessProduct, $pkpLocation];
     }
 
     /**
@@ -2362,6 +2366,7 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
             'bundle_quantity' => 1,
             'component_quantity_per_bundle' => null,
+            'bundle_return_scope' => PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE,
             'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
             'replacement_product_id' => null,
             'replacement_quantity' => null,
@@ -2675,6 +2680,7 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'bundle_parent_sale_detail_id' => $cashSaleDetail->id,
             'bundle_quantity' => 1,
             'component_quantity_per_bundle' => null,
+            'bundle_return_scope' => PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE,
             'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
             'replacement_product_id' => null,
             'replacement_quantity' => null,

@@ -84,6 +84,9 @@ class PosReturnEditForm extends Component
     {
         $key = PosReturnCreateForm::buildLineKey($line);
         $existing = $existingLines->get($key);
+        $isBundle = !empty($line['is_bundle']);
+        $defaultScope = $isBundle ? PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE : null;
+        $scope = $existing ? $existing->bundle_return_scope : $defaultScope;
 
         if (($line['is_tracked'] ?? false) && !empty($line['serial_number_ids'])) {
             $replacementLabel = '';
@@ -98,12 +101,14 @@ class PosReturnEditForm extends Component
                 'replacement_serial_input' => '',
                 'replacement_serial_label' => $replacementLabel,
                 'replacement_reason' => $existing ? (string) data_get($existing->line_meta, 'replacement_reason', '') : '',
+                'bundle_return_scope' => $scope,
             ];
         } else {
             $this->lineSelections[$key] = [
                 'resolution' => $existing ? $existing->resolution : PosReturnLine::RESOLUTION_NONE,
                 'quantity' => $existing ? (float) $existing->quantity : 0,
                 'replacement_reason' => $existing ? (string) data_get($existing->line_meta, 'replacement_reason', '') : '',
+                'bundle_return_scope' => $scope,
             ];
         }
     }
@@ -154,6 +159,24 @@ class PosReturnEditForm extends Component
             }
             $this->lineSelections[$lineKey]['replacement_reason'] = '';
         }
+
+        if ($resolution === PosReturnLine::RESOLUTION_CASH_RETURN) {
+            $line = $this->findSnapshotLineByKey($lineKey);
+            if ($line && !empty($line['is_bundle']) && empty($this->lineSelections[$lineKey]['bundle_return_scope'])) {
+                $this->lineSelections[$lineKey]['bundle_return_scope'] = PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE;
+            }
+        }
+    }
+
+    public function updateBundleScope(string $lineKey, string $scope): void
+    {
+        if (!isset($this->lineSelections[$lineKey])) return;
+
+        if (!in_array($scope, [PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE, PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY], true)) {
+            return;
+        }
+
+        $this->lineSelections[$lineKey]['bundle_return_scope'] = $scope;
     }
 
     /**
@@ -281,6 +304,11 @@ class PosReturnEditForm extends Component
     {
         $resolution = $selection['resolution'] ?? PosReturnLine::RESOLUTION_NONE;
         $isSerial = ($line['is_tracked'] ?? false) && !empty($line['serial_number_ids']);
+        $isBundle = !empty($line['is_bundle']);
+        $bundleScope = $selection['bundle_return_scope'] ?? null;
+        if ($isBundle && $resolution === PosReturnLine::RESOLUTION_CASH_RETURN && empty($bundleScope)) {
+            $bundleScope = PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE;
+        }
 
         if ($isSerial) {
             // Serial lines are always emitted (even at 'none') so an explicit
@@ -295,6 +323,7 @@ class PosReturnEditForm extends Component
                 'quantity' => 1,
                 'replacement_serial_id' => $selection['replacement_serial_id'] ?? null,
                 'replacement_reason' => $selection['replacement_reason'] ?? null,
+                'bundle_return_scope' => $bundleScope,
             ];
         }
 
@@ -312,6 +341,7 @@ class PosReturnEditForm extends Component
             'quantity' => $quantity,
             'replacement_serial_id' => null,
             'replacement_reason' => $selection['replacement_reason'] ?? null,
+            'bundle_return_scope' => $bundleScope,
         ];
     }
 

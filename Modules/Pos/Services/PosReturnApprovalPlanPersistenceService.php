@@ -586,6 +586,7 @@ class PosReturnApprovalPlanPersistenceService
             // under their own distinct keys avoids collapsing two different concepts
             // into one column.
             'replacement_kind' => $this->nullableString($plannedDetail['replacement_kind'] ?? null),
+            'bundle_return_scope' => $this->nullableString($plannedDetail['bundle_return_scope'] ?? null),
             'original_sale_correction_quantity' => $this->nullableDecimal($plannedDetail['original_sale_correction_quantity'] ?? null),
             'original_sale_correction_amount' => $this->nullableDecimal($plannedDetail['original_sale_correction_amount'] ?? null),
             'generated_replacement_sale_effects' => $this->normalizeGeneratedReplacementSaleEffects($plannedDetail['generated_replacement_sale_effects'] ?? null),
@@ -615,6 +616,7 @@ class PosReturnApprovalPlanPersistenceService
             'replacement_serial_location_id' => $this->nullableInt($context['replacement_serial_location_id'] ?? null),
             'execution_mode' => $this->nullableString($context['execution_mode'] ?? null),
             'replacement_kind' => $this->nullableString($context['replacement_kind'] ?? null),
+            'bundle_return_scope' => $this->nullableString($context['bundle_return_scope'] ?? null),
             'original_sale_correction_quantity' => $this->nullableDecimal($context['original_sale_correction_quantity'] ?? null),
             'original_sale_correction_amount' => $this->nullableDecimal($context['original_sale_correction_amount'] ?? null),
             'generated_replacement_sale_effects' => $this->normalizeGeneratedReplacementSaleEffects($context['generated_replacement_sale_effects'] ?? null),

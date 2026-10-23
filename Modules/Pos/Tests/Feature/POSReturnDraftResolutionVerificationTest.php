@@ -10,6 +10,8 @@ use Modules\Pos\Services\PosReturnSubmissionService;
 use Modules\Pos\Services\PosReturnSnapshotService;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SaleDetails;
+use Modules\Sale\Entities\Dispatch;
+use Modules\Sale\Entities\DispatchDetail;
 use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosTransaction;
 use Modules\Pos\Entities\PosCheckoutSale;
@@ -897,7 +899,7 @@ class POSReturnDraftResolutionVerificationTest extends PosTransactionFeatureTest
             'tax_bucket' => 'NON_TAX',
         ]);
 
-        SaleDetails::create([
+        $saleDetail = SaleDetails::create([
             'sale_id' => $sale->id,
             'product_id' => $product->id,
             'quantity' => count($serials),
@@ -910,6 +912,29 @@ class POSReturnDraftResolutionVerificationTest extends PosTransactionFeatureTest
             'product_discount_amount' => 0,
             'product_tax_amount' => 0,
         ]);
+
+        $dispatch = Dispatch::create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now(),
+            'status' => Dispatch::STATUS_APPROVED,
+        ]);
+
+        $dispatchDetail = DispatchDetail::create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetail->id,
+            'product_id' => $product->id,
+            'dispatched_quantity' => count($serials),
+            'location_id' => $this->location->id,
+            'serial_numbers' => json_encode(collect($serials)->pluck('serial_number')->toArray()),
+        ]);
+
+        foreach ($serials as $sn) {
+            $sn->update([
+                'dispatch_detail_id' => $dispatchDetail->id,
+                'status' => ProductSerialNumber::STATUS_SOLD,
+            ]);
+        }
 
         return $transaction;
     }

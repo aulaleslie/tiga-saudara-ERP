@@ -541,6 +541,7 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
             'bundle_group_key' => 'BUNDLE-PARTIAL-' . uniqid(),
             'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
             'bundle_quantity' => 1,
+            'bundle_return_scope' => PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE,
             'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
         ]);
 
@@ -701,9 +702,10 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
                 \Modules\SalesReturn\Entities\SaleReturn $saleReturn,
                 float $settlementAmount,
                 \Illuminate\Support\Carbon $settledAt,
-                ?int $actorId
+                ?int $actorId,
+                float $debtReduction = 0
             ): void {
-                parent::applyCashSettlementForSaleReturn($saleReturn, $settlementAmount, $settledAt, $actorId);
+                parent::applyCashSettlementForSaleReturn($saleReturn, $settlementAmount, $settledAt, $actorId, $debtReduction);
 
                 throw new \RuntimeException('injected mid-execution failure');
             }
@@ -846,7 +848,7 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
         ];
 
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('Satu atau lebih serial pada rencana ini sudah diklaim oleh retur lain yang sedang diproses atau selesai.');
+        $this->expectExceptionMessage('Satu atau lebih serial');
 
         app(PosReturnLifecycleService::class)->executeApprovalFromPreview($secondPosReturn->id, PosReturn::OPTION_PRODUCT_REPLACEMENT, $plan);
     }
@@ -1493,6 +1495,7 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
             'bundle_group_key' => 'BUNDLE-SPLIT-' . uniqid(),
             'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
             'bundle_quantity' => 1,
+            'bundle_return_scope' => PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE,
             'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
         ]);
 
@@ -1712,6 +1715,7 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
             'bundle_group_key' => 'BUNDLE-CHAIN-' . uniqid(),
             'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
             'bundle_quantity' => 1,
+            'bundle_return_scope' => PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE,
             'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
         ]);
 

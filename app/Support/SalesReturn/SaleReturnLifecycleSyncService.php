@@ -4,6 +4,7 @@ namespace App\Support\SalesReturn;
 
 use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\Sale;
+use Modules\Sale\Entities\SaleBundleItem;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\SalesReturn\Entities\SaleReturn;
 use Modules\SalesReturn\Entities\SaleReturnDetail;
@@ -27,6 +28,40 @@ class SaleReturnLifecycleSyncService
             ->first();
 
         if (! $sale) {
+            return;
+        }
+
+        $saleHasPosCorrection = SaleReturn::withArchived()
+            ->where('sale_id', $sale->id)
+            ->whereNotNull('pos_return_id')
+            ->exists();
+
+        $activeSaleQuantity = (float) SaleDetails::query()
+            ->where('sale_id', $sale->id)
+            ->sum('quantity');
+
+        $activeDispatchedQuantity = (float) DispatchDetail::query()
+            ->where('sale_id', $sale->id)
+            ->sum('dispatched_quantity');
+
+        $activeBundleItemQuantity = (float) SaleBundleItem::query()
+            ->where('sale_id', $sale->id)
+            ->sum('quantity');
+
+        if ($saleHasPosCorrection) {
+            $isFullyReturned = $activeSaleQuantity <= 0 && $activeDispatchedQuantity <= 0 && $activeBundleItemQuantity <= 0;
+            if ($isFullyReturned) {
+                if ($sale->status !== Sale::STATUS_RETURNED) {
+                    $sale->status = Sale::STATUS_RETURNED;
+                    $sale->save();
+                }
+            } else {
+                if ($sale->status !== Sale::STATUS_RETURNED_PARTIALLY) {
+                    $sale->status = Sale::STATUS_RETURNED_PARTIALLY;
+                    $sale->save();
+                }
+            }
+
             return;
         }
 
@@ -191,7 +226,11 @@ class SaleReturnLifecycleSyncService
             ->where('sale_id', $sale->id)
             ->sum('dispatched_quantity');
 
-        $posCorrectedFullyReturned = $activeSaleQuantity <= 0 && $activeDispatchedQuantity <= 0;
+        $activeBundleItemQuantity = (float) SaleBundleItem::query()
+            ->where('sale_id', $sale->id)
+            ->sum('quantity');
+
+        $posCorrectedFullyReturned = $activeSaleQuantity <= 0 && $activeDispatchedQuantity <= 0 && $activeBundleItemQuantity <= 0;
 
         // POS returns mutate sale-detail and dispatch quantities directly during receiving,
         // so the standard-return effective-coverage fallback (which reasons over persisted

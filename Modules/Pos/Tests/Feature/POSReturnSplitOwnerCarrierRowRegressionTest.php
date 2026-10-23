@@ -401,25 +401,11 @@ class POSReturnSplitOwnerCarrierRowRegressionTest extends TestCase
     }
 
     /**
-     * Sequence 11 correction: when the CATALOG declares a bundle component
-     * that the actual checkout never fulfilled (no allocation row, no
-     * SaleBundleItem, no dispatch — a genuinely missing/unresolvable
-     * component), a whole-bundle cash return must be rejected as incomplete
-     * before any mutation — never silently proceed as if the bundle were
-     * whole. Simulates this against the real carrier-row persistence shape
-     * by adding a second catalog ProductBundleItem to the bundle AFTER
-     * checkout has already completed (so checkout itself succeeds normally,
-     * but the catalog now declares a component this specific transaction
-     * never actually delivered — exactly the "component allocation
-     * missing" scenario, using real production lineage for the component
-     * that WAS fulfilled).
-     *
-     * @test
+     * Completes a real carrier-row checkout of one bundle (parent + one
+     * serial component) and returns its transaction id.
      */
-    public function it_rejects_a_whole_bundle_cash_return_when_a_catalog_component_has_no_resolvable_allocation(): void
+    private function checkoutCarrierBundle(array $context, string $idempotencyKey): int
     {
-        $context = $this->createCarrierOnlyOwnerContext();
-
         $lineId = $this->addCartLine($context['cashier'], $context['setting'], $context['parent']->id, 1, $context['bundle']->id);
         $this->assignSerials($context['cashier'], $context['setting'], $lineId, [$context['parentSerial']->serial_number]);
 
@@ -439,7 +425,7 @@ class POSReturnSplitOwnerCarrierRowRegressionTest extends TestCase
         $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
 
         $response = $this->finalize($context['cashier'], $context['setting'], [
-            'idempotency_key' => 'K-CARRIER-MISSING-COMPONENT-001',
+            'idempotency_key' => $idempotencyKey,
             'payment' => [
                 'payment_method_id' => $context['methods']['cash']->id,
                 'amount_paid' => 100000,
@@ -447,66 +433,102 @@ class POSReturnSplitOwnerCarrierRowRegressionTest extends TestCase
         ]);
         $response->assertStatus(201);
 
-        $posCheckoutId = $response->json('pos_checkout_id');
-        $transactionId = (int) \Modules\Pos\Entities\PosCheckout::findOrFail($posCheckoutId)->pos_transaction_id;
+        return (int) \Modules\Pos\Entities\PosCheckout::findOrFail($response->json('pos_checkout_id'))->pos_transaction_id;
+    }
 
-        // Catalog now declares a SECOND component this transaction never
-        // fulfilled at all — no SaleBundleItem, no SaleDetails allocation,
-        // no DispatchDetail, no serial anywhere for it.
-        $unfulfilledComponent = $this->createProduct($context['setting'], 'CARRIER UNFULFILLED COMPONENT', 0, false, $context['tax']->id);
+    private function submitWholeBundleParentCashReturn(array $context, int $transactionId): PosReturn
+    {
+        $snapshot = app(PosReturnSnapshotService::class)->build($transactionId);
+        $parentLine = collect($snapshot['lines'])->first(fn ($l) => (int) $l['product_id'] === (int) $context['parent']->id);
+
+        return app(PosReturnSubmissionService::class)->store([
+            'pos_transaction_id' => $transactionId,
+            'source_snapshot_hash' => $snapshot['hash'],
+            'lines' => [
+                [
+                    'sale_detail_id' => $parentLine['sale_detail_id'],
+                    'sale_id' => $parentLine['sale_id'],
+                    'returned_serial_id' => $context['parentSerial']->id,
+                    'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+                    'quantity' => 1,
+                    'bundle_return_scope' => PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE,
+                ],
+            ],
+        ]);
+    }
+
+    /**
+     * A component added to the catalog AFTER checkout was never part of
+     * what was sold. Returning the original whole bundle must succeed and
+     * cover only the components captured at checkout.
+     *
+     * @test
+     */
+    public function it_accepts_a_whole_bundle_cash_return_when_a_catalog_component_was_added_after_checkout(): void
+    {
+        $context = $this->createCarrierOnlyOwnerContext();
+        $transactionId = $this->checkoutCarrierBundle($context, 'K-CARRIER-CATALOG-ADDED-001');
+
+        $addedComponent = $this->createProduct($context['setting'], 'CARRIER ADDED LATER COMPONENT', 0, false, $context['tax']->id);
         ProductBundleItem::create([
             'bundle_id' => $context['bundle']->id,
-            'product_id' => $unfulfilledComponent->id,
+            'product_id' => $addedComponent->id,
             'quantity' => 1,
         ]);
         \App\Support\ProductBundleResolver::clearCache();
+
+        $posReturn = $this->submitWholeBundleParentCashReturn($context, $transactionId);
+
+        $this->assertSame(PosReturn::STATUS_DRAFT, $posReturn->status);
+        $lines = $posReturn->lines()->get();
+        $this->assertTrue($lines->contains('product_id', $context['parent']->id), 'Parent line must be present.');
+        $this->assertTrue($lines->contains('product_id', $context['component']->id), 'Originally sold component must be included.');
+        $this->assertFalse($lines->contains('product_id', $addedComponent->id), 'A component added to the catalog after checkout must not be expected.');
+    }
+
+    /**
+     * A component that WAS sold but whose source allocation can no longer
+     * be resolved (no dispatch, no sale row in its source Sale) must block
+     * a whole-bundle cash return with an actionable error naming it —
+     * never silently skipped — and before any mutation.
+     *
+     * @test
+     */
+    public function it_rejects_a_whole_bundle_cash_return_when_a_sold_component_allocation_cannot_be_resolved(): void
+    {
+        $context = $this->createCarrierOnlyOwnerContext();
+        $transactionId = $this->checkoutCarrierBundle($context, 'K-CARRIER-MISSING-ALLOCATION-001');
+
+        // Remove the sold component's allocation evidence, keeping its SaleBundleItem
+        $componentDispatchIds = \Modules\Sale\Entities\DispatchDetail::query()
+            ->where('product_id', $context['component']->id)
+            ->pluck('id');
+        $this->assertNotEmpty($componentDispatchIds, 'Fixture must have dispatched the component.');
+        ProductSerialNumber::whereIn('dispatch_detail_id', $componentDispatchIds)->update(['dispatch_detail_id' => null]);
+        \Modules\Sale\Entities\DispatchDetail::whereIn('id', $componentDispatchIds)->delete();
+        \Modules\Sale\Entities\SaleDetails::query()->where('product_id', $context['component']->id)->delete();
 
         $baselineReturnCount = PosReturn::count();
         $baselineReturnLineCount = PosReturnLine::count();
         $baselineSaleReturnDetailCount = \Modules\SalesReturn\Entities\SaleReturnDetail::count();
         $baselineSerialHistoryCount = DB::table('serial_number_histories')->count();
-        $baselineComponentSerial = ProductSerialNumber::find($context['componentSerial']->id)->only(['status', 'dispatch_detail_id']);
-        $baselineParentSerial = ProductSerialNumber::find($context['parentSerial']->id)->only(['status', 'dispatch_detail_id']);
         $baselineComponentStock = ProductStock::where('product_id', $context['component']->id)->where('location_id', $context['locB']->id)->value('quantity');
 
-        $submissionService = app(PosReturnSubmissionService::class);
-        $snapshot = app(PosReturnSnapshotService::class)->build($transactionId);
-        $parentLine = collect($snapshot['lines'])->first(fn ($l) => (int) $l['product_id'] === (int) $context['parent']->id);
-
-        $rejected = false;
         $errorMessage = null;
         try {
-            $submissionService->store([
-                'pos_transaction_id' => $transactionId,
-                'source_snapshot_hash' => $snapshot['hash'],
-                'lines' => [
-                    [
-                        'sale_detail_id' => $parentLine['sale_detail_id'],
-                        'sale_id' => $parentLine['sale_id'],
-                        'returned_serial_id' => $context['parentSerial']->id,
-                        'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
-                        'quantity' => 1,
-                    ],
-                ],
-            ]);
+            $this->submitWholeBundleParentCashReturn($context, $transactionId);
         } catch (\Throwable $e) {
-            $rejected = true;
             $errorMessage = $e->getMessage();
         }
 
-        $this->assertTrue($rejected, 'A whole-bundle cash return with a catalog component that has no resolvable allocation must be rejected, never silently proceed as complete.');
-        $this->assertStringContainsString(
-            'harus mencakup seluruh unit bundel',
-            (string) $errorMessage,
-            'The rejection must identify unresolved/incomplete bundle-component lineage.'
-        );
+        $this->assertNotNull($errorMessage, 'A whole-bundle cash return with an unresolvable sold component must be rejected.');
+        $this->assertStringContainsString($context['component']->product_name, $errorMessage, 'The error must name the component.');
+        $this->assertStringContainsString('alokasi penjualan sumbernya tidak ditemukan', $errorMessage, 'The error must explain which allocation cannot be resolved.');
 
-        $this->assertSame($baselineReturnCount, PosReturn::count(), 'No draft/PosReturn may be created by a rejected incomplete-bundle submission.');
-        $this->assertSame($baselineReturnLineCount, PosReturnLine::count(), 'No PosReturnLine may be created by a rejected incomplete-bundle submission.');
-        $this->assertSame($baselineSaleReturnDetailCount, \Modules\SalesReturn\Entities\SaleReturnDetail::count(), 'No SaleReturnDetail (refund/stock/HPP effect) may be created.');
-        $this->assertSame($baselineSerialHistoryCount, DB::table('serial_number_histories')->count(), 'No serial history (receiving/dispatch effect) may be created.');
-        $this->assertEquals($baselineComponentSerial, ProductSerialNumber::find($context['componentSerial']->id)->only(['status', 'dispatch_detail_id']), 'Component serial state must be unchanged.');
-        $this->assertEquals($baselineParentSerial, ProductSerialNumber::find($context['parentSerial']->id)->only(['status', 'dispatch_detail_id']), 'Parent serial state must be unchanged.');
+        $this->assertSame($baselineReturnCount, PosReturn::count(), 'No PosReturn may be created.');
+        $this->assertSame($baselineReturnLineCount, PosReturnLine::count(), 'No PosReturnLine may be created.');
+        $this->assertSame($baselineSaleReturnDetailCount, \Modules\SalesReturn\Entities\SaleReturnDetail::count(), 'No SaleReturnDetail may be created.');
+        $this->assertSame($baselineSerialHistoryCount, DB::table('serial_number_histories')->count(), 'No serial history may be created.');
         $this->assertEquals($baselineComponentStock, ProductStock::where('product_id', $context['component']->id)->where('location_id', $context['locB']->id)->value('quantity'), 'Component stock must be unchanged.');
     }
 

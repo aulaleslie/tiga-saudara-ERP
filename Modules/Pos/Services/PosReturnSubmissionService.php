@@ -187,35 +187,45 @@ class PosReturnSubmissionService
                     throw new \Exception("Kuantitas retur melebihi batas yang diizinkan untuk produk {$saleDetail->product_name}.");
                 }
 
-                $isBundle = $saleDetail->bundleItems->isNotEmpty();
+                $bundleCtx = $this->bundleComponentResolver->resolveOriginalBundleContext($saleDetail, $checkoutSales, $transaction);
+                $isBundle = ($bundleCtx && !empty($bundleCtx['is_bundle'])) || $saleDetail->bundleItems->isNotEmpty();
                 $unitPrice = (float) $saleDetail->unit_price;
                 if ($isBundle && $unitPrice === 0.0 && $saleDetail->quantity > 0) {
                     $unitPrice = (float) $checkoutSale->subtotal / $saleDetail->quantity;
                 }
 
-                // Task 3.9: For bundled serials, use the full original POS transaction line unit price
-                // as the customer-facing price. This handles split-posting scenarios where the parent
-                // Sale Detail price is the residual allocation, not the customer-visible bundle price.
+                $isSynthesizedComponent = !empty($lineData['__synthesized_component']);
+
+                // Determine bundle return scope before unit price calculation
+                $bundleReturnScope = $lineData['bundle_return_scope'] ?? null;
+                if ($isBundle && !$isSynthesizedComponent && $resolution === PosReturnLine::RESOLUTION_CASH_RETURN) {
+                    $bundleReturnScope = $bundleReturnScope ?: PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE;
+                } else {
+                    $bundleReturnScope = null;
+                }
+
+                // Task 3.9: For whole_bundle cash return, use the full original POS transaction line unit price
+                // as the customer-facing price. For parent_only, retain the parent's own allocated unit price.
                 $ptl = null;
                 $ptlIsBundle = false;
-                if ($isSerial && !empty($lineData['pos_transaction_line_id'])) {
-                    $ptl = \Modules\Pos\Entities\PosTransactionLine::find($lineData['pos_transaction_line_id']);
+                $ptlId = $lineData['pos_transaction_line_id'] ?? ($bundleCtx['pos_transaction_line_id'] ?? null);
+                if (!empty($ptlId)) {
+                    $ptl = \Modules\Pos\Entities\PosTransactionLine::find($ptlId);
                     if ($ptl) {
                         $ptlIsBundle = !empty($ptl->line_meta['bundle_id'])
                             || !empty($ptl->line_meta['is_bundle'])
                             || !empty($ptl->line_meta['bundle_items']);
-                        if ($ptlIsBundle && $ptl->unit_price > 0) {
-                            $unitPrice = (float) $ptl->unit_price;
-                            $isBundle = true;
-                        }
                     }
                 }
 
-                // Corrections/2.1: component lines synthesized from a whole-bundle
-                // cash_return carry expected_cash_amount = 0 — the parent line already
-                // reflects the full customer-facing bundle price, so component lines
-                // must not double-count refund value. See synthesizeBundleCashReturn().
-                $isSynthesizedComponent = !empty($lineData['__synthesized_component']);
+                if ($ptlIsBundle) {
+                    $isBundle = true;
+                    if ($bundleReturnScope === PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY) {
+                        $unitPrice = (float) $saleDetail->unit_price;
+                    } elseif ($ptl && $ptl->unit_price > 0) {
+                        $unitPrice = (float) $ptl->unit_price;
+                    }
+                }
 
                 $lineTotal = $quantity * $unitPrice;
                 // For serials, qty=1, so line_total equals unit_price.
@@ -248,6 +258,7 @@ class PosReturnSubmissionService
                 // stable per-bundle-instance grouping key shared by parent+components.
                 $bundleParentSaleDetailId = $lineData['__bundle_parent_sale_detail_id'] ?? ($isBundle ? $saleDetail->id : null);
                 $bundleGroupKey = $lineData['__bundle_group_key'] ?? ($isBundle ? ('bundle-' . $bundleParentSaleDetailId) : null);
+                $isSynthesizedComponent = !empty($lineData['__synthesized_component']);
                 $bundleQuantity = $lineData['__bundle_quantity'] ?? ($isBundle && !$isSynthesizedComponent ? $quantity : null);
                 $componentQuantityPerBundle = $lineData['__component_quantity_per_bundle'] ?? null;
 
@@ -334,6 +345,7 @@ class PosReturnSubmissionService
                     'expected_cash_amount' => $expectedCashAmount,
                     'bundle_group_key' => $bundleGroupKey,
                     'bundle_parent_sale_detail_id' => $bundleParentSaleDetailId,
+                    'bundle_return_scope' => $bundleReturnScope,
                     'bundle_quantity' => $bundleQuantity,
                     'component_quantity_per_bundle' => $componentQuantityPerBundle,
                 ];
@@ -498,29 +510,45 @@ class PosReturnSubmissionService
                     throw new \Exception("Kuantitas retur melebihi batas yang diizinkan untuk produk {$saleDetail->product_name}.");
                 }
 
-                $isBundle = $saleDetail->bundleItems->isNotEmpty();
+                $bundleCtx = $this->bundleComponentResolver->resolveOriginalBundleContext($saleDetail, $checkoutSales, $transaction);
+                $isBundle = ($bundleCtx && !empty($bundleCtx['is_bundle'])) || $saleDetail->bundleItems->isNotEmpty();
                 $unitPrice = (float) $saleDetail->unit_price;
                 if ($isBundle && $unitPrice === 0.0 && $saleDetail->quantity > 0) {
                     $unitPrice = (float) $checkoutSale->subtotal / $saleDetail->quantity;
                 }
 
-                // Task 3.9: For bundled serials, use the full original POS transaction line unit price.
+                $isSynthesizedComponent = !empty($lineData['__synthesized_component']);
+
+                // Determine bundle return scope before unit price calculation
+                $bundleReturnScope = $lineData['bundle_return_scope'] ?? null;
+                if ($isBundle && !$isSynthesizedComponent && $resolution === PosReturnLine::RESOLUTION_CASH_RETURN) {
+                    $bundleReturnScope = $bundleReturnScope ?: PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE;
+                } else {
+                    $bundleReturnScope = null;
+                }
+
+                // Task 3.9: For whole_bundle cash return, use the full original POS transaction line unit price.
+                // For parent_only, retain the parent's own allocated unit price.
                 $ptl = null;
                 $ptlIsBundle = false;
-                if ($isSerial && !empty($lineData['pos_transaction_line_id'])) {
-                    $ptl = \Modules\Pos\Entities\PosTransactionLine::find($lineData['pos_transaction_line_id']);
+                $ptlId = $lineData['pos_transaction_line_id'] ?? ($bundleCtx['pos_transaction_line_id'] ?? null);
+                if (!empty($ptlId)) {
+                    $ptl = \Modules\Pos\Entities\PosTransactionLine::find($ptlId);
                     if ($ptl) {
                         $ptlIsBundle = !empty($ptl->line_meta['bundle_id'])
                             || !empty($ptl->line_meta['is_bundle'])
                             || !empty($ptl->line_meta['bundle_items']);
-                        if ($ptlIsBundle && $ptl->unit_price > 0) {
-                            $unitPrice = (float) $ptl->unit_price;
-                            $isBundle = true;
-                        }
                     }
                 }
 
-                $isSynthesizedComponent = !empty($lineData['__synthesized_component']);
+                if ($ptlIsBundle) {
+                    $isBundle = true;
+                    if ($bundleReturnScope === PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY) {
+                        $unitPrice = (float) $saleDetail->unit_price;
+                    } elseif ($ptl && $ptl->unit_price > 0) {
+                        $unitPrice = (float) $ptl->unit_price;
+                    }
+                }
 
                 $lineTotal = $isSerial ? $unitPrice : ($quantity * $unitPrice);
                 $expectedCashAmount = ($resolution === PosReturnLine::RESOLUTION_CASH_RETURN && !$isSynthesizedComponent)
@@ -543,6 +571,7 @@ class PosReturnSubmissionService
 
                 $bundleParentSaleDetailId = $lineData['__bundle_parent_sale_detail_id'] ?? ($isBundle ? $saleDetail->id : null);
                 $bundleGroupKey = $lineData['__bundle_group_key'] ?? ($isBundle ? ('bundle-' . $bundleParentSaleDetailId) : null);
+                $isSynthesizedComponent = !empty($lineData['__synthesized_component']);
                 $bundleQuantity = $lineData['__bundle_quantity'] ?? ($isBundle && !$isSynthesizedComponent ? $quantity : null);
                 $componentQuantityPerBundle = $lineData['__component_quantity_per_bundle'] ?? null;
 
@@ -615,6 +644,7 @@ class PosReturnSubmissionService
                     'expected_cash_amount' => $expectedCashAmount,
                     'bundle_group_key' => $bundleGroupKey,
                     'bundle_parent_sale_detail_id' => $bundleParentSaleDetailId,
+                    'bundle_return_scope' => $bundleReturnScope,
                     'bundle_quantity' => $bundleQuantity,
                     'component_quantity_per_bundle' => $componentQuantityPerBundle,
                 ];
@@ -732,6 +762,7 @@ class PosReturnSubmissionService
                         'pos_transaction_line_id' => $line->pos_transaction_line_id,
                         'returned_serial_id' => $line->returned_serial_id,
                         'resolution' => $line->resolution,
+                        'bundle_return_scope' => $line->bundle_return_scope,
                         'quantity' => (float) $line->quantity,
                         'replacement_serial_id' => $line->replacement_serial_id,
                         // Corrections/4: re-validation must see the persisted
@@ -809,6 +840,11 @@ class PosReturnSubmissionService
 
             if (!in_array($resolution, [PosReturnLine::RESOLUTION_NONE, PosReturnLine::RESOLUTION_CASH_RETURN, PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT], true)) {
                 throw new \Exception('Resolusi retur tidak valid.');
+            }
+
+            $scope = $lineData['bundle_return_scope'] ?? null;
+            if ($scope !== null && !in_array($scope, [PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE, PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY], true)) {
+                throw new \Exception('Scope retur bundle tidak valid.');
             }
 
             if (!$isSerial && ($resolution === PosReturnLine::RESOLUTION_NONE || $quantity <= 0)) {
@@ -1153,67 +1189,37 @@ class PosReturnSubmissionService
             ? \Modules\Pos\Entities\PosTransactionLine::where('pos_transaction_id', $posTransactionId)->get()
             : collect();
 
+        $allCheckoutSales = PosCheckoutSale::with(['sale.saleDetails.bundleItems.product'])
+            ->whereIn('pos_checkout_id', $checkoutIds)
+            ->get();
+        $posTransaction = $posTransactionId > 0 ? PosTransaction::with('lines')->find($posTransactionId) : null;
+
         $parentToCatalogComponents = [];
         foreach ($saleDetailsBySale as $saleId => $saleDetails) {
             foreach ($saleDetails as $parentCandidate) {
-                // Determine if this parentCandidate has persisted bundle evidence
-                $matchingLines = $cashReturnLines->where('sale_detail_id', $parentCandidate->id);
-                $hasPtlBundle = false;
-                $ptlBundleId = null;
-
-                // Check PTL directly associated via pos_transaction_line_id, or by serial number / product in the transaction
-                foreach ($matchingLines as $mLine) {
-                    $ptlId = $mLine['pos_transaction_line_id'] ?? null;
-                    $returnedSerialId = $mLine['returned_serial_id'] ?? null;
-
-                    $ptl = null;
-                    if ($ptlId) {
-                        $ptl = $transactionPtls->firstWhere('id', $ptlId) ?? \Modules\Pos\Entities\PosTransactionLine::find($ptlId);
-                    } elseif ($returnedSerialId && $posTransactionId > 0) {
-                        $snObj = ProductSerialNumber::find($returnedSerialId);
-                        if ($snObj) {
-                            $snPtlId = \Modules\Pos\Entities\PosTransactionLineSerial::where('serial_number', $snObj->serial_number)
-                                ->whereHas('line', fn($q) => $q->where('pos_transaction_id', $posTransactionId))
-                                ->value('pos_transaction_line_id');
-                            if ($snPtlId) {
-                                $ptl = $transactionPtls->firstWhere('id', $snPtlId) ?? \Modules\Pos\Entities\PosTransactionLine::find($snPtlId);
-                            }
-                        }
-                    }
-
-                    if ($ptl && (!empty($ptl->line_meta['bundle_id']) || !empty($ptl->line_meta['is_bundle']) || !empty($ptl->line_meta['bundle_items']))) {
-                        $hasPtlBundle = true;
-                        $ptlBundleId = isset($ptl->line_meta['bundle_id']) ? (int) $ptl->line_meta['bundle_id'] : null;
-                        break;
-                    }
-                }
-
-                $hasDirectBundleItems = $parentCandidate->bundleItems->isNotEmpty();
-                $directBundleId = $hasDirectBundleItems ? ($parentCandidate->bundleItems->first()->bundle_id ? (int) $parentCandidate->bundleItems->first()->bundle_id : null) : null;
-
-                // Split-owner carrier rows: any SaleBundleItem in checkout with sale_detail_id = $parentCandidate->id
-                $carrierBundleItems = $allSaleBundleItems->where('sale_detail_id', $parentCandidate->id);
-                $hasCarrierBundleItems = $carrierBundleItems->isNotEmpty();
-                $carrierBundleId = $hasCarrierBundleItems ? ($carrierBundleItems->first()->bundle_id ? (int) $carrierBundleItems->first()->bundle_id : null) : null;
-
-                if (!$hasPtlBundle && !$hasDirectBundleItems && !$hasCarrierBundleItems) {
-                    // Normal non-bundle sale: do not classify as a bundle parent even if product is a catalog bundle parent.
+                if ((float) $parentCandidate->quantity <= 0) {
                     continue;
                 }
-
-                $persistedBundleId = $ptlBundleId ?? $directBundleId ?? $carrierBundleId;
-
-                $catalogItems = $this->resolveCatalogBundleComponents((int) $parentCandidate->product_id, $persistedBundleId);
-
-                if ($catalogItems->isEmpty()) {
-                    $catalogItems = $parentCandidate->bundleItems;
+                $bundleContext = $this->bundleComponentResolver->resolveOriginalBundleContext($parentCandidate, $allCheckoutSales, $posTransaction);
+                if (!$bundleContext || empty($bundleContext['is_bundle'])) {
+                    continue;
+                }
+                if (!empty($bundleContext['is_ambiguous'])) {
+                    throw new \Exception($bundleContext['error'] ?? 'Ambiguous bundle resolution.');
                 }
 
-                if ($catalogItems->isEmpty() && $hasCarrierBundleItems) {
-                    $catalogItems = $carrierBundleItems;
-                }
-
-                $resolvableItems = $this->filterResolvableFallbackComponents($catalogItems, (int) $parentCandidate->id);
+                $resolvableItems = collect($bundleContext['components'])->map(fn ($c) => (object) [
+                    'product_id' => $c['product_id'],
+                    'quantity' => $c['quantity_per_bundle'],
+                    'bundle_id' => $bundleContext['bundle_id'],
+                    'id' => $c['bundle_item_id'],
+                    'carrier_sale_detail_id' => $c['carrier_sale_detail_id'],
+                    'sale_id' => $c['sale_id'],
+                    'sale_bundle_item_id' => $c['sale_bundle_item_id'],
+                    'dispatch_detail_id' => $c['dispatch_detail_id'],
+                    'product_name' => $c['product_name'],
+                    'product_code' => $c['product_code'],
+                ]);
 
                 if ($resolvableItems->isEmpty()) {
                     continue;
@@ -1222,6 +1228,7 @@ class PosReturnSubmissionService
                 $parentToCatalogComponents[$parentCandidate->id] = [
                     'sale_id' => (int) $saleId,
                     'catalog_items' => $resolvableItems,
+                    'bundle_context' => $bundleContext,
                 ];
             }
         }
@@ -1234,6 +1241,12 @@ class PosReturnSubmissionService
             $parentInfo = $parentToCatalogComponents[$saleDetailId] ?? null;
 
             if ($parentInfo === null) {
+                continue;
+            }
+
+            // Task 2.2: If explicit parent-only scope, do not synthesize components!
+            $scope = $lineData['bundle_return_scope'] ?? null;
+            if ($scope === PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY) {
                 continue;
             }
 
@@ -1270,13 +1283,15 @@ class PosReturnSubmissionService
                     $componentProductId,
                     (int) $catalogItem->bundle_id,
                     (int) $catalogItem->id,
-                    (float) $catalogItem->quantity
+                    (float) $catalogItem->quantity,
+                    $catalogItem->carrier_sale_detail_id ?? null
                 ) ?? $this->bundleComponentResolver->findComponentBundleItem(
                     $saleIds,
                     $componentProductId,
                     (int) $catalogItem->bundle_id,
                     (int) $catalogItem->id,
-                    (float) $catalogItem->quantity
+                    (float) $catalogItem->quantity,
+                    $catalogItem->carrier_sale_detail_id ?? null
                 );
 
                 if (!$bundleItem) {
@@ -1484,7 +1499,12 @@ class PosReturnSubmissionService
             $lineData['__bundle_quantity'] = $parentQuantity;
         }
 
-        if (empty($synthesized) && collect($validatedLines)->every(fn ($l) => empty($l['__bundle_group_key']))) {
+        $hasBundleParents = collect($validatedLines)->contains(function ($l) use ($parentToCatalogComponents) {
+            return ($l['resolution'] ?? null) === PosReturnLine::RESOLUTION_CASH_RETURN
+                && isset($parentToCatalogComponents[(int) ($l['sale_detail_id'] ?? 0)]);
+        });
+
+        if (empty($synthesized) && !$hasBundleParents) {
             return $validatedLines;
         }
 
@@ -1789,31 +1809,22 @@ class PosReturnSubmissionService
         $saleDetailIds = $cashReturnLines->pluck('sale_detail_id')->filter()->unique()->values();
         $saleDetails = SaleDetails::query()->with('bundleItems')->whereIn('id', $saleDetailIds)->get()->keyBy('id');
 
-        // Map: parent_sale_detail_id => Collection<ProductBundleItem>
-        //
-        // Two distinct sources of "what components does this bundle
-        // instance have", with DIFFERENT completeness semantics:
-        //
-        //  - A real catalog ProductBundle exists for this parent product
-        //    (resolveCatalogBundleComponents() non-empty): every catalog
-        //    component is authoritative and MUST be treated as "expected"
-        //    in FULL, including one with no discoverable allocation. An
-        //    unresolvable catalog component must surface via the `missing`
-        //    diff below (rejected as an incomplete bundle cash return) —
-        //    silently excluding it would let a "whole-bundle" cash return
-        //    proceed without a component the catalog says must exist,
-        //    violating the "every component proportionally" rule.
-        //  - NO catalog ProductBundle exists at all (legacy/hand-built
-        //    fixture whose only signal is the parent's own persisted
-        //    SaleBundleItem rows, which may themselves be purely
-        //    informational — e.g. referencing a bundle_id with no backing
-        //    ProductBundle row): filterResolvableFallbackComponents()
-        //    still filters down to only actually-resolvable allocations,
-        //    preserving the long-standing legacy behavior for such
-        //    fixtures (see POSReturnApprovalPreviewPlannerTest::
-        //    it_reports_a_blocker_when_a_bundle_component_target_is_missing).
+        // Map: parent_sale_detail_id => Collection of components captured at
+        // checkout (PTL bundle_items or persisted SaleBundleItem rows). Every
+        // captured component is expected in full; one whose source allocation
+        // cannot be resolved is rejected by name, never filtered out, and the
+        // current catalog is never substituted for the original composition.
         $parentToCatalogComponents = [];
+        $parentComponentContexts = [];
         $saleIdsInScope = $saleDetails->pluck('sale_id')->filter()->unique()->values();
+        $checkoutIds = PosCheckoutSale::whereIn('sale_id', $saleIdsInScope)->pluck('pos_checkout_id')->filter()->unique()->values();
+        if ($checkoutIds->isNotEmpty()) {
+            $allSaleIds = PosCheckoutSale::whereIn('pos_checkout_id', $checkoutIds)->pluck('sale_id')->filter()->unique()->values();
+            if ($allSaleIds->isNotEmpty()) {
+                $saleIdsInScope = $allSaleIds;
+            }
+        }
+
         $allSaleBundleItems = SaleBundleItem::whereIn('sale_id', $saleIdsInScope)->get();
         $posTransactionId = 0;
         $firstPtlId = $cashReturnLines->pluck('pos_transaction_line_id')->filter()->first();
@@ -1833,76 +1844,41 @@ class PosReturnSubmissionService
             ? \Modules\Pos\Entities\PosTransactionLine::where('pos_transaction_id', $posTransactionId)->get()
             : collect();
 
+        $allCheckoutSales = $checkoutIds->isNotEmpty()
+            ? PosCheckoutSale::with(['sale.saleDetails.bundleItems.product'])->whereIn('pos_checkout_id', $checkoutIds)->get()
+            : collect();
+        $posTransaction = $posTransactionId > 0 ? PosTransaction::with('lines')->find($posTransactionId) : null;
+
         foreach ($saleDetails as $saleDetail) {
-            // A zero-quantity row is never itself a bundle PARENT line — it
-            // is either a carrier row (hosting a cross-owner component,
-            // keyed by the PARENT's product_id) or a same-owner zero-priced
-            // component allocation sibling. Both happen to satisfy
-            // resolveCatalogBundleComponents()/bundleItems lookups because
-            // their product_id/persisted SaleBundleItem rows coincidentally
-            // resolve a catalog bundle — but treating THEM as "the parent"
-            // would wrongly expect their own components a second time. Only
-            // a real (nonzero-quantity) bundle parent row is eligible here.
             if ((float) $saleDetail->quantity <= 0) {
                 continue;
             }
 
-            // Determine if this saleDetail has persisted bundle evidence
-            $matchingLines = $cashReturnLines->where('sale_detail_id', $saleDetail->id);
-            $hasPtlBundle = false;
-            $ptlBundleId = null;
-            foreach ($matchingLines as $mLine) {
-                $ptlId = $mLine['pos_transaction_line_id'] ?? null;
-                $returnedSerialId = $mLine['returned_serial_id'] ?? null;
-
-                $ptl = null;
-                if ($ptlId) {
-                    $ptl = $transactionPtls->firstWhere('id', $ptlId) ?? \Modules\Pos\Entities\PosTransactionLine::find($ptlId);
-                } elseif ($returnedSerialId && $posTransactionId > 0) {
-                    $snObj = ProductSerialNumber::find($returnedSerialId);
-                    if ($snObj) {
-                        $snPtlId = \Modules\Pos\Entities\PosTransactionLineSerial::where('serial_number', $snObj->serial_number)
-                            ->whereHas('line', fn($q) => $q->where('pos_transaction_id', $posTransactionId))
-                            ->value('pos_transaction_line_id');
-                        if ($snPtlId) {
-                            $ptl = $transactionPtls->firstWhere('id', $snPtlId) ?? \Modules\Pos\Entities\PosTransactionLine::find($snPtlId);
-                        }
-                    }
-                }
-
-                if ($ptl && (!empty($ptl->line_meta['bundle_id']) || !empty($ptl->line_meta['is_bundle']) || !empty($ptl->line_meta['bundle_items']))) {
-                    $hasPtlBundle = true;
-                    $ptlBundleId = isset($ptl->line_meta['bundle_id']) ? (int) $ptl->line_meta['bundle_id'] : null;
-                    break;
-                }
-            }
-
-            $hasDirectBundleItems = $saleDetail->bundleItems->isNotEmpty();
-            $directBundleId = $hasDirectBundleItems ? ($saleDetail->bundleItems->first()->bundle_id ? (int) $saleDetail->bundleItems->first()->bundle_id : null) : null;
-
-            $carrierBundleItems = $allSaleBundleItems->where('sale_detail_id', $saleDetail->id);
-            $hasCarrierBundleItems = $carrierBundleItems->isNotEmpty();
-            $carrierBundleId = $hasCarrierBundleItems ? ($carrierBundleItems->first()->bundle_id ? (int) $carrierBundleItems->first()->bundle_id : null) : null;
-
-            if (!$hasPtlBundle && !$hasDirectBundleItems && !$hasCarrierBundleItems) {
-                // Normal sale of a product that happens to be a catalog bundle parent
+            $bundleContext = $this->bundleComponentResolver->resolveOriginalBundleContext($saleDetail, $allCheckoutSales, $posTransaction);
+            if (!$bundleContext || empty($bundleContext['is_bundle'])) {
                 continue;
             }
-
-            $persistedBundleId = $ptlBundleId ?? $directBundleId ?? $carrierBundleId;
-
-            $catalogItems = $this->resolveCatalogBundleComponents((int) $saleDetail->product_id, $persistedBundleId);
-            $hasCatalogBundle = $catalogItems->isNotEmpty();
-            if (!$hasCatalogBundle) {
-                $catalogItems = $hasDirectBundleItems ? $saleDetail->bundleItems : $carrierBundleItems;
+            if (!empty($bundleContext['is_ambiguous'])) {
+                throw new \Exception($bundleContext['error'] ?? 'Ambiguous bundle resolution.');
             }
 
-            $expectedItems = $hasCatalogBundle
-                ? $catalogItems
-                : $this->filterResolvableFallbackComponents($catalogItems, (int) $saleDetail->id);
+            $rawItems = collect($bundleContext['components'])->map(fn ($c) => (object) [
+                'product_id' => $c['product_id'],
+                'quantity' => $c['quantity_per_bundle'],
+                'bundle_id' => $bundleContext['bundle_id'],
+                'id' => $c['bundle_item_id'],
+            ]);
 
-            if ($expectedItems->isNotEmpty()) {
-                $parentToCatalogComponents[$saleDetail->id] = $expectedItems;
+            // The resolver only returns components captured at checkout, which are
+            // authoritative over a catalog that may have been edited since.
+            // Components with unresolved lineage are kept, never skipped, so the
+            // completeness check below rejects them by name.
+            if ($rawItems->isNotEmpty()) {
+                $parentToCatalogComponents[$saleDetail->id] = $rawItems;
+                $parentComponentContexts[$saleDetail->id] = [
+                    'parent_name' => $saleDetail->product_name,
+                    'components' => collect($bundleContext['components'])->keyBy(fn ($c) => (int) $c['product_id']),
+                ];
             }
         }
 
@@ -1976,15 +1952,15 @@ class PosReturnSubmissionService
             // Untagged line: check whether it is itself a bare component
             // sibling row submitted directly (no synthesis ran because no
             // parent line accompanied it in this submission at all). Must be
-            // an actual component ALLOCATION row (unit_price = 0, the
-            // long-standing convention marking it as bundle-internal), never
-            // a same-SKU commercial standalone sale of the same product —
-            // product_id alone is never sufficient identity here (see
-            // same_sku_standalone_and_component_are_disambiguated test).
+            // an actual component ALLOCATION row proven by persisted bundle
+            // lineage, never a same-SKU commercial standalone sale of the
+            // same product — product_id alone is never sufficient identity
+            // here (see same_sku_standalone_and_component_are_disambiguated test).
             $lineSaleDetail = $saleDetails->get($saleDetailId);
             $lineProductId = (int) ($lineSaleDetail?->product_id ?? 0);
-            $isZeroPricedAllocationRow = $lineSaleDetail && (float) $lineSaleDetail->unit_price === 0.0;
-            if ($parentSaleDetailId === 0 && $isZeroPricedAllocationRow && isset($componentProductIdToBundleParentProductId[$lineProductId])) {
+            if ($parentSaleDetailId === 0
+                && isset($componentProductIdToBundleParentProductId[$lineProductId])
+                && $this->isBundleComponentAllocationRow($lineSaleDetail)) {
                 $orphanComponentLines[] = $lineData;
             }
         }
@@ -1992,7 +1968,6 @@ class PosReturnSubmissionService
         if (!empty($orphanComponentLines)) {
             throw new \Exception('Retur uang kembali untuk paket bundel harus mencakup seluruh unit bundel (produk utama dan semua komponennya).');
         }
-
         foreach ($parentToCatalogComponents as $parentSaleDetailId => $catalogItems) {
             $group = $groupedByParent[$parentSaleDetailId] ?? null;
 
@@ -2006,8 +1981,23 @@ class PosReturnSubmissionService
             $parentLine = $group['parent_line'] ?? null;
             $componentLines = $group['component_lines'] ?? [];
 
+            // Task 2.2: If explicit parent-only scope, component completeness is satisfied
+            if ($parentLine && ($parentLine['bundle_return_scope'] ?? null) === PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY) {
+                continue;
+            }
+
             $expectedComponentProductIds = $catalogItems->pluck('product_id')->map(fn ($id) => (int) $id)->all();
             $missing = array_diff($expectedComponentProductIds, array_keys($componentLines));
+
+            foreach ($missing as $missingProductId) {
+                $component = $parentComponentContexts[$parentSaleDetailId]['components']->get((int) $missingProductId);
+                if ($component && ($component['lineage_status'] ?? 'resolved') !== 'resolved') {
+                    throw new \Exception($this->bundleComponentResolver->describeUnresolvedComponent(
+                        $component,
+                        $parentComponentContexts[$parentSaleDetailId]['parent_name']
+                    ));
+                }
+            }
 
             if ($parentLine === null || !empty($missing)) {
                 throw new \Exception('Retur uang kembali untuk paket bundel harus mencakup seluruh unit bundel (produk utama dan semua komponennya).');
@@ -2078,88 +2068,55 @@ class PosReturnSubmissionService
     }
 
     /**
-     * Corrections/10: filter a bundle's component list (catalog
-     * ProductBundleItem rows, or — when no catalog ProductBundle exists —
-     * the parent's own persisted SaleBundleItem rows) down to only those
-     * with an ACTUALLY-DISCOVERABLE component allocation, matching exactly
-     * what synthesizeBundleCashReturnComponents() itself can resolve. A
-     * component is resolvable when either:
-     *  - Split-owner shape: its SaleBundleItem is attached to a genuine
-     *    CARRIER row that is NOT the parent's own row (a distinct,
-     *    zero-quantity residual line in the component owner's own Sale); or
-     *  - Same-owner shape: its SaleBundleItem is attached to the parent's
-     *    own row, AND a separate zero-priced sibling SaleDetails row exists
-     *    in the same Sale keyed by the component's own product_id — the
-     *    long-standing convention marking a verifiable standalone
-     *    allocation.
-     * A catalog/SaleBundleItem entry satisfying neither condition (e.g.
-     * hand-built fixtures that link a SaleBundleItem without ever creating
-     * the component's own persisted allocation) is excluded entirely — never
-     * treated as "expected but missing." This preserves the pre-Corrections/10
-     * behavior exactly for such fixtures.
+     * Whether a component-product SaleDetails row is a bundle component
+     * ALLOCATION row (bundle-internal) rather than an ordinary standalone
+     * sale of the same product, judged only by persisted bundle lineage:
+     *  - Same-owner convention: zero-priced sibling row; or
+     *  - Dispatch lineage: a DispatchDetail for this exact row carries a
+     *    bundle_id; or
+     *  - Split-owner lineage: the same Sale has a zero-quantity carrier row
+     *    whose SaleBundleItem for this product captured exactly this row's
+     *    quantity and allocated unit price.
+     * A standalone sale sitting beside a bundle whose SaleBundleItem is
+     * attached to a real (positive-quantity) parent row satisfies none.
      *
-     * @param \Illuminate\Support\Collection $catalogItems ProductBundleItem or SaleBundleItem rows
-     * @param int $parentSaleDetailId the bundle parent's own sale_detail_id, to distinguish a same-owner
-     *        attached row (equals this id) from a genuine cross-owner carrier row (does not)
-     * @return \Illuminate\Support\Collection
+     * Known limitation: the split-owner quantity/price match is a fallback,
+     * not proven component identity. A standalone sale in a split-owner Sale
+     * with exactly the carrier item's quantity and allocated price is
+     * classified as a component row, so its standalone cash return is
+     * rejected (fails safe). Accepted pending manual review.
      */
-    protected function filterResolvableFallbackComponents(\Illuminate\Support\Collection $catalogItems, int $parentSaleDetailId): \Illuminate\Support\Collection
+    protected function isBundleComponentAllocationRow(?SaleDetails $saleDetail): bool
     {
-        if ($catalogItems->isEmpty()) {
-            return $catalogItems;
+        if (! $saleDetail) {
+            return false;
         }
 
-        $parentSaleDetail = SaleDetails::find($parentSaleDetailId);
-        $parentOwnSaleId = $parentSaleDetail->sale_id ?? null;
-
-        // A ProductBundleItem has no sale_id of its own — resolve the WIDE
-        // (fallback) scope from every checkout sale sharing the parent's own
-        // Sale's checkout, same as synthesizeBundleCashReturnComponents().
-        $wideSaleIds = collect([$parentOwnSaleId])->filter();
-        if ($parentSaleDetail) {
-            $checkoutIds = PosCheckoutSale::where('sale_id', $parentOwnSaleId)->pluck('pos_checkout_id')->filter()->unique();
-            $wideSaleIds = $checkoutIds->isNotEmpty()
-                ? PosCheckoutSale::whereIn('pos_checkout_id', $checkoutIds)->pluck('sale_id')->filter()->unique()->values()
-                : collect([$parentOwnSaleId]);
+        if ((float) $saleDetail->unit_price === 0.0) {
+            return true;
         }
-        $narrowSaleIds = collect([$parentOwnSaleId])->filter();
 
-        return $catalogItems->filter(function ($catalogItem) use ($narrowSaleIds, $wideSaleIds, $parentSaleDetailId) {
-            // Corrections/10: try the parent's own sale_id FIRST (narrow
-            // scope) before widening to the full checkout — see
-            // synthesizeBundleCashReturnComponents() for why (disambiguating
-            // repeated same-catalog bundle purchases within one checkout,
-            // e.g. a serialized parent with quantity > 1).
-            $bundleItem = $this->bundleComponentResolver->findComponentBundleItem(
-                $narrowSaleIds,
-                (int) $catalogItem->product_id,
-                (int) $catalogItem->bundle_id,
-                (int) $catalogItem->id,
-                (float) $catalogItem->quantity
-            ) ?? $this->bundleComponentResolver->findComponentBundleItem(
-                $wideSaleIds,
-                (int) $catalogItem->product_id,
-                (int) $catalogItem->bundle_id,
-                (int) $catalogItem->id,
-                (float) $catalogItem->quantity
-            );
+        $hasBundleDispatch = DispatchDetail::query()
+            ->where('sale_detail_id', $saleDetail->id)
+            ->whereNotNull('bundle_id')
+            ->exists();
+        if ($hasBundleDispatch) {
+            return true;
+        }
 
-            if (!$bundleItem || !$bundleItem->saleDetail) {
-                return false;
-            }
+        return SaleBundleItem::query()
+            ->where('sale_id', $saleDetail->sale_id)
+            ->where('product_id', $saleDetail->product_id)
+            ->whereHas('saleDetail', fn ($q) => $q->where('quantity', '<=', 0))
+            ->get()
+            ->contains(function ($sbi) use ($saleDetail) {
+                $allocatedUnitPrice = (float) $sbi->price > 0
+                    ? (float) $sbi->price
+                    : ((float) $sbi->quantity > 0 ? (float) $sbi->sub_total / (float) $sbi->quantity : 0.0);
 
-            if ((int) $bundleItem->saleDetail->id !== $parentSaleDetailId) {
-                // Genuine cross-owner carrier row — always resolvable.
-                return true;
-            }
-
-            // Same-owner shape: require an actual zero-priced sibling row.
-            return SaleDetails::query()
-                ->where('sale_id', $bundleItem->sale_id)
-                ->where('product_id', $catalogItem->product_id)
-                ->where('unit_price', 0)
-                ->exists();
-        })->values();
+                return abs((float) $sbi->quantity - (float) $saleDetail->quantity) < 0.0001
+                    && abs($allocatedUnitPrice - (float) $saleDetail->unit_price) < 0.01;
+            });
     }
 
     public function resolveOriginalSerialIdsForDispatch(int $dispatchDetailId): array

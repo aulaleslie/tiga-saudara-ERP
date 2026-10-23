@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Schema;
 use Modules\Pos\Entities\PosReturn;
 use Modules\Pos\Entities\PosReturnLine;
 use Modules\Pos\Entities\PosCheckoutSale;
+use Modules\Pos\Entities\PosTransactionLine;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\Sale;
@@ -31,6 +32,7 @@ class PosReturnApprovalPreviewPlannerService
         private readonly PosCheckoutGroupCustomerResolverService $groupCustomerResolver,
         private readonly PosReturnSerialReplacementChainResolver $serialChainResolver,
         private readonly ?PosReturnQuantityGuard $quantityGuard = null,
+        private readonly ?PosBundleComponentResolver $bundleComponentResolver = null,
     ) {
     }
 
@@ -40,6 +42,7 @@ class PosReturnApprovalPreviewPlannerService
             'lines.returnedSerial',
             'lines.replacementSerial',
             'lines.posTransactionLine',
+            'posTransaction.lines',
             'saleReturns.saleReturnDetails',
         ]);
 
@@ -56,9 +59,30 @@ class PosReturnApprovalPreviewPlannerService
         $info = [];
         $groups = [];
 
+        $sourceHeader = $posReturn->source_snapshot['header'] ?? null;
+        $freshHeader = $freshSnapshot['header'] ?? null;
+        $headerDrift = false;
+
+        if ($sourceHeader && $freshHeader) {
+            $receiptDrift = isset($sourceHeader['receipt_number'], $freshHeader['receipt_number']) &&
+                $sourceHeader['receipt_number'] !== $freshHeader['receipt_number'];
+            $totalDrift = isset($sourceHeader['grand_total'], $freshHeader['grand_total']) &&
+                abs((float) $sourceHeader['grand_total'] - (float) $freshHeader['grand_total']) > 0.01;
+            $checkoutDrift = isset($sourceHeader['checkout_id'], $freshHeader['checkout_id']) &&
+                (int) $sourceHeader['checkout_id'] !== (int) $freshHeader['checkout_id'];
+
+            if ($receiptDrift || $totalDrift || $checkoutDrift) {
+                $headerDrift = true;
+                $blockers[] = $this->message(
+                    'snapshot_drift',
+                    'Snapshot sumber retur POS sudah berubah dibandingkan data yang diajukan untuk approval preview.'
+                );
+            }
+        }
+
         if (($freshSnapshot['hash'] ?? null) === $posReturn->source_snapshot_hash) {
             $info[] = $this->message('snapshot_hash_valid', 'Snapshot sumber masih sesuai dengan data retur yang diajukan.');
-        } else {
+        } elseif (! $headerDrift) {
             $info[] = $this->message('snapshot_hash_valid', 'Snapshot sumber divalidasi terhadap entitas dan ketersediaan baris retur.');
         }
 
@@ -80,7 +104,50 @@ class PosReturnApprovalPreviewPlannerService
             }
         }
 
+        $totalRetainedCharges = 0.0;
+        foreach ($groups as $groupKey => $group) {
+            $saleId = (int) ($group['source_sale']['id'] ?? 0);
+            $sale = $planningContext['sales']->get($saleId);
+
+            $commercialReduction = (float) ($group['planned_header']['total_amount'] ?? 0);
+            $actualRefund = 0.0;
+            $debtReduction = 0.0;
+            $remainingDue = 0.0;
+
+            if ($sale) {
+                $activePayments = $sale->salePayments->filter(fn ($p) => method_exists($p, 'isActive') ? $p->isActive() : true);
+                $activePaidAmount = round((float) $activePayments->sum(fn ($p) => (float) $p->amount), 2);
+                if ($activePaidAmount <= 0 && $activePayments->isEmpty()) {
+                    $activePaidAmount = round((float) ($sale->paid_amount ?? 0), 2);
+                }
+
+                $saleTotal = round((float) ($sale->total_amount ?? 0), 2);
+                $previousDue = round(max((float) ($sale->due_amount ?? 0), $saleTotal - $activePaidAmount), 2);
+                $newSaleTotal = round(max(0, $saleTotal - $commercialReduction), 2);
+                $correctedPaid = round(min($activePaidAmount, $newSaleTotal), 2);
+                $actualRefund = round(max(0, $activePaidAmount - $newSaleTotal), 2);
+                $correctedDue = round(max(0, $newSaleTotal - $correctedPaid), 2);
+                $debtReduction = round(max(0, $previousDue - $correctedDue), 2);
+                $remainingDue = $correctedDue;
+            }
+
+            $groupRetained = collect($group['planned_details'] ?? [])->sum(fn ($d) => (float) ($d['retained_charges_total'] ?? 0));
+            $totalRetainedCharges += $groupRetained;
+
+            $groups[$groupKey]['planned_header']['commercial_reduction'] = $commercialReduction;
+            $groups[$groupKey]['planned_header']['actual_refund'] = $actualRefund;
+            $groups[$groupKey]['planned_header']['debt_reduction'] = $debtReduction;
+            $groups[$groupKey]['planned_header']['remaining_due'] = $remainingDue;
+            $groups[$groupKey]['planned_header']['retained_charges'] = $groupRetained;
+        }
+
         $groups = array_values($groups);
+
+        $totalCommercialReduction = collect($groups)->sum(fn ($g) => (float) ($g['planned_header']['commercial_reduction'] ?? 0));
+        $totalActualRefund = collect($groups)->sum(fn ($g) => (float) ($g['planned_header']['actual_refund'] ?? 0));
+        $totalDebtReduction = collect($groups)->sum(fn ($g) => (float) ($g['planned_header']['debt_reduction'] ?? 0));
+        $allRetainedComponents = collect($groups)->flatMap(fn ($g) => $g['planned_details'])->flatMap(fn ($d) => $d['retained_components'] ?? [])->values()->all();
+        $allIncludedComponents = collect($groups)->flatMap(fn ($g) => $g['planned_details'])->flatMap(fn ($d) => $d['included_components'] ?? [])->values()->all();
 
         if ($posReturn->saleReturns->isEmpty() && $groups !== []) {
             $info[] = $this->message(
@@ -96,6 +163,20 @@ class PosReturnApprovalPreviewPlannerService
             'warnings' => array_values($warnings),
             'info' => array_values($info),
             'groups' => $groups,
+            'commercial_reduction' => $totalCommercialReduction,
+            'actual_refund' => $totalActualRefund,
+            'debt_reduction' => $totalDebtReduction,
+            'retained_charges' => $totalRetainedCharges,
+            'retained_components' => $allRetainedComponents,
+            'included_components' => $allIncludedComponents,
+            'summary' => [
+                'commercial_reduction' => $totalCommercialReduction,
+                'actual_refund' => $totalActualRefund,
+                'debt_reduction' => $totalDebtReduction,
+                'retained_charges' => $totalRetainedCharges,
+                'retained_components' => $allRetainedComponents,
+                'included_components' => $allIncludedComponents,
+            ],
         ];
     }
 
@@ -110,8 +191,10 @@ class PosReturnApprovalPreviewPlannerService
             ->get()
             ->keyBy(fn (PosCheckoutSale $checkoutSale) => (int) $checkoutSale->sale_id);
 
+        $saleIdsToLoad = $checkoutSales->keys()->merge($saleIds)->unique()->filter()->values();
         $sales = Sale::query()
-            ->whereIn('id', $saleIds)
+            ->with(['salePayments', 'saleDetails', 'bundleItems.saleDetail'])
+            ->whereIn('id', $saleIdsToLoad)
             ->get()
             ->keyBy(fn (Sale $sale) => (int) $sale->id);
 
@@ -255,7 +338,7 @@ class PosReturnApprovalPreviewPlannerService
             }
         }
 
-        $currentEffectiveUnitPrice = $this->resolveEffectiveUnitFinancialBasis($saleDetail, $line, $checkoutSales);
+        $currentEffectiveUnitPrice = $this->resolveEffectiveUnitFinancialBasis($saleDetail, $line, $checkoutSales, $posReturn);
         $expectedBasis = (float) ($line->line_meta['reviewed_unit_price'] ?? $line->unit_price);
 
         if (abs($currentEffectiveUnitPrice - $expectedBasis) > 0.01) {
@@ -276,6 +359,13 @@ class PosReturnApprovalPreviewPlannerService
             if ($isTaggedComponentLine && $line->component_quantity_per_bundle !== null) {
                 $parentRefundableQty = $guard->getRefundableQuantity((int) $line->bundle_parent_sale_detail_id, $posReturn->id);
                 $componentOriginalQuantity = (float) $line->component_quantity_per_bundle * $parentRefundableQty;
+            } elseif ((int) $line->product_id !== (int) $saleDetail->product_id) {
+                $bundleItem = \Modules\Sale\Entities\SaleBundleItem::where('sale_detail_id', $saleDetail->id)
+                    ->where('product_id', $line->product_id)
+                    ->first();
+                if ($bundleItem) {
+                    $componentOriginalQuantity = (float) $bundleItem->quantity;
+                }
             }
 
             $availableQty = $line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN
@@ -317,6 +407,51 @@ class PosReturnApprovalPreviewPlannerService
             );
 
             return ['blockers' => $blockers, 'warnings' => $warnings, 'info' => $info, 'entries' => []];
+        }
+
+        $isBundleParentLine = ! $this->isBundleComponentLine($line)
+            && ($this->isBundledSourceLine($line, $saleDetail)
+                || (int) $line->bundle_parent_sale_detail_id === (int) $line->sale_detail_id
+                || ! empty($line->bundle_group_key));
+
+        if ($isBundleParentLine && $line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN) {
+            if (empty($line->bundle_return_scope)) {
+                $blockers[] = $this->message(
+                    'bundle_scope_missing',
+                    'Lingkup retur bundel (seluruh paket atau produk utama saja) belum ditentukan. Draft perlu ditolak/diedit untuk memilih lingkup sebelum disetujui.',
+                    [
+                        'pos_return_line_id' => $line->id,
+                        'sale_detail_id' => $line->sale_detail_id,
+                    ]
+                );
+            } elseif (! in_array($line->bundle_return_scope, [PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE, PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY], true)) {
+                $blockers[] = $this->message(
+                    'bundle_scope_invalid',
+                    "Nilai lingkup retur bundel '{$line->bundle_return_scope}' tidak valid.",
+                    [
+                        'pos_return_line_id' => $line->id,
+                        'bundle_return_scope' => $line->bundle_return_scope,
+                    ]
+                );
+            }
+        }
+
+        $bundleScopeResult = [
+            'included_components' => [],
+            'retained_components' => [],
+            'retained_charges_total' => 0.0,
+        ];
+
+        if ($isBundleParentLine
+            && $line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN
+            && in_array($line->bundle_return_scope, [PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE, PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY], true)) {
+            $bundleScopeResult = $this->resolveBundleScopeComposition(
+                $posReturn,
+                $line,
+                $saleDetail,
+                $planningContext
+            );
+            $blockers = array_merge($blockers, $bundleScopeResult['blockers']);
         }
 
         $checkoutSale = $checkoutSales->get((int) $line->sale_id);
@@ -456,6 +591,16 @@ class PosReturnApprovalPreviewPlannerService
             ? $this->resolveOwnBundleItem($line, $planningContext)
             : null;
 
+        if ($isComponentLine && $componentBundleItem && (float) ($componentBundleItem->price ?? 0) > 0) {
+            $detailAmount = round((float) $componentBundleItem->price * (float) $line->quantity, 2);
+        } elseif ($isBundleParentLine
+            && $line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN
+            && $line->bundle_return_scope === PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE
+            && (float) $saleDetail->unit_price > 0
+            && ((float) $saleDetail->unit_price * (float) $line->quantity) < (float) $line->line_total) {
+            $detailAmount = round((float) $saleDetail->unit_price * (float) $line->quantity, 2);
+        }
+
         // 3.3/note-only zero-effects: for a non-serial replacement, nothing
         // physical will ever move — override the otherwise dispatch/serial-
         // oriented intents with explicit "no movement, note only" values, and
@@ -474,6 +619,11 @@ class PosReturnApprovalPreviewPlannerService
             'pos_return_line_id' => (int) $line->id,
             'resolution' => (string) $line->resolution,
             'resolution_label' => $this->resolutionLabel((string) $line->resolution),
+            'bundle_return_scope' => $line->bundle_return_scope,
+            'bundle_return_scope_label' => $this->bundleScopeLabel($line->bundle_return_scope),
+            'included_components' => $bundleScopeResult['included_components'] ?? [],
+            'retained_components' => $bundleScopeResult['retained_components'] ?? [],
+            'retained_charges_total' => (float) ($bundleScopeResult['retained_charges_total'] ?? 0),
             'sale_detail_id' => (int) $line->sale_detail_id,
             'dispatch_detail_id' => $dispatchDetail?->id,
             'dispatch_resolution' => $dispatchResolution['source'],
@@ -577,6 +727,181 @@ class PosReturnApprovalPreviewPlannerService
             'info' => $info,
             'entries' => $entries,
         ];
+    }
+
+    private function resolveBundleScopeComposition(
+        PosReturn $posReturn,
+        PosReturnLine $line,
+        SaleDetails $saleDetail,
+        array $planningContext
+    ): array {
+        $blockers = [];
+        $includedComponents = [];
+        $retainedComponents = [];
+        $retainedChargesTotal = 0.0;
+
+        /** @var Collection<int, PosCheckoutSale> $checkoutSales */
+        $checkoutSales = $planningContext['checkout_sales'];
+        /** @var Collection<int, Sale> $sales */
+        $sales = $planningContext['sales'];
+        /** @var Collection<int, SaleBundleItem> $componentBundleItems */
+        $componentBundleItems = $planningContext['component_bundle_items'];
+
+        $bundleContext = $this->bundleComponentResolver->resolveOriginalBundleContext(
+            $saleDetail,
+            $checkoutSales,
+            $posReturn->posTransaction
+        );
+
+        if (! $bundleContext || empty($bundleContext['is_bundle'])) {
+            return [
+                'blockers' => $blockers,
+                'included_components' => $includedComponents,
+                'retained_components' => $retainedComponents,
+                'retained_charges_total' => $retainedChargesTotal,
+            ];
+        }
+
+        if (! empty($bundleContext['is_ambiguous'])) {
+            $blockers[] = $this->message(
+                'bundle_lineage_unresolved',
+                (string) ($bundleContext['error'] ?? "Identitas paket bundel {$saleDetail->product_name} tidak dapat dipastikan."),
+                [
+                    'pos_return_line_id' => $line->id,
+                    'sale_detail_id' => $saleDetail->id,
+                    'renewed_review_required' => true,
+                ]
+            );
+
+            return [
+                'blockers' => $blockers,
+                'included_components' => $includedComponents,
+                'retained_components' => $retainedComponents,
+                'retained_charges_total' => $retainedChargesTotal,
+            ];
+        }
+
+        $allComponents = collect($bundleContext['components'] ?? []);
+        $actionableLines = $posReturn->lines->filter(fn (PosReturnLine $l) => $l->resolution !== PosReturnLine::RESOLUTION_NONE);
+
+        foreach ($allComponents as $comp) {
+            $compBundleItem = $componentBundleItems->first(function (SaleBundleItem $sbi) use ($comp) {
+                if (! empty($comp['sale_bundle_item_id'])) {
+                    return (int) $sbi->id === (int) $comp['sale_bundle_item_id'];
+                }
+                return (int) $sbi->sale_id === (int) $comp['sale_id']
+                    && (int) $sbi->product_id === (int) $comp['product_id'];
+            });
+
+            $compQty = (float) ($comp['quantity_per_bundle'] ?? 1) * (float) $line->quantity;
+            $unitPrice = (float) ($compBundleItem?->price ?? 0);
+            $allocatedAmount = round($compQty * $unitPrice, 2);
+
+            $compSaleId = (int) ($comp['sale_id'] ?? 0);
+            $compCheckoutSale = $checkoutSales->get($compSaleId);
+            $compSale = $sales->get($compSaleId);
+
+            $compSettingId = (int) ($compCheckoutSale?->source_setting_id ?? $compSale?->setting_id ?? 0);
+            $compLocationId = (int) ($compCheckoutSale?->source_location_id ?? $compSale?->location_id ?? 0);
+
+            $compEntry = [
+                'product_id' => (int) $comp['product_id'],
+                'product_name' => (string) ($comp['product_name'] ?? ''),
+                'product_code' => (string) ($comp['product_code'] ?? ''),
+                'quantity' => $compQty,
+                'allocated_amount' => $allocatedAmount,
+                'owner_setting_id' => $compSettingId,
+                'owner_setting_name' => $this->settingName($compSettingId),
+                'owner_location_id' => $compLocationId,
+                'owner_location_name' => $this->locationName($compLocationId),
+                'sale_id' => $compSaleId,
+                'sale_reference' => (string) ($compSale?->reference ?? $compCheckoutSale?->sale?->reference ?? ''),
+                'sale_bundle_item_id' => $compBundleItem?->id ?? $comp['sale_bundle_item_id'] ?? null,
+            ];
+
+            if ($line->bundle_return_scope === PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY) {
+                $retainedComponents[] = $compEntry;
+                $retainedChargesTotal += $allocatedAmount;
+            } else {
+                $includedComponents[] = $compEntry;
+            }
+        }
+
+        if ($line->bundle_return_scope === PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY) {
+            $extraneousLines = $actionableLines->filter(function (PosReturnLine $candidate) use ($line) {
+                if ((int) $candidate->id === (int) $line->id) {
+                    return false;
+                }
+                return (int) ($candidate->bundle_parent_sale_detail_id ?? 0) === (int) $line->sale_detail_id
+                    || (! empty($line->bundle_group_key) && $candidate->bundle_group_key === $line->bundle_group_key);
+            });
+
+            if ($extraneousLines->isNotEmpty()) {
+                $blockers[] = $this->message(
+                    'bundle_component_extraneous',
+                    'Baris komponen tidak boleh disertakan saat lingkup retur dipilih hanya produk utama.',
+                    [
+                        'pos_return_line_id' => $line->id,
+                        'extraneous_line_ids' => $extraneousLines->pluck('id')->all(),
+                    ]
+                );
+            }
+        } elseif ($line->bundle_return_scope === PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE) {
+            foreach ($allComponents as $comp) {
+                if (($comp['lineage_status'] ?? 'resolved') !== 'resolved') {
+                    $blockers[] = $this->message(
+                        'bundle_component_allocation_unresolved',
+                        $this->bundleComponentResolver->describeUnresolvedComponent($comp, $saleDetail->product_name),
+                        [
+                            'pos_return_line_id' => $line->id,
+                            'product_id' => (int) $comp['product_id'],
+                            'lineage_status' => $comp['lineage_status'],
+                        ]
+                    );
+
+                    continue;
+                }
+
+                $compQty = (float) ($comp['quantity_per_bundle'] ?? 1) * (float) $line->quantity;
+                $matchingLine = $actionableLines->first(function (PosReturnLine $candidate) use ($line, $comp) {
+                    if ((int) $candidate->id === (int) $line->id) {
+                        return false;
+                    }
+                    $matchesParent = (int) ($candidate->bundle_parent_sale_detail_id ?? 0) === (int) $line->sale_detail_id
+                        || (! empty($line->bundle_group_key) && $candidate->bundle_group_key === $line->bundle_group_key);
+                    return $matchesParent && (int) $candidate->product_id === (int) $comp['product_id'];
+                });
+
+                if (! $matchingLine || (float) $matchingLine->quantity < $compQty) {
+                    $blockers[] = $this->message(
+                        'bundle_component_missing',
+                        "Komponen bundel '{$comp['product_name']}' belum lengkap dalam permohonan retur seluruh paket.",
+                        [
+                            'pos_return_line_id' => $line->id,
+                            'product_id' => (int) $comp['product_id'],
+                            'expected_quantity' => $compQty,
+                            'actual_quantity' => (float) ($matchingLine?->quantity ?? 0),
+                        ]
+                    );
+                }
+            }
+        }
+
+        return [
+            'blockers' => $blockers,
+            'included_components' => $includedComponents,
+            'retained_components' => $retainedComponents,
+            'retained_charges_total' => round($retainedChargesTotal, 2),
+        ];
+    }
+
+    private function bundleScopeLabel(?string $scope): ?string
+    {
+        return match ($scope) {
+            PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE => 'Seluruh Paket',
+            PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY => 'Produk Utama Saja',
+            default => null,
+        };
     }
 
     /**
@@ -1178,14 +1503,67 @@ class PosReturnApprovalPreviewPlannerService
     public function resolveEffectiveUnitFinancialBasis(
         SaleDetails $saleDetail,
         ?PosReturnLine $line = null,
-        mixed $checkoutSales = null
+        mixed $checkoutSales = null,
+        ?PosReturn $posReturn = null
+    ): float {
+        if (! $posReturn && $line) {
+            if ($line->relationLoaded('posReturn')) {
+                $posReturn = $line->posReturn;
+            } elseif ($line->pos_return_id) {
+                $posReturn = PosReturn::with(['posTransaction.lines'])->find($line->pos_return_id);
+            }
+        }
+
+        if ($line
+            && $line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN
+            && $line->bundle_return_scope === PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE
+            && ! $this->isBundleComponentLine($line)) {
+
+            $parentBasis = $this->calculateStandardSaleDetailBasis($saleDetail, $checkoutSales, $posReturn, $line);
+
+            $bundleCtx = $this->bundleComponentResolver?->resolveOriginalBundleContext(
+                $saleDetail,
+                $checkoutSales,
+                $posReturn?->posTransaction
+            );
+
+            if ($bundleCtx && ! empty($bundleCtx['components'])) {
+                $componentsBasisSum = 0.0;
+                foreach ($bundleCtx['components'] as $comp) {
+                    $compQtyPerBundle = (float) ($comp['quantity_per_bundle'] ?? 1);
+                    $compPrice = 0.0;
+                    if (! empty($comp['sale_bundle_item_id'])) {
+                        $sbi = SaleBundleItem::find($comp['sale_bundle_item_id']);
+                        if ($sbi) {
+                            $compPrice = (float) ($sbi->price > 0 ? $sbi->price : ($sbi->quantity > 0 ? $sbi->sub_total / $sbi->quantity : 0));
+                        }
+                    } elseif (! empty($comp['allocated_price'])) {
+                        $compPrice = (float) $comp['allocated_price'];
+                    }
+                    $componentsBasisSum += ($compPrice * $compQtyPerBundle);
+                }
+
+                return round($parentBasis + $componentsBasisSum, 2);
+            }
+
+            return $parentBasis;
+        }
+
+        return $this->calculateStandardSaleDetailBasis($saleDetail, $checkoutSales, $posReturn, $line);
+    }
+
+    public function calculateStandardSaleDetailBasis(
+        SaleDetails $saleDetail,
+        mixed $checkoutSales = null,
+        ?PosReturn $posReturn = null,
+        ?PosReturnLine $line = null
     ): float {
         if ($saleDetail->bundleItems->isNotEmpty() && (float) $saleDetail->unit_price == 0.0 && (float) $saleDetail->quantity > 0) {
             $checkoutSale = null;
             if ($checkoutSales instanceof \Illuminate\Support\Collection) {
                 $checkoutSale = $checkoutSales->get((int) ($line?->sale_id ?? $saleDetail->sale_id));
-            } elseif ($line && $line->posReturn?->pos_checkout_id) {
-                $checkoutSale = \Modules\Pos\Entities\PosCheckoutSale::where('pos_checkout_id', $line->posReturn->pos_checkout_id)
+            } elseif ($posReturn?->pos_checkout_id) {
+                $checkoutSale = PosCheckoutSale::where('pos_checkout_id', $posReturn->pos_checkout_id)
                     ->where('sale_id', $saleDetail->sale_id)
                     ->first();
             }

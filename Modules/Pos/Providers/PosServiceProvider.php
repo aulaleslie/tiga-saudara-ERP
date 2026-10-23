@@ -32,6 +32,7 @@ class PosServiceProvider extends ServiceProvider
             \Modules\Pos\Console\CleanupPosTemporaryImagesCommand::class,
             \Modules\Pos\Console\PosRepairDraftCommand::class,
             \Modules\Pos\Console\PosRepairReturnReplacementStockBucketsCommand::class,
+            \Modules\Pos\Console\PosRepairHistoricalBundleOmissionCommand::class,
             \Modules\Pos\Console\VerifyKasBonMySqlCollectionCommand::class,
         ]);
     }

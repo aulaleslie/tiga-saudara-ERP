@@ -62,8 +62,6 @@ Each product-replacement draft line SHALL derive execution mode from the persist
 - **THEN** the draft SHALL require product, quantity, reason, and origin identity without a replacement serial
 - **AND** it SHALL identify the action as note-only with physical exchange and breakage handled manually
 
-## MODIFIED Requirements
-
 ### Requirement: Serial Lines Have Independent Resolutions
 
 The system SHALL represent each original sold serial for a serial-tracked product as an individually resolvable draft line. Each serial draft line MUST have one resolution value: `none`, `product_replacement`, or `cash_return`. The default resolution for serial draft lines MUST be `none`. When a user explicitly selects `none` for a serial line during draft create or edit, the system MUST preserve that explicit no-action selection and MUST NOT replace it with a header-level return option default.

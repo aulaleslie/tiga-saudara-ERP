@@ -472,6 +472,12 @@ class PosReturnController extends Controller
             $groupKey = $line->pos_transaction_line_id ?: ($line->bundle_group_key ?: $line->sale_detail_id ?: $line->id);
             $isTracked = $line->returned_serial_id !== null;
 
+            $scopeLabel = match ($line->bundle_return_scope) {
+                PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE => 'Seluruh Paket',
+                PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY => 'Produk Utama Saja',
+                default => null,
+            };
+
             if (! isset($groups[$groupKey])) {
                 $groups[$groupKey] = [
                     'product_name' => $line->product_name,
@@ -480,11 +486,16 @@ class PosReturnController extends Controller
                     'is_bundle' => ! empty($line->bundle_group_key)
                         || ! empty(data_get($snapshotLine, 'is_bundle'))
                         || ! empty(data_get($line->line_meta, 'bundle_trace')),
+                    'bundle_return_scope' => $line->bundle_return_scope,
+                    'bundle_return_scope_label' => $scopeLabel,
                     'is_tracked' => $isTracked,
                     'bundle_trace' => $this->buildBundleTrace($line, $snapshotLine),
                     'serial_rows' => [],
                     'non_serial_rows' => [],
                 ];
+            } elseif (empty($groups[$groupKey]['bundle_return_scope']) && ! empty($line->bundle_return_scope)) {
+                $groups[$groupKey]['bundle_return_scope'] = $line->bundle_return_scope;
+                $groups[$groupKey]['bundle_return_scope_label'] = $scopeLabel;
             }
 
             $execution = $this->buildExecutionLinkage($line);
@@ -492,6 +503,8 @@ class PosReturnController extends Controller
             $row = [
                 'resolution_label' => $resolution['label'],
                 'resolution_badge' => $resolution['badge'],
+                'bundle_return_scope' => $line->bundle_return_scope,
+                'bundle_return_scope_label' => $scopeLabel,
                 'quantity' => (float) $line->quantity,
                 'cash_amount' => (float) ($line->expected_cash_amount ?? 0),
                 'line_total' => (float) $line->line_total,

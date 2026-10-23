@@ -256,7 +256,7 @@ class POSReturnSubmissionTest extends PosTransactionFeatureTestCase
     }
 
     /** @test */
-    public function it_can_submit_return_for_bundle_pos_lines()
+    public function it_rejects_bundle_return_naming_components_whose_source_allocation_cannot_be_resolved()
     {
         // 1. Setup POS Transaction and Posted Checkout
         $transaction = PosTransaction::create([
@@ -375,18 +375,21 @@ class POSReturnSubmissionTest extends PosTransactionFeatureTestCase
         ];
 
         $this->actingAsInSetting($this->user, $this->setting);
-        $posReturn = $this->submissionService->store($data);
+        $baselineReturnCount = PosReturn::count();
 
-        $this->assertNotNull($posReturn);
-        // Bundle parent row is persisted in draft lines
-        $this->assertCount(1, $posReturn->lines);
-        
-        $line = PosReturnLine::query()->findOrFail($posReturn->lines->first()->id);
-        $this->assertEquals($bundleProduct->id, $line->product_id);
-        $this->assertEquals(1, $line->quantity);
-        
-        // Assert bundled components are in metadata
-        $this->assertNotNull($line->line_meta['bundle_trace']);
-        $this->assertCount(2, $line->line_meta['bundle_trace']);
+        // The components were captured as SaleBundleItems but have no sale row
+        // or dispatch in their source Sale, so they cannot be returned silently.
+        try {
+            $this->submissionService->store($data);
+            $this->fail('Expected rejection for unresolvable bundle component allocations.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('alokasi penjualan sumbernya tidak ditemukan', $e->getMessage());
+            $this->assertTrue(
+                stripos($e->getMessage(), $comp1->product_name) !== false || stripos($e->getMessage(), $comp2->product_name) !== false,
+                'The error must name the unresolved component: ' . $e->getMessage()
+            );
+        }
+
+        $this->assertSame($baselineReturnCount, PosReturn::count(), 'No PosReturn may be created.');
     }
 }

@@ -1102,47 +1102,27 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
         ]);
 
         // Deliberately NO component SaleDetails sibling row and NO component
-        // DispatchDetail — the SaleBundleItem row above is purely
-        // informational, with no real allocation Phase 2 synthesis can find.
-
-        $posReturn = $this->makePendingReturn($transaction->id, [
-            [
-                'sale_detail_id' => $parentDetail->id,
-                'returned_serial_id' => $returnedSerial->id,
-                'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
-            ],
-        ]);
-
-        // No component line was synthesized (nothing to find) — only the
-        // parent line persists.
-        $this->assertEquals(1, $posReturn->lines()->count());
+        // DispatchDetail: the sold component's source allocation is missing.
+        // Submission now rejects this, so build the pending return directly
+        // to keep planner-level coverage.
+        $posReturn = $this->makeDirectPendingWholeBundleReturn($transaction->id, $checkout, $parentSale, $parentDetail, $returnedSerial);
 
         $plan = $this->planner->plan($posReturn->fresh());
 
-        $this->assertFalse($plan['is_blocked'], json_encode($plan['blockers'] ?? []));
-        $this->assertCount(1, $plan['groups']);
-        $this->assertSame('parent', $plan['groups'][0]['planned_details'][0]['row_type']);
+        $this->assertTrue($plan['is_blocked'], 'Missing component lineage must block approval.');
+        $blocker = collect($plan['blockers'])->firstWhere('code', 'bundle_component_allocation_unresolved');
+        $this->assertNotNull($blocker, json_encode($plan['blockers']));
+        $this->assertSame('missing', $blocker['lineage_status']);
+        $this->assertSame($componentProduct->id, $blocker['product_id']);
+        $this->assertStringContainsStringIgnoringCase($componentProduct->product_name, $blocker['message']);
+        $this->assertStringContainsString('alokasi penjualan sumbernya tidak ditemukan', $blocker['message']);
     }
 
     /**
-     * Reinterpreted for the new model: the OLD `component_target_ambiguous`
-     * blocker was surfaced by the planner's removed live candidate-matching
-     * machinery when MULTIPLE informational SaleBundleItem rows across
-     * different sales matched the same bundle_id/product_id with no unique
-     * sale_detail_id to disambiguate. Under the new model, Phase 2
-     * synthesis's lookup for the component's own real SaleDetails row is a
-     * single `first()` on sale_id (the SAME sale_id as the parent) +
-     * product_id + unit_price===0.0 — it can never see "multiple candidate
-     * sales" because it only ever looks within the parent's own sale. There
-     * is no way to reconstruct a genuine multi-candidate ambiguity at
-     * synthesis time from real persisted data; the two "candidate"
-     * SaleBundleItem rows on other, unrelated component Sales are simply
-     * invisible to synthesis and irrelevant. Empirically (as with the
-     * "missing" test above), a bundle parent with no resolvable component
-     * allocation on its OWN sale does not throw — it produces a parent-only
-     * PosReturn/plan, since `assertBundleCashReturnCompleteness()` never
-     * builds a parent-to-components mapping for a bundle it finds no
-     * component allocation for at all.
+     * Two persisted SaleBundleItem rows on the parent match the same
+     * component with identical bundle, bundle item and quantity, so its
+     * source allocation cannot be told apart. The planner must block with an
+     * actionable lineage blocker rather than pick one.
      *
      * @test
      */
@@ -1239,24 +1219,34 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
             ]);
         }
 
-        $posReturn = $this->makePendingReturn($transaction->id, [
-            [
-                'sale_detail_id' => $parentDetail->id,
-                'returned_serial_id' => $returnedSerial->id,
-                'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
-            ],
+        // A second, indistinguishable persisted bundle item for the same
+        // component on the parent row makes the source allocation ambiguous.
+        SaleBundleItem::query()->create([
+            'sale_id' => $parentSale->id,
+            'sale_detail_id' => $parentDetail->id,
+            'bundle_id' => 701,
+            'bundle_item_id' => 901,
+            'product_id' => $componentProduct->id,
+            'name' => $componentProduct->product_name,
+            'quantity' => 1,
+            'price' => 0,
+            'sub_total' => 0,
+            'tax_id' => null,
+            'tax_amount' => 0,
+            'line_group_key' => 'pos-0-1',
         ]);
 
-        // The two unrelated "candidate" sales have no bearing at all — only
-        // the parent line persists, since no component allocation could be
-        // found on the parent's own sale.
-        $this->assertEquals(1, $posReturn->lines()->count());
+        $posReturn = $this->makeDirectPendingWholeBundleReturn($transaction->id, $checkout, $parentSale, $parentDetail, $returnedSerial);
 
         $plan = $this->planner->plan($posReturn->fresh());
 
-        $this->assertFalse($plan['is_blocked'], json_encode($plan['blockers'] ?? []));
-        $this->assertCount(1, $plan['groups']);
-        $this->assertSame('parent', $plan['groups'][0]['planned_details'][0]['row_type']);
+        $this->assertTrue($plan['is_blocked'], 'Ambiguous component lineage must block approval.');
+        $blocker = collect($plan['blockers'])->firstWhere('code', 'bundle_component_allocation_unresolved');
+        $this->assertNotNull($blocker, json_encode($plan['blockers']));
+        $this->assertSame('ambiguous', $blocker['lineage_status']);
+        $this->assertSame($componentProduct->id, $blocker['product_id']);
+        $this->assertStringContainsStringIgnoringCase($componentProduct->product_name, $blocker['message']);
+        $this->assertStringContainsString('ambigu', $blocker['message']);
     }
 
     /** @test */
@@ -1775,6 +1765,62 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
         ]);
 
         return [$sale, $detail, $dispatchDetail];
+    }
+
+    /**
+     * Pending whole-bundle cash return for a single parent line, built
+     * directly so planner coverage does not depend on submission accepting
+     * the source data.
+     */
+    protected function makeDirectPendingWholeBundleReturn(int $transactionId, PosCheckout $checkout, Sale $parentSale, SaleDetails $parentDetail, ProductSerialNumber $returnedSerial): PosReturn
+    {
+        $snapshot = $this->snapshotService->build($transactionId);
+        $checkoutSale = PosCheckoutSale::query()
+            ->where('pos_checkout_id', $checkout->id)
+            ->where('sale_id', $parentSale->id)
+            ->firstOrFail();
+
+        $posReturn = PosReturn::query()->create([
+            'setting_id' => $this->setting->id,
+            'pos_checkout_id' => $checkout->id,
+            'pos_transaction_id' => $transactionId,
+            'transaction_code' => $checkout->transaction?->code,
+            'receipt_number' => $checkout->receipt_number,
+            'reference' => 'PR-DIRECT-' . uniqid(),
+            'status' => PosReturn::STATUS_PENDING_APPROVAL,
+            'approval_status' => PosReturn::APPROVAL_STATUS_PENDING,
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'total_amount' => (float) $parentDetail->sub_total,
+            'source_snapshot' => $snapshot,
+            'source_snapshot_hash' => $snapshot['hash'],
+            'created_by' => $this->user->id,
+            'updated_by' => $this->user->id,
+        ]);
+
+        PosReturnLine::query()->create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => $checkoutSale->id,
+            'sale_id' => $parentSale->id,
+            'sale_detail_id' => $parentDetail->id,
+            'dispatch_detail_id' => $returnedSerial->dispatch_detail_id,
+            'source_setting_id' => $checkoutSale->source_setting_id,
+            'source_location_id' => $checkoutSale->source_location_id,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'product_id' => $parentDetail->product_id,
+            'product_name' => $parentDetail->product_name,
+            'product_code' => $parentDetail->product_code,
+            'quantity' => 1,
+            'unit_price' => (float) $parentDetail->unit_price,
+            'line_total' => (float) $parentDetail->unit_price,
+            'expected_cash_amount' => (float) $parentDetail->unit_price,
+            'returned_serial_id' => $returnedSerial->id,
+            'serial_number_ids' => [$returnedSerial->id],
+            'bundle_parent_sale_detail_id' => $parentDetail->id,
+            'bundle_return_scope' => PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+        ]);
+
+        return $posReturn;
     }
 
     protected function makePendingReturn(int $transactionId, array $lines): PosReturn

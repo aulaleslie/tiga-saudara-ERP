@@ -543,6 +543,17 @@ class POSReturnSharedFormSurfaceTest extends PosTransactionFeatureTestCase
             'product_tax_amount' => 0,
         ]);
 
+        $dispatch = \Modules\Sale\Entities\Dispatch::create(['sale_id' => $sale->id, 'status' => 'APPROVED']);
+        $dispatchDetail = \Modules\Sale\Entities\DispatchDetail::create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'dispatched_quantity' => 2,
+            'serial_numbers' => json_encode([$serialA->serial_number, $serialB->serial_number]),
+        ]);
+        $serialA->update(['dispatch_detail_id' => $dispatchDetail->id]);
+        $serialB->update(['dispatch_detail_id' => $dispatchDetail->id]);
+
         $snapshot = $this->snapshotService->build($transaction->id);
 
         $posReturn = $this->submissionService->store([
@@ -815,6 +826,17 @@ class POSReturnSharedFormSurfaceTest extends PosTransactionFeatureTestCase
             'product_discount_amount' => 0,
             'product_tax_amount' => 0,
         ]);
+
+        $dispatch = \Modules\Sale\Entities\Dispatch::create(['sale_id' => $sale->id, 'status' => 'APPROVED']);
+        $dispatchDetail = \Modules\Sale\Entities\DispatchDetail::create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'dispatched_quantity' => 2,
+            'serial_numbers' => json_encode([$serialA->serial_number, $serialB->serial_number]),
+        ]);
+        $serialA->update(['dispatch_detail_id' => $dispatchDetail->id]);
+        $serialB->update(['dispatch_detail_id' => $dispatchDetail->id]);
 
         $snapshot = $this->snapshotService->build($transaction->id);
 

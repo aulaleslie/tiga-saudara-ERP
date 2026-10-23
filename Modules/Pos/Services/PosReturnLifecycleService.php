@@ -12,12 +12,21 @@ use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\SerialNumberHistory;
 use Modules\Pos\Entities\PosReturn;
+use Modules\Pos\Entities\PosReturnLine;
+use Modules\Pos\Entities\PosCheckoutSale;
+use Modules\Pos\Entities\PosTransactionLine;
 use Modules\Pos\Exceptions\PosReturnManualCorrectionRequiredException;
 use Modules\Purchase\Entities\PaymentTerm;
 
 class PosReturnLifecycleService
 {
     protected const SALE_PAYMENT_INVALIDATION_SOURCE = 'POS_RETURN_CASH_CORRECTION';
+
+    public function __construct(
+        protected ?PosBundleComponentResolver $bundleComponentResolver = null,
+    ) {
+        $this->bundleComponentResolver = $this->bundleComponentResolver ?? app(PosBundleComponentResolver::class);
+    }
 
     public function executeApprovalFromPreview(int $posReturnId, ?string $returnOption = null, ?array $approvalPlan = null): void
     {
@@ -114,7 +123,7 @@ class PosReturnLifecycleService
                     continue;
                 }
 
-                $currentUnitPrice = $this->resolveEffectiveUnitFinancialBasis($saleDetail, $line, $checkoutSales);
+                $currentUnitPrice = $this->resolveEffectiveUnitFinancialBasis($saleDetail, $line, $checkoutSales, $posReturn);
 
                 $originalUnitPrice = (float) $line->unit_price;
                 $lineMeta = $line->line_meta ?? [];
@@ -416,12 +425,15 @@ class PosReturnLifecycleService
                 $correction = $this->recalculateCashCorrectedSourceSale($saleReturn);
             }
 
+            $saleReturnTotal = max(0.0, (float) ($saleReturn->total_amount ?? 0));
+            $saleReturnDue = max(0.0, (float) ($saleReturn->due_amount ?? 0));
+
             $cashSettlementAmount = $correction !== null
-                ? (float) ($correction['actual_refund'] ?? 0.0)
+                ? min($saleReturnTotal, (float) ($correction['actual_refund'] ?? 0.0))
                 : (float) $commercialCashReturnDetails->sum(fn ($detail) => $this->resolveCashSettlementAmount($detail));
 
             $debtReduction = $correction !== null
-                ? (float) ($correction['debt_reduction'] ?? 0.0)
+                ? min($saleReturnDue, (float) ($correction['debt_reduction'] ?? 0.0))
                 : 0.0;
 
             if ($cashSettlementAmount > 0) {
@@ -578,17 +590,97 @@ class PosReturnLifecycleService
      */
     protected function assertBundleExecutionGuards(\Modules\Pos\Entities\PosReturn $posReturn): void
     {
+        $posReturn->loadMissing('lines');
+
         foreach ($posReturn->lines as $line) {
+            // Guard: parent bundle cash return lines require explicit bundle_return_scope
+            if ($line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN
+                && ! $this->isBundleComponentLine($line)) {
+                $saleDetail = SaleDetails::find($line->sale_detail_id);
+                $isBundle = false;
+                if ($saleDetail && (int) $saleDetail->product_id === (int) $line->product_id) {
+                    $resolver = $this->bundleComponentResolver ?? app(PosBundleComponentResolver::class);
+                    $checkoutSales = PosCheckoutSale::where('pos_checkout_id', $posReturn->pos_checkout_id)->get()->keyBy('sale_id');
+                    $bundleContext = $resolver->resolveOriginalBundleContext($saleDetail, $checkoutSales, $posReturn->posTransaction);
+                    $isBundle = ($bundleContext && ! empty($bundleContext['is_bundle']))
+                        || $saleDetail->bundleItems()->exists()
+                        || ! empty($line->bundle_group_key)
+                        || ((int) $line->bundle_parent_sale_detail_id > 0 && (int) $line->bundle_parent_sale_detail_id === (int) $line->sale_detail_id);
+                }
+                if ($isBundle) {
+                    if (empty($line->bundle_return_scope)) {
+                        throw new \RuntimeException('Retur bundel memerlukan penentuan lingkup retur (seluruh paket atau produk utama saja) sebelum dapat disetujui.');
+                    }
+
+                    if (! in_array($line->bundle_return_scope, [
+                        PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE,
+                        PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY,
+                    ], true)) {
+                        throw new \RuntimeException("Nilai lingkup retur bundel '{$line->bundle_return_scope}' tidak valid.");
+                    }
+
+                    if ($line->bundle_return_scope === PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY) {
+                        $extraneousLines = $posReturn->lines->filter(function (PosReturnLine $candidate) use ($line) {
+                            if ((int) $candidate->id === (int) $line->id) {
+                                return false;
+                            }
+                            return (int) ($candidate->bundle_parent_sale_detail_id ?? 0) === (int) $line->sale_detail_id
+                                || (! empty($line->bundle_group_key) && $candidate->bundle_group_key === $line->bundle_group_key);
+                        });
+
+                        if ($extraneousLines->isNotEmpty()) {
+                            throw new \RuntimeException('Baris komponen tidak boleh disertakan saat lingkup retur dipilih hanya produk utama.');
+                        }
+                    } elseif ($line->bundle_return_scope === PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE) {
+                        $resolver = $this->bundleComponentResolver ?? app(PosBundleComponentResolver::class);
+                        $checkoutSales = PosCheckoutSale::where('pos_checkout_id', $posReturn->pos_checkout_id)->get()->keyBy('sale_id');
+                        $bundleContext = $resolver->resolveOriginalBundleContext($saleDetail, $checkoutSales, $posReturn->posTransaction);
+
+                        if ($bundleContext && ! empty($bundleContext['is_ambiguous'])) {
+                            throw new \RuntimeException((string) ($bundleContext['error'] ?? "Identitas paket bundel {$saleDetail->product_name} tidak dapat dipastikan."));
+                        }
+
+                        if ($bundleContext && ! empty($bundleContext['is_bundle'])) {
+                            $components = collect($bundleContext['components'] ?? []);
+                            foreach ($components as $comp) {
+                                if (($comp['lineage_status'] ?? 'resolved') !== 'resolved') {
+                                    throw new \RuntimeException($resolver->describeUnresolvedComponent($comp, $saleDetail->product_name));
+                                }
+
+                                $matchingLine = $posReturn->lines->first(function (PosReturnLine $candidate) use ($line, $comp) {
+                                    if ((int) $candidate->id === (int) $line->id) {
+                                        return false;
+                                    }
+                                    $matchesParent = (int) ($candidate->bundle_parent_sale_detail_id ?? 0) === (int) $line->sale_detail_id
+                                        || (! empty($line->bundle_group_key) && $candidate->bundle_group_key === $line->bundle_group_key);
+                                    if (! $matchesParent) {
+                                        return false;
+                                    }
+                                    if (! empty($comp['sale_bundle_item_id']) && ! empty($candidate->line_meta['component_sale_bundle_item_id'])) {
+                                        return (int) $candidate->line_meta['component_sale_bundle_item_id'] === (int) $comp['sale_bundle_item_id'];
+                                    }
+                                    return (int) $candidate->product_id === (int) $comp['product_id'];
+                                });
+
+                                if (! $matchingLine) {
+                                    throw new \RuntimeException("Komponen '{$comp['product_name']}' wajib disertakan saat lingkup retur dipilih seluruh paket.");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             if (! $this->isBundleComponentLine($line)) {
                 continue;
             }
 
-            if ((string) $line->resolution !== \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN) {
+            if ((string) $line->resolution !== PosReturnLine::RESOLUTION_CASH_RETURN) {
                 continue;
             }
 
             $parentSaleDetailId = (int) ($line->bundle_parent_sale_detail_id ?? 0);
-            $hasParentLine = $posReturn->lines->contains(function (\Modules\Pos\Entities\PosReturnLine $candidate) use ($line, $parentSaleDetailId) {
+            $hasParentLine = $posReturn->lines->contains(function (PosReturnLine $candidate) use ($line, $parentSaleDetailId) {
                 if ((int) $candidate->id === (int) $line->id) {
                     return false;
                 }
@@ -612,7 +704,7 @@ class PosReturnLifecycleService
             });
 
             if (! $hasParentLine) {
-                throw new \RuntimeException('Bundle component lines require their parent bundle return line before final approval can execute.');
+                throw new \RuntimeException('Baris komponen tidak dapat diretur tunai tanpa baris bundel utama (bundle component lines require their parent bundle return line before final approval can execute).');
             }
         }
     }
@@ -636,10 +728,13 @@ class PosReturnLifecycleService
             }
 
             // Financial basis stability
-            $currentUnitPrice = $this->resolveEffectiveUnitFinancialBasis($saleDetail, $line);
+            if (! empty($posReturn->source_snapshot['lines']) || isset($line->line_meta['reviewed_unit_price'])) {
+                $expectedBasis = (float) ($line->line_meta['reviewed_unit_price'] ?? $line->unit_price);
+                $currentUnitPrice = $this->resolveEffectiveUnitFinancialBasis($saleDetail, $line, null, $posReturn);
 
-            if (abs((float) $line->unit_price - $currentUnitPrice) > 0.01) {
-                throw new \RuntimeException('Nilai moneter pada dokumen sumber telah berubah (harga, diskon, atau alokasi pajak). Diperlukan peninjauan ulang sebelum persetujuan.');
+                if (abs($expectedBasis - $currentUnitPrice) > 0.01) {
+                    throw new \RuntimeException('Nilai moneter pada dokumen sumber telah berubah (harga, diskon, atau alokasi pajak). Diperlukan peninjauan ulang sebelum persetujuan.');
+                }
             }
 
             // Serial claims
@@ -655,6 +750,13 @@ class PosReturnLifecycleService
                 if ($isTaggedComponentLine && $line->component_quantity_per_bundle !== null) {
                     $parentRefundableQty = $quantityGuard->getRefundableQuantity((int) $line->bundle_parent_sale_detail_id, $posReturn->id);
                     $componentOriginalQuantity = (float) $line->component_quantity_per_bundle * $parentRefundableQty;
+                } elseif ((int) $line->product_id !== (int) $saleDetail->product_id) {
+                    $bundleItem = \Modules\Sale\Entities\SaleBundleItem::where('sale_detail_id', $saleDetail->id)
+                        ->where('product_id', $line->product_id)
+                        ->first();
+                    if ($bundleItem) {
+                        $componentOriginalQuantity = (float) $bundleItem->quantity;
+                    }
                 }
 
                 $availableQty = $line->resolution === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN
@@ -671,14 +773,72 @@ class PosReturnLifecycleService
     public function resolveEffectiveUnitFinancialBasis(
         \Modules\Sale\Entities\SaleDetails $saleDetail,
         ?\Modules\Pos\Entities\PosReturnLine $line = null,
-        mixed $checkoutSales = null
+        mixed $checkoutSales = null,
+        ?\Modules\Pos\Entities\PosReturn $posReturn = null
+    ): float {
+        if (! $posReturn && $line) {
+            if ($line->relationLoaded('posReturn')) {
+                $posReturn = $line->posReturn;
+            } elseif ($line->pos_return_id) {
+                $posReturn = PosReturn::with(['posTransaction.lines'])->find($line->pos_return_id);
+            }
+        }
+
+        if ($posReturn && ! $posReturn->relationLoaded('posTransaction') && $posReturn->pos_transaction_id) {
+            $posReturn->load('posTransaction.lines');
+        }
+
+        if ($line
+            && $line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN
+            && $line->bundle_return_scope === PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE
+            && ! $this->isBundleComponentLine($line)) {
+
+            $parentBasis = $this->calculateStandardSaleDetailBasis($saleDetail, $checkoutSales, $posReturn, $line);
+
+            $resolver = $this->bundleComponentResolver ?? app(PosBundleComponentResolver::class);
+            $bundleCtx = $resolver->resolveOriginalBundleContext(
+                $saleDetail,
+                $checkoutSales,
+                $posReturn?->posTransaction
+            );
+
+            if ($bundleCtx && ! empty($bundleCtx['components'])) {
+                $componentsBasisSum = 0.0;
+                foreach ($bundleCtx['components'] as $comp) {
+                    $compQtyPerBundle = (float) ($comp['quantity_per_bundle'] ?? 1);
+                    $compPrice = 0.0;
+                    if (! empty($comp['sale_bundle_item_id'])) {
+                        $sbi = \Modules\Sale\Entities\SaleBundleItem::find($comp['sale_bundle_item_id']);
+                        if ($sbi) {
+                            $compPrice = (float) ($sbi->price > 0 ? $sbi->price : ($sbi->quantity > 0 ? $sbi->sub_total / $sbi->quantity : 0));
+                        }
+                    } elseif (! empty($comp['allocated_price'])) {
+                        $compPrice = (float) $comp['allocated_price'];
+                    }
+                    $componentsBasisSum += ($compPrice * $compQtyPerBundle);
+                }
+
+                return round($parentBasis + $componentsBasisSum, 2);
+            }
+
+            return $parentBasis;
+        }
+
+        return $this->calculateStandardSaleDetailBasis($saleDetail, $checkoutSales, $posReturn, $line);
+    }
+
+    public function calculateStandardSaleDetailBasis(
+        \Modules\Sale\Entities\SaleDetails $saleDetail,
+        mixed $checkoutSales = null,
+        ?\Modules\Pos\Entities\PosReturn $posReturn = null,
+        ?\Modules\Pos\Entities\PosReturnLine $line = null
     ): float {
         if ($saleDetail->bundleItems->isNotEmpty() && (float) $saleDetail->unit_price == 0.0 && (float) $saleDetail->quantity > 0) {
             $checkoutSale = null;
             if ($checkoutSales instanceof \Illuminate\Support\Collection) {
                 $checkoutSale = $checkoutSales->get((int) ($line?->sale_id ?? $saleDetail->sale_id));
-            } elseif ($line && $line->posReturn?->pos_checkout_id) {
-                $checkoutSale = \Modules\Pos\Entities\PosCheckoutSale::where('pos_checkout_id', $line->posReturn->pos_checkout_id)
+            } elseif ($posReturn?->pos_checkout_id) {
+                $checkoutSale = PosCheckoutSale::where('pos_checkout_id', $posReturn->pos_checkout_id)
                     ->where('sale_id', $saleDetail->sale_id)
                     ->first();
             }

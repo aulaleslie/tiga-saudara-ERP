@@ -312,11 +312,38 @@
                                                         <div class="small text-muted">Trace SN Retur: {{ $detail['returned_serial'] }}</div>
                                                     @endif
                                                 @endif
+                                                @if(! empty($detail['bundle_return_scope_label']))
+                                                    <div class="mt-1">
+                                                        <span class="badge bg-secondary">{{ $detail['bundle_return_scope_label'] }}</span>
+                                                    </div>
+                                                @endif
+                                                @if(! empty($detail['included_components']))
+                                                    <div class="small text-success mt-1">
+                                                        <div class="fw-semibold">Komponen Termasuk:</div>
+                                                        @foreach($detail['included_components'] as $incComp)
+                                                            <div>• {{ $incComp['product_name'] }} ({{ $incComp['quantity'] }}x) - {{ $incComp['owner_setting_name'] }}</div>
+                                                        @endforeach
+                                                    </div>
+                                                @endif
+                                                @if(! empty($detail['retained_components']))
+                                                    <div class="small text-danger mt-1">
+                                                        <div class="fw-semibold">Komponen Tertahan:</div>
+                                                        @foreach($detail['retained_components'] as $retComp)
+                                                            <div>• {{ $retComp['product_name'] }} ({{ $retComp['quantity'] }}x) - {{ format_currency($retComp['allocated_amount']) }}</div>
+                                                        @endforeach
+                                                        <div class="fw-bold mt-1">Total Beban Tertahan: {{ format_currency($detail['retained_charges_total']) }}</div>
+                                                    </div>
+                                                @endif
                                                 @if(! empty($detail['bundle_trace']))
                                                     <div class="small text-muted">Komponen bundle: {{ count($detail['bundle_trace']) }}</div>
                                                 @endif
                                             </td>
-                                            <td>{{ $detail['resolution_label'] }}</td>
+                                            <td>
+                                                <div>{{ $detail['resolution_label'] }}</div>
+                                                @if(! empty($detail['bundle_return_scope_label']))
+                                                    <span class="badge bg-light text-dark border">{{ $detail['bundle_return_scope_label'] }}</span>
+                                                @endif
+                                            </td>
                                             <td class="text-end">
                                                 <div>{{ rtrim(rtrim(number_format($detail['quantity'], 4, '.', ''), '0'), '.') }}</div>
                                                 @if(($detail['row_type'] ?? 'parent') === 'component' && ! empty($detail['component_quantity_per_bundle']))
@@ -392,6 +419,37 @@
                 @empty
                     <p class="text-muted mb-0">Belum ada target Sales Return yang dapat direncanakan.</p>
                 @endforelse
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-3">
+                        <div class="border rounded p-3 h-100">
+                            <div class="text-muted small">Pengurangan Komersial</div>
+                            <div class="fw-semibold fs-5">{{ format_currency($previewPlan['commercial_reduction'] ?? 0) }}</div>
+                            <div class="small text-muted">Total nilai komersial barang diretur</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3 h-100">
+                            <div class="text-muted small">Pengembalian Dana Aktual</div>
+                            <div class="fw-semibold fs-5 text-success">{{ format_currency($previewPlan['actual_refund'] ?? 0) }}</div>
+                            <div class="small text-muted">Kas/transfer dikembalikan ke pelanggan</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3 h-100">
+                            <div class="text-muted small">Pengurangan Hutang / Piutang</div>
+                            <div class="fw-semibold fs-5 text-primary">{{ format_currency($previewPlan['debt_reduction'] ?? 0) }}</div>
+                            <div class="small text-muted">Koreksi tagihan belum terbayar</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3 h-100">
+                            <div class="text-muted small">Beban Komponen Tertahan</div>
+                            <div class="fw-semibold fs-5 text-secondary">{{ format_currency($previewPlan['retained_charges'] ?? 0) }}</div>
+                            <div class="small text-muted">Nilai komponen yang tetap dimiliki pelanggan</div>
+                        </div>
+                    </div>
+                </div>
 
                 <div class="row g-3">
                     <div class="col-md-4">

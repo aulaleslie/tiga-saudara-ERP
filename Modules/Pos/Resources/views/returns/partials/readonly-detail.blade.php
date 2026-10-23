@@ -55,6 +55,9 @@
                 @if($group['is_bundle'])
                     <span class="badge badge-info ml-2">Bundle</span>
                 @endif
+                @if(! empty($group['bundle_return_scope_label']))
+                    <span class="badge badge-secondary ml-2">{{ $group['bundle_return_scope_label'] }}</span>
+                @endif
                 @if($group['is_tracked'])
                     <span class="badge badge-primary ml-2">Tracked Serial</span>
                 @endif
@@ -83,6 +86,9 @@
                                 </td>
                                 <td class="text-center">
                                     <span class="badge {{ $row['resolution_badge'] }}">{{ $row['resolution_label'] }}</span>
+                                    @if(! empty($row['bundle_return_scope_label']))
+                                        <div class="mt-1"><span class="badge badge-light border">{{ $row['bundle_return_scope_label'] }}</span></div>
+                                    @endif
                                 </td>
                                 <td>
                                     @if($row['replacement_serial'])
@@ -129,6 +135,9 @@
                             <tr>
                                 <td>
                                     <span class="badge {{ $row['resolution_badge'] }}">{{ $row['resolution_label'] }}</span>
+                                    @if(! empty($row['bundle_return_scope_label']))
+                                        <div class="mt-1"><span class="badge badge-light border">{{ $row['bundle_return_scope_label'] }}</span></div>
+                                    @endif
                                 </td>
                                 <td class="text-center font-weight-bold">{{ rtrim(rtrim(number_format($row['quantity'], 4, '.', ''), '0'), '.') }}</td>
                                 <td>
