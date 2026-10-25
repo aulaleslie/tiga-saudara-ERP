@@ -79,5 +79,10 @@ The system SHALL provide a setting-scoped repair operation for explicitly select
 - **THEN** repair SHALL refuse mutation and require a fresh eligible preview
 
 #### Scenario: Completed transactions remain immutable
-- **WHEN** deployment occurs or a completed transaction is selected for repair
+- **WHEN** deployment occurs or a completed transaction is selected for draft repair
 - **THEN** its recorded row values, totals, payments, postings, and return snapshots SHALL remain unchanged
+
+#### Scenario: Dedicated completed-sale balance repair
+- **WHEN** the separate explicit POS return balance repair proves historical completed-sale header drift
+- **THEN** it SHALL be permitted to correct only the proven header and balance fields with audit evidence
+- **AND** authoritative rows, completed returns, payments, postings and checkout snapshots SHALL remain unchanged

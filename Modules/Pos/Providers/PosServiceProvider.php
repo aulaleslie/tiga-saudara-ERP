@@ -34,6 +34,7 @@ class PosServiceProvider extends ServiceProvider
             \Modules\Pos\Console\PosRepairReturnReplacementStockBucketsCommand::class,
             \Modules\Pos\Console\PosRepairHistoricalBundleOmissionCommand::class,
             \Modules\Pos\Console\VerifyKasBonMySqlCollectionCommand::class,
+            \Modules\Pos\Console\PosRepairReturnBalancesCommand::class,
         ]);
     }
 
