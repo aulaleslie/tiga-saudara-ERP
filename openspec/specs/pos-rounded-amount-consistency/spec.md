@@ -42,7 +42,7 @@ Transaction details and receipts SHALL consume the same persisted row-amount res
 - **AND** SHALL NOT label an inferred rounded amount as historically captured
 
 ### Requirement: Downstream monetary allocations reconcile to captured POS amounts
-Checkout, generated sales, applied payment allocations, reports, and returns SHALL consume captured charged amounts and reconcile in minor units. Owner, bundle, and return fragments SHALL use deterministic remainder allocation without independent increment rounding. Cash tendered minus change, other applied payments, and outstanding debt SHALL reconcile to the billed amount under the existing payment model.
+Checkout, generated sales, applied payment allocations, reports, and returns SHALL consume captured charged amounts and reconcile in minor units. Owner, bundle, and internal return fragments SHALL use deterministic remainder allocation without independent increment rounding. Commercial POS cash-return amounts SHALL follow the cumulative return-rounding policy, with final residual allocation preserving the captured returnable charge. Cash tendered minus change, other applied payments, and outstanding debt SHALL reconcile to the billed amount under the existing payment model.
 
 #### Scenario: Discounts and tax reconcile after row rounding
 - **WHEN** an automatic row receives a row discount, increment rounding, and an allocated bill discount with applicable tax
@@ -58,7 +58,8 @@ Checkout, generated sales, applied payment allocations, reports, and returns SHA
 #### Scenario: Partial returns exhaust the original value
 - **WHEN** successive eligible partial returns exhaust a rounded source row after the business increment changes
 - **THEN** their allocated source valuations SHALL sum to the original returnable charged amount
-- **AND** no return fragment SHALL receive current increment rounding
+- **AND** commercial cash-return valuations SHALL use the increment frozen at the first committed cash return for the source sale
+- **AND** internal return fragments SHALL NOT receive independent increment rounding
 
 ### Requirement: Affected draft repair is explicit and auditable
 The system SHALL provide a setting-scoped repair operation for explicitly selected affected draft IDs, defaulting to read-only preview and requiring explicit apply mode for mutation. It SHALL recover missing amounts only from captured pricing evidence that reconciles to the existing header, preserve existing authoritative/manual amounts, and refuse ambiguous recovery. It SHALL NOT repair completed, cancelled, or loaded/active drafts. Apply SHALL lock and revalidate state, preserve before/after audit evidence and actor identity, and refresh the snapshot hash atomically.
