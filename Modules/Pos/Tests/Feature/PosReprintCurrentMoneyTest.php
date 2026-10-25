@@ -220,7 +220,7 @@ class PosReprintCurrentMoneyTest extends PosLineageSchemaAndCheckoutTest
         $this->assertStringContainsString('170.000', $html);
     }
 
-    public function test_packed_unit_breakdown_distributes_remainder_cents_to_match_line_total(): void
+    public function test_packed_unit_breakdown_avoids_cent_splitting_while_preserving_line_total(): void
     {
         $setting = $this->createSetting('PACKED REPRINT BIZ');
         $cashier = $this->createUserForSetting($setting, 'cashier', [
@@ -273,8 +273,7 @@ class PosReprintCurrentMoneyTest extends PosLineageSchemaAndCheckoutTest
 
         $this->assertEquals(10000.0, $reprintData['lines'][0]['sub_total']);
         $this->assertSame([
-            '2 Pcs @ RP. 3.333,33',
-            '1 Pcs @ RP. 3.333,34',
+            '3 Pcs @ RP. 3.333,33',
         ], $reprintData['lines'][0]['unit_breakdown']);
     }
 
@@ -335,9 +334,9 @@ class PosReprintCurrentMoneyTest extends PosLineageSchemaAndCheckoutTest
         );
 
         $settlementProjection = new class extends PosSettlementProjectionService {
-            public function project(PosTransaction $transaction): array
+            public function project(PosTransaction $transaction, ?array $preparedReplacementContext = null): array
             {
-                $projection = parent::project($transaction);
+                $projection = parent::project($transaction, $preparedReplacementContext);
                 $projection['total_amount'] += 0.01;
 
                 return $projection;

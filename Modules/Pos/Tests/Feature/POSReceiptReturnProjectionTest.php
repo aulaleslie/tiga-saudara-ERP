@@ -20,6 +20,7 @@ use Modules\Pos\Services\PosReceiptService;
 use Modules\Pos\Services\PosReturnLifecycleService;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductSerialNumber;
+use Modules\Product\Entities\ProductUnitConversion;
 use Modules\Sale\Entities\Dispatch;
 use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\Sale;
@@ -31,6 +32,7 @@ use Modules\SalesReturn\Entities\SaleReturnPayment;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
+use Modules\Setting\Entities\Unit;
 use Spatie\Permission\Models\Permission;
 
 class POSReceiptReturnProjectionTest extends PosLineageSchemaAndCheckoutTest
@@ -541,7 +543,7 @@ class POSReceiptReturnProjectionTest extends PosLineageSchemaAndCheckoutTest
     {
         $setting = $this->createSetting('PARITY STORE');
         $cashier = $this->createUserForSetting($setting, 'cashier', [
-            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment', 'pos.receipts.reprint', 'pos.transactions.view',
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment', 'pos.receipts.reprint', 'pos.transactions.view', 'posPayments.global.access',
         ]);
         $loc = Location::create(['name' => 'LOC PARITY', 'setting_id' => $setting->id]);
         $this->createTerminalAndSaleLocations($setting, [$loc]);
@@ -578,12 +580,20 @@ class POSReceiptReturnProjectionTest extends PosLineageSchemaAndCheckoutTest
         $txnReprintRes->assertStatus(200);
         $txnReprintData = $txnReprintRes->viewData('receiptData');
 
-        // Parity check across all 4 ordinary endpoints!
+        // 5. Global payment reprint
+        $globalReprintRes = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->post(route('pos.global-payments.receipt.reprint', ['transaction_id' => $transaction->id]));
+        $globalReprintRes->assertStatus(200);
+        $globalReprintData = $globalReprintRes->viewData('receiptData');
+
+        // Parity check across all 5 ordinary endpoints!
         $this->assertEquals($checkoutPrintData['lines'], $checkoutReprintData['lines']);
         $this->assertEquals($checkoutPrintData['lines'], $txnPrintData['lines']);
         $this->assertEquals($checkoutPrintData['lines'], $txnReprintData['lines']);
+        $this->assertEquals($checkoutPrintData['lines'], $globalReprintData['lines']);
         $this->assertEquals(250000.0, (float) $checkoutPrintData['grand_total']);
         $this->assertEquals(250000.0, (float) $txnPrintData['grand_total']);
+        $this->assertEquals(250000.0, (float) $globalReprintData['grand_total']);
         $this->assertEquals(5.0, (float) $checkoutPrintData['lines'][0]['qty']);
 
         // Explicit historical receipt
@@ -595,6 +605,57 @@ class POSReceiptReturnProjectionTest extends PosLineageSchemaAndCheckoutTest
         $this->assertEquals(6.0, (float) $historicalData['lines'][0]['qty']);
         $this->assertArrayNotHasKey('return_history', $historicalData);
         $historicalRes->assertSee('STRUK HISTORIS CHECKOUT');
+
+        // Task 3.1: Rounded partial-return case parity across ordinary checkout, transaction, and global-payment paths
+        [$checkout8611, $transaction8611] = $this->createTransaction8611Scenario($setting, $loc, $cashier, $customer);
+
+        // 1. Checkout Print (8611)
+        $res8611Cp = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sell.checkout.receipt', $checkout8611));
+        $res8611Cp->assertStatus(200);
+        $data8611Cp = $res8611Cp->viewData('receiptData');
+
+        // 2. Checkout Reprint (8611)
+        $res8611Cr = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sell.checkout.receipt.reprint', $checkout8611));
+        $res8611Cr->assertStatus(200);
+        $data8611Cr = $res8611Cr->viewData('receiptData');
+
+        // 3. Transaction Print (8611)
+        $res8611Tp = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.transactions.receipt', $transaction8611));
+        $res8611Tp->assertStatus(200);
+        $data8611Tp = $res8611Tp->viewData('receiptData');
+
+        // 4. Transaction Reprint (8611)
+        $res8611Tr = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->post(route('pos.transactions.receipt.reprint', $transaction8611));
+        $res8611Tr->assertStatus(200);
+        $data8611Tr = $res8611Tr->viewData('receiptData');
+
+        // 5. Global Payment Reprint (8611)
+        $res8611Gp = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->post(route('pos.global-payments.receipt.reprint', ['transaction_id' => $transaction8611->id]));
+        $res8611Gp->assertStatus(200);
+        $data8611Gp = $res8611Gp->viewData('receiptData');
+
+        // Parity across all 5 endpoints for rounded partial return
+        $this->assertEquals($data8611Cp['lines'], $data8611Cr['lines']);
+        $this->assertEquals($data8611Cp['lines'], $data8611Tp['lines']);
+        $this->assertEquals($data8611Cp['lines'], $data8611Tr['lines']);
+        $this->assertEquals($data8611Cp['lines'], $data8611Gp['lines']);
+
+        $this->assertEquals(77900.0, (float) $data8611Cp['grand_total']);
+        $this->assertEquals(77900.0, (float) $data8611Gp['grand_total']);
+        $this->assertEquals(11.0, (float) $data8611Cp['lines'][0]['qty']);
+        $this->assertEquals(7083.33, (float) $data8611Cp['lines'][0]['price']);
+        $this->assertCount(1, (array) $data8611Cp['lines'][0]['unit_breakdown']);
+        $this->assertMatchesRegularExpression('/^11 Pcs @ [Rr][Pp]\. 7\.083,33$/', $data8611Cp['lines'][0]['unit_breakdown'][0]);
+
+        // Verify action-specific audits and permissions are recorded
+        $printLogs = PosReceiptPrintLog::query()->where('setting_id', $setting->id)->get();
+        $this->assertTrue($printLogs->contains('print_type', PosReceiptPrintLog::TYPE_PRINT));
+        $this->assertTrue($printLogs->contains('print_type', PosReceiptPrintLog::TYPE_REPRINT));
     }
 
     private function createDebtFirstScenario(
@@ -2290,5 +2351,926 @@ class POSReceiptReturnProjectionTest extends PosLineageSchemaAndCheckoutTest
         $this->assertStringContainsString('Retur Kas', $secondReturnBlock);
         $this->assertStringNotContainsString('Acer Aspire Laptop', $secondReturnBlock);
         $this->assertStringNotContainsString('Lainnya', $secondReturnBlock);
+    }
+
+    /**
+     * Task 1.1: Regression fixture reproducing transaction 8611 without live IDs:
+     * packed 12 PCS / Rp85,000, stored unit price Rp7,083.33, completed 1-PCS refund Rp7,100,
+     * remaining Sale quantity 11 and subtotal Rp77,900.
+     * Expects one 11-PCS breakdown at Rp7,083.33, display price Rp7,083.33, row total Rp77,900,
+     * and rejects the 2/9 cent-price split.
+     */
+    public function test_transaction_8611_partial_return_on_packed_box_purchase(): void
+    {
+        $setting = $this->createSetting('TRX 8611 STORE');
+        $cashier = $this->createUserForSetting($setting, 'cashier', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment', 'pos.receipts.reprint', 'pos.transactions.view',
+        ]);
+        $loc = Location::create(['name' => 'LOC 8611', 'setting_id' => $setting->id]);
+        $this->createTerminalAndSaleLocations($setting, [$loc]);
+        $customer = $this->assignDefaultWalkInCustomer($setting);
+
+        [$checkout, $transaction] = $this->createTransaction8611Scenario($setting, $loc, $cashier, $customer);
+
+        $projectedData = app(PosReceiptReprintProjectionService::class)->getCompletedReceiptData($checkout->fresh());
+
+        $this->assertCount(1, $projectedData['lines']);
+        $line = $projectedData['lines'][0];
+
+        $this->assertEquals(11.0, (float) $line['qty']);
+        $this->assertEquals(77900.0, (float) $line['sub_total']);
+        $this->assertEquals(7083.33, (float) $line['price']);
+
+        // Must reject the 2/9 cent-price split and expect one 11-PCS breakdown at Rp7,083.33
+        $unitBreakdown = (array) $line['unit_breakdown'];
+        $this->assertCount(1, $unitBreakdown);
+        $this->assertSame('11 Pcs @ Rp. 7.083,33', $unitBreakdown[0]);
+
+        $this->assertNotContains('2 Pcs @ Rp. 7.081,81', $unitBreakdown);
+        $this->assertNotContains('9 Pcs @ Rp. 7.081,82', $unitBreakdown);
+
+        // Verify catalog loose price Rp8,000 does not replace Rp7,083.33
+        $this->assertStringNotContainsString('8.000', implode(' ', $unitBreakdown));
+    }
+
+    public function createTransaction8611Scenario($setting, $loc, $cashier, $customer): array
+    {
+        if (\Modules\Setting\Entities\PaymentMethod::query()->where('name', 'CASH')->doesntExist()) {
+            $this->seedPaymentMethods($setting, true);
+        }
+
+        $conversionUnit = Unit::query()->firstOrCreate(['short_name' => 'Dus'], ['name' => 'Dus']);
+
+        $product = $this->createStockedProduct($setting, $loc, 'SPIDOL-8611-' . uniqid(), 8000, 50);
+
+        $conversion = ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'base_unit_id' => $product->unit_id,
+            'unit_id' => $conversionUnit->id,
+            'conversion_factor' => 12,
+            'selling_price' => 85000,
+        ]);
+
+        $terminal = PosTerminal::where('setting_id', $setting->id)->first();
+        if (! $terminal) {
+            $this->createTerminalAndSaleLocations($setting, [$loc]);
+            $terminal = PosTerminal::where('setting_id', $setting->id)->first();
+        }
+        $this->openSession($setting, $terminal, $cashier);
+        $session = \Modules\Pos\Entities\PosSession::where('terminal_id', $terminal->id)->latest('id')->first();
+
+        $transaction = PosTransaction::create([
+            'setting_id' => $setting->id,
+            'code' => 'POS-8611-' . uniqid(),
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $cashier->id,
+            'owner_user_id' => $cashier->id,
+            'last_saved_by' => $cashier->id,
+            'source_pos_session_id' => $session->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $setting->id,
+            'pos_transaction_id' => $transaction->id,
+            'pos_session_id' => $session->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $cashier->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'grand_total' => 85000,
+            'paid_total' => 85000,
+            'change_total' => 0,
+            'debt_amount' => 0,
+            'receipt_number' => 'RCP-8611-' . uniqid(),
+            'idempotency_key' => 'IDEM-8611-' . uniqid(),
+            'payload_hash' => 'HASH-8611-' . uniqid(),
+        ]);
+        $transaction->update(['completed_checkout_id' => $checkout->id]);
+
+        $txnLine = PosTransactionLine::create([
+            'pos_transaction_id' => $transaction->id,
+            'line_no' => 1,
+            'product_id' => $product->id,
+            'conversion_id' => $conversion->id,
+            'product_name_snapshot' => $product->product_name,
+            'product_code_snapshot' => $product->product_code,
+            'qty' => 12,
+            'unit_price' => 7083.33,
+            'line_meta' => [
+                'price_source' => 'PACKED',
+                'line_total_minor' => 8500000,
+                'breakdown' => [
+                    'box_count' => 1,
+                    'loose_count' => 0,
+                    'box_price_applied' => 8500000,
+                    'loose_price_applied' => 800000,
+                    'conversion_unit_label' => 'Dus',
+                    'base_unit_label' => 'Pcs',
+                    'factor' => 12,
+                ],
+            ],
+        ]);
+
+        $sale = Sale::create([
+            'setting_id' => $setting->id,
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'date' => now()->toDateString(),
+            'reference' => 'SL-8611-' . uniqid(),
+            'total_amount' => 85000,
+            'paid_amount' => 85000,
+            'due_amount' => 0,
+            'status' => 'DISPATCHED',
+            'payment_status' => 'PAID',
+            'payment_method' => 'CASH',
+        ]);
+
+        $checkoutSale = PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'sale_id' => $sale->id,
+            'source_setting_id' => $setting->id,
+            'source_location_id' => $loc->id,
+            'grand_total' => 85000,
+            'split_key' => 'SPLIT-8611-' . uniqid(),
+            'tax_bucket' => 'NON_TAX',
+            'order_index' => 1,
+        ]);
+
+        $saleDetail = SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 12,
+            'price' => 7083.33,
+            'unit_price' => 7083.33,
+            'sub_total' => 85000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'pos_transaction_line_id' => $txnLine->id,
+        ]);
+
+        $salePayment = SalePayment::create([
+            'sale_id' => $sale->id,
+            'amount' => 85000,
+            'date' => now()->toDateString(),
+            'reference' => 'SPAY-8611-' . uniqid(),
+            'payment_method' => 'CASH',
+        ]);
+
+        // Completed return for 1 PCS refunded at 7,100
+        $posReturn = PosReturn::create([
+            'setting_id' => $setting->id,
+            'pos_transaction_id' => $transaction->id,
+            'pos_checkout_id' => $checkout->id,
+            'transaction_code' => $transaction->code,
+            'receipt_number' => $checkout->receipt_number,
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'status' => PosReturn::STATUS_COMPLETED,
+            'approval_status' => PosReturn::APPROVAL_STATUS_APPROVED,
+            'total_amount' => 7100,
+            'settled_at' => now(),
+            'approved_at' => now(),
+            'reference' => 'PR-8611-' . uniqid(),
+            'source_snapshot' => [],
+            'source_snapshot_hash' => 'h-8611-' . uniqid(),
+            'created_by' => $cashier->id,
+            'updated_by' => $cashier->id,
+        ]);
+
+        $returnLine = PosReturnLine::create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => $checkoutSale->id,
+            'pos_transaction_line_id' => $txnLine->id,
+            'source_setting_id' => $setting->id,
+            'source_location_id' => $loc->id,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetail->id,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'unit_price' => 7100,
+            'line_total' => 7100,
+            'expected_cash_amount' => 7100,
+        ]);
+
+        $saleReturn = SaleReturn::create([
+            'setting_id' => $setting->id,
+            'location_id' => $loc->id,
+            'pos_return_id' => $posReturn->id,
+            'sale_id' => $sale->id,
+            'sale_reference' => $sale->reference,
+            'return_type' => 'Cash Return',
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'reference' => 'SR-8611-' . uniqid(),
+            'total_amount' => 7100,
+            'paid_amount' => 7100,
+            'due_amount' => 0,
+            'status' => 'Completed',
+            'approval_status' => 'Approved',
+            'payment_status' => 'Paid',
+            'payment_method' => 'CASH',
+            'date' => now()->toDateString(),
+        ]);
+
+        SaleReturnDetail::create([
+            'sale_return_id' => $saleReturn->id,
+            'pos_return_line_id' => $returnLine->id,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetail->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'location_id' => $loc->id,
+            'quantity' => 1,
+            'price' => 7100,
+            'unit_price' => 7100,
+            'sub_total' => 7100,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        SaleReturnPayment::create([
+            'sale_return_id' => $saleReturn->id,
+            'amount' => 7100,
+            'date' => now()->toDateString(),
+            'reference' => 'SRPAY-8611-' . uniqid(),
+            'payment_method' => 'CASH',
+        ]);
+
+        // Reflect return in Sale: 11 remaining, subtotal 77,900, unit_price unchanged at 7083.33
+        $saleDetail->update([
+            'quantity' => 11,
+            'sub_total' => 77900,
+            'unit_price' => 7083.33,
+        ]);
+        $salePayment->update(['amount' => 77900]);
+        $sale->update(['total_amount' => 77900, 'paid_amount' => 77900]);
+
+        return [$checkout, $transaction, $sale, $posReturn, $product];
+    }
+
+    /**
+     * Task 1.3: Multi-split / multi-detail where prices are uniform across items but total amount
+     * is not cleanly divisible (e.g. 3 pcs for 100,000 => unit price 33,333.33).
+     * Ensures breakdown formats as single clean line without artificial cent splits.
+     */
+    public function test_uniform_price_owner_split_avoids_cent_splitting_on_non_divisible_amount(): void
+    {
+        $setting = $this->createSetting('UNIFORM SPLIT STORE');
+        $cashier = $this->createUserForSetting($setting, 'cashier', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment', 'pos.receipts.reprint',
+        ]);
+        $loc = Location::create(['name' => 'LOC UNIFORM', 'setting_id' => $setting->id]);
+        $this->createTerminalAndSaleLocations($setting, [$loc]);
+        $customer = $this->assignDefaultWalkInCustomer($setting);
+
+        if (\Modules\Setting\Entities\PaymentMethod::query()->where('name', 'CASH')->doesntExist()) {
+            $this->seedPaymentMethods($setting, true);
+        }
+
+        $product = $this->createStockedProduct($setting, $loc, 'PROD-UNIFORM', 33333.33, 20);
+
+        $terminal = PosTerminal::where('setting_id', $setting->id)->first();
+        $this->openSession($setting, $terminal, $cashier);
+        $session = \Modules\Pos\Entities\PosSession::where('terminal_id', $terminal->id)->latest('id')->first();
+
+        $transaction = PosTransaction::create([
+            'setting_id' => $setting->id,
+            'code' => 'POS-UNIFORM-' . uniqid(),
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $cashier->id,
+            'owner_user_id' => $cashier->id,
+            'last_saved_by' => $cashier->id,
+            'source_pos_session_id' => $session->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $setting->id,
+            'pos_transaction_id' => $transaction->id,
+            'pos_session_id' => $session->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $cashier->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'grand_total' => 100000,
+            'paid_total' => 100000,
+            'change_total' => 0,
+            'debt_amount' => 0,
+            'receipt_number' => 'RCP-UNIFORM-' . uniqid(),
+            'idempotency_key' => 'IDEM-UNIFORM-' . uniqid(),
+            'payload_hash' => 'HASH-UNIFORM-' . uniqid(),
+        ]);
+        $transaction->update(['completed_checkout_id' => $checkout->id]);
+
+        $txnLine = PosTransactionLine::create([
+            'pos_transaction_id' => $transaction->id,
+            'line_no' => 1,
+            'product_id' => $product->id,
+            'product_name_snapshot' => $product->product_name,
+            'product_code_snapshot' => $product->product_code,
+            'qty' => 3,
+            'unit_price' => 33333.33,
+            'line_total' => 100000,
+            'line_total_minor' => 10000000,
+            'line_meta' => ['price_source' => 'BASE'],
+        ]);
+
+        // Sale has 2 details with same price 33333.33
+        $sale = Sale::create([
+            'setting_id' => $setting->id,
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'date' => now()->toDateString(),
+            'reference' => 'SL-UNIFORM-' . uniqid(),
+            'total_amount' => 100000,
+            'paid_amount' => 100000,
+            'due_amount' => 0,
+            'status' => 'DISPATCHED',
+            'payment_status' => 'PAID',
+            'payment_method' => 'CASH',
+        ]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'sale_id' => $sale->id,
+            'source_setting_id' => $setting->id,
+            'source_location_id' => $loc->id,
+            'grand_total' => 100000,
+            'split_key' => 'SPLIT-UNIFORM',
+            'tax_bucket' => 'NON_TAX',
+            'order_index' => 1,
+        ]);
+
+        SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'pos_transaction_line_id' => $txnLine->id,
+            'quantity' => 2,
+            'price' => 33333.33,
+            'unit_price' => 33333.33,
+            'sub_total' => 66666.67,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'pos_transaction_line_id' => $txnLine->id,
+            'quantity' => 1,
+            'price' => 33333.33,
+            'unit_price' => 33333.33,
+            'sub_total' => 33333.33,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        SalePayment::create([
+            'sale_id' => $sale->id,
+            'amount' => 100000,
+            'date' => now()->toDateString(),
+            'reference' => 'SPAY-UNIFORM',
+            'payment_method' => 'CASH',
+        ]);
+
+        $projectedData = app(PosReceiptReprintProjectionService::class)->getCompletedReceiptData($checkout->fresh());
+
+        $this->assertCount(1, $projectedData['lines']);
+        $line = $projectedData['lines'][0];
+        $this->assertEquals(3.0, (float) $line['qty']);
+        $this->assertEquals(100000.0, (float) $line['sub_total']);
+        $this->assertEquals(33333.33, (float) $line['price']);
+        $breakdown = (array) $line['unit_breakdown'];
+        $this->assertCount(1, $breakdown);
+        $this->assertMatchesRegularExpression('/^3 PUNIT\(S\) @ [Rr][Pp]\. 33\.333,33$/i', $breakdown[0]);
+    }
+
+    /**
+     * Task 1.3: Fractional quantity (e.g. 1.5 units) preserves recorded price and does not fabricate
+     * artificial integer/fractional cent groups.
+     */
+    public function test_fractional_quantity_retains_recorded_price_without_artificial_cent_groups(): void
+    {
+        $setting = $this->createSetting('FRACTIONAL STORE');
+        $cashier = $this->createUserForSetting($setting, 'cashier', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment', 'pos.receipts.reprint',
+        ]);
+        $loc = Location::create(['name' => 'LOC FRAC', 'setting_id' => $setting->id]);
+        $this->createTerminalAndSaleLocations($setting, [$loc]);
+        $customer = $this->assignDefaultWalkInCustomer($setting);
+
+        if (\Modules\Setting\Entities\PaymentMethod::query()->where('name', 'CASH')->doesntExist()) {
+            $this->seedPaymentMethods($setting, true);
+        }
+
+        $kgUnit = Unit::query()->firstOrCreate(['short_name' => 'Kg'], ['name' => 'Kilogram']);
+        $product = $this->createStockedProduct($setting, $loc, 'BERAS-KG', 25000, 50);
+        $product->update(['unit_id' => $kgUnit->id]);
+
+        $terminal = PosTerminal::where('setting_id', $setting->id)->first();
+        $this->openSession($setting, $terminal, $cashier);
+        $session = \Modules\Pos\Entities\PosSession::where('terminal_id', $terminal->id)->latest('id')->first();
+
+        $transaction = PosTransaction::create([
+            'setting_id' => $setting->id,
+            'code' => 'POS-FRAC-' . uniqid(),
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $cashier->id,
+            'owner_user_id' => $cashier->id,
+            'last_saved_by' => $cashier->id,
+            'source_pos_session_id' => $session->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $setting->id,
+            'pos_transaction_id' => $transaction->id,
+            'pos_session_id' => $session->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $cashier->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'grand_total' => 27000,
+            'paid_total' => 27000,
+            'change_total' => 0,
+            'debt_amount' => 0,
+            'receipt_number' => 'RCP-FRAC-' . uniqid(),
+            'idempotency_key' => 'IDEM-FRAC-' . uniqid(),
+            'payload_hash' => 'HASH-FRAC-' . uniqid(),
+        ]);
+        $transaction->update(['completed_checkout_id' => $checkout->id]);
+
+        $txnLine = PosTransactionLine::create([
+            'pos_transaction_id' => $transaction->id,
+            'line_no' => 1,
+            'product_id' => $product->id,
+            'product_name_snapshot' => $product->product_name,
+            'product_code_snapshot' => $product->product_code,
+            'qty' => 1.125,
+            'unit_price' => 24000,
+            'line_total' => 27000,
+            'line_total_minor' => 2700000,
+            'line_meta' => ['price_source' => 'BASE'],
+        ]);
+
+        $sale = Sale::create([
+            'setting_id' => $setting->id,
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'date' => now()->toDateString(),
+            'reference' => 'SL-FRAC-' . uniqid(),
+            'total_amount' => 27000,
+            'paid_amount' => 27000,
+            'due_amount' => 0,
+            'status' => 'DISPATCHED',
+            'payment_status' => 'PAID',
+            'payment_method' => 'CASH',
+        ]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'sale_id' => $sale->id,
+            'source_setting_id' => $setting->id,
+            'source_location_id' => $loc->id,
+            'grand_total' => 27000,
+            'split_key' => 'SPLIT-FRAC',
+            'tax_bucket' => 'NON_TAX',
+            'order_index' => 1,
+        ]);
+
+        SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'pos_transaction_line_id' => $txnLine->id,
+            'quantity' => 1.125,
+            'price' => 24000,
+            'unit_price' => 24000,
+            'sub_total' => 27000,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        SalePayment::create([
+            'sale_id' => $sale->id,
+            'amount' => 27000,
+            'date' => now()->toDateString(),
+            'reference' => 'SPAY-FRAC',
+            'payment_method' => 'CASH',
+        ]);
+
+        $projectedData = app(PosReceiptReprintProjectionService::class)->getCompletedReceiptData($checkout->fresh());
+
+        $this->assertCount(1, $projectedData['lines']);
+        $line = $projectedData['lines'][0];
+        $this->assertEquals(1.125, (float) $line['qty']);
+        $this->assertEquals(27000.0, (float) $line['sub_total']);
+        $this->assertEquals(24000.0, (float) $line['price']);
+        $breakdown = (array) $line['unit_breakdown'];
+        $this->assertCount(1, $breakdown);
+        $this->assertMatchesRegularExpression('/^1\.125 KG\(S\) @ [Rr][Pp]\. 24\.000$/i', $breakdown[0]);
+        $this->assertStringNotContainsString('1.13', $breakdown[0]);
+    }
+
+    /**
+     * Task 2.2: When a blended selling price changes on SaleDetails, the breakdown uses the proven
+     * base-unit selling price with the packing quantities without fabricating an invented box price.
+     */
+    public function test_adjusted_packed_item_uses_proven_base_unit_price_with_packing_quantities(): void
+    {
+        $setting = $this->createSetting('ADJ PACK STORE');
+        $cashier = $this->createUserForSetting($setting, 'cashier', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment', 'pos.receipts.reprint',
+        ]);
+        $loc = Location::create(['name' => 'LOC ADJ PACK', 'setting_id' => $setting->id]);
+        $this->createTerminalAndSaleLocations($setting, [$loc]);
+        $customer = $this->assignDefaultWalkInCustomer($setting);
+
+        if (\Modules\Setting\Entities\PaymentMethod::query()->where('name', 'CASH')->doesntExist()) {
+            $this->seedPaymentMethods($setting, true);
+        }
+
+        $conversionUnit = Unit::query()->firstOrCreate(['short_name' => 'Dus'], ['name' => 'Dus']);
+        $product = $this->createStockedProduct($setting, $loc, 'SNACK-ADJ', 12000, 100);
+
+        ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'base_unit_id' => $product->unit_id,
+            'unit_id' => $conversionUnit->id,
+            'conversion_factor' => 10,
+            'selling_price' => 100000,
+        ]);
+
+        $terminal = PosTerminal::where('setting_id', $setting->id)->first();
+        $this->openSession($setting, $terminal, $cashier);
+        $session = \Modules\Pos\Entities\PosSession::where('terminal_id', $terminal->id)->latest('id')->first();
+
+        // Customer bought 1 Dus (10 pcs) + 2 pcs = 12 pcs. Originally 100,000 + 24,000 = 124,000 (unit price 10333.33)
+        $transaction = PosTransaction::create([
+            'setting_id' => $setting->id,
+            'code' => 'POS-ADJ-' . uniqid(),
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $cashier->id,
+            'owner_user_id' => $cashier->id,
+            'last_saved_by' => $cashier->id,
+            'source_pos_session_id' => $session->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $setting->id,
+            'pos_transaction_id' => $transaction->id,
+            'pos_session_id' => $session->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $cashier->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'grand_total' => 124000,
+            'paid_total' => 124000,
+            'change_total' => 0,
+            'debt_amount' => 0,
+            'receipt_number' => 'RCP-ADJ-' . uniqid(),
+            'idempotency_key' => 'IDEM-ADJ-' . uniqid(),
+            'payload_hash' => 'HASH-ADJ-' . uniqid(),
+        ]);
+        $transaction->update(['completed_checkout_id' => $checkout->id]);
+
+        $txnLine = PosTransactionLine::create([
+            'pos_transaction_id' => $transaction->id,
+            'line_no' => 1,
+            'product_id' => $product->id,
+            'conversion_id' => $conversionUnit->id,
+            'product_name_snapshot' => $product->product_name,
+            'product_code_snapshot' => $product->product_code,
+            'qty' => 12,
+            'unit_price' => 10333.33,
+            'line_meta' => [
+                'price_source' => 'PACKED',
+                'line_total_minor' => 12400000,
+                'breakdown' => [
+                    'box_count' => 1,
+                    'loose_count' => 2,
+                    'box_price_applied' => 10000000,
+                    'loose_price_applied' => 2400000,
+                    'conversion_unit_label' => 'Dus',
+                    'base_unit_label' => 'Pcs',
+                    'factor' => 10,
+                ],
+            ],
+        ]);
+
+        $sale = Sale::create([
+            'setting_id' => $setting->id,
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'date' => now()->toDateString(),
+            'reference' => 'SL-ADJ-' . uniqid(),
+            'total_amount' => 114000,
+            'paid_amount' => 114000,
+            'due_amount' => 0,
+            'status' => 'DISPATCHED',
+            'payment_status' => 'PAID',
+            'payment_method' => 'CASH',
+        ]);
+
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'sale_id' => $sale->id,
+            'source_setting_id' => $setting->id,
+            'source_location_id' => $loc->id,
+            'grand_total' => 114000,
+            'split_key' => 'SPLIT-ADJ',
+            'tax_bucket' => 'NON_TAX',
+            'order_index' => 1,
+        ]);
+
+        SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 12,
+            'price' => 9500,
+            'unit_price' => 9500,
+            'sub_total' => 114000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'pos_transaction_line_id' => $txnLine->id,
+        ]);
+
+        SalePayment::create([
+            'sale_id' => $sale->id,
+            'amount' => 114000,
+            'date' => now()->toDateString(),
+            'reference' => 'SPAY-ADJ',
+            'payment_method' => 'CASH',
+        ]);
+
+        $projectedData = app(PosReceiptReprintProjectionService::class)->getCompletedReceiptData($checkout->fresh());
+
+        $this->assertCount(1, $projectedData['lines']);
+        $line = $projectedData['lines'][0];
+        $this->assertEquals(12.0, (float) $line['qty']);
+        $this->assertEquals(114000.0, (float) $line['sub_total']);
+        $this->assertEquals(9500.0, (float) $line['price']);
+
+        // Must display price adjustment notice
+        $this->assertContains('Harga penjualan diperbarui', $line['price_adjustments'] ?? []);
+
+        // Breakdown uses the proven base-unit price (9,500) with packing quantities without inventing 95,000 box price
+        $breakdown = (array) $line['unit_breakdown'];
+        $this->assertCount(2, $breakdown);
+        $this->assertSame('1 Dus + 2 Pcs', $breakdown[0]);
+        $this->assertMatchesRegularExpression('/^12 Pcs @ [Rr][Pp]\. 9\.500$/', $breakdown[1]);
+        $this->assertStringNotContainsString('95.000', implode(' ', $breakdown));
+    }
+
+    /**
+     * Task 2.1: Mixed packing (both boxes and loose units remaining) preserves box and loose labels
+     * and their respective pricing after a partial return.
+     */
+    public function test_mixed_packing_preserves_box_and_loose_labels_and_prices_after_partial_return(): void
+    {
+        $setting = $this->createSetting('MIXED PACK STORE');
+        $cashier = $this->createUserForSetting($setting, 'cashier', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment', 'pos.receipts.reprint',
+        ]);
+        $loc = Location::create(['name' => 'LOC MIXED', 'setting_id' => $setting->id]);
+        $this->createTerminalAndSaleLocations($setting, [$loc]);
+        $customer = $this->assignDefaultWalkInCustomer($setting);
+
+        if (\Modules\Setting\Entities\PaymentMethod::query()->where('name', 'CASH')->doesntExist()) {
+            $this->seedPaymentMethods($setting, true);
+        }
+
+        $conversionUnit = Unit::query()->firstOrCreate(['short_name' => 'Dus'], ['name' => 'Dus']);
+        $product = $this->createStockedProduct($setting, $loc, 'SNACK-BOX', 5000, 100);
+
+        $conversion = ProductUnitConversion::create([
+            'product_id' => $product->id,
+            'base_unit_id' => $product->unit_id,
+            'unit_id' => $conversionUnit->id,
+            'conversion_factor' => 10,
+            'selling_price' => 45000,
+        ]);
+
+        $terminal = PosTerminal::where('setting_id', $setting->id)->first();
+        $this->openSession($setting, $terminal, $cashier);
+        $session = \Modules\Pos\Entities\PosSession::where('terminal_id', $terminal->id)->latest('id')->first();
+
+        // Customer initially bought 2 Dus (20 pcs @ 45,000 = 90,000) + 5 loose (5 pcs @ 5,000 = 25,000) = 25 pcs for 115,000
+        $transaction = PosTransaction::create([
+            'setting_id' => $setting->id,
+            'code' => 'POS-MIXED-' . uniqid(),
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $cashier->id,
+            'owner_user_id' => $cashier->id,
+            'last_saved_by' => $cashier->id,
+            'source_pos_session_id' => $session->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $setting->id,
+            'pos_transaction_id' => $transaction->id,
+            'pos_session_id' => $session->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $cashier->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'grand_total' => 115000,
+            'paid_total' => 115000,
+            'change_total' => 0,
+            'debt_amount' => 0,
+            'receipt_number' => 'RCP-MIXED-' . uniqid(),
+            'idempotency_key' => 'IDEM-MIXED-' . uniqid(),
+            'payload_hash' => 'HASH-MIXED-' . uniqid(),
+        ]);
+        $transaction->update(['completed_checkout_id' => $checkout->id]);
+
+        $txnLine = PosTransactionLine::create([
+            'pos_transaction_id' => $transaction->id,
+            'line_no' => 1,
+            'product_id' => $product->id,
+            'conversion_id' => $conversion->id,
+            'product_name_snapshot' => $product->product_name,
+            'product_code_snapshot' => $product->product_code,
+            'qty' => 25,
+            'unit_price' => 4600,
+            'line_meta' => [
+                'price_source' => 'PACKED',
+                'line_total_minor' => 11500000,
+                'breakdown' => [
+                    'box_count' => 2,
+                    'loose_count' => 5,
+                    'box_price_applied' => 4500000,
+                    'loose_price_applied' => 500000,
+                    'conversion_unit_label' => 'Dus',
+                    'base_unit_label' => 'Pcs',
+                    'factor' => 10,
+                ],
+            ],
+        ]);
+
+        $sale = Sale::create([
+            'setting_id' => $setting->id,
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'date' => now()->toDateString(),
+            'reference' => 'SL-MIXED-' . uniqid(),
+            'total_amount' => 115000,
+            'paid_amount' => 115000,
+            'due_amount' => 0,
+            'status' => 'DISPATCHED',
+            'payment_status' => 'PAID',
+            'payment_method' => 'CASH',
+        ]);
+
+        $checkoutSale = PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'sale_id' => $sale->id,
+            'source_setting_id' => $setting->id,
+            'source_location_id' => $loc->id,
+            'grand_total' => 115000,
+            'split_key' => 'SPLIT-MIXED',
+            'tax_bucket' => 'NON_TAX',
+            'order_index' => 1,
+        ]);
+
+        $saleDetail = SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 25,
+            'price' => 4600,
+            'unit_price' => 4600,
+            'sub_total' => 115000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'pos_transaction_line_id' => $txnLine->id,
+        ]);
+
+        $salePayment = SalePayment::create([
+            'sale_id' => $sale->id,
+            'amount' => 115000,
+            'date' => now()->toDateString(),
+            'reference' => 'SPAY-MIXED',
+            'payment_method' => 'CASH',
+        ]);
+
+        // Customer returns 1 Dus (10 pcs) and 2 loose pcs = 12 pcs refunded at 45000 + 10000 = 55000
+        // Remaining: 13 pcs (1 Dus + 3 loose pcs), remaining subtotal: 45000 + 15000 = 60000
+        $posReturn = PosReturn::create([
+            'setting_id' => $setting->id,
+            'pos_transaction_id' => $transaction->id,
+            'pos_checkout_id' => $checkout->id,
+            'transaction_code' => $transaction->code,
+            'receipt_number' => $checkout->receipt_number,
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'status' => PosReturn::STATUS_COMPLETED,
+            'approval_status' => PosReturn::APPROVAL_STATUS_APPROVED,
+            'total_amount' => 55000,
+            'settled_at' => now(),
+            'approved_at' => now(),
+            'reference' => 'PR-MIXED',
+            'source_snapshot' => [],
+            'source_snapshot_hash' => 'h-mixed',
+            'created_by' => $cashier->id,
+            'updated_by' => $cashier->id,
+        ]);
+
+        $returnLine = PosReturnLine::create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => $checkoutSale->id,
+            'pos_transaction_line_id' => $txnLine->id,
+            'source_setting_id' => $setting->id,
+            'source_location_id' => $loc->id,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetail->id,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 12,
+            'unit_price' => 4583.33,
+            'line_total' => 55000,
+            'expected_cash_amount' => 55000,
+        ]);
+
+        $saleReturn = SaleReturn::create([
+            'setting_id' => $setting->id,
+            'location_id' => $loc->id,
+            'pos_return_id' => $posReturn->id,
+            'sale_id' => $sale->id,
+            'sale_reference' => $sale->reference,
+            'return_type' => 'Cash Return',
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name,
+            'reference' => 'SR-MIXED',
+            'total_amount' => 55000,
+            'paid_amount' => 55000,
+            'due_amount' => 0,
+            'status' => 'Completed',
+            'approval_status' => 'Approved',
+            'payment_status' => 'Paid',
+            'payment_method' => 'CASH',
+            'date' => now()->toDateString(),
+        ]);
+
+        SaleReturnDetail::create([
+            'sale_return_id' => $saleReturn->id,
+            'pos_return_line_id' => $returnLine->id,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $saleDetail->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'location_id' => $loc->id,
+            'quantity' => 12,
+            'price' => 4583.33,
+            'unit_price' => 4583.33,
+            'sub_total' => 55000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        SaleReturnPayment::create([
+            'sale_return_id' => $saleReturn->id,
+            'amount' => 55000,
+            'date' => now()->toDateString(),
+            'reference' => 'SRPAY-MIXED',
+            'payment_method' => 'CASH',
+        ]);
+
+        // Reflect return in Sale
+        $saleDetail->update([
+            'quantity' => 13,
+            'sub_total' => 60000,
+            'unit_price' => 4600,
+        ]);
+        $salePayment->update(['amount' => 60000]);
+        $sale->update(['total_amount' => 60000, 'paid_amount' => 60000]);
+
+        $projectedData = app(PosReceiptReprintProjectionService::class)->getCompletedReceiptData($checkout->fresh());
+
+        $this->assertCount(1, $projectedData['lines']);
+        $line = $projectedData['lines'][0];
+        $this->assertEquals(13.0, (float) $line['qty']);
+        $this->assertEquals(60000.0, (float) $line['sub_total']);
+
+        $breakdown = (array) $line['unit_breakdown'];
+        // Should have 1 Dus @ Rp. 45.000 and 3 Pcs @ Rp. 5.000
+        $this->assertCount(2, $breakdown);
+        $this->assertSame('1 Dus @ Rp. 45.000', $breakdown[0]);
+        $this->assertSame('3 Pcs @ Rp. 5.000', $breakdown[1]);
     }
 }

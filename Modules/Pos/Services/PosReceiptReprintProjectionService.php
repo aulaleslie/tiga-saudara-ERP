@@ -726,37 +726,132 @@ class PosReceiptReprintProjectionService
             }
 
             $effectiveQty = $remainingQty > 0 ? $remainingQty : $qty;
-            $pricePerUnit = $effectiveQty > 0 ? round($assignedAmount / $effectiveQty, 2) : $assignedAmount;
 
-            // Reconstruct unit breakdown if present
+            $isBundle = ! empty($txnLine->line_meta['bundle_items'])
+                || strtoupper((string) ($txnLine->line_meta['price_source'] ?? '')) === 'BUNDLE'
+                || ! empty($baseLine['bundle_composition']);
+
+            $priceSource = $txnLine->line_meta['price_source'] ?? ($baseLine['price_source'] ?? 'BASE');
+            $breakdown = $txnLine->line_meta['breakdown'] ?? ($baseLine['breakdown'] ?? null);
+
+            // Customer purchase details mapped to this line
+            $customerDetails = collect($lineDetailsMap[$lineId] ?? [])->filter(function ($d) use ($txnLine) {
+                if (! empty($d->pos_transaction_line_id)) {
+                    return (int) $d->pos_transaction_line_id === (int) $txnLine->id;
+                }
+                return (int) $d->product_id === (int) $txnLine->product_id;
+            })->values();
+
+            $activeDetails = $customerDetails->filter(fn ($d) => (float) $d->quantity > 0.0001)->values();
+            $distinctPrices = $activeDetails->map(fn ($d) => round((float) $d->unit_price, 4))->unique()->values();
+
+            // 1. Resolve recorded display price independent of assigned charge / return average
+            if ($isBundle) {
+                // Bundle lines exclude component allocations; display price matches effective bundle price
+                $pricePerUnit = $effectiveQty > 0 ? round($assignedAmount / $effectiveQty, 2) : $assignedAmount;
+            } elseif ($distinctPrices->count() === 1) {
+                // Uniform proven recorded price on SaleDetails (including single owner, multi-owner with same price, or updated price)
+                $pricePerUnit = (float) $distinctPrices->first();
+            } else {
+                // Fall back to recorded transaction line unit price (or baseLine price) without inventing an average
+                $pricePerUnit = (float) ($txnLine->unit_price ?? $baseLine['price'] ?? ($effectiveQty > 0 ? round($assignedAmount / $effectiveQty, 2) : $assignedAmount));
+            }
+
+            // 2. Reconstruct unit breakdown if present on baseLine or transaction
             $unitBreakdown = $baseLine['unit_breakdown'] ?? null;
-            if ($txnLine && $unitBreakdown) {
-                $priceSource = $txnLine->line_meta['price_source'] ?? 'BASE';
-                $breakdown = $txnLine->line_meta['breakdown'] ?? null;
+            if ($txnLine && $unitBreakdown !== null) {
+                if ($priceSource === 'PACKED' && is_array($breakdown)) {
+                    $conversionFactor = (float) ($txnLine->conversion?->conversion_factor ?? ($breakdown['factor'] ?? 1.0));
+                    $conversionLabel = $breakdown['conversion_unit_label']
+                        ?? ($txnLine->conversion?->unit?->short_name ?? $txnLine->conversion?->unit?->name ?? 'Dus');
+                    $baseLabel = $breakdown['base_unit_label']
+                        ?? ($txnLine->product?->unit?->short_name ?? $txnLine->product?->unit?->name ?? 'Pcs');
 
-                if ($priceSource === 'PACKED' && is_array($breakdown) && is_array($unitBreakdown)) {
-                    $originalLineTotal = (float) ($baseLine['sub_total'] ?? 0.0);
-                    if ($matchingReturnLines->isEmpty() && abs($assignedAmount - $originalLineTotal) < 0.01) {
-                        // Preserved as-is from baseLine when no returns and amount unchanged
-                    } elseif ($matchingReturnLines->isEmpty()) {
-                        $unitBreakdown = $this->recomputePackedBreakdown($breakdown, $txnLine, $assignedAmount);
+                    $originalBoxCount = (int) ($breakdown['box_count'] ?? 0);
+                    $originalLooseCount = (int) ($breakdown['loose_count'] ?? 0);
+
+                    if ($conversionFactor > 1) {
+                        $remWhole = (int) round($effectiveQty);
+                        $boxCount = intdiv($remWhole, (int) round($conversionFactor));
+                        $looseCount = $remWhole % (int) round($conversionFactor);
                     } else {
-                        $conversionFactor = (float) ($txnLine->conversion?->conversion_factor ?? 0.0);
-                        if ($conversionFactor > 1) {
-                            $remWhole = (int) round($effectiveQty);
-                            $boxCount = intdiv($remWhole, (int) round($conversionFactor));
-                            $looseCount = $remWhole % (int) round($conversionFactor);
-                        } else {
-                            $boxCount = (int) ($breakdown['box_count'] ?? 0);
-                            $looseCount = (int) round($effectiveQty);
-                        }
-                        $updatedBreakdown = array_merge($breakdown, [
-                            'box_count' => $boxCount,
-                            'loose_count' => $looseCount,
-                        ]);
-                        $unitBreakdown = $this->recomputePackedBreakdown($updatedBreakdown, $txnLine, $assignedAmount);
+                        $boxCount = 0;
+                        $looseCount = (int) round($effectiveQty);
                     }
-                } elseif (is_string($unitBreakdown)) {
+
+                    // Check for proven blended unit-price changes on SaleDetails
+                    $origBlendedCents = (int) round(((float) $txnLine->unit_price) * 100);
+                    $hasBlendedPriceChange = false;
+                    foreach ($activeDetails as $detail) {
+                        if ((int) round(((float) $detail->unit_price) * 100) !== $origBlendedCents) {
+                            $hasBlendedPriceChange = true;
+                            break;
+                        }
+                    }
+
+                    if ($hasBlendedPriceChange) {
+                        // When separate adjusted packed-unit prices cannot be proven,
+                        // show packing and base-unit pricing separately without inventing adjusted box/loose prices.
+                        $packingParts = [];
+                        if ($boxCount > 0) {
+                            $packingParts[] = sprintf("%d %s", $boxCount, $conversionLabel);
+                        }
+                        if ($looseCount > 0) {
+                            $packingParts[] = sprintf("%d %s", $looseCount, $baseLabel);
+                        }
+
+                        $formattedQty = fmod(round($effectiveQty, 4), 1.0) != 0.0 ? (float) round($effectiveQty, 4) : (int) round($effectiveQty);
+                        $pricingLine = sprintf(
+                            "%s %s @ %s",
+                            $formattedQty,
+                            $baseLabel,
+                            $this->receiptService->formatReceiptCurrency($pricePerUnit)
+                        );
+
+                        if (! empty($packingParts) && $conversionFactor > 1 && $boxCount > 0) {
+                            $unitBreakdown = [
+                                implode(' + ', $packingParts),
+                                $pricingLine,
+                            ];
+                        } else {
+                            $unitBreakdown = [$pricingLine];
+                        }
+                    } else {
+                        $boxPriceApplied = (float) ($breakdown['box_price_applied'] ?? 0) / 100;
+                        if ($boxPriceApplied <= 0 && $conversionFactor > 0) {
+                            $boxPriceApplied = $pricePerUnit * $conversionFactor;
+                        }
+
+                        // When a whole-box purchase leaves only loose units (or loose remainder from a box purchase),
+                        // use the persisted base-unit selling price rather than snapshot catalog loose price
+                        if ($originalBoxCount > 0 && $originalLooseCount === 0) {
+                            $loosePriceApplied = $pricePerUnit;
+                        } elseif (($breakdown['loose_price_applied'] ?? 0) > 0) {
+                            $loosePriceApplied = (float) $breakdown['loose_price_applied'] / 100;
+                        } else {
+                            $loosePriceApplied = $pricePerUnit;
+                        }
+
+                        $unitBreakdownLines = [];
+                        if ($boxCount > 0) {
+                            $unitBreakdownLines[] = sprintf(
+                                "%d %s @ %s",
+                                $boxCount,
+                                $conversionLabel,
+                                $this->receiptService->formatReceiptCurrency($boxPriceApplied)
+                            );
+                        }
+                        if ($looseCount > 0) {
+                            $unitBreakdownLines[] = sprintf(
+                                "%d %s @ %s",
+                                $looseCount,
+                                $baseLabel,
+                                $this->receiptService->formatReceiptCurrency($loosePriceApplied)
+                            );
+                        }
+                        $unitBreakdown = $unitBreakdownLines;
+                    }
+                } else {
                     $unitName = null;
                     if ($txnLine->conversion && $txnLine->conversion->unit) {
                         $unitName = $txnLine->conversion->unit->short_name ?? $txnLine->conversion->unit->name;
@@ -767,16 +862,32 @@ class PosReceiptReprintProjectionService
                             ?? $txnLine->product->baseUnit->name
                             ?? $txnLine->product->product_unit;
                     }
+
                     if ($unitName) {
-                        $wholeQty = (int) round($effectiveQty);
-                        $unitBreakdown = $wholeQty > 0 && abs($effectiveQty - $wholeQty) < 0.000001
-                            ? $this->formatUnitBreakdown($wholeQty, (int) round($assignedAmount * 100), $unitName . '(S)')
-                            : sprintf(
+                        if ($distinctPrices->count() > 1) {
+                            $unitBreakdownLines = [];
+                            $groupedByPrice = $activeDetails->groupBy(fn ($d) => (string) round((float) $d->unit_price, 2));
+                            foreach ($groupedByPrice as $priceStr => $detailsInGroup) {
+                                $groupPrice = (float) $priceStr;
+                                $groupQty = (float) $detailsInGroup->sum(fn ($d) => (float) $d->quantity);
+                                $formattedGroupQty = fmod(round($groupQty, 4), 1.0) != 0.0 ? (float) round($groupQty, 4) : (int) $groupQty;
+                                $unitBreakdownLines[] = sprintf(
+                                    "%s %s(S) @ %s",
+                                    $formattedGroupQty,
+                                    $unitName,
+                                    $this->receiptService->formatReceiptCurrency($groupPrice)
+                                );
+                            }
+                            $unitBreakdown = $unitBreakdownLines;
+                        } else {
+                            $formattedQty = fmod(round($effectiveQty, 4), 1.0) != 0.0 ? (float) round($effectiveQty, 4) : (int) round($effectiveQty);
+                            $unitBreakdown = sprintf(
                                 "%s %s(S) @ %s",
-                                $effectiveQty,
+                                $formattedQty,
                                 $unitName,
                                 $this->receiptService->formatReceiptCurrency($pricePerUnit)
                             );
+                        }
                     }
                 }
             }
