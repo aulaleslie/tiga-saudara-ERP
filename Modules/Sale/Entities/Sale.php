@@ -48,6 +48,7 @@ class Sale extends BaseModel implements HasMedia
         'date' => 'date',
         'reporting_date' => 'date',
         'due_date' => 'date',
+        'return_rounding_context' => 'array',
     ];
 
     public function registerMediaCollections(): void

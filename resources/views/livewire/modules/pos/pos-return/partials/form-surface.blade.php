@@ -101,17 +101,8 @@
                                     @if($resolution === 'cash_return')
                                         @php
                                             $bundleScope = $selection['bundle_return_scope'] ?? \Modules\Pos\Entities\PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE;
-                                            $componentRetainedPerUnit = $group['is_bundle'] ? (float) collect($group['bundle_items'] ?? [])->sum(fn($bi) => (float) ($bi['allocated_price'] ?? 0)) : 0;
-                                            $parentAllocatedPrice = (float) ($serialLine['parent_allocated_price'] ?? ($serialLine['unit_price'] - $componentRetainedPerUnit));
-                                            if ($parentAllocatedPrice <= 0 && $serialLine['unit_price'] > 0) {
-                                                $parentAllocatedPrice = (float) $serialLine['unit_price'];
-                                            }
-                                            $lineRefund = ($group['is_bundle'] && $bundleScope === \Modules\Pos\Entities\PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY)
-                                                ? $parentAllocatedPrice
-                                                : $serialLine['unit_price'];
-                                            $retainedAmount = ($group['is_bundle'] && $bundleScope === \Modules\Pos\Entities\PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY)
-                                                ? $componentRetainedPerUnit
-                                                : 0;
+                                            $lineRefund = $this->getLineEstimatedRefund($lineKey);
+                                            $retainedAmount = $this->getLineEstimatedRetained($lineKey);
                                         @endphp
                                         <div class="text-success font-weight-bold">
                                             <i class="fas fa-money-bill-wave mr-1"></i>
@@ -249,14 +240,7 @@
                             @if($nsResolution === 'cash_return' && $nsQuantity > 0)
                                 @php
                                     $bundleScope = $nsSelection['bundle_return_scope'] ?? \Modules\Pos\Entities\PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE;
-                                    $componentRetainedPerUnit = $group['is_bundle'] ? (float) collect($group['bundle_items'] ?? [])->sum(fn($bi) => (float) ($bi['allocated_price'] ?? 0)) : 0;
-                                    $parentAllocatedPrice = (float) ($nsLine['parent_allocated_price'] ?? ($nsLine['unit_price'] - $componentRetainedPerUnit));
-                                    if ($parentAllocatedPrice <= 0 && $nsLine['unit_price'] > 0) {
-                                        $parentAllocatedPrice = (float) $nsLine['unit_price'];
-                                    }
-                                    $lineRefund = ($group['is_bundle'] && $bundleScope === \Modules\Pos\Entities\PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY)
-                                        ? $nsQuantity * $parentAllocatedPrice
-                                        : $nsQuantity * $nsLine['unit_price'];
+                                    $lineRefund = $this->getLineEstimatedRefund($nsKey);
                                 @endphp
                                 <div class="text-success font-weight-bold">
                                     <i class="fas fa-money-bill-wave mr-1"></i>
@@ -269,15 +253,7 @@
                     @if($group['is_bundle'] && $nsResolution === 'cash_return')
                         @php
                             $bundleScope = $nsSelection['bundle_return_scope'] ?? \Modules\Pos\Entities\PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE;
-                            $componentRetainedPerUnit = (float) collect($group['bundle_items'] ?? [])->sum(fn($bi) => (float) ($bi['allocated_price'] ?? 0));
-                            $parentAllocatedPrice = (float) ($nsLine['parent_allocated_price'] ?? ($nsLine['unit_price'] - $componentRetainedPerUnit));
-                            if ($parentAllocatedPrice <= 0 && $nsLine['unit_price'] > 0) {
-                                $parentAllocatedPrice = (float) $nsLine['unit_price'];
-                                $componentRetainedPerUnit = 0;
-                            }
-                            $retainedAmount = ($bundleScope === \Modules\Pos\Entities\PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY)
-                                ? $nsQuantity * $componentRetainedPerUnit
-                                : 0;
+                            $retainedAmount = $this->getLineEstimatedRetained($nsKey);
                         @endphp
                         <div class="mt-3 pt-2 border-top">
                             <div class="d-flex align-items-center justify-content-between">
@@ -339,48 +315,10 @@
 @endforeach
 
 @php
-    $totalCashReturn = 0;
-    $totalActionable = 0;
-    $totalRetainedCharges = 0;
-    foreach ($snapshot['lines'] as $line) {
-        $key = \Modules\Pos\Livewire\PosReturn\PosReturnCreateForm::buildLineKey($line);
-        $sel = $lineSelections[$key] ?? ['resolution' => 'none'];
-        $res = $sel['resolution'] ?? 'none';
-        if ($res === 'cash_return') {
-            $scope = $sel['bundle_return_scope'] ?? \Modules\Pos\Entities\PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE;
-            $compRetainedPerUnit = !empty($line['is_bundle']) ? (float) collect($line['bundle_items'] ?? [])->sum(fn($bi) => (float) ($bi['allocated_price'] ?? 0)) : 0;
-            $parentAllocPrice = (float) ($line['parent_allocated_price'] ?? ($line['unit_price'] - $compRetainedPerUnit));
-            if ($parentAllocPrice <= 0 && $line['unit_price'] > 0) {
-                $parentAllocPrice = (float) $line['unit_price'];
-                $compRetainedPerUnit = 0;
-            }
-
-            if ($line['is_tracked']) {
-                $lineRefund = (!empty($line['is_bundle']) && $scope === \Modules\Pos\Entities\PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY)
-                    ? $parentAllocPrice
-                    : $line['unit_price'];
-                $totalCashReturn += $lineRefund;
-                if (!empty($line['is_bundle']) && $scope === \Modules\Pos\Entities\PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY) {
-                    $totalRetainedCharges += $compRetainedPerUnit;
-                }
-                $totalActionable++;
-            } else {
-                $qty = (float) ($sel['quantity'] ?? 0);
-                $lineRefund = (!empty($line['is_bundle']) && $scope === \Modules\Pos\Entities\PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY)
-                    ? $qty * $parentAllocPrice
-                    : $qty * $line['unit_price'];
-                $totalCashReturn += $lineRefund;
-                if (!empty($line['is_bundle']) && $scope === \Modules\Pos\Entities\PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY) {
-                    $totalRetainedCharges += $qty * $compRetainedPerUnit;
-                }
-                if ($qty > 0) {
-                    $totalActionable++;
-                }
-            }
-        } elseif ($res === 'product_replacement') {
-            $totalActionable++;
-        }
-    }
+    $valuation = $this->valuation;
+    $totalCashReturn = $valuation['total_cash_return'] ?? 0;
+    $totalActionable = $valuation['total_actionable'] ?? 0;
+    $totalRetainedCharges = $valuation['total_retained_charges'] ?? 0;
 @endphp
 <div class="card bg-light">
     <div class="card-body py-3">

@@ -198,6 +198,7 @@ class PosReturnLifecycleService
                 $posReturn->update($updateData);
 
                 $this->syncApprovedSaleReturns($posReturn, $actorId, $approvedAt);
+                $this->commitRoundingContextAllocations($posReturn, $actorId);
             });
         });
     }
@@ -223,12 +224,15 @@ class PosReturnLifecycleService
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->filter()
+            ->unique()
+            ->sort()
             ->values()
             ->all();
 
         if (! empty($lineIds)) {
             \Modules\Pos\Entities\PosReturnLine::query()
                 ->whereIn('id', $lineIds)
+                ->orderBy('id')
                 ->lockForUpdate()
                 ->get();
         }
@@ -238,12 +242,15 @@ class PosReturnLifecycleService
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->filter()
+            ->unique()
+            ->sort()
             ->values()
             ->all();
 
         if (! empty($saleReturnIds)) {
             \Modules\SalesReturn\Entities\SaleReturn::query()
                 ->whereIn('id', $saleReturnIds)
+                ->orderBy('id')
                 ->lockForUpdate()
                 ->get();
         }
@@ -253,12 +260,15 @@ class PosReturnLifecycleService
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->filter()
+            ->unique()
+            ->sort()
             ->values()
             ->all();
 
         if (! empty($saleReturnDetailIds)) {
             \Modules\SalesReturn\Entities\SaleReturnDetail::query()
                 ->whereIn('id', $saleReturnDetailIds)
+                ->orderBy('id')
                 ->lockForUpdate()
                 ->get();
         }
@@ -269,17 +279,20 @@ class PosReturnLifecycleService
             ->map(fn ($id) => (int) $id)
             ->filter()
             ->unique()
+            ->sort()
             ->values()
             ->all();
 
         if (! empty($saleIds)) {
             \Modules\Sale\Entities\Sale::query()
                 ->whereIn('id', $saleIds)
+                ->orderBy('id')
                 ->lockForUpdate()
                 ->get();
 
             \Modules\Sale\Entities\SalePayment::query()
                 ->whereIn('sale_id', $saleIds)
+                ->orderBy('id')
                 ->lockForUpdate()
                 ->get();
         }
@@ -290,12 +303,14 @@ class PosReturnLifecycleService
             ->map(fn ($id) => (int) $id)
             ->filter()
             ->unique()
+            ->sort()
             ->values()
             ->all();
 
         if (! empty($saleDetailIds)) {
             \Modules\Sale\Entities\SaleDetails::query()
                 ->whereIn('id', $saleDetailIds)
+                ->orderBy('id')
                 ->lockForUpdate()
                 ->get();
         }
@@ -304,12 +319,14 @@ class PosReturnLifecycleService
             ->map(fn ($detail) => (int) data_get($detail->execution_context, 'component_sale_bundle_item_id', 0))
             ->filter()
             ->unique()
+            ->sort()
             ->values()
             ->all();
 
         if (! empty($saleBundleItemIds)) {
             \Modules\Sale\Entities\SaleBundleItem::query()
                 ->whereIn('id', $saleBundleItemIds)
+                ->orderBy('id')
                 ->lockForUpdate()
                 ->get();
         }
@@ -320,12 +337,14 @@ class PosReturnLifecycleService
             ->map(fn ($id) => (int) $id)
             ->filter()
             ->unique()
+            ->sort()
             ->values()
             ->all();
 
         if (! empty($dispatchDetailIds)) {
             \Modules\Sale\Entities\DispatchDetail::query()
                 ->whereIn('id', $dispatchDetailIds)
+                ->orderBy('id')
                 ->lockForUpdate()
                 ->get();
         }
@@ -336,6 +355,7 @@ class PosReturnLifecycleService
             ->map(fn ($id) => (int) $id)
             ->filter()
             ->unique()
+            ->sort()
             ->values()
             ->all();
 
@@ -346,6 +366,7 @@ class PosReturnLifecycleService
             ->map(fn ($id) => (int) $id)
             ->filter()
             ->unique()
+            ->sort()
             ->values()
             ->all();
 
@@ -353,6 +374,7 @@ class PosReturnLifecycleService
             \Modules\Product\Entities\ProductStock::query()
                 ->whereIn('product_id', $productIds)
                 ->whereIn('location_id', $locationIds)
+                ->orderBy('id')
                 ->lockForUpdate()
                 ->get();
         }
@@ -370,12 +392,14 @@ class PosReturnLifecycleService
             ->merge($saleReturnDetails->flatMap(fn ($detail) => collect($detail->serial_number_ids ?? [])->map(fn ($id) => (int) $id)))
             ->filter()
             ->unique()
+            ->sort()
             ->values()
             ->all();
 
         if (! empty($serialIds)) {
             \Modules\Product\Entities\ProductSerialNumber::query()
                 ->whereIn('id', $serialIds)
+                ->orderBy('id')
                 ->lockForUpdate()
                 ->get();
         }
@@ -408,6 +432,8 @@ class PosReturnLifecycleService
     ): void {
         $this->applyEffectiveCostReversals($posReturn, $executedAt);
 
+        $this->commitRoundingContextAllocations($posReturn, $actorId);
+
         foreach ($posReturn->saleReturns as $saleReturn) {
             $details = $saleReturn->saleReturnDetails;
 
@@ -438,7 +464,7 @@ class PosReturnLifecycleService
 
             if ($cashSettlementAmount > 0) {
                 $this->applyCashSettlementForSaleReturn($saleReturn, $cashSettlementAmount, $executedAt, $actorId, $debtReduction);
-            } elseif ($debtReduction > 0) {
+            } elseif ($commercialCashReturnDetails->isNotEmpty() || $debtReduction > 0) {
                 $this->applyZeroRefundSettlementForSaleReturn($saleReturn, $executedAt, $actorId, $debtReduction);
             }
 
@@ -468,6 +494,67 @@ class PosReturnLifecycleService
                     $this->executeCrossOwnerReplacementForDetail($posReturn, $saleReturn, $detail, $actorId, $executedAt);
                 }
             }
+        }
+    }
+
+    protected function commitRoundingContextAllocations(\Modules\Pos\Entities\PosReturn $posReturn, ?int $actorId): void
+    {
+        $valuationService = app(PosReturnRoundingValuationService::class);
+        $posReturn->loadMissing([
+            'lines.posTransactionLine',
+            'posTransaction.lines',
+            'saleReturns.saleReturnDetails',
+        ]);
+
+        $saleReturnDetailsById = $posReturn->saleReturns
+            ->flatMap(fn ($sr) => $sr->saleReturnDetails ?? [])
+            ->keyBy('id');
+
+        $cashLines = $posReturn->lines
+            ->filter(fn ($l) => $l->resolution === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN);
+
+        if ($cashLines->isEmpty()) {
+            return;
+        }
+
+        $sales = \Modules\Sale\Entities\Sale::query()
+            ->whereIn('id', $cashLines->pluck('sale_id')->filter()->unique())
+            ->get()
+            ->keyBy('id');
+
+        $groupedByComm = $cashLines->groupBy(fn (\Modules\Pos\Entities\PosReturnLine $line) => $valuationService->resolveCommercialLineKey($line, $cashLines));
+
+        foreach ($groupedByComm as $commKey => $linesGroup) {
+            $parentLine = $linesGroup->first(fn ($l) => empty($l->bundle_parent_sale_detail_id) || (int) $l->bundle_parent_sale_detail_id === (int) $l->sale_detail_id) ?? $linesGroup->first();
+            $sale = $sales->get((int) $parentLine->sale_id);
+            if (! $sale) {
+                continue;
+            }
+
+            $ptl = $posReturn->posTransaction?->lines?->firstWhere('id', (int) $parentLine->pos_transaction_line_id);
+
+            // Never swallow baseline errors during commit - invalid baseline must block approval
+            $baseline = $valuationService->resolveCommercialBaseline($parentLine, $ptl);
+
+            $deltaQty = (float) $parentLine->quantity;
+            $deltaAmt = (float) $linesGroup->sum(function ($l) use ($saleReturnDetailsById) {
+                $srd = $l->sale_return_detail_id ? $saleReturnDetailsById->get((int) $l->sale_return_detail_id) : null;
+                if ($srd && (float) ($srd->sub_total ?? 0) > 0) {
+                    return (float) $srd->sub_total;
+                }
+                return (float) ($l->expected_cash_amount ?? $l->line_total ?? 0);
+            });
+
+            $valuationService->commitLineAllocation(
+                sale: $sale,
+                posTransaction: $posReturn->posTransaction,
+                commercialLineKey: $commKey,
+                baselineInfo: $baseline,
+                committedDeltaQty: $deltaQty,
+                committedDeltaAmount: $deltaAmt,
+                allocationReference: (string) $posReturn->reference,
+                actorId: $actorId
+            );
         }
     }
 
@@ -768,6 +855,59 @@ class PosReturnLifecycleService
                 }
             }
         }
+
+        $this->assertApprovalPreviewPlanNotStale($posReturn);
+    }
+
+    protected function assertApprovalPreviewPlanNotStale(\Modules\Pos\Entities\PosReturn $posReturn): void
+    {
+        $cashLines = $posReturn->lines
+            ->filter(fn ($line) => $line->resolution === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN)
+            ->values();
+
+        if ($cashLines->isEmpty()) {
+            return;
+        }
+
+        $valuationService = app(PosReturnRoundingValuationService::class);
+        $planner = app(PosReturnApprovalPreviewPlannerService::class);
+
+        $sales = \Modules\Sale\Entities\Sale::query()
+            ->whereIn('id', $cashLines->pluck('sale_id')->filter()->unique())
+            ->get()
+            ->keyBy('id');
+
+        $saleDetails = \Modules\Sale\Entities\SaleDetails::query()
+            ->whereIn('id', $cashLines->pluck('sale_detail_id')->filter()->unique())
+            ->get()
+            ->keyBy('id');
+
+        $componentBundleItems = \Modules\Sale\Entities\SaleBundleItem::query()
+            ->whereIn('sale_id', $sales->pluck('id'))
+            ->get();
+
+        $currentAmounts = $planner->calculatePlannedCashReturnAmounts($posReturn, $cashLines, [
+            'sales' => $sales,
+            'sale_details' => $saleDetails,
+            'component_bundle_items' => $componentBundleItems,
+            'throw_on_error' => true,
+        ]);
+
+        $plannedDetailsByLine = $posReturn->saleReturns
+            ->flatMap(fn ($sr) => $sr->saleReturnDetails)
+            ->keyBy(fn ($d) => (int) $d->pos_return_line_id);
+
+        foreach ($cashLines as $line) {
+            $plannedDetail = $plannedDetailsByLine->get((int) $line->id);
+            $expectedAmount = $plannedDetail !== null
+                ? (float) $plannedDetail->sub_total
+                : (float) ($line->expected_cash_amount ?? $line->line_total ?? 0);
+            $currentAmount = (float) ($currentAmounts[$line->id] ?? $expectedAmount);
+
+            if (abs($expectedAmount - $currentAmount) > 0.01) {
+                throw new \RuntimeException('Nilai moneter retur kas telah berubah (konfigurasi pembulatan atau status akumulasi retur telah berubah). Diperlukan peninjauan ulang sebelum persetujuan.');
+            }
+        }
     }
 
     public function resolveEffectiveUnitFinancialBasis(
@@ -805,6 +945,11 @@ class PosReturnLifecycleService
             if ($bundleCtx && ! empty($bundleCtx['components'])) {
                 $componentsBasisSum = 0.0;
                 foreach ($bundleCtx['components'] as $comp) {
+                    // Whole-bundle valuation: if component shares the same sale_id as parent detail,
+                    // its charge is already included in the parent checkout charge, so do not double-count it.
+                    if ((int) ($comp['sale_id'] ?? 0) === (int) $saleDetail->sale_id) {
+                        continue;
+                    }
                     $compQtyPerBundle = (float) ($comp['quantity_per_bundle'] ?? 1);
                     $compPrice = 0.0;
                     if (! empty($comp['sale_bundle_item_id'])) {
@@ -852,8 +997,20 @@ class PosReturnLifecycleService
             return (float) $saleDetail->unit_price;
         }
 
-        $lineSubtotal = (float) ($saleDetail->sub_total ?? 0);
         $sale = $saleDetail->relationLoaded('sale') ? $saleDetail->sale : \Modules\Sale\Entities\Sale::find($saleDetail->sale_id);
+        if ($sale && is_array($sale->return_rounding_context) && ! empty($sale->return_rounding_context['commercial_lines'])) {
+            $commKey = $line?->pos_transaction_line_id ? 'ptl_' . $line->pos_transaction_line_id : 'detail_' . $saleDetail->id;
+            if (isset($sale->return_rounding_context['commercial_lines'][$commKey])) {
+                $bLine = $sale->return_rounding_context['commercial_lines'][$commKey];
+                $bQty = (float) ($bLine['baseline_quantity'] ?? 0);
+                $bAmt = (float) ($bLine['baseline_returnable_amount'] ?? 0);
+                if ($bQty > 0 && $bAmt > 0) {
+                    return round($bAmt / $bQty, 2);
+                }
+            }
+        }
+
+        $lineSubtotal = (float) ($saleDetail->sub_total ?? 0);
 
         $globalDiscountShare = 0.0;
         if ($sale && ((float) $sale->discount_amount > 0 || (float) $sale->discount_percentage > 0)) {
@@ -1027,13 +1184,28 @@ class PosReturnLifecycleService
 
                 $reductionRatio = min(1, $returnedQuantity / $currentQuantity);
                 $quantityReduction = (int) round($returnedQuantity);
-                $subtotalReduction = round((float) ($saleDetail->sub_total ?? 0) * $reductionRatio, 2);
+                $detailCorrection = round((float) $detailGroup->sum(fn ($detail) => (float) ($detail->sub_total ?? 0)), 2);
+
+                $sale = $saleDetail->relationLoaded('sale') ? $saleDetail->sale : \Modules\Sale\Entities\Sale::find($saleDetail->sale_id);
+                $hasHeaderDiscount = $sale && ((float) ($sale->discount_amount ?? 0) > 0 || (float) ($sale->discount_percentage ?? 0) > 0);
+
+                $remainingQuantity = max(0, (int) $saleDetail->quantity - $quantityReduction);
+
+                if ($detailCorrection <= 0.0) {
+                    $subtotalReduction = 0.0;
+                } elseif ($remainingQuantity === 0) {
+                    $subtotalReduction = (float) ($saleDetail->sub_total ?? 0);
+                } elseif ($hasHeaderDiscount) {
+                    $subtotalReduction = round((float) ($saleDetail->sub_total ?? 0) * $reductionRatio, 2);
+                } else {
+                    $subtotalReduction = min((float) ($saleDetail->sub_total ?? 0), $detailCorrection);
+                }
 
                 $saleDetail->forceFill([
-                    'quantity' => max(0, (int) $saleDetail->quantity - $quantityReduction),
-                    'sub_total' => round(max(0, (float) ($saleDetail->sub_total ?? 0) - $subtotalReduction), 2),
-                    'product_discount_amount' => $this->reduceProratedMoney((float) ($saleDetail->product_discount_amount ?? 0), $reductionRatio),
-                    'product_tax_amount' => $this->reduceProratedMoney((float) ($saleDetail->product_tax_amount ?? 0), $reductionRatio),
+                    'quantity' => $remainingQuantity,
+                    'sub_total' => $remainingQuantity === 0 ? 0.0 : round(max(0, (float) ($saleDetail->sub_total ?? 0) - $subtotalReduction), 2),
+                    'product_discount_amount' => $remainingQuantity === 0 ? 0.0 : $this->reduceProratedMoney((float) ($saleDetail->product_discount_amount ?? 0), $reductionRatio),
+                    'product_tax_amount' => $remainingQuantity === 0 ? 0.0 : $this->reduceProratedMoney((float) ($saleDetail->product_tax_amount ?? 0), $reductionRatio),
                 ])->save();
             });
 
@@ -1070,15 +1242,29 @@ class PosReturnLifecycleService
 
                 $reductionRatio = min(1, $returnedQuantity / $currentQuantity);
                 $quantityReduction = (int) round($returnedQuantity);
-                $subtotalReduction = round((float) ($bundleItem->sub_total ?? 0) * $reductionRatio, 2);
+                $detailCorrection = round((float) $detailGroup->sum(fn ($detail) => (float) ($detail->sub_total ?? 0)), 2);
+
+                $sale = $bundleItem->relationLoaded('sale') ? $bundleItem->sale : \Modules\Sale\Entities\Sale::find($bundleItem->sale_id);
+                $hasHeaderDiscount = $sale && ((float) ($sale->discount_amount ?? 0) > 0 || (float) ($sale->discount_percentage ?? 0) > 0);
 
                 $remainingQuantity = max(0, (int) $bundleItem->quantity - $quantityReduction);
-                $remainingSubTotal = round(max(0, (float) ($bundleItem->sub_total ?? 0) - $subtotalReduction), 2);
+
+                if ($detailCorrection <= 0.0) {
+                    $subtotalReduction = 0.0;
+                } elseif ($remainingQuantity === 0) {
+                    $subtotalReduction = (float) ($bundleItem->sub_total ?? 0);
+                } elseif ($hasHeaderDiscount) {
+                    $subtotalReduction = round((float) ($bundleItem->sub_total ?? 0) * $reductionRatio, 2);
+                } else {
+                    $subtotalReduction = min((float) ($bundleItem->sub_total ?? 0), $detailCorrection);
+                }
+
+                $remainingSubTotal = $remainingQuantity === 0 ? 0.0 : round(max(0, (float) ($bundleItem->sub_total ?? 0) - $subtotalReduction), 2);
 
                 $bundleItem->forceFill([
                     'quantity' => $remainingQuantity,
                     'sub_total' => $remainingSubTotal,
-                    'tax_amount' => $this->reduceProratedMoney((float) ($bundleItem->tax_amount ?? 0), $reductionRatio),
+                    'tax_amount' => $remainingQuantity === 0 ? 0.0 : $this->reduceProratedMoney((float) ($bundleItem->tax_amount ?? 0), $reductionRatio),
                     'price' => $remainingQuantity > 0
                         ? round($remainingSubTotal / $remainingQuantity, 2)
                         : 0,
@@ -1123,58 +1309,75 @@ class PosReturnLifecycleService
             ->whereKey((int) $sale->setting_id)
             ->value('is_pkp') ?? false);
 
-        $discountAmount = (float) ($sale->discount_amount ?? 0);
-        if ($discountAmount > 0) {
-            $commercialCashReturnDetails = $saleReturn->saleReturnDetails
-                ->filter(fn ($detail) => $this->resolveDetailResolution($detail) === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN)
-                ->reject(fn ($detail) => $this->shouldSkipCommercialCashCorrection($detail));
+        $commercialCashReturnDetails = $saleReturn->saleReturnDetails
+            ->filter(fn ($detail) => $this->resolveDetailResolution($detail) === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN)
+            ->reject(fn ($detail) => $this->shouldSkipCommercialCashCorrection($detail));
 
-            $totalReturnedDiscountShare = 0.0;
-            foreach ($commercialCashReturnDetails as $detail) {
-                $detailQty = (float) ($detail->quantity ?? 0);
-                if ($detailQty <= 0) {
-                    continue;
-                }
+        $totalCommittedCashReturn = round((float) $commercialCashReturnDetails->sum(fn ($detail) => $this->resolveCashSettlementAmount($detail)), 2);
 
-                $settlementAmount = $this->resolveCashSettlementAmount($detail);
-                $grossAmount = 0.0;
+        $activeDetails = $sale->saleDetails
+            ->filter(fn ($d) => (float) ($d->quantity ?? 0) > 0.0001);
 
-                if ($detail->saleDetail) {
-                    $unitBasis = (float) ($detail->saleDetail->quantity > 0
-                        ? ($detail->saleDetail->sub_total / $detail->saleDetail->quantity)
-                        : ($detail->saleDetail->price ?? $detail->saleDetail->unit_price ?? $detail->price ?? 0));
-                    $grossAmount = round($unitBasis * $detailQty, 2);
-                } elseif ($detail->price) {
-                    $grossAmount = round((float) $detail->price * $detailQty, 2);
-                } else {
-                    $grossAmount = $settlementAmount;
-                }
+        $supplementalBundleItems = $sale->bundleItems
+            ->filter(function ($bundleItem) {
+                $saleDetail = $bundleItem->saleDetail;
+                return (! $saleDetail || (float) ($saleDetail->quantity ?? 0) <= 0)
+                    && ((float) ($bundleItem->quantity ?? 0) > 0 || (float) ($bundleItem->sub_total ?? 0) > 0);
+            });
 
-                $discountShare = max(0.0, round($grossAmount - $settlementAmount, 2));
-                $totalReturnedDiscountShare += $discountShare;
+        $totalSubTotal = round(
+            (float) $activeDetails->sum(fn ($d) => (float) ($d->sub_total ?? 0))
+            + (float) $supplementalBundleItems->sum(fn ($b) => (float) ($b->sub_total ?? 0)),
+            2
+        );
+
+        $detailTaxAmount = round(
+            (float) $activeDetails->sum(fn ($d) => (float) ($d->product_tax_amount ?? 0))
+            + (float) $supplementalBundleItems->sum(fn ($b) => (float) ($b->tax_amount ?? 0)),
+            2
+        );
+
+        $orderTaxAmount = 0.0;
+        $taxRate = (float) ($sale->tax_percentage ?? 0);
+        if ($isPkp && ! empty($sale->tax_id)) {
+            if ($taxRate <= 0) {
+                $taxRate = (float) (\Modules\Setting\Entities\Tax::query()->whereKey((int) $sale->tax_id)->value('value')
+                    ?? \Modules\Setting\Entities\Tax::query()->whereKey((int) $sale->tax_id)->value('percentage')
+                    ?? 0);
             }
-
-            $discountAmount = max(0.0, round($discountAmount - $totalReturnedDiscountShare, 2));
         }
 
-        $remainingSubtotal = (float) $sale->saleDetails
-            ->filter(fn ($d) => (float) ($d->quantity ?? 0) > 0.0001)
-            ->sum(fn ($d) => (float) ($d->sub_total ?? 0));
+        $shippingAmount = max(0.0, (float) ($sale->shipping_amount ?? 0));
 
-        if ($remainingSubtotal <= 0.0001) {
+        if ($totalSubTotal <= 0.0001) {
             $discountAmount = 0.0;
+            $discountPercentage = 0.0;
+            $computedDiscountAmount = 0.0;
+            $totalAmount = 0.0;
+            $totalTaxAmount = 0.0;
+        } else {
+            // The remaining total must decrease by exactly the committed return amount
+            $totalAmount = round(max(0, (float) $sale->total_amount - $totalCommittedCashReturn), 2);
+
+            // Zero detail tax remains authoritative when remaining items are untaxed.
+            $totalTaxAmount = $isPkp ? $detailTaxAmount : 0.0;
+
+            // In tax-inclusive subtotal semantics, line subtotals and totalAmount both include tax.
+            // Deriving remaining discount compares gross subtotal with net payable commercial total.
+            $computedDiscountAmount = round(max(0, $totalSubTotal - ($totalAmount - $shippingAmount)), 2);
+            $discountAmount = $computedDiscountAmount;
+            $discountPercentage = (float) ($sale->discount_percentage ?? 0);
         }
 
-        $normalizedSale = app(\Modules\Sale\Services\SaleNormalizer::class)->normalize([
+        $header = [
             'tax_id' => $sale->tax_id,
-            'tax_percentage' => $sale->tax_percentage,
-            'discount_percentage' => $sale->discount_percentage,
+            'tax_percentage' => $taxRate,
+            'tax_amount' => $totalTaxAmount,
+            'discount_percentage' => $discountPercentage,
             'discount_amount' => $discountAmount,
-            'shipping_amount' => $sale->shipping_amount,
-            'paid_amount' => 0,
-        ], $this->buildCashCorrectionNormalizerInputs($sale), $isPkp);
-
-        $header = $normalizedSale['header'];
+            'shipping_amount' => $shippingAmount,
+            'total_amount' => $totalAmount,
+        ];
         $activePayments = $sale->salePayments
             ->filter(fn (SalePayment $payment) => $payment->isActive());
 
@@ -1730,23 +1933,20 @@ class PosReturnLifecycleService
     {
         $executionContext = $this->detailExecutionContext($detail);
 
-        if ($this->isComponentSaleReturnDetail($detail)) {
-            $plannedAmount = (float) ($executionContext['planned_amount'] ?? 0);
+        $plannedAmount = (float) ($executionContext['planned_amount'] ?? 0);
+        if ($plannedAmount > 0) {
+            return $plannedAmount;
+        }
 
-            if ($plannedAmount > 0) {
-                return $plannedAmount;
-            }
+        if ($detail->sub_total !== null && (float) $detail->sub_total > 0) {
+            return (float) $detail->sub_total;
         }
 
         $line = $detail->posReturnLine;
         $expectedCashAmount = (float) ($line->expected_cash_amount ?? 0);
 
-        if ($expectedCashAmount > 0 && ! $this->isComponentSaleReturnDetail($detail)) {
+        if ($expectedCashAmount > 0) {
             return $expectedCashAmount;
-        }
-
-        if ($detail->sub_total !== null) {
-            return (float) $detail->sub_total;
         }
 
         return (float) ($detail->quantity ?? 0) * (float) ($detail->unit_price ?? $detail->price ?? 0);
@@ -2413,7 +2613,7 @@ class PosReturnLifecycleService
     {
         \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId, $targetStatus, $reason) {
             $posReturn = \Modules\Pos\Entities\PosReturn::query()
-                ->with('saleReturns')
+                ->with(['saleReturns', 'lines'])
                 ->whereKey($posReturnId)
                 ->lockForUpdate()
                 ->firstOrFail();
@@ -2445,6 +2645,15 @@ class PosReturnLifecycleService
 
             foreach ($posReturn->saleReturns as $saleReturn) {
                 $this->applyAuditedReversalToLinkedSaleReturn($saleReturn, $targetStatus, $actorId, $timestamp, $reason);
+            }
+
+            $valuationService = app(PosReturnRoundingValuationService::class);
+            $saleIds = $posReturn->lines->pluck('sale_id')->filter()->unique();
+            foreach ($saleIds as $sId) {
+                $sale = \Modules\Sale\Entities\Sale::find($sId);
+                if ($sale) {
+                    $valuationService->releaseReturnAllocation($sale, $posReturn);
+                }
             }
         });
     }

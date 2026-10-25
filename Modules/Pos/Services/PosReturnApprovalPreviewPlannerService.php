@@ -33,8 +33,11 @@ class PosReturnApprovalPreviewPlannerService
         private readonly PosReturnSerialReplacementChainResolver $serialChainResolver,
         private readonly ?PosReturnQuantityGuard $quantityGuard = null,
         private readonly ?PosBundleComponentResolver $bundleComponentResolver = null,
+        private readonly ?PosReturnRoundingValuationService $roundingValuationService = null,
     ) {
     }
+
+    public array $lastValuationErrors = [];
 
     public function plan(PosReturn $posReturn): array
     {
@@ -176,6 +179,11 @@ class PosReturnApprovalPreviewPlannerService
                 'retained_charges' => $totalRetainedCharges,
                 'retained_components' => $allRetainedComponents,
                 'included_components' => $allIncludedComponents,
+                'rounding_context' => [
+                    'policy_version' => PosReturnRoundingValuationService::POLICY_VERSION,
+                    'provisional_increment' => ($this->roundingValuationService ?? app(PosReturnRoundingValuationService::class))->resolveEffectiveIncrement($planningContext['sales']->first() ?? new Sale(), $posReturn->posTransaction),
+                    'is_increment_frozen' => ! empty($planningContext['sales']->first()?->return_rounding_context['frozen_increment']),
+                ],
             ],
         ];
     }
@@ -234,13 +242,19 @@ class PosReturnApprovalPreviewPlannerService
             }
         }
 
-        return [
+        $context = [
             'checkout_sales' => $checkoutSales,
             'sales' => $sales,
             'sale_details' => $saleDetails,
             'component_bundle_items' => $componentBundleItems,
             'fresh_snapshot' => $freshSnapshot,
+            'valuation_errors' => [],
         ];
+
+        $context['planned_cash_amounts'] = $this->calculatePlannedCashReturnAmounts($posReturn, $actionableLines, $context);
+        $context['valuation_errors'] = $this->lastValuationErrors;
+
+        return $context;
     }
 
     private function buildLinePlan(PosReturn $posReturn, PosReturnLine $line, array $planningContext): array
@@ -262,6 +276,19 @@ class PosReturnApprovalPreviewPlannerService
                 'pos_return_line_id' => $line->id,
                 'sale_id' => $line->sale_id,
             ]);
+
+            return ['blockers' => $blockers, 'warnings' => $warnings, 'info' => $info, 'entries' => []];
+        }
+
+        if (! empty($planningContext['valuation_errors'][$line->id])) {
+            $blockers[] = $this->message(
+                'rounding_valuation_failed',
+                'Perhitungan pembulatan retur tidak valid: ' . $planningContext['valuation_errors'][$line->id],
+                [
+                    'pos_return_line_id' => $line->id,
+                    'error' => $planningContext['valuation_errors'][$line->id],
+                ]
+            );
 
             return ['blockers' => $blockers, 'warnings' => $warnings, 'info' => $info, 'entries' => []];
         }
@@ -591,7 +618,11 @@ class PosReturnApprovalPreviewPlannerService
             ? $this->resolveOwnBundleItem($line, $planningContext)
             : null;
 
-        if ($isComponentLine && $componentBundleItem && (float) ($componentBundleItem->price ?? 0) > 0) {
+        $plannedCashAmount = $planningContext['planned_cash_amounts'][$line->id] ?? null;
+
+        if ($plannedCashAmount !== null) {
+            $detailAmount = (float) $plannedCashAmount;
+        } elseif ($isComponentLine && $componentBundleItem && (float) ($componentBundleItem->price ?? 0) > 0) {
             $detailAmount = round((float) $componentBundleItem->price * (float) $line->quantity, 2);
         } elseif ($isBundleParentLine
             && $line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN
@@ -599,6 +630,8 @@ class PosReturnApprovalPreviewPlannerService
             && (float) $saleDetail->unit_price > 0
             && ((float) $saleDetail->unit_price * (float) $line->quantity) < (float) $line->line_total) {
             $detailAmount = round((float) $saleDetail->unit_price * (float) $line->quantity, 2);
+        } else {
+            $detailAmount = (float) ($line->expected_cash_amount ?? $line->line_total ?? 0);
         }
 
         // 3.3/note-only zero-effects: for a non-serial replacement, nothing
@@ -643,7 +676,7 @@ class PosReturnApprovalPreviewPlannerService
             // already persisted as 0 for every synthesized component line
             // (Phase 2), and 0 for every product_replacement line. Only a
             // whole-bundle parent cash_return line carries the real amount.
-            'cash_return_amount' => (float) ($line->expected_cash_amount ?? 0),
+            'cash_return_amount' => $line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN ? $detailAmount : 0.0,
             'returned_serial' => $line->returnedSerial?->serial_number,
             'replacement_serial' => $line->replacementSerial?->serial_number,
             'replacement_serial_owner_setting_id' => $replacementPreview['replacement_serial_owner_setting_id'],
@@ -915,7 +948,20 @@ class PosReturnApprovalPreviewPlannerService
     private function resolveOwnBundleItem(PosReturnLine $line, array $planningContext): ?SaleBundleItem
     {
         /** @var Collection<int, SaleBundleItem> $componentBundleItems */
-        $componentBundleItems = $planningContext['component_bundle_items'];
+        $componentBundleItems = $planningContext['component_bundle_items'] ?? null;
+        if (! $componentBundleItems) {
+            $componentBundleItems = \Modules\Sale\Entities\SaleBundleItem::query()
+                ->where('sale_id', (int) $line->sale_id)
+                ->where('product_id', (int) $line->product_id)
+                ->get();
+        }
+
+        if (! empty($line->line_meta['sale_bundle_item_id'])) {
+            $byMeta = $componentBundleItems->firstWhere('id', (int) $line->line_meta['sale_bundle_item_id']);
+            if ($byMeta) {
+                return $byMeta;
+            }
+        }
 
         $matches = $componentBundleItems->filter(function (SaleBundleItem $item) use ($line) {
             if ((int) $item->sale_id !== (int) $line->sale_id) {
@@ -926,7 +972,9 @@ class PosReturnApprovalPreviewPlannerService
                 return false;
             }
 
-            if ($item->sale_detail_id && (int) $item->sale_detail_id !== (int) $line->sale_detail_id) {
+            if ($item->sale_detail_id
+                && (int) $item->sale_detail_id !== (int) $line->sale_detail_id
+                && (int) $item->sale_detail_id !== (int) $line->bundle_parent_sale_detail_id) {
                 return false;
             }
 
@@ -1530,6 +1578,9 @@ class PosReturnApprovalPreviewPlannerService
             if ($bundleCtx && ! empty($bundleCtx['components'])) {
                 $componentsBasisSum = 0.0;
                 foreach ($bundleCtx['components'] as $comp) {
+                    if ((int) ($comp['sale_id'] ?? 0) === (int) $saleDetail->sale_id) {
+                        continue;
+                    }
                     $compQtyPerBundle = (float) ($comp['quantity_per_bundle'] ?? 1);
                     $compPrice = 0.0;
                     if (! empty($comp['sale_bundle_item_id'])) {
@@ -1577,8 +1628,20 @@ class PosReturnApprovalPreviewPlannerService
             return (float) $saleDetail->unit_price;
         }
 
-        $lineSubtotal = (float) ($saleDetail->sub_total ?? 0);
         $sale = $saleDetail->relationLoaded('sale') ? $saleDetail->sale : \Modules\Sale\Entities\Sale::find($saleDetail->sale_id);
+        if ($sale && is_array($sale->return_rounding_context) && ! empty($sale->return_rounding_context['commercial_lines'])) {
+            $commKey = $line?->pos_transaction_line_id ? 'ptl_' . $line->pos_transaction_line_id : 'detail_' . $saleDetail->id;
+            if (isset($sale->return_rounding_context['commercial_lines'][$commKey])) {
+                $bLine = $sale->return_rounding_context['commercial_lines'][$commKey];
+                $bQty = (float) ($bLine['baseline_quantity'] ?? 0);
+                $bAmt = (float) ($bLine['baseline_returnable_amount'] ?? 0);
+                if ($bQty > 0 && $bAmt > 0) {
+                    return round($bAmt / $bQty, 2);
+                }
+            }
+        }
+
+        $lineSubtotal = (float) ($saleDetail->sub_total ?? 0);
 
         $globalDiscountShare = 0.0;
         if ($sale && ((float) $sale->discount_amount > 0 || (float) $sale->discount_percentage > 0)) {
@@ -1604,5 +1667,142 @@ class PosReturnApprovalPreviewPlannerService
         $effectiveSubtotal = max(0, $lineSubtotal - $globalDiscountShare);
 
         return round($effectiveSubtotal / $qty, 2);
+    }
+
+    public function calculatePlannedCashReturnAmounts(
+        PosReturn $posReturn,
+        Collection $actionableLines,
+        array $planningContext = []
+    ): array {
+        $this->lastValuationErrors = [];
+        $cashLines = $actionableLines->filter(fn (PosReturnLine $l) => (string) $l->resolution === PosReturnLine::RESOLUTION_CASH_RETURN);
+        if ($cashLines->isEmpty()) {
+            return [];
+        }
+
+        $valuationService = $this->roundingValuationService ?? app(PosReturnRoundingValuationService::class);
+        $sales = $planningContext['sales'];
+        $saleDetails = $planningContext['sale_details'];
+
+        $groupedByCommercial = $cashLines->groupBy(fn (PosReturnLine $line) => $valuationService->resolveCommercialLineKey($line, $cashLines));
+
+        $lineAmounts = [];
+
+        foreach ($groupedByCommercial as $commKey => $linesInComm) {
+            $parentLine = $linesInComm->first(fn ($l) => ! $this->isBundleComponentLine($l)) ?? $linesInComm->first();
+            $sale = $sales->get((int) $parentLine->sale_id);
+            if (! $sale) {
+                foreach ($linesInComm as $l) {
+                    $lineAmounts[$l->id] = (float) ($l->expected_cash_amount ?? $l->line_total ?? 0);
+                }
+                continue;
+            }
+
+            $ptl = $posReturn->posTransaction?->lines?->firstWhere('id', (int) $parentLine->pos_transaction_line_id)
+                ?? $posReturn->posTransaction?->lines?->firstWhere('product_id', (int) $parentLine->product_id);
+            $saleDetail = $saleDetails->get((int) $parentLine->sale_detail_id);
+
+            $isParentOnly = ($parentLine->bundle_return_scope === PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY);
+            $effectivePtl = $isParentOnly ? null : $ptl;
+
+            $baselineError = null;
+            try {
+                $baseline = $valuationService->resolveCommercialBaseline($parentLine, $effectivePtl);
+            } catch (\Throwable $e) {
+                $baseline = null;
+                $baselineError = $e;
+            }
+
+            $increment = $valuationService->resolveEffectiveIncrement($sale, $posReturn->posTransaction);
+            $lineState = $baseline ? $valuationService->getOrSeedCommercialLineState($sale, $commKey, $baseline) : [];
+
+            $prevQty = (float) ($lineState['committed_quantity'] ?? 0);
+            $prevAmt = (float) ($lineState['committed_amount'] ?? 0);
+
+            $requestedQty = (float) $parentLine->quantity;
+            $baselineQuantity = $baseline ? (float) $baseline['baseline_quantity'] : $requestedQty;
+            $cumulativeQty = min($baselineQuantity, $prevQty + $requestedQty);
+
+            $totalBaselineAmount = $baseline
+                ? (float) $baseline['baseline_returnable_amount']
+                : (float) $linesInComm->sum(fn ($l) => (float) ($l->expected_cash_amount ?? $l->line_total ?? 0));
+
+            $storedResidual = (float) $linesInComm
+                ->groupBy('sale_id')
+                ->sum(function (\Illuminate\Support\Collection $saleLines) use ($saleDetails, $planningContext) {
+                    $parentInSale = $saleLines->first(fn ($l) => ! $this->isBundleComponentLine($l));
+                    $parentAmount = 0.0;
+                    if ($parentInSale) {
+                        $sd = $saleDetails->get((int) $parentInSale->sale_detail_id);
+                        $parentAmount = (float) ($sd?->sub_total ?? 0);
+                    }
+                    $componentsAmount = (float) $saleLines
+                        ->filter(fn ($l) => $this->isBundleComponentLine($l))
+                        ->sum(function (PosReturnLine $l) use ($saleDetails, $planningContext) {
+                            $sbi = $this->resolveOwnBundleItem($l, $planningContext);
+                            if ($sbi) {
+                                return (float) ($sbi->sub_total ?? $sbi->price ?? 0);
+                            }
+                            $sd = $saleDetails->get((int) $l->sale_detail_id);
+                            return (float) ($sd?->sub_total ?? 0);
+                        });
+
+                    return $parentAmount + $componentsAmount;
+                });
+            if ($storedResidual <= 0 && $baseline) {
+                $storedResidual = (float) $baseline['stored_residual'];
+            }
+
+            $valuationError = null;
+            try {
+                $val = $valuationService->calculateCumulativeValuation(
+                    baselineAmount: $totalBaselineAmount,
+                    baselineQuantity: $baselineQuantity,
+                    cumulativeReturnedQuantity: $cumulativeQty,
+                    previouslyCommittedAmount: $prevAmt,
+                    increment: $increment,
+                    storedResidual: $storedResidual
+                );
+                $totalCommAmount = $val['current_return_amount'];
+            } catch (\Throwable $e) {
+                $totalCommAmount = 0.0;
+                $valuationError = $e;
+            }
+
+            if ($baselineError || $valuationError) {
+                $err = $baselineError ?: $valuationError;
+                if (! empty($planningContext['throw_on_error'])) {
+                    throw new \RuntimeException($err->getMessage(), 0, $err);
+                }
+                foreach ($linesInComm as $l) {
+                    $this->lastValuationErrors[$l->id] = $err->getMessage();
+                    $lineAmounts[$l->id] = (float) ($l->expected_cash_amount ?? $l->line_total ?? 0);
+                }
+                continue;
+            }
+
+            if ($linesInComm->count() === 1) {
+                $lineAmounts[$parentLine->id] = $totalCommAmount;
+            } else {
+                $fragments = $linesInComm->mapWithKeys(function (PosReturnLine $l) use ($saleDetails, $planningContext) {
+                    $basis = 0.0;
+                    if ($this->isBundleComponentLine($l)) {
+                        $sbi = $this->resolveOwnBundleItem($l, $planningContext);
+                        $basis = (float) ($sbi?->sub_total ?? $sbi?->price ?? 0);
+                    }
+                    if ($basis <= 0) {
+                        $sd = $saleDetails->get((int) $l->sale_detail_id);
+                        $basis = (float) ($sd?->sub_total ?? $l->quantity);
+                    }
+                    return [$l->id => ['id' => $l->id, 'basis' => $basis]];
+                });
+                $allocated = $valuationService->allocateCommercialAmountAcrossFragments($totalCommAmount, $fragments);
+                foreach ($allocated as $lineId => $amt) {
+                    $lineAmounts[$lineId] = $amt;
+                }
+            }
+        }
+
+        return $lineAmounts;
     }
 }

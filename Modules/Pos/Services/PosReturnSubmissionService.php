@@ -100,6 +100,25 @@ class PosReturnSubmissionService
                 ->get()
                 ->keyBy('sale_id');
 
+            $valuationSelections = $data['line_selections'] ?? [];
+            if (empty($valuationSelections)) {
+                foreach ($data['lines'] ?? [] as $l) {
+                    $k = !empty($l['returned_serial_id'])
+                        ? (($l['pos_transaction_line_id'] ?? $l['sale_detail_id']) . '-' . $l['returned_serial_id'])
+                        : (string) $l['sale_detail_id'];
+                    $valuationSelections[$k] = [
+                        'resolution' => $l['resolution'] ?? PosReturnLine::RESOLUTION_NONE,
+                        'quantity' => $l['quantity'] ?? 0,
+                        'bundle_return_scope' => $l['bundle_return_scope'] ?? null,
+                    ];
+                }
+            }
+            $valuationResult = app(\Modules\Pos\Services\PosReturnRoundingValuationService::class)->evaluateDraftValuation(
+                $snapshotToSave,
+                $valuationSelections,
+                null
+            );
+
             // 4. Process lines
             foreach ($validatedLines as $lineData) {
                 $resolution = $lineData['resolution'] ?? PosReturnLine::RESOLUTION_NONE;
@@ -235,6 +254,43 @@ class PosReturnSubmissionService
                 $expectedCashAmount = ($resolution === PosReturnLine::RESOLUTION_CASH_RETURN && !$isSynthesizedComponent)
                     ? $lineTotal
                     : 0;
+
+                if ($resolution === PosReturnLine::RESOLUTION_CASH_RETURN && !$isSynthesizedComponent) {
+                    $lineKey = !empty($returnedSerialId)
+                        ? (($lineData['pos_transaction_line_id'] ?? $lineData['sale_detail_id']) . '-' . $returnedSerialId)
+                        : (string) $lineData['sale_detail_id'];
+
+                    if (isset($valuationResult['lines'][$lineKey])) {
+                        $expectedCashAmount = (float) $valuationResult['lines'][$lineKey]['refund_amount'];
+                        $lineTotal = $expectedCashAmount;
+                    } elseif ($saleDetail) {
+                        try {
+                            $valuationService = app(\Modules\Pos\Services\PosReturnRoundingValuationService::class);
+                            $effectivePtl = ($bundleReturnScope === PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY) ? null : $ptl;
+                            $baseline = $valuationService->resolveCommercialBaseline($saleDetail, $effectivePtl);
+                            $sourceSale = $saleDetail->sale ?? \Modules\Sale\Entities\Sale::find($saleDetail->sale_id);
+                            $increment = $valuationService->resolveEffectiveIncrement($sourceSale, $transaction);
+                            $lineState = $valuationService->getOrSeedCommercialLineState($sourceSale, $baseline['commercial_line_key'], $baseline);
+                            $prevQty = (float) ($lineState['committed_quantity'] ?? 0);
+                            $prevAmt = (float) ($lineState['committed_amount'] ?? 0);
+                            $storedRes = ($isBundle && $bundleReturnScope !== PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY)
+                                ? (float) $baseline['stored_residual']
+                                : (float) ($saleDetail->sub_total ?? $baseline['stored_residual']);
+
+                            $val = $valuationService->calculateCumulativeValuation(
+                                $baseline['baseline_returnable_amount'],
+                                $baseline['baseline_quantity'],
+                                $cumQty,
+                                $prevAmt,
+                                $increment,
+                                $storedRes
+                            );
+                            $expectedCashAmount = $val['current_return_amount'];
+                            $lineTotal = $expectedCashAmount;
+                        } catch (\Throwable $e) {
+                        }
+                    }
+                }
 
                 $replacementSerialId = $resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT ? ($lineData['replacement_serial_id'] ?? null) : null;
 
@@ -451,6 +507,25 @@ class PosReturnSubmissionService
                 ->get()
                 ->keyBy('sale_id');
 
+            $valuationSelections = $data['line_selections'] ?? [];
+            if (empty($valuationSelections)) {
+                foreach ($data['lines'] ?? [] as $l) {
+                    $k = !empty($l['returned_serial_id'])
+                        ? (($l['pos_transaction_line_id'] ?? $l['sale_detail_id']) . '-' . $l['returned_serial_id'])
+                        : (string) $l['sale_detail_id'];
+                    $valuationSelections[$k] = [
+                        'resolution' => $l['resolution'] ?? PosReturnLine::RESOLUTION_NONE,
+                        'quantity' => $l['quantity'] ?? 0,
+                        'bundle_return_scope' => $l['bundle_return_scope'] ?? null,
+                    ];
+                }
+            }
+            $valuationResult = app(\Modules\Pos\Services\PosReturnRoundingValuationService::class)->evaluateDraftValuation(
+                $currentSnapshot,
+                $valuationSelections,
+                $posReturn->id
+            );
+
             foreach ($validatedLines as $lineData) {
                 $resolution = $lineData['resolution'] ?? PosReturnLine::RESOLUTION_NONE;
                 $quantity = (float) ($lineData['quantity'] ?? 0);
@@ -554,6 +629,43 @@ class PosReturnSubmissionService
                 $expectedCashAmount = ($resolution === PosReturnLine::RESOLUTION_CASH_RETURN && !$isSynthesizedComponent)
                     ? $lineTotal
                     : 0;
+
+                if ($resolution === PosReturnLine::RESOLUTION_CASH_RETURN && !$isSynthesizedComponent) {
+                    $lineKey = !empty($returnedSerialId)
+                        ? (($lineData['pos_transaction_line_id'] ?? $lineData['sale_detail_id']) . '-' . $returnedSerialId)
+                        : (string) $lineData['sale_detail_id'];
+
+                    if (isset($valuationResult['lines'][$lineKey])) {
+                        $expectedCashAmount = (float) $valuationResult['lines'][$lineKey]['refund_amount'];
+                        $lineTotal = $expectedCashAmount;
+                    } elseif ($saleDetail) {
+                        try {
+                            $valuationService = app(\Modules\Pos\Services\PosReturnRoundingValuationService::class);
+                            $effectivePtl = ($bundleReturnScope === PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY) ? null : $ptl;
+                            $baseline = $valuationService->resolveCommercialBaseline($saleDetail, $effectivePtl);
+                            $sourceSale = $saleDetail->sale ?? \Modules\Sale\Entities\Sale::find($saleDetail->sale_id);
+                            $increment = $valuationService->resolveEffectiveIncrement($sourceSale, $transaction);
+                            $lineState = $valuationService->getOrSeedCommercialLineState($sourceSale, $baseline['commercial_line_key'], $baseline, $posReturn->id);
+                            $prevQty = (float) ($lineState['committed_quantity'] ?? 0);
+                            $prevAmt = (float) ($lineState['committed_amount'] ?? 0);
+                            $storedRes = ($isBundle && $bundleReturnScope !== PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY)
+                                ? (float) $baseline['stored_residual']
+                                : (float) ($saleDetail->sub_total ?? $baseline['stored_residual']);
+
+                            $val = $valuationService->calculateCumulativeValuation(
+                                $baseline['baseline_returnable_amount'],
+                                $baseline['baseline_quantity'],
+                                $cumQty,
+                                $prevAmt,
+                                $increment,
+                                $storedRes
+                            );
+                            $expectedCashAmount = $val['current_return_amount'];
+                            $lineTotal = $expectedCashAmount;
+                        } catch (\Throwable $e) {
+                        }
+                    }
+                }
 
                 $replacementSerialId = $resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT ? ($lineData['replacement_serial_id'] ?? null) : null;
 

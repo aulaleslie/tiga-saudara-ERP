@@ -448,6 +448,12 @@ class PosReturnCreateForm extends Component
                     $componentSelection = $this->lineSelections[$componentKey] ?? null;
                     if (!$componentSelection) continue;
 
+                    // Component cash_return is never emitted here — whole-bundle cash_return
+                    // coverage is synthesized server-side from the parent line alone.
+                    if (($componentSelection['resolution'] ?? null) !== PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT) {
+                        continue;
+                    }
+
                     $built = $this->buildSubmissionLineFor($componentLine, $componentSelection);
                     if ($built) $lines[] = $built;
                 }
@@ -547,6 +553,7 @@ class PosReturnCreateForm extends Component
                 'source_snapshot' => $this->snapshot,
                 'source_snapshot_hash' => $this->snapshot['hash'],
                 'lines' => $lines,
+                'line_selections' => $this->lineSelections,
             ]);
 
             toast('Retur POS berhasil disimpan sebagai draft.', 'success');
@@ -554,6 +561,37 @@ class PosReturnCreateForm extends Component
         } catch (\Exception $e) {
             $this->error = 'Gagal menyimpan retur: ' . $e->getMessage();
         }
+    }
+
+    /**
+     * Compute authoritative cumulative rounding valuation for active draft selections.
+     */
+    public function getValuationProperty(): array
+    {
+        if (!$this->snapshot) {
+            return [
+                'lines' => [],
+                'total_cash_return' => 0.0,
+                'total_retained_charges' => 0.0,
+                'total_actionable' => 0,
+            ];
+        }
+
+        return app(\Modules\Pos\Services\PosReturnRoundingValuationService::class)->evaluateDraftValuation(
+            $this->snapshot,
+            $this->lineSelections,
+            null
+        );
+    }
+
+    public function getLineEstimatedRefund(string $lineKey): float
+    {
+        return (float) ($this->valuation['lines'][$lineKey]['refund_amount'] ?? 0.0);
+    }
+
+    public function getLineEstimatedRetained(string $lineKey): float
+    {
+        return (float) ($this->valuation['lines'][$lineKey]['retained_amount'] ?? 0.0);
     }
 
     /**
