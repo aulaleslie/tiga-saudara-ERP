@@ -28,15 +28,16 @@
                                 <span class="badge badge-primary ml-2">CONSIGNMENT BILLING</span>
                             @endif
                         </div>
+                        <a target="_blank" class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none"
+                           href="{{ route('purchases.pdf', $purchase->id) }}">
+                            <i class="bi bi-printer"></i> Cetak Pembelian
+                        </a>
+                        <a target="_blank" class="btn btn-sm btn-outline-secondary mfe-1 d-print-none"
+                           href="{{ route('purchases.orderPdf', $purchase->id) }}">
+                            <i class="bi bi-file-earmark-text"></i> Cetak Pesanan Pembelian
+                        </a>
+
                         @if(!(isset($globalMode) && $globalMode))
-                            <a target="_blank" class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none"
-                               href="{{ route('purchases.pdf', $purchase->id) }}">
-                                <i class="bi bi-printer"></i> Print
-                            </a>
-                            <a target="_blank" class="btn btn-sm btn-info mfe-1 d-print-none"
-                               href="{{ route('purchases.pdf', $purchase->id) }}">
-                                <i class="bi bi-save"></i> Simpan
-                            </a>
                             @can('purchases.create')
                                 <a class="btn btn-sm btn-outline-secondary mfe-1 d-print-none"
                                    href="{{ route('purchases.create', ['duplicate' => $purchase->id]) }}">

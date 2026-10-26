@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Route;
 use Modules\People\Entities\Supplier;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Http\Controllers\PurchaseController;
+use Modules\Purchase\Http\Controllers\PurchasePrintController;
 use Modules\Purchase\Http\Controllers\PurchasePaymentsController;
 use Modules\Purchase\Http\Controllers\PurchaseUploadController;
 use Modules\Purchase\Http\Controllers\GlobalPurchasePaymentController;
@@ -35,29 +36,8 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
     Route::get('/purchases/datatable', [PurchaseController::class, 'datatable'])->name('datatable.purchases');
     //Generate PDF
-    Route::get('/purchases/pdf/{id}', function ($id) {
-        // Ambil data purchase + relasi supplier + details + product
-        $purchase = Purchase::with([
-            'supplier',
-            'purchaseDetails.product', // join ke produk agar dapat nama/unit jika perlu
-            'purchaseDetails.product.baseUnit'
-        ])->withArchived()->findOrFail($id);
-
-        // Optional: Logging untuk debug
-        Log::info("Data", [
-            'purchase' => $purchase->toArray(),
-            'supplier' => $purchase->supplier->toArray(),
-            'details'  => $purchase->purchaseDetails->toArray(),
-        ]);
-
-        // Kirim ke view untuk PDF
-        $pdf = Pdf::loadView('purchase::print', [
-            'purchase' => $purchase,
-            'supplier' => $purchase->supplier,
-            'details'  => $purchase->purchaseDetails,
-        ]);
-        return $pdf->stream('purchase-order-'.$purchase->reference.'.pdf');
-    })->name('purchases.pdf');
+    Route::get('/purchases/pdf/{id}', [PurchasePrintController::class, 'pdf'])->name('purchases.pdf');
+    Route::get('/purchases/order-pdf/{id}', [PurchasePrintController::class, 'orderPdf'])->name('purchases.orderPdf');
 
     //Purchases
     Route::middleware('can:purchases.receive.access')

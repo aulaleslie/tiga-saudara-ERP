@@ -57,6 +57,9 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::get('/sales/{sale}/invoice', [SaleController::class, 'invoicePdf'])
         ->name('sales.invoicePdf');
 
+    Route::get('/sales/{sale}/offer', [SaleController::class, 'offerPdf'])
+        ->name('sales.offerPdf');
+
     //Sales
     Route::get('/sales/dispatches', [SaleController::class, 'dispatchIndex'])
         ->name('sales.dispatches.index');

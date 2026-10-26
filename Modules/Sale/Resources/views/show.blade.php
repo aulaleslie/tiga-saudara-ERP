@@ -23,29 +23,36 @@
                     Referensi: <strong>{{ $sale->reference ?? 'N/A' }}</strong>
                 </div>
 
-                @php $hasDispatches = isset($dispatches) && $dispatches->isNotEmpty(); @endphp
+                @php
+                    $approvedDispatches = isset($dispatches)
+                        ? $dispatches->where('status', \Modules\Sale\Entities\Dispatch::STATUS_APPROVED)
+                        : collect();
+                    $hasApprovedDispatches = $approvedDispatches->isNotEmpty();
+                @endphp
 
-                @if(!(isset($globalMode) && $globalMode))
-                    @if(!$sale->isArchived())
-                        @if($hasDispatches)
-                            <a target="_blank"
-                               href="{{ route('sales.deliverySlip', ['sale' => $sale->id, 'type' => 'delivery']) }}"
-                               class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none">
-                                <i class="bi bi-truck"></i> Cetak Surat Jalan (Terakhir)
-                            </a>
-                        @else
-                            <a class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none" disabled
-                               title="Belum ada pengeluaran/dispatch untuk dicetak">
-                                <i class="bi bi-truck"></i> Surat Jalan
-                            </a>
-                        @endif
-                        <a target="_blank"
-                           href="{{ route('sales.invoicePdf', ['sale' => $sale->id, 'type' => 'invoice']) }}"
-                           class="btn btn-sm btn-secondary mfe-1 d-print-none">
-                            <i class="bi bi-truck"></i> Cetak Faktur
-                        </a>
-                    @endif
+                @if($hasApprovedDispatches)
+                    <a target="_blank"
+                       href="{{ route('sales.deliverySlip', $sale->id) }}"
+                       class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none">
+                        <i class="bi bi-truck"></i> Cetak Surat Jalan (Terakhir)
+                    </a>
+                @else
+                    <button type="button" class="btn btn-sm btn-secondary mfs-auto mfe-1 d-print-none" disabled
+                            title="Belum ada pengeluaran/dispatch yang disetujui untuk dicetak">
+                        <i class="bi bi-truck"></i> Cetak Surat Jalan
+                    </button>
                 @endif
+
+                <a target="_blank"
+                   href="{{ route('sales.invoicePdf', $sale->id) }}"
+                   class="btn btn-sm btn-secondary mfe-1 d-print-none">
+                    <i class="bi bi-printer"></i> Cetak Faktur
+                </a>
+                <a target="_blank"
+                   href="{{ route('sales.offerPdf', $sale->id) }}"
+                   class="btn btn-sm btn-outline-secondary mfe-1 d-print-none">
+                    <i class="bi bi-file-earmark-text"></i> Cetak Nota Penawaran
+                </a>
 
                 @if($globalMode && $sale->live_due_amount > 0 && auth()->user()->can('salePayments.create'))
                     <a href="{{ route('sales.global-payments.create', $sale->id) }}"
@@ -449,7 +456,14 @@
                                                     @endif
                                                 </td>
                                                 <td class="d-print-none">
-                                                    @if($dispatch->isPending())
+                                                    @if($dispatch->isApproved())
+                                                        <a target="_blank"
+                                                           href="{{ route('sales.deliverySlip', ['sale' => $sale->id, 'dispatch_id' => $dispatch->id]) }}"
+                                                           class="btn btn-sm btn-outline-secondary"
+                                                           title="Cetak Surat Jalan untuk pengiriman ini">
+                                                            <i class="bi bi-printer"></i> Cetak Surat Jalan
+                                                        </a>
+                                                    @elseif($dispatch->isPending())
                                                         @can('salesDispatches.approval')
                                                             <div class="btn-group">
                                                                 <form action="{{ route('dispatches.approve', $dispatch->id) }}" method="POST" class="d-inline" data-dispatch-approval-id="{{ $dispatch->id }}">

@@ -43,6 +43,7 @@ use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Setting\Entities\Tax;
 use Modules\Sale\Services\SaleCartAggregator;
 use Modules\Sale\Services\SaleService;
+use Modules\Sale\Services\SalePrintDocumentService;
 use Modules\Sale\Services\SaleSerialDisplayResolver;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
@@ -1405,22 +1406,33 @@ class SaleController extends Controller
     }
 
 
-    public function deliverySlip(Sale $sale)
+    public function deliverySlip(Request $request, $sale, SalePrintDocumentService $documentService)
     {
-        abort_if(Gate::denies('sales.show'), 403);
+        $sale = $documentService->authorizeAndLoad($sale);
 
-        $this->ensureSaleBelongsToCurrentSetting($sale);
+        if ($request->filled('dispatch_id')) {
+            $dispatch = $sale->saleDispatches()
+                ->with(['details.product.baseUnit', 'details.location'])
+                ->where('id', $request->query('dispatch_id'))
+                ->first();
 
-        $dispatch = $sale->saleDispatches()
-            ->with(['details.product.baseUnit', 'details.location'])
-            ->latest('id')
-            ->first();
+            if (!$dispatch || $dispatch->status !== Dispatch::STATUS_APPROVED) {
+                abort(404, 'Surat jalan yang diminta tidak ditemukan atau belum disetujui.');
+            }
+        } else {
+            $dispatch = $sale->saleDispatches()
+                ->with(['details.product.baseUnit', 'details.location'])
+                ->where('status', Dispatch::STATUS_APPROVED)
+                ->orderByDesc('id')
+                ->first();
 
-        if (!$dispatch) {
-            abort(404, 'Tidak ada pengeluaran / dispatch untuk pesanan ini.');
+            if (!$dispatch) {
+                abort(404, 'Tidak ada surat jalan yang telah disetujui untuk pesanan ini.');
+            }
         }
 
-        $customer = Customer::findOrFail($sale->customer_id);
+        $customer = $sale->customer ?? Customer::find($sale->customer_id);
+        $tenantSetting = $sale->tenantSetting;
 
         // Group items by product_id ONLY (ignore tax_id)
         $grouped = $dispatch->details
@@ -1450,55 +1462,33 @@ class SaleController extends Controller
         $jatuhTempo = $sale->due_date ? Carbon::parse($sale->due_date) : $tanggal;
 
         $pdf = Pdf::loadView('sale::print.delivery-slip', [
-            'sale'       => $sale,
-            'customer'   => $customer,
-            'dispatch'   => $dispatch,
-            'grouped'    => $grouped,
-            'slipNumber' => $slipNumber,
-            'tanggal'    => $tanggal,
-            'jatuhTempo' => $jatuhTempo,
+            'sale'          => $sale,
+            'customer'      => $customer,
+            'tenantSetting' => $tenantSetting,
+            'dispatch'      => $dispatch,
+            'grouped'       => $grouped,
+            'slipNumber'    => $slipNumber,
+            'tanggal'       => $tanggal,
+            'jatuhTempo'    => $jatuhTempo,
         ]);
 
         return $pdf->stream("Surat_Jalan_{$slipNumber}.pdf");
     }
 
-    public function invoicePdf(Sale $sale)
+    public function invoicePdf(Request $request, $sale, SalePrintDocumentService $documentService)
     {
-        abort_if(Gate::denies('sales.show'), 403);
+        $rawVariant = $request->query('type') ?? $request->query('variant') ?? SalePrintDocumentService::VARIANT_INVOICE;
+        $variant = $documentService->resolveVariant($rawVariant);
 
-        $this->ensureSaleBelongsToCurrentSetting($sale);
+        return $documentService->renderPdf($sale, $variant);
+    }
 
-        $sale->load([
-            'saleDetails.product.baseUnit',
-            'bundleItems.product',
-            'salePayments.paymentMethod',
-        ]);
+    public function offerPdf(Request $request, $sale, SalePrintDocumentService $documentService)
+    {
+        $rawVariant = $request->query('type') ?? $request->query('variant') ?? SalePrintDocumentService::VARIANT_OFFER;
+        $variant = $documentService->resolveVariant($rawVariant);
 
-        $customer = Customer::findOrFail($sale->customer_id);
-
-        // number / dates used in the PDF
-        $invoiceNumber = $sale->reference; // e.g. JL.2025.16198 (adjust if you have a different numbering rule)
-        $tanggal      = Carbon::parse($sale->date);
-        $jatuhTempo   = $sale->due_date ? Carbon::parse($sale->due_date) : $tanggal;
-
-        // money figures
-        $total = (float) $sale->total_amount;
-        $paid  = (float) $sale->salePayments->sum('amount');
-        $due   = max($total - $paid, 0);
-
-        $pdf = Pdf::loadView('sale::print.invoice', [
-            'sale'          => $sale,
-            'customer'      => $customer,
-            'details'       => $sale->saleDetails->concat($sale->bundleItems->filter(fn($item) => is_null($item->sale_detail_id))),  // Concatenate standalone bundles
-            'invoiceNumber' => $invoiceNumber,
-            'tanggal'       => $tanggal,
-            'jatuhTempo'    => $jatuhTempo,
-            'total'         => $total,
-            'paid'          => $paid,
-            'due'           => $due,
-        ]);
-
-        return $pdf->stream('Sales-Invoice-'.$invoiceNumber.'.pdf');
+        return $documentService->renderPdf($sale, $variant);
     }
 
     private function resolveSaleDetailPricing(SaleDetails $saleDetail, ?Product $product = null): array

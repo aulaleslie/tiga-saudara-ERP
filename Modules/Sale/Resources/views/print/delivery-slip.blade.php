@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <title>Surat Jalan #{{ $slipNumber }}</title>
     <style>
+        @page { margin: 20mm 15mm 20mm 15mm; }
         body { font-family: Arial, sans-serif; font-size: 12px; }
         .title { text-align: center; font-size: 20px; font-weight: bold; margin-bottom: 8px; }
         .row-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
@@ -13,6 +14,8 @@
         .main-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         .main-table th, .main-table td { border: 1px solid #222; padding: 6px 4px; }
         .main-table th { font-size: 13px; font-weight: bold; background: #fff; }
+        .main-table thead { display: table-header-group; }
+        .main-table tr { page-break-inside: avoid; }
         .main-table td { font-size: 12px; }
         .text-center { text-align: center; }
         .text-right { text-align: right; }
@@ -20,6 +23,7 @@
         .small { font-size: 11px; }
         .badge { display: inline-block; padding: 2px 6px; margin: 1px 4px 0 0; background: #eee; border: 1px solid #aaa; border-radius: 4px; font-size: 10.5px; }
         .block { display: block; }
+        .ttd-table { width: 100%; border-collapse: collapse; margin-top: 36px; page-break-inside: avoid; }
     </style>
 </head>
 <body>
@@ -30,11 +34,11 @@
     <tr>
         {{-- LEFT: Company & slip meta --}}
         <td style="width: 55%;">
-            <span class="bold">{{ settings()->company_name ?? 'TIGA COMPUTER' }}</span><br>
+            <span class="bold">{{ $tenantSetting->company_name ?? 'PERUSAHAAN' }}</span><br>
             <div class="small" style="margin-bottom:4px;">
-                {{ settings()->company_address ?? 'JL. SOEKARNO HATTA RT. 012 RW. 004 PANE, RASANAE BARAT' }}<br>
-                Telp: {{ settings()->company_phone ?? '082236387676' }}<br>
-                Email: {{ settings()->company_email ?? '-' }}
+                {{ $tenantSetting->company_address ?? '-' }}<br>
+                Telp: {{ $tenantSetting->company_phone ?? '-' }}<br>
+                Email: {{ $tenantSetting->company_email ?? '-' }}
             </div>
 
             <table class="info-table">
@@ -101,7 +105,7 @@
 </table>
 
 {{-- Signatures --}}
-<table style="width:100%; border-collapse: collapse; margin-top: 36px;">
+<table class="ttd-table">
     <tr>
         <td style="width:33%; text-align:center;">
             Gudang,<br><br><br><br>
