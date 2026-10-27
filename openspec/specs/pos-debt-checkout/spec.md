@@ -4,10 +4,10 @@
 TBD - created by archiving change add-pos-debt-checkout. Update Purpose after archive.
 ## Requirements
 ### Requirement: POS SHALL offer a finish-as-debt checkout path
-The POS payment/checkout modal SHALL provide a "Selesaikan sebagai Utang" (finish as debt) option alongside the full-payment option. Choosing it SHALL complete the transaction and post a `Sale` with an outstanding balance rather than requiring full payment.
+The POS SHALL provide a dedicated "Kasbon" action alongside "Bayar Lunas" and an authorized flow switch inside the payment modal. Choosing it SHALL complete the transaction and post a `Sale` with an outstanding balance rather than requiring full payment.
 
 #### Scenario: Cashier chooses finish as debt
-- **WHEN** a cashier opens the checkout modal for a cart with grand total greater than zero and selects "Selesaikan sebagai Utang"
+- **WHEN** a cashier opens the checkout modal for a cart with grand total greater than zero and selects "Kasbon"
 - **THEN** the system MUST present the debt sub-flow (customer requirement, payment term selection, optional down payment) instead of requiring payment equal to the grand total
 
 #### Scenario: Full-payment path unaffected
@@ -55,7 +55,7 @@ The debt path SHALL require the cashier to select a payment term from the existi
 - **AND** every generated Sale MUST have the same due date, calculated from the checkout posting date plus the selected term's longevity
 
 ### Requirement: Debt checkout SHALL allow an optional down payment below the grand total
-The debt path SHALL allow an optional down payment where `0 ≤ down_payment < grand_total`, taken through the existing payment picker. The remainder SHALL become the sale's outstanding balance. A payment equal to or exceeding the grand total MUST NOT be treated as debt.
+The debt path SHALL allow zero, one, or multiple down-payment entries through the payment picker, where `0 ≤ combined_down_payment < grand_total`. Cashiers SHALL explicitly choose when to finish Kasbon so they can add further down payments. The remainder SHALL become the sale's outstanding balance. A payment equal to or exceeding the grand total MUST NOT be treated as debt.
 
 #### Scenario: Zero down payment
 - **WHEN** a cashier completes a debt checkout with no down payment
@@ -63,11 +63,21 @@ The debt path SHALL allow an optional down payment where `0 ≤ down_payment < g
 
 #### Scenario: Partial down payment
 - **WHEN** a cashier completes a debt checkout with a down payment greater than zero and less than the grand total
-- **THEN** the posted sale MUST set `paid_amount` to the down payment, `due_amount = grand_total − down_payment`, and `payment_status = 'Partial'`, and MUST create a `SalePayment` for the down payment
+- **THEN** the posted sale MUST set `paid_amount` to the down payment, `due_amount = grand_total − down_payment`, and `payment_status = 'Partial'`, and MUST create settlement records representing the down-payment entries
 
 #### Scenario: Full payment rejected on debt path
 - **WHEN** a cashier attempts a debt checkout with a down payment equal to or greater than the grand total
 - **THEN** the system MUST reject the debt checkout (the transaction is a normal full payment, not debt)
+
+#### Scenario: Multiple down payments
+- **WHEN** a cashier adds Rp10,000,000 cash and Rp20,000,000 transfer toward a Rp52,985,000 Kasbon
+- **THEN** both entries remain visible and the combined down payment is Rp30,000,000 with Rp22,985,000 outstanding
+- **AND** the cashier can explicitly proceed to final confirmation
+
+#### Scenario: Combined payment covers total
+- **WHEN** combined down payments reach or exceed the total
+- **THEN** Kasbon completion is blocked with guidance to switch to Bayar Lunas
+- **AND** the flow is not silently converted
 
 ### Requirement: Debt sale SHALL be collectible from the Sales document
 A debt checkout SHALL post one or more Sales whose outstanding balances can be collected later through the existing Sale-level payment workflows the authorized global POS payment workspace, or the dedicated authorized active-session POS Kas Bon collection flow. Every later collection SHALL remain represented by ordinary Sale settlement records rather than a separate POS financial ledger.
@@ -121,4 +131,17 @@ When a named customer enables the debt checkout sub-flow, the POS SHALL load eve
 - **THEN** the staged-payment modal MUST display an actionable payment-term loading error
 - **AND** debt checkout continuation MUST remain disabled
 - **AND** the cashier MUST be able to retry loading terms without reloading the entire POS page
+
+### Requirement: Proportional allocation SHALL reconcile large payment amounts
+Proportional payment allocation SHALL support valid large checkout amounts without intermediate integer overflow. Allocations SHALL sum exactly to the paid amount in minor units, preserve deterministic largest-remainder rounding, and keep each sale's outstanding balance consistent with its allocated payment.
+
+#### Scenario: Reported production amounts
+- **WHEN** a Rp52,985,000 split checkout with groups totaling Rp39,385,000 and Rp13,600,000 receives a Rp30,000,000 Kasbon down payment
+- **THEN** posting completes without numeric overflow
+- **AND** allocated payments sum to Rp30,000,000 and outstanding balances sum to Rp22,985,000
+
+#### Scenario: Rounding and zero payment
+- **WHEN** proportional shares require rounding or the paid amount is zero
+- **THEN** results remain deterministic and sum exactly to the paid amount without negative allocations
+
 

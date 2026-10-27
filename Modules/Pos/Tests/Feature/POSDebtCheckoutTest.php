@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Modules\Currency\Entities\Currency;
 use Modules\People\Entities\Customer;
 use Modules\Pos\Entities\PosActionApprovalRequest;
+use Modules\Pos\Entities\PosSessionCashEvent;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
 use Modules\Pos\Services\Exceptions\PosCheckoutValidationException;
@@ -375,6 +376,190 @@ class POSDebtCheckoutTest extends TestCase
         }
     }
 
+    public function test_large_value_split_kasbon_posting_regression(): void
+    {
+        $context = $this->createSplitCheckoutContext(true);
+
+        // Product 1 (Group 1): 39,385,000 fulfilled only by location A
+        $product1 = $this->createCustomPricedSplitStockProduct(
+            $context['setting'],
+            $context['terminal_location'],
+            $context['source_location'],
+            $context['tax'],
+            39385000,
+            1, // stock at A
+            0  // stock at B
+        );
+
+        // Product 2 (Group 2): 13,600,000 fulfilled only by location B
+        $product2 = $this->createCustomPricedSplitStockProduct(
+            $context['setting'],
+            $context['terminal_location'],
+            $context['source_location'],
+            $context['tax'],
+            13600000,
+            0, // stock at A
+            1  // stock at B
+        );
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product1->id, 1);
+        $this->addCartLine($context['cashier'], $context['setting'], $product2->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        $term = PaymentTerm::query()->create(['name' => 'Net 30 Large', 'longevity' => 30]);
+
+        $initialExpectedCash = (float) DB::table('pos_sessions')
+            ->where('id', $context['session']->id)
+            ->value('expected_cash_total');
+
+        $response = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-DEBT-LARGE-REGRESSION-001',
+            'is_debt' => true,
+            'payment_term_id' => $term->id,
+            'payment' => [
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount_paid' => 30000000,
+            ],
+        ]);
+
+        $response->assertStatus(201);
+
+        $payload = $response->json();
+        $saleIds = array_values(array_map(
+            static fn (array $group): int => (int) ($group['sale_id'] ?? 0),
+            $payload['split_groups'] ?? []
+        ));
+        $sales = Sale::query()->whereIn('id', $saleIds)->get();
+
+        $this->assertCount(2, $sales);
+
+        $sumPaidAmount = (float) $sales->sum('paid_amount');
+        $sumDueAmount = (float) $sales->sum('due_amount');
+
+        $this->assertEquals(30000000.0, round($sumPaidAmount, 2), 'Allocated payments must total Rp30,000,000');
+        $this->assertEquals(22985000.0, round($sumDueAmount, 2), 'Outstanding debt must total Rp22,985,000');
+
+        $expectedDueDate = Carbon::today()->addDays($term->longevity)->format('Y-m-d');
+
+        foreach ($sales as $sale) {
+            $this->assertEquals('PARTIAL', strtoupper($sale->payment_status));
+            $this->assertEquals($term->id, $sale->payment_term_id, 'Payment term must propagate to each split sale');
+            $this->assertEquals($expectedDueDate, Carbon::parse($sale->due_date)->format('Y-m-d'));
+            $this->assertEquals(
+                round($sale->total_amount - $sale->paid_amount, 2),
+                round($sale->due_amount, 2),
+                'Each split sale must reconcile its due_amount based on its allocated paid_amount'
+            );
+        }
+
+        // Cash event must reflect actual cash received (Rp30,000,000), not total amount (Rp52,985,000)
+        $checkoutId = (int) ($payload['pos_checkout_id'] ?? 0);
+        $this->assertDatabaseHas('pos_session_cash_events', [
+            'setting_id' => $context['setting']->id,
+            'pos_session_id' => $context['session']->id,
+            'event_type' => PosSessionCashEvent::EVENT_CASH_SALE_IN,
+            'direction' => PosSessionCashEvent::DIRECTION_IN,
+            'amount' => 30000000,
+            'reference_id' => $checkoutId,
+        ]);
+
+        $updatedExpectedCash = (float) DB::table('pos_sessions')
+            ->where('id', $context['session']->id)
+            ->value('expected_cash_total');
+
+        $this->assertEquals(
+            round($initialExpectedCash + 30000000, 2),
+            round($updatedExpectedCash, 2),
+            'Expected cash total must increase by actual cash received'
+        );
+    }
+
+    private function createCustomPricedSplitStockProduct(
+        Setting $setting,
+        Location $locationA,
+        Location $locationB,
+        Tax $tax,
+        float $price,
+        int $qtyA,
+        int $qtyB
+    ): Product {
+        $createdBy = User::query()->value('id') ?? User::factory()->create()->id;
+        $index = $this->sequence++;
+
+        $category = Category::firstOrCreate(
+            ['category_code' => 'POS-CAT-LG-' . $index],
+            [
+                'category_name' => 'POS CATEGORY ' . $index,
+                'created_by' => $createdBy,
+                'setting_id' => $setting->id,
+            ]
+        );
+
+        $unit = Unit::firstOrCreate([
+            'name' => 'POS UNIT ' . $index,
+            'short_name' => 'PU' . $index,
+        ]);
+
+        $product = Product::query()->create([
+            'setting_id' => $setting->id,
+            'category_id' => $category->id,
+            'unit_id' => $unit->id,
+            'base_unit_id' => $unit->id,
+            'product_name' => 'POS LARGE PRODUCT ' . $index,
+            'product_code' => 'POS-LG-' . $index,
+            'barcode' => 'POS-LG-BAR-' . $index,
+            'product_quantity' => $qtyA + $qtyB,
+            'product_cost' => round($price / 2, 2),
+            'product_price' => $price,
+            'product_unit' => 'PU' . $index,
+            'product_stock_alert' => 1,
+            'stock_managed' => true,
+            'serial_number_required' => false,
+        ]);
+
+        if ($qtyA > 0) {
+            ProductStock::query()->create([
+                'product_id' => $product->id,
+                'location_id' => $locationA->id,
+                'quantity' => $qtyA,
+                'quantity_non_tax' => 0,
+                'quantity_tax' => $qtyA,
+                'broken_quantity_non_tax' => 0,
+                'broken_quantity_tax' => 0,
+                'broken_quantity' => 0,
+                'tax_id' => $tax->id,
+            ]);
+        }
+
+        if ($qtyB > 0) {
+            ProductStock::query()->create([
+                'product_id' => $product->id,
+                'location_id' => $locationB->id,
+                'quantity' => $qtyB,
+                'quantity_non_tax' => 0,
+                'quantity_tax' => $qtyB,
+                'broken_quantity_non_tax' => 0,
+                'broken_quantity_tax' => 0,
+                'broken_quantity' => 0,
+                'tax_id' => $tax->id,
+            ]);
+        }
+
+        ProductPrice::query()->updateOrCreate([
+            'product_id' => $product->id,
+            'setting_id' => $setting->id,
+        ], [
+            'sale_price' => $price,
+            'tier_1_price' => null,
+            'tier_2_price' => null,
+            'last_purchase_price' => round($price / 2, 2),
+            'average_purchase_price' => round($price / 2, 2),
+            'purchase_tax_id' => null,
+            'sale_tax_id' => $tax->id,
+        ]);
+
+        return $product;
+    }
 
     private function createSplitCheckoutContext(bool $multiGroup = true, array $cashierPermissions = null): array
     {
@@ -622,18 +807,36 @@ class POSDebtCheckoutTest extends TestCase
             'requires_reference' => false,
         ]);
 
+        $nonCashCoaId = DB::table('chart_of_accounts')->insertGetId([
+            'name' => 'POS SPLIT COA TRANSFER ' . $index,
+            'account_number' => 'POS-SPLIT-TRF-' . $index,
+            'category' => 'Kas & Bank',
+            'setting_id' => $setting->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $methods['non_cash'] = PaymentMethod::query()->create([
+            'name' => 'TRANSFER SPLIT ' . $index,
+            'coa_id' => $nonCashCoaId,
+            'is_cash' => false,
+            'requires_reference' => false,
+        ]);
+
         if ($enableForSetting) {
-            DB::table('setting_pos_payment_methods')->updateOrInsert(
-                [
-                    'setting_id' => $setting->id,
-                    'payment_method_id' => $methods['cash']->id,
-                ],
-                [
-                    'is_enabled' => true,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]
-            );
+            foreach ([$methods['cash'], $methods['non_cash']] as $pm) {
+                DB::table('setting_pos_payment_methods')->updateOrInsert(
+                    [
+                        'setting_id' => $setting->id,
+                        'payment_method_id' => $pm->id,
+                    ],
+                    [
+                        'is_enabled' => true,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]
+                );
+            }
         }
 
         return $methods;
@@ -794,6 +997,210 @@ class POSDebtCheckoutTest extends TestCase
             
             $this->assertEquals(0, $sale->salePayments()->count());
         }
+    }
+
+    public function test_kasbon_mixed_cash_and_transfer_multiple_down_payments_reconciles(): void
+    {
+        $context = $this->createSplitCheckoutContext(false);
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 5); // 5 * 100k = 500k
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        $term = PaymentTerm::query()->create(['name' => 'Net 30 Multi DP', 'longevity' => 30]);
+        $cartToken = \Illuminate\Support\Str::uuid()->toString();
+
+        // Stage 1: Transfer DP 150k
+        $stage1 = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson('/pos/sell/checkout/stage-payment', [
+                'cart_token' => $cartToken,
+                'payment_method_id' => $context['methods']['non_cash']->id,
+                'amount' => 150000,
+                'edc_reference' => 'EDC-DP-001',
+                'grand_total' => 500000,
+                'flow' => 'kasbon',
+                'is_debt' => true,
+                'payment_term_id' => $term->id,
+            ]);
+        $stage1->assertStatus(201);
+        $this->assertEquals(350000, $stage1->json('payment_chain.remainder'));
+
+        // Stage 2: Cash DP 100k
+        $stage2 = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson('/pos/sell/checkout/stage-payment', [
+                'cart_token' => $cartToken,
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount' => 100000,
+                'grand_total' => 500000,
+                'flow' => 'kasbon',
+                'is_debt' => true,
+                'payment_term_id' => $term->id,
+            ]);
+        $stage2->assertStatus(201);
+        $this->assertEquals(250000, $stage2->json('payment_chain.remainder'));
+
+        // Finalize Kasbon
+        $response = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.checkout.finalize'), [
+                'idempotency_key' => 'K-DEBT-MULTI-DP-001',
+                'cart_token' => $cartToken,
+                'flow' => 'kasbon',
+                'is_debt' => true,
+                'payment_term_id' => $term->id,
+            ]);
+
+        $response->assertStatus(201);
+
+        $sales = Sale::query()->get();
+        $this->assertCount(1, $sales);
+        $sale = $sales->first();
+
+        $this->assertEquals(250000, $sale->paid_amount);
+        $this->assertEquals(250000, $sale->due_amount);
+        $this->assertEquals('PARTIAL', strtoupper($sale->payment_status));
+        $this->assertEquals($term->id, $sale->payment_term_id);
+        $this->assertEquals(Carbon::today()->addDays($term->longevity)->format('Y-m-d'), Carbon::parse($sale->due_date)->format('Y-m-d'));
+
+        // Payments: 2 records (150k non-cash, 100k cash)
+        $payments = $sale->salePayments()->get();
+        $this->assertCount(2, $payments);
+        $this->assertEquals(250000, $payments->sum('amount'));
+
+        // Cash events: only 100k cash received
+        $cashEvents = PosSessionCashEvent::query()
+            ->where('pos_session_id', $context['session']->id)
+            ->where('event_type', PosSessionCashEvent::EVENT_CASH_SALE_IN)
+            ->get();
+        $this->assertEquals(100000, $cashEvents->sum('amount'));
+    }
+
+    public function test_kasbon_down_payment_equal_or_exceeding_total_is_rejected(): void
+    {
+        $context = $this->createSplitCheckoutContext(false);
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 1); // 1 * 100k = 100k
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        $term = PaymentTerm::query()->create(['name' => 'Net 15 Reject', 'longevity' => 15]);
+        $cartToken = \Illuminate\Support\Str::uuid()->toString();
+
+        // 1. Single DP equal to grand total is rejected
+        $reject1 = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson('/pos/sell/checkout/stage-payment', [
+                'cart_token' => $cartToken,
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount' => 100000,
+                'grand_total' => 100000,
+                'flow' => 'kasbon',
+                'is_debt' => true,
+                'payment_term_id' => $term->id,
+            ]);
+        $reject1->assertStatus(422);
+        $reject1->assertJsonPath('code', 'DEBT_DOWN_PAYMENT_EXCEEDS_TOTAL');
+
+        // 2. Stage 60k succeeds
+        $stageOk = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson('/pos/sell/checkout/stage-payment', [
+                'cart_token' => $cartToken,
+                'payment_method_id' => $context['methods']['non_cash']->id,
+                'amount' => 60000,
+                'grand_total' => 100000,
+                'flow' => 'kasbon',
+                'is_debt' => true,
+                'payment_term_id' => $term->id,
+            ]);
+        $stageOk->assertStatus(201);
+
+        // 3. Staging 40k (bringing total to 100k) is rejected
+        $reject2 = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson('/pos/sell/checkout/stage-payment', [
+                'cart_token' => $cartToken,
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount' => 40000,
+                'grand_total' => 100000,
+                'flow' => 'kasbon',
+                'is_debt' => true,
+                'payment_term_id' => $term->id,
+            ]);
+        $reject2->assertStatus(422);
+        $reject2->assertJsonPath('code', 'DEBT_DOWN_PAYMENT_EXCEEDS_TOTAL');
+    }
+
+    public function test_kasbon_staging_transfer_and_cash_without_term_succeeds_and_completion_requires_term(): void
+    {
+        $context = $this->createSplitCheckoutContext(false);
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 5); // 5 * 100k = 500k
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        $term = PaymentTerm::query()->create(['name' => 'Net 30 Terms Free Staging', 'longevity' => 30]);
+        $cartToken = \Illuminate\Support\Str::uuid()->toString();
+
+        // 1. Stage Transfer DP 150k WITHOUT payment_term_id -> must succeed
+        $stage1 = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson('/pos/sell/checkout/stage-payment', [
+                'cart_token' => $cartToken,
+                'payment_method_id' => $context['methods']['non_cash']->id,
+                'amount' => 150000,
+                'edc_reference' => 'EDC-DP-NO-TERM',
+                'grand_total' => 500000,
+                'flow' => 'kasbon',
+                'is_debt' => true,
+            ]);
+        $stage1->assertStatus(201);
+        $this->assertEquals(350000, $stage1->json('payment_chain.remainder'));
+        $this->assertNull($stage1->json('payment_chain.payment_term_id'));
+
+        // 2. Stage Cash DP 100k WITHOUT payment_term_id -> must succeed
+        $stage2 = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson('/pos/sell/checkout/stage-payment', [
+                'cart_token' => $cartToken,
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount' => 100000,
+                'grand_total' => 500000,
+                'flow' => 'kasbon',
+                'is_debt' => true,
+            ]);
+        $stage2->assertStatus(201);
+        $this->assertEquals(250000, $stage2->json('payment_chain.remainder'));
+
+        // 3. Attempt completion/finalize WITHOUT payment_term_id -> Must be rejected with 422
+        $rejectFinalize = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.checkout.finalize'), [
+                'idempotency_key' => 'K-DEBT-NO-TERM-FAIL',
+                'cart_token' => $cartToken,
+                'flow' => 'kasbon',
+                'is_debt' => true,
+            ]);
+        $rejectFinalize->assertStatus(422);
+        $this->assertEquals('PAYMENT_INVALID', $rejectFinalize->json('code'));
+        $this->assertEquals('Syarat pembayaran (Term) harus dipilih untuk utang.', $rejectFinalize->json('message'));
+
+        // 4. Complete/finalize WITH payment_term_id -> Succeeds
+        $successFinalize = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.checkout.finalize'), [
+                'idempotency_key' => 'K-DEBT-NO-TERM-SUCCESS',
+                'cart_token' => $cartToken,
+                'flow' => 'kasbon',
+                'is_debt' => true,
+                'payment_term_id' => $term->id,
+            ]);
+        $successFinalize->assertStatus(201);
+
+        $sales = Sale::query()->get();
+        $this->assertCount(1, $sales);
+        $sale = $sales->first();
+
+        $this->assertEquals(250000, $sale->paid_amount);
+        $this->assertEquals(250000, $sale->due_amount);
+        $this->assertEquals('PARTIAL', strtoupper($sale->payment_status));
+        $this->assertEquals($term->id, $sale->payment_term_id);
     }
 
     private function finalize(User $cashier, Setting $setting, array $payload)

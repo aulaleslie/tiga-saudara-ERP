@@ -179,6 +179,8 @@ Route::group(['middleware' => ['auth', 'role.setting', 'pos.enabled', 'can:pos.a
         ->name('pos.sell.checkout.stage-payment');
     Route::post('/pos/sell/checkout/sync-debt-state', [PosSellController::class, 'syncDebtState'])
         ->name('pos.sell.checkout.sync-debt-state');
+    Route::post('/pos/sell/checkout/reconcile-payment-chain', [PosSellController::class, 'reconcilePaymentChain'])
+        ->name('pos.sell.checkout.reconcile-payment-chain');
 
     Route::post('/pos/sell/payment-image', [PosPaymentImageController::class, 'upload'])->name('pos.sell.payment-image.upload');
     Route::delete('/pos/sell/payment-image', [PosPaymentImageController::class, 'delete'])->name('pos.sell.payment-image.delete');

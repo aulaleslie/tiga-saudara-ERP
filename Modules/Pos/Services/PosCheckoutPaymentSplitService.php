@@ -46,9 +46,7 @@ class PosCheckoutPaymentSplitService
             $splitKey = (string) $group['split_key'];
             $weightMinor = $weights[$splitKey];
 
-            $numerator = $totalMinor * $weightMinor;
-            $floorShare = intdiv($numerator, $weightTotalMinor);
-            $remainder = $numerator % $weightTotalMinor;
+            [$floorShare, $remainder] = $this->mulDivMod($totalMinor, $weightMinor, $weightTotalMinor);
 
             $allocationsMinor[$splitKey] = $floorShare;
             $allocated += $floorShare;
@@ -92,5 +90,52 @@ class PosCheckoutPaymentSplitService
     private function fromMinor(int $value): float
     {
         return round($value / 100, 2);
+    }
+
+    /**
+     * Exact overflow-safe quotient and remainder of ($a * $b) / $m
+     * using double-and-add without computing intermediate $a * $b.
+     *
+     * @return array{0: int, 1: int} [quotient, remainder]
+     */
+    private function mulDivMod(int $a, int $b, int $m): array
+    {
+        if ($a <= 0 || $b <= 0 || $m <= 0) {
+            return [0, 0];
+        }
+
+        if ($a < $b) {
+            $temp = $a;
+            $a = $b;
+            $b = $temp;
+        }
+
+        $accumQ = 0;
+        $accumR = 0;
+        $termQ = intdiv($a, $m);
+        $termR = $a % $m;
+
+        while ($b > 0) {
+            if (($b & 1) === 1) {
+                $accumQ += $termQ;
+                $accumR += $termR;
+                if ($accumR >= $m) {
+                    $accumQ += intdiv($accumR, $m);
+                    $accumR %= $m;
+                }
+            }
+
+            $b >>= 1;
+            if ($b > 0) {
+                $termQ = 2 * $termQ;
+                $termR = 2 * $termR;
+                if ($termR >= $m) {
+                    $termQ += intdiv($termR, $m);
+                    $termR %= $m;
+                }
+            }
+        }
+
+        return [$accumQ, $accumR];
     }
 }

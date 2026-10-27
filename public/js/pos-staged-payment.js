@@ -52,6 +52,8 @@ window.PosStagedPayment = (function () {
     // Image Upload State
     let currentImageToken = null;
     let currentImageName = null;
+    let isImageUploading = false;
+    let imageUploadAbortController = null;
 
     // Confirmation Modal DOM elements
     let confirmModalElement = null;
@@ -85,6 +87,26 @@ window.PosStagedPayment = (function () {
     // Checkout Context State
     let currentCartToken = null;
     let currentCustomerName = null;
+
+    // Flow identity and generation tracking
+    let currentFlow = 'full_payment'; // 'full_payment' | 'kasbon'
+    let activeGeneration = 0;
+    let pendingTargetFlow = null;
+    let pendingTargetGrandTotal = null;
+
+    // Flow controls DOM elements
+    let stagedFlowBadge = null;
+    let stagedSwitchFlowBtn = null;
+    let stagedSwitchFlowText = null;
+    let stagedRemainderTitle = null;
+    let stagedAmountLabel = null;
+    let stagedFinishKasbonBtn = null;
+
+    // Flow Switch Confirmation Modal DOM elements
+    let flowSwitchModalElement = null;
+    let flowSwitchMessageElement = null;
+    let flowSwitchConfirmBtn = null;
+    let flowSwitchCancelBtn = null;
 
     // Debt variables
     let stagedIsDebtToggle = null;
@@ -164,6 +186,18 @@ window.PosStagedPayment = (function () {
         stagedPaymentTermRetryBtn = document.getElementById('staged-payment-term-retry');
         stagedMethodContainer = document.getElementById('staged-method-container');
         stagedPaymentResetBtn = document.getElementById('staged-payment-reset-btn');
+
+        stagedFlowBadge = document.getElementById('staged-flow-badge');
+        stagedSwitchFlowBtn = document.getElementById('staged-switch-flow-btn');
+        stagedSwitchFlowText = document.getElementById('staged-switch-flow-text');
+        stagedRemainderTitle = document.getElementById('staged-remainder-title');
+        stagedAmountLabel = document.getElementById('staged-amount-label');
+        stagedFinishKasbonBtn = document.getElementById('staged-finish-kasbon-btn');
+
+        flowSwitchModalElement = document.getElementById('pos-flow-switch-modal');
+        flowSwitchMessageElement = document.getElementById('pos-flow-switch-message');
+        flowSwitchConfirmBtn = document.getElementById('pos-flow-switch-confirm-btn');
+        flowSwitchCancelBtn = document.getElementById('pos-flow-switch-cancel-btn');
 
         canUsePaymentFlow = config.canUsePaymentFlow !== false;
         paymentFlowBlockedMessage = config.paymentFlowBlockedMessage || paymentFlowBlockedMessage;
@@ -257,6 +291,20 @@ window.PosStagedPayment = (function () {
         if (stagedPaymentResetBtn) {
             stagedPaymentResetBtn.addEventListener('click', handleResetPaymentChain);
         }
+
+        if (stagedSwitchFlowBtn) {
+            stagedSwitchFlowBtn.addEventListener('click', () => {
+                switchFlow(currentFlow === 'kasbon' ? 'full_payment' : 'kasbon');
+            });
+        }
+
+        if (stagedFinishKasbonBtn) {
+            stagedFinishKasbonBtn.addEventListener('click', handleFinishKasbon);
+        }
+
+        if (flowSwitchConfirmBtn) {
+            flowSwitchConfirmBtn.addEventListener('click', confirmFlowSwitch);
+        }
     }
 
     async function handleDebtToggle() {
@@ -281,7 +329,7 @@ window.PosStagedPayment = (function () {
     async function syncDebtState() {
         if (!currentCartToken || !paymentChain || paymentChain.remainder === undefined) return;
 
-        const isDebt = stagedIsDebtToggle && stagedIsDebtToggle.checked;
+        const isDebt = (currentFlow === 'kasbon');
         const termId = stagedPaymentTermSelect ? stagedPaymentTermSelect.value : null;
 
         try {
@@ -294,6 +342,7 @@ window.PosStagedPayment = (function () {
                 body: JSON.stringify({
                     cart_token: currentCartToken,
                     grand_total: paymentChain.original_grand_total || paymentChain.remainder,
+                    flow: currentFlow,
                     is_debt: isDebt,
                     payment_term_id: termId
                 })
@@ -304,8 +353,8 @@ window.PosStagedPayment = (function () {
     }
 
     // Task 5.1 & 5.2: Open modal with cart token and grand total
-    async function openModal(cartToken, grandTotal, hasCustomer = true, customerName = '-') {
-        console.log('[PosStagedPayment] openModal called with:', { cartToken, grandTotal, hasCustomer, customerName });
+    async function openModal(cartToken, grandTotal, hasCustomer = true, customerName = '-', flow = 'full_payment') {
+        console.log('[PosStagedPayment] openModal called with:', { cartToken, grandTotal, hasCustomer, customerName, flow });
 
         if (!ensurePaymentFlowAvailable()) {
             return;
@@ -318,6 +367,56 @@ window.PosStagedPayment = (function () {
 
         currentHasCustomer = hasCustomer;
         currentCustomerName = customerName;
+
+        // If same cart token already has an active chain
+        if (paymentChain && currentCartToken === cartToken) {
+            const numericGrandTotal = Number(grandTotal) || 0;
+            const previousTotal = Number(paymentChain.original_grand_total) || 0;
+            const totalChanged = Math.abs(previousTotal - numericGrandTotal) > 0.001;
+
+            if (flow && flow !== currentFlow) {
+                // Cashier requested to switch flow (e.g. from Bayar Lunas to Kasbon or vice versa)
+                // If dirty (staged payments, entered amount, evidence, edc), switchFlow confirms before resetting
+                await switchFlow(flow, totalChanged ? numericGrandTotal : null);
+                if (stagedModalElement) $(stagedModalElement).modal('show');
+                return;
+            }
+
+            // Same flow: check if cart total changed
+            if (totalChanged && numericGrandTotal > 0) {
+                console.log(`[PosStagedPayment] Cart total changed from ${previousTotal} to ${numericGrandTotal}`);
+                // Reconcile with the authoritative server chain
+                const serverChain = await reconcileAuthoritativeChain(cartToken, numericGrandTotal, currentFlow);
+
+                if (serverChain) {
+                    paymentChain = {
+                        cart_token: cartToken,
+                        original_grand_total: Number(serverChain.original_grand_total) || numericGrandTotal,
+                        remainder: (serverChain.remainder !== undefined && !isNaN(Number(serverChain.remainder))) ? Number(serverChain.remainder) : 0,
+                        payments: serverChain.payments || paymentChain.payments || [],
+                    };
+                } else {
+                    const totalStaged = (paymentChain.payments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+                    paymentChain.original_grand_total = numericGrandTotal;
+                    paymentChain.remainder = Math.round((numericGrandTotal - totalStaged) * 100) / 100;
+                }
+
+                if (!isDirty()) {
+                    resetStageForm();
+                }
+            }
+
+            // Reopening same flow: bypass reset, preserve progress
+            state = States.SELECTING_METHOD;
+            clearErrors();
+            updateFlowUI();
+            renderPaymentChain();
+            updateRemainderDisplay();
+            updateAmountHint();
+            if (stagedModalElement) $(stagedModalElement).modal('show');
+            return;
+        }
+
         state = States.SELECTING_METHOD;
         clearErrors();
         
@@ -327,6 +426,7 @@ window.PosStagedPayment = (function () {
         }
         
         currentCartToken = cartToken;
+        currentFlow = flow || 'full_payment';
         resetStageForm();
 
         currentFinalizeIdempotencyKey = null;
@@ -336,6 +436,7 @@ window.PosStagedPayment = (function () {
         if (!recovered) {
             // Start fresh with provided grand total
             initializeNewPaymentChain(cartToken, grandTotal);
+            updateFlowUI();
         }
 
         if (stagedModalElement) {
@@ -366,24 +467,46 @@ window.PosStagedPayment = (function () {
             const data = await response.json();
             if (!data.has_chain) return false;
 
-            // Recover payment chain from session
-            // Task 1.4: Restore original_grand_total from session
+            const numericGrandTotal = Number(grandTotal) || 0;
+            const payments = data.payment_chain.payments || [];
+            let originalTotal = data.payment_chain.original_grand_total ? Number(data.payment_chain.original_grand_total) : numericGrandTotal;
+            let remainder = (data.payment_chain.remainder !== undefined && !isNaN(Number(data.payment_chain.remainder))) ? Number(data.payment_chain.remainder) : 0;
+
+            if (numericGrandTotal > 0 && Math.abs(originalTotal - numericGrandTotal) > 0.001) {
+                if (payments.length === 0) {
+                    originalTotal = numericGrandTotal;
+                    remainder = numericGrandTotal;
+                } else {
+                    const totalStaged = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+                    originalTotal = numericGrandTotal;
+                    remainder = Math.round((numericGrandTotal - totalStaged) * 100) / 100;
+                }
+            }
+
             paymentChain = {
                 cart_token: cartToken,
-                original_grand_total: data.payment_chain.original_grand_total || Number(grandTotal) || 0,
-                remainder: data.payment_chain.remainder || 0,
-                payments: data.payment_chain.payments || [],
+                original_grand_total: originalTotal,
+                remainder: remainder,
+                payments: payments,
             };
 
-            // Recover debt state
-            if (data.payment_chain.is_debt) {
-                if (stagedIsDebtToggle) stagedIsDebtToggle.checked = true;
-                await handleDebtToggle();
+            // Recover flow state
+            if (data.payment_chain.flow) {
+                currentFlow = data.payment_chain.flow;
+            } else if (data.payment_chain.is_debt) {
+                currentFlow = 'kasbon';
+            } else {
+                currentFlow = 'full_payment';
+            }
+
+            if (currentFlow === 'kasbon') {
+                await loadPaymentTerms();
                 if (stagedPaymentTermSelect && data.payment_chain.payment_term_id) {
                     stagedPaymentTermSelect.value = data.payment_chain.payment_term_id;
                 }
             }
 
+            updateFlowUI();
             renderPaymentChain();
             updateRemainderDisplay();
             return true;
@@ -475,6 +598,13 @@ window.PosStagedPayment = (function () {
     }
 
     function resetPaymentImageState() {
+        if (imageUploadAbortController) {
+            try {
+                imageUploadAbortController.abort();
+            } catch (e) {}
+            imageUploadAbortController = null;
+        }
+        isImageUploading = false;
         currentImageToken = null;
         currentImageName = null;
         if (stagedPaymentImageFile) stagedPaymentImageFile.value = '';
@@ -511,22 +641,47 @@ window.PosStagedPayment = (function () {
 
         const formData = new FormData();
         formData.append('image', file);
-        formData.append('cart_token', paymentChain?.cart_token || currentCartToken);
+        const cartToken = paymentChain?.cart_token || currentCartToken;
+        formData.append('cart_token', cartToken);
+
+        const uploadGeneration = activeGeneration;
+        isImageUploading = true;
+        if (imageUploadAbortController) {
+            try {
+                imageUploadAbortController.abort();
+            } catch (e) {}
+        }
+        if (typeof AbortController !== 'undefined') {
+            imageUploadAbortController = new AbortController();
+        }
 
         try {
-            const response = await fetch('/pos/sell/payment-image', {
+            const fetchOptions = {
                 method: 'POST',
                 headers: {
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
                     'Accept': 'application/json'
                 },
                 body: formData
-            });
+            };
+            if (imageUploadAbortController) {
+                fetchOptions.signal = imageUploadAbortController.signal;
+            }
+            const response = await fetch('/pos/sell/payment-image', fetchOptions);
 
             const data = await response.json();
 
             if (!response.ok) {
                 throw new Error(data.message || 'Gagal mengunggah gambar');
+            }
+
+            // Invalidate if generation changed during upload (e.g. flow switched or reset)
+            if (uploadGeneration !== activeGeneration) {
+                console.log('[PosStagedPayment] Discarding stale image upload response from generation', uploadGeneration, 'current:', activeGeneration);
+                if (data && data.token) {
+                    deletePendingImage(data.token, cartToken);
+                }
+                return;
             }
 
             currentImageToken = data.token;
@@ -541,12 +696,21 @@ window.PosStagedPayment = (function () {
                 stagedPaymentImageFilename.textContent = currentImageName;
             }
         } catch (error) {
+            // Disregard errors if aborted or generation changed
+            if (uploadGeneration !== activeGeneration || (error && error.name === 'AbortError')) {
+                return;
+            }
+
             if (stagedPaymentImageError) stagedPaymentImageError.textContent = error.message;
             if (stagedPaymentImageUploadingState) stagedPaymentImageUploadingState.classList.add('d-none');
             if (stagedPaymentImageUploadState) stagedPaymentImageUploadState.classList.remove('d-none');
             if (stagedPaymentImageFile) stagedPaymentImageFile.value = '';
         } finally {
-            updateStageValidation();
+            if (uploadGeneration === activeGeneration) {
+                isImageUploading = false;
+                imageUploadAbortController = null;
+                updateStageValidation();
+            }
         }
     }
 
@@ -714,21 +878,15 @@ window.PosStagedPayment = (function () {
     // Task 4.1 & 4.2: Validate current stage
     function updateStageValidation() {
         let isValid = true;
-        const remainder = paymentChain?.remainder || 0;
-        const isDebt = stagedIsDebtToggle && stagedIsDebtToggle.checked;
+        const remainder = paymentChain?.remainder !== undefined ? paymentChain.remainder : 0;
+        const isDebt = (currentFlow === 'kasbon');
 
-        // If remainder is 0, allow finalization without additional payment entry
-        if (remainder === 0) {
-            // Payment is complete, button should be enabled to finalize
+        if (!isDebt && remainder <= 0) {
             isValid = true;
         } else {
             const amount = Number(stagedAmountInput?.dataset.rawValue || 0);
-            
+
             if (isDebt) {
-                if (!stagedPaymentTermSelect || !stagedPaymentTermSelect.value) {
-                    isValid = false;
-                }
-                
                 if (amount > 0) {
                     if (!selectedPaymentMethod) {
                         isValid = false;
@@ -744,9 +902,12 @@ window.PosStagedPayment = (function () {
                             isValid = false;
                         }
                     }
+                } else {
+                    // For Kasbon, entering down payment is optional; submit is disabled if amount is 0,
+                    // but finish Kasbon button remains enabled to finalize with 0 down payment.
+                    isValid = false;
                 }
             } else {
-                // Need to add more payments
                 if (!selectedPaymentMethod) {
                     isValid = false;
                 }
@@ -755,7 +916,6 @@ window.PosStagedPayment = (function () {
                     isValid = false;
                 }
 
-                // Task 2.4: Call validation function to check method-specific amount rules
                 if (isValid && selectedPaymentMethod && paymentChain) {
                     if (!validateAmountForMethod(amount, paymentChain.remainder, selectedPaymentMethod, isDebt)) {
                         isValid = false;
@@ -784,12 +944,12 @@ window.PosStagedPayment = (function () {
             return;
         }
 
-        const remainder = paymentChain?.remainder || 0;
-        const isDebt = stagedIsDebtToggle && stagedIsDebtToggle.checked;
+        const remainder = paymentChain?.remainder !== undefined ? paymentChain.remainder : 0;
+        const isDebt = (currentFlow === 'kasbon');
         const amount = Number(stagedAmountInput.dataset.rawValue || stagedAmountInput.value || 0);
 
-        // If remainder is 0, finalize checkout instead of adding another payment
-        if (remainder === 0) {
+        // If remainder is <= 0 on full payment, finalize checkout
+        if (!isDebt && remainder <= 0) {
             showFinalConfirmation();
             return;
         }
@@ -797,20 +957,25 @@ window.PosStagedPayment = (function () {
         if (!validateBeforeSubmit()) return;
 
         if (isDebt && amount === 0) {
-            showFinalConfirmation();
+            handleFinishKasbon();
             return;
         }
 
-        // Populate Confirmation Modal (Task 2.2)
+        // Populate Confirmation Modal
         if (confirmMethodLabel) confirmMethodLabel.textContent = selectedPaymentMethod?.name || '-';
         if (confirmRemainingLabel) confirmRemainingLabel.textContent = formatPrice(remainder);
         if (confirmEnteredLabel) confirmEnteredLabel.textContent = formatPrice(amount);
 
-        // Warning Logic and Alerts (Task 3.1 & 3.2)
+        // Warning Logic and Alerts
         if (confirmAlertContainer) {
             confirmAlertContainer.className = 'alert'; // reset classes
-            
-            if (amount === remainder) {
+
+            if (isDebt) {
+                const totalAfterThis = ((paymentChain.payments || []).reduce((sum, p) => sum + Number(p.amount), 0)) + amount;
+                const remainingDebt = paymentChain.original_grand_total - totalAfterThis;
+                confirmAlertContainer.classList.add('alert-warning');
+                confirmAlertContainer.textContent = `Uang Muka: ${formatPrice(amount)} (Sisa Kasbon: ${formatPrice(remainingDebt)})`;
+            } else if (amount === remainder) {
                 confirmAlertContainer.classList.add('alert-success');
                 confirmAlertContainer.textContent = 'Pembayaran Pas';
             } else if (amount > remainder) {
@@ -825,16 +990,16 @@ window.PosStagedPayment = (function () {
             confirmAlertContainer.classList.remove('d-none');
         }
 
-        // Show Confirmation Modal (Task 3.3)
+        // Show Confirmation Modal
         if (confirmModalElement) {
             $(confirmModalElement).modal('show');
         }
     }
 
-    // Task 4.2: Execute stage payment (previously submitStagePayment)
+    // Task 4.2: Execute stage payment
     async function executeStagePayment(event) {
         if (event) event.preventDefault();
-        
+
         if (confirmModalElement) {
             $(confirmModalElement).modal('hide');
         }
@@ -842,22 +1007,24 @@ window.PosStagedPayment = (function () {
         setProcessing(true);
         clearErrors();
 
+        const requestGen = activeGeneration;
+
         try {
-            // Task 2.5: Use raw value from dataset instead of formatted input.value
             const amount = Number(stagedAmountInput.dataset.rawValue || stagedAmountInput.value);
-            // Task 1.2: Send original grand total instead of (remainder + amount)
+            const isDebt = (currentFlow === 'kasbon');
             const payload = {
                 cart_token: paymentChain.cart_token,
                 payment_method_id: selectedPaymentMethod.id,
                 amount: amount,
                 edc_reference: stagedEdcReferenceInput?.value.trim() || null,
-                grand_total: paymentChain.original_grand_total,  // Send original, not (remainder + amount)
+                grand_total: paymentChain.original_grand_total,
+                flow: currentFlow,
+                is_debt: isDebt,
                 payment_image_token: currentImageToken || null,
             };
 
-            if (stagedIsDebtToggle && stagedIsDebtToggle.checked) {
-                payload.is_debt = true;
-                payload.payment_term_id = stagedPaymentTermSelect ? stagedPaymentTermSelect.value : null;
+            if (isDebt) {
+                payload.payment_term_id = (stagedPaymentTermSelect && stagedPaymentTermSelect.value) ? stagedPaymentTermSelect.value : null;
             }
 
             console.log('[PosStagedPayment] Submitting stage payment:', payload);
@@ -874,6 +1041,12 @@ window.PosStagedPayment = (function () {
             const data = await response.json();
             console.log('[PosStagedPayment] Stage payment response:', { status: response.status, ok: response.ok, data });
 
+            // Discard late / in-flight response if generation changed
+            if (requestGen !== activeGeneration) {
+                console.warn('[PosStagedPayment] Discarding late stage response because generation changed');
+                return;
+            }
+
             if (!response.ok) {
                 showError(data.message || 'Gagal memproses pembayaran');
                 return;
@@ -888,15 +1061,19 @@ window.PosStagedPayment = (function () {
             // Clear local active image state since ownership is transferred to the committed chain
             resetPaymentImageState();
 
-            // Check remainder and proceed
-            if (data.remainder > 0 && !payload.is_debt) {
-                // More payments needed
+            if (currentFlow === 'kasbon') {
+                // Task 4.1: Adding a Kasbon stage NEVER forces completion!
+                // Cashier stays in modal to add more down payments or click "Selesaikan Kasbon"
+                resetStageForm();
+                renderPaymentChain();
+                updateRemainderDisplay();
+            } else if (data.remainder > 0) {
+                // More payments needed for full payment
                 resetStageForm();
                 renderPaymentChain();
                 updateRemainderDisplay();
             } else {
-                // Payment complete or overpaid (data.remainder <= 0), or it's a debt down payment, proceed to authoritative finalization
-                console.log('[PosStagedPayment] Payment complete/overpaid or debt down payment, initiating checkout finalization', { remainder: data.remainder, is_debt: payload.is_debt });
+                // Full payment completed
                 resetStageForm();
                 renderPaymentChain();
                 updateRemainderDisplay();
@@ -910,30 +1087,37 @@ window.PosStagedPayment = (function () {
         }
     }
 
-    // Task 2.1: Create validateAmountForMethod() function that checks is_cash flag
+    // Validate amount for method with Kasbon cumulative check
     function validateAmountForMethod(amount, remainder, method, isDebt) {
         if (!method) return false;
 
-        // Debt validation rule - amount must be strictly less than remainder
+        // Debt validation rule - combined down payments must be strictly less than original grand total
         if (isDebt) {
-            return amount < remainder;
+            const grandTotal = paymentChain?.original_grand_total || remainder;
+            const previousStaged = (paymentChain?.payments || []).reduce((sum, p) => sum + Number(p.amount), 0);
+            if (previousStaged + amount >= grandTotal) {
+                return false;
+            }
+            if (!method.is_cash && amount > remainder) {
+                return false;
+            }
+            return true;
         }
 
-        // Task 2.2: Cash validation rule - amount >= remainder (allow overpayment)
+        // Cash validation rule - amount >= remainder (allow overpayment)
         if (method.is_cash) {
             return amount >= remainder;
         }
 
-        // Task 2.3: Non-cash validation rule - amount <= remainder (no overpayment)
+        // Non-cash validation rule - amount <= remainder (no overpayment)
         return amount <= remainder;
     }
 
     // Task 4.4: Validate before payment submission
     function validateBeforeSubmit() {
-        // Task 2.5: Use raw value from dataset
         const amount = Number(stagedAmountInput?.dataset.rawValue || stagedAmountInput?.value || 0);
         const remainder = paymentChain?.remainder || 0;
-        const isDebt = stagedIsDebtToggle && stagedIsDebtToggle.checked;
+        const isDebt = (currentFlow === 'kasbon');
 
         if (!isDebt && amount <= 0) {
             showError('Jumlah pembayaran harus lebih dari 0');
@@ -945,11 +1129,17 @@ window.PosStagedPayment = (function () {
             return false;
         }
 
-        // Task 2.4 & 2.5: Call validation function with method-specific error messages
+        if (isDebt) {
+            if (!currentHasCustomer) {
+                showError('Pilih pelanggan terlebih dahulu untuk transaksi Kasbon.');
+                return false;
+            }
+        }
+
         if (selectedPaymentMethod && amount > 0) {
             if (!validateAmountForMethod(amount, remainder, selectedPaymentMethod, isDebt)) {
                 if (isDebt) {
-                    showError(`Pembayaran utang/kasbon harus kurang dari sisa tagihan ${formatPrice(remainder)}`);
+                    showError(`Total uang muka Kasbon tidak boleh sama dengan atau melebihi total belanja ${formatPrice(paymentChain?.original_grand_total || remainder)}. Silakan beralih ke Bayar Lunas.`);
                 } else if (selectedPaymentMethod.is_cash) {
                     showError(`Jumlah pembayaran tunai harus minimal ${formatPrice(remainder)} untuk melunasi`);
                 } else {
@@ -963,7 +1153,6 @@ window.PosStagedPayment = (function () {
             const reference = stagedEdcReferenceInput?.value.trim() || '';
             if (!reference) {
                 showError('Nomor referensi EDC wajib diisi');
-                // Task 3.3: Ensure EDC reference field gets focus when error occurs
                 if (stagedEdcReferenceInput) stagedEdcReferenceInput.focus();
                 return false;
             }
@@ -981,7 +1170,7 @@ window.PosStagedPayment = (function () {
             stagedAmountInput.dataset.rawValue = '';
         }
         if (stagedEdcReferenceInput) stagedEdcReferenceInput.value = '';
-        
+
         updateEdcReferenceVisibility();
         updatePaymentImageVisibility();
         resetPaymentImageState();
@@ -992,70 +1181,267 @@ window.PosStagedPayment = (function () {
 
     // Reset full checkout context (debt state, lifecycle acknowledgement, etc)
     function resetCheckoutContext() {
-        if (stagedIsDebtToggle) stagedIsDebtToggle.checked = false;
         if (stagedPaymentTermSelect) stagedPaymentTermSelect.value = '';
         isLifecycleAcknowledged = false;
-        handleDebtToggle();
+        updateFlowUI();
     }
 
-    // Handle payment chain reset with confirmation
+    // Check if there is dirty input or staged payment data
+    function isDirty() {
+        if (paymentChain && Array.isArray(paymentChain.payments) && paymentChain.payments.length > 0) {
+            return true;
+        }
+        if (stagedAmountInput) {
+            const raw = stagedAmountInput.dataset?.rawValue || stagedAmountInput.value || '';
+            const cleaned = String(raw).replace(/[^0-9.]/g, '');
+            if (cleaned !== '' && Number(cleaned) > 0) {
+                return true;
+            }
+        }
+        if (isImageUploading || currentImageToken) {
+            return true;
+        }
+        if (stagedEdcReferenceInput && stagedEdcReferenceInput.value.trim() !== '') {
+            return true;
+        }
+        if (currentFlow === 'kasbon' && stagedPaymentTermSelect && stagedPaymentTermSelect.value) {
+            return true;
+        }
+        return false;
+    }
+
+    // Reconcile payment chain with authoritative server session
+    async function reconcileAuthoritativeChain(cartToken, grandTotal, flow) {
+        try {
+            const response = await fetch('/pos/sell/checkout/reconcile-payment-chain', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify({
+                    cart_token: cartToken,
+                    grand_total: grandTotal,
+                    flow: flow || currentFlow,
+                })
+            });
+
+            if (!response.ok) return null;
+            const data = await response.json();
+            return data.payment_chain || null;
+        } catch (e) {
+            console.error('[PosStagedPayment] Failed to reconcile server chain:', e);
+            return null;
+        }
+    }
+
+    // Switch flow with dirty confirmation and authoritative reset
+    async function switchFlow(targetFlow, targetGrandTotal = null) {
+        if (state === States.PROCESSING) {
+            showError('Operasi pembayaran sedang berlangsung, harap tunggu hingga selesai.');
+            return;
+        }
+
+        if (!targetFlow || targetFlow === currentFlow) {
+            return;
+        }
+
+        if (targetFlow === 'kasbon' && !currentHasCustomer) {
+            showError('Pilih pelanggan terlebih dahulu untuk menggunakan fitur Kasbon.');
+            return;
+        }
+
+        if (isDirty()) {
+            pendingTargetFlow = targetFlow;
+            pendingTargetGrandTotal = targetGrandTotal;
+            if (flowSwitchMessageElement) {
+                if (targetFlow === 'kasbon') {
+                    flowSwitchMessageElement.textContent = 'Pembayaran yang sudah dimasukkan akan dibatalkan. Anda akan beralih ke alur Kasbon (Piutang). Lanjutkan?';
+                } else {
+                    flowSwitchMessageElement.textContent = 'Uang muka kasbon dan jangka waktu yang dipilih akan dibatalkan. Anda akan beralih ke alur Bayar Lunas. Lanjutkan?';
+                }
+            }
+            if (flowSwitchModalElement) {
+                $(flowSwitchModalElement).modal('show');
+            }
+        } else {
+            await executeAuthoritativeReset(targetFlow, targetGrandTotal);
+        }
+    }
+
+    // Confirm flow switch from modal
+    async function confirmFlowSwitch() {
+        if (flowSwitchModalElement) {
+            $(flowSwitchModalElement).modal('hide');
+        }
+
+        if (pendingTargetFlow) {
+            const target = pendingTargetFlow;
+            const targetTotal = pendingTargetGrandTotal;
+            pendingTargetFlow = null;
+            pendingTargetGrandTotal = null;
+            await executeAuthoritativeReset(target, targetTotal);
+        }
+    }
+
+    // Execute authoritative server reset under cart-scope
+    async function executeAuthoritativeReset(targetFlow, targetGrandTotal = null) {
+        setProcessing(true);
+        clearErrors();
+
+        try {
+            if (currentCartToken) {
+                const response = await fetch('/pos/sell/checkout/payment-chain', {
+                    method: 'DELETE',
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        cart_token: currentCartToken,
+                    }),
+                });
+
+                if (!response.ok) {
+                    let errorMessage = 'Gagal mereset pembayaran. Silakan coba lagi.';
+                    try {
+                        const data = await response.json();
+                        errorMessage = data.message || errorMessage;
+                    } catch (e) {}
+                    showError(errorMessage);
+                    setProcessing(false);
+                    return false;
+                }
+            }
+
+            // Invalidate any in-flight responses
+            activeGeneration++;
+
+            // Abort and clear pending image upload
+            if (imageUploadAbortController) {
+                try {
+                    imageUploadAbortController.abort();
+                } catch (e) {}
+                imageUploadAbortController = null;
+            }
+            isImageUploading = false;
+
+            // Clear local state
+            const originalTotal = targetGrandTotal || paymentChain?.original_grand_total || 0;
+            paymentChain = null;
+            currentStageData = null;
+            resetPaymentImageState();
+            resetStageForm();
+            if (stagedPaymentTermSelect) stagedPaymentTermSelect.value = '';
+            currentFinalizeIdempotencyKey = null;
+
+            if (targetFlow) {
+                currentFlow = targetFlow;
+                initializeNewPaymentChain(currentCartToken, originalTotal);
+                await updateFlowUI();
+            }
+
+            setProcessing(false);
+            return true;
+        } catch (error) {
+            console.error('[PosStagedPayment] Failed to execute authoritative reset:', error);
+            showError('Gagal mereset pembayaran. Silakan coba lagi.');
+            setProcessing(false);
+            return false;
+        }
+    }
+
+    // Handle payment chain reset button with confirmation
     async function handleResetPaymentChain() {
         if (!paymentChain || state === States.PROCESSING) {
             return;
         }
 
-        // Show confirmation
         if (!confirm('Anda yakin ingin menghapus semua pembayaran yang sudah diproses? Tindakan ini tidak dapat dibatalkan.')) {
-            // User declined reset - keep state intact
             return;
         }
 
-        setProcessing(true);
-
-        try {
-            const response = await fetch('/pos/sell/checkout/payment-chain', {
-                method: 'DELETE',
-                headers: {
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    cart_token: currentCartToken,
-                }),
-            });
-
-            if (!response.ok) {
-                let errorMessage = 'Gagal menghapus pembayaran. Silakan coba lagi.';
-                try {
-                    const data = await response.json();
-                    errorMessage = data.message || errorMessage;
-                } catch (e) {
-                    // Could not parse error response
-                }
-                showError(errorMessage);
-                setProcessing(false);
-                return;
-            }
-
-            // Success - clear local state and close modal
-            paymentChain = null;
-            currentStageData = null;
-            resetCheckoutContext();
-            resetStageForm();
-
-            // Restore processing state
-            setProcessing(false);
-
-            // Close the modal using Bootstrap
-            if (stagedModalElement) {
-                $(stagedModalElement).modal('hide');
-            }
-        } catch (error) {
-            console.error('Failed to reset payment chain:', error);
-            showError('Gagal menghapus pembayaran. Silakan coba lagi.');
-            setProcessing(false);
+        const success = await executeAuthoritativeReset(currentFlow);
+        if (success && stagedModalElement) {
+            $(stagedModalElement).modal('hide');
         }
+    }
+
+    // Handle explicit Kasbon completion (0 or multiple down payments)
+    function handleFinishKasbon(event) {
+        if (event && typeof event.preventDefault === 'function') event.preventDefault();
+
+        if (state === States.PROCESSING) return;
+
+        if (!currentHasCustomer) {
+            showError('Pilih pelanggan terlebih dahulu untuk transaksi Kasbon.');
+            return;
+        }
+
+        if (!stagedPaymentTermSelect || !stagedPaymentTermSelect.value) {
+            showError('Pilih jangka waktu (payment term) terlebih dahulu.');
+            if (stagedPaymentTermSelect && typeof stagedPaymentTermSelect.focus === 'function') {
+                stagedPaymentTermSelect.focus();
+            }
+            return;
+        }
+
+        const unsubmittedAmount = Number(stagedAmountInput?.dataset?.rawValue || stagedAmountInput?.value || 0);
+        if (unsubmittedAmount > 0) {
+            showError('Terdapat nominal pembayaran yang belum ditambahkan. Klik Tambah Uang Muka terlebih dahulu atau kosongkan kolom nominal.');
+            return;
+        }
+
+        showFinalConfirmation();
+    }
+
+    // Update UI elements based on currentFlow
+    async function updateFlowUI() {
+        const isKasbon = (currentFlow === 'kasbon');
+
+        if (stagedFlowBadge) {
+            stagedFlowBadge.className = isKasbon ? 'badge badge-danger px-2 py-1 ml-2' : 'badge badge-primary px-2 py-1 ml-2';
+            stagedFlowBadge.textContent = isKasbon ? 'Kasbon (Piutang)' : 'Bayar Lunas';
+        }
+
+        if (stagedSwitchFlowText) {
+            stagedSwitchFlowText.textContent = isKasbon ? 'Ganti ke Bayar Lunas' : 'Ganti ke Kasbon';
+        }
+
+        if (stagedRemainderTitle) {
+            stagedRemainderTitle.textContent = isKasbon ? 'Sisa Kasbon:' : 'Sisa Pembayaran:';
+        }
+
+        if (stagedAmountLabel) {
+            stagedAmountLabel.textContent = isKasbon ? 'Jumlah Uang Muka (Rp) (Opsional)' : 'Jumlah Pembayaran (Rp)';
+        }
+
+        if (stagedDebtTermsContainer) {
+            if (isKasbon) {
+                stagedDebtTermsContainer.classList.remove('d-none');
+                if (cachedPaymentTerms === null) {
+                    await loadPaymentTerms();
+                }
+            } else {
+                stagedDebtTermsContainer.classList.add('d-none');
+            }
+        }
+
+        if (stagedFinishKasbonBtn) {
+            if (isKasbon) {
+                stagedFinishKasbonBtn.classList.remove('d-none');
+            } else {
+                stagedFinishKasbonBtn.classList.add('d-none');
+            }
+        }
+
+        if (stagedSubmitButton) {
+            stagedSubmitButton.textContent = isKasbon ? 'Tambah Uang Muka' : 'Lanjut Pembayaran';
+        }
+
+        updateStageValidation();
     }
 
     // Task 3.4: Handle modal lock during processing - disable all dismiss and reset controls
@@ -1111,8 +1497,8 @@ window.PosStagedPayment = (function () {
             currentFinalizeIdempotencyKey = `FINALIZE-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         }
 
-        const isDebt = stagedIsDebtToggle && stagedIsDebtToggle.checked;
-        const totalPaid = paymentChain.original_grand_total - paymentChain.remainder;
+        const isDebt = (currentFlow === 'kasbon');
+        const totalPaid = (paymentChain.payments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
         if (finalGrandTotalLabel) finalGrandTotalLabel.textContent = formatPrice(paymentChain.original_grand_total);
         if (finalPaidAmountLabel) finalPaidAmountLabel.textContent = formatPrice(totalPaid);
@@ -1122,7 +1508,8 @@ window.PosStagedPayment = (function () {
             if (finalDebtContainer) finalDebtContainer.classList.remove('d-none');
             if (finalDebtDetailsContainer) finalDebtDetailsContainer.classList.remove('d-none');
             
-            if (finalDebtLabel) finalDebtLabel.textContent = formatPrice(paymentChain.remainder);
+            const remainingDebt = Math.max(0, paymentChain.original_grand_total - totalPaid);
+            if (finalDebtLabel) finalDebtLabel.textContent = formatPrice(remainingDebt);
             
             // Get selected term text
             let termName = '-';
@@ -1141,8 +1528,8 @@ window.PosStagedPayment = (function () {
             if (finalDebtContainer) finalDebtContainer.classList.add('d-none');
             if (finalDebtDetailsContainer) finalDebtDetailsContainer.classList.add('d-none');
             
-            const change = totalPaid - paymentChain.original_grand_total;
-            if (finalChangeLabel) finalChangeLabel.textContent = formatPrice(Math.max(0, change));
+            const change = Math.max(0, totalPaid - paymentChain.original_grand_total);
+            if (finalChangeLabel) finalChangeLabel.textContent = formatPrice(change);
         }
 
         if (finalModalElement) {
@@ -1177,15 +1564,17 @@ window.PosStagedPayment = (function () {
         clearErrors();
 
         try {
+            const isDebt = (currentFlow === 'kasbon');
             const payload = {
                 cart_token: paymentChain.cart_token,
                 idempotency_key: currentFinalizeIdempotencyKey,
                 acknowledge_lifecycle_warning: isLifecycleAcknowledged,
+                flow: currentFlow,
+                is_debt: isDebt,
             };
 
-            if (stagedIsDebtToggle && stagedIsDebtToggle.checked) {
-                payload.is_debt = true;
-                payload.payment_term_id = stagedPaymentTermSelect ? stagedPaymentTermSelect.value : null;
+            if (isDebt) {
+                payload.payment_term_id = (stagedPaymentTermSelect && stagedPaymentTermSelect.value) ? stagedPaymentTermSelect.value : null;
             }
 
             console.log('[PosStagedPayment] Finalizing checkout:', payload);
@@ -1604,6 +1993,15 @@ window.PosStagedPayment = (function () {
         setOnComplete,
         loadPaymentMethods,
         printReceipt,
+        switchFlow,
+        isDirty,
+        getCurrentFlow: () => currentFlow,
+        getActiveGeneration: () => activeGeneration,
+        getPaymentChain: () => paymentChain,
+        getCurrentImageToken: () => currentImageToken,
+        isImageUploading: () => isImageUploading,
+        handleFinishKasbon,
+        executeAuthoritativeReset,
         setLifecycleAcknowledged: function (acknowledged) {
             isLifecycleAcknowledged = !!acknowledged;
         },

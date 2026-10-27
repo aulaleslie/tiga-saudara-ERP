@@ -1,8 +1,16 @@
     <div class="modal fade" id="pos-staged-checkout-modal" tabindex="-1" role="dialog" aria-labelledby="pos-staged-checkout-modal-label" aria-hidden="true" data-backdrop="static">
         <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
             <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="pos-staged-checkout-modal-label">Pembayaran Bertahap</h5>
+                <div class="modal-header d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center flex-wrap gap-2">
+                        <h5 class="modal-title mb-0" id="pos-staged-checkout-modal-label">Pembayaran</h5>
+                        <span id="staged-flow-badge" class="badge badge-primary px-2 py-1 ml-2">Bayar Lunas</span>
+                        @can('pos.checkout.debt')
+                        <button type="button" id="staged-switch-flow-btn" class="btn btn-sm btn-outline-secondary ml-2" title="Ganti Alur Pembayaran">
+                            <i class="fas fa-exchange-alt mr-1"></i> <span id="staged-switch-flow-text">Ganti ke Kasbon</span>
+                        </button>
+                        @endcan
+                    </div>
                     <button type="button" id="staged-payment-close-btn" class="close" data-dismiss="modal" aria-label="Tutup">
                         <span aria-hidden="true">&times;</span>
                     </button>
@@ -22,20 +30,14 @@
                     <!-- Remainder Display -->
                     <div class="alert alert-info mb-4">
                         <div class="d-flex justify-content-between align-items-center">
-                            <span class="font-weight-bold">Sisa Pembayaran:</span>
+                            <span class="font-weight-bold" id="staged-remainder-title">Sisa Pembayaran:</span>
                             <span id="staged-remainder-amount" class="h4 mb-0 text-danger">Rp0</span>
                         </div>
                     </div>
 
-                    <!-- Task 5.1: Debt Checkout Toggle -->
-                    <div class="custom-control custom-switch mb-3">
-                        <input type="checkbox" class="custom-control-input" id="staged-payment-is-debt">
-                        <label class="custom-control-label font-weight-bold text-danger" for="staged-payment-is-debt">Bayar sebagai Piutang / Kasbon</label>
-                    </div>
-
-                    <!-- Task 5.2: Payment Terms Dropdown -->
+                    <!-- Payment Terms Selection (Shown in Kasbon flow) -->
                     <div class="form-group mb-3 d-none" id="staged-payment-debt-terms-container">
-                        <label class="font-weight-bold d-block mb-1">Jangka Waktu (Payment Term)</label>
+                        <label class="font-weight-bold d-block mb-1">Jangka Waktu (Payment Term) <span class="text-danger">*</span></label>
                         <div class="d-flex gap-2">
                             <select class="form-control" id="staged-payment-term">
                                 <option value="">-- Pilih Jangka Waktu --</option>
@@ -64,7 +66,7 @@
 
                     <!-- Amount Input -->
                     <div class="form-group mb-3">
-                        <label for="staged-amount-input" class="font-weight-bold">Jumlah Pembayaran (Rp)</label>
+                        <label for="staged-amount-input" id="staged-amount-label" class="font-weight-bold">Jumlah Pembayaran (Rp)</label>
                         <input type="text" id="staged-amount-input" class="form-control form-control-lg"
                                placeholder="0" inputmode="numeric">
                         <small id="staged-amount-hint" class="form-text mt-1 font-weight-bold" style="display: none;"></small>
@@ -121,7 +123,10 @@
                     <button type="button" id="staged-payment-reset-btn" class="btn btn-outline-danger btn-lg" title="Hapus semua pembayaran yang sudah diproses">
                         Batalkan Seluruh Pembayaran
                     </button>
-                    <button type="button" class="btn btn-secondary btn-lg" data-dismiss="modal">Batal</button>
+                    <button type="button" class="btn btn-secondary btn-lg" data-dismiss="modal">Tutup</button>
+                    <button type="button" id="staged-finish-kasbon-btn" class="btn btn-danger btn-lg px-4 d-none">
+                        Selesaikan Kasbon
+                    </button>
                     <button type="button" id="staged-payment-submit" class="btn btn-primary btn-lg px-5" disabled>
                         Lanjut Pembayaran
                     </button>
@@ -218,6 +223,34 @@
                 <div class="modal-footer bg-light">
                     <button type="button" id="final-payment-cancel-btn" class="btn btn-secondary btn-lg" data-dismiss="modal">Batal</button>
                     <button type="button" id="final-payment-proceed-btn" class="btn btn-primary btn-lg px-5">Selesaikan Transaksi</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Flow Switch Confirmation Modal -->
+    <div class="modal fade" id="pos-flow-switch-modal" tabindex="-1" role="dialog" aria-labelledby="pos-flow-switch-modal-label" aria-hidden="true" data-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content border-warning">
+                <div class="modal-header bg-warning text-dark">
+                    <h5 class="modal-title font-weight-bold" id="pos-flow-switch-modal-label">
+                        <i class="fas fa-exclamation-triangle mr-2"></i> Konfirmasi Ganti Alur Pembayaran
+                    </h5>
+                    <button type="button" class="close text-dark" data-dismiss="modal" aria-label="Tutup">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body p-4">
+                    <p id="pos-flow-switch-message" class="mb-3 text-dark">
+                        Pembayaran yang sudah dimasukkan akan dibatalkan jika Anda mengganti alur pembayaran. Lanjutkan?
+                    </p>
+                    <div class="alert alert-light border small text-muted mb-0">
+                        <i class="fas fa-info-circle mr-1"></i> Item keranjang, data pelanggan, dan catatan transaksi akan tetap tersimpan.
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" id="pos-flow-switch-cancel-btn" class="btn btn-secondary btn-lg" data-dismiss="modal">Batal</button>
+                    <button type="button" id="pos-flow-switch-confirm-btn" class="btn btn-warning btn-lg px-4 font-weight-bold">Ya, Ganti Alur</button>
                 </div>
             </div>
         </div>

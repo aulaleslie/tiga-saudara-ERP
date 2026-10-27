@@ -650,7 +650,8 @@ class PosSellController extends Controller
             'edc_reference' => ['nullable', 'string', 'max:255'],
             'grand_total' => ['required', 'numeric', 'min:0.01'],
             'is_debt' => ['nullable', 'boolean'],
-            'payment_term_id' => ['nullable', 'integer', 'required_if:is_debt,true'],
+            'flow' => ['nullable', 'string', 'in:full_payment,kasbon'],
+            'payment_term_id' => ['nullable', 'integer'],
             'payment_image_token' => ['nullable', 'string', 'max:255'],
         ]);
 
@@ -660,6 +661,12 @@ class PosSellController extends Controller
         $edcReference = $validated['edc_reference'] ?? null;
         $grandTotal = (float) $validated['grand_total'];
         $paymentImageToken = $validated['payment_image_token'] ?? null;
+
+        $flow = $validated['flow'] ?? null;
+        if (! $flow) {
+            $flow = !empty($validated['is_debt']) ? 'kasbon' : 'full_payment';
+        }
+        $isDebt = ($flow === 'kasbon');
 
         try {
             $sessionKey = "payment_chain_{$cartToken}";
@@ -674,7 +681,22 @@ class PosSellController extends Controller
             }
 
             $chain = $request->session()->get($sessionKey);
-            $remainder = (float) ($chain['remainder'] ?? 0);
+            $previousPaid = (float) array_sum(array_column($chain['payments'] ?? [], 'amount'));
+
+            // Authoritatively reconcile remainder against current grandTotal before staging new payment
+            $remainder = round($grandTotal - $previousPaid, 2);
+            $chain['original_grand_total'] = $grandTotal;
+            $chain['remainder'] = $remainder;
+
+            // In Kasbon flow, combined down payments must be strictly less than grand total
+            $newCombinedPaid = round($previousPaid + $amount, 2);
+
+            if ($isDebt && $newCombinedPaid >= $grandTotal) {
+                return response()->json([
+                    'code' => 'DEBT_DOWN_PAYMENT_EXCEEDS_TOTAL',
+                    'message' => 'Total uang muka Kasbon tidak boleh sama dengan atau melebihi total belanja. Silakan beralih ke Bayar Lunas.',
+                ], 422);
+            }
 
             // Get payment method to check if cash (cash can overpay, non-cash cannot)
             $paymentMethod = \Modules\Setting\Entities\PaymentMethod::find($paymentMethodId);
@@ -684,8 +706,6 @@ class PosSellController extends Controller
                     'message' => 'Payment method not found.',
                 ], 422);
             }
-
-            $isDebt = (bool)($validated['is_debt'] ?? false);
 
             // Validate amount based on payment method type
             // Non-cash: amount cannot exceed remainder (no overpayment)
@@ -745,10 +765,11 @@ class PosSellController extends Controller
                 'created_at' => now()->toIso8601String(),
             ];
 
-            // Update remainder
+            // Update remainder and explicit flow state
             $chain['remainder'] = round($remainder - $amount, 2);
+            $chain['flow'] = $flow;
             $chain['is_debt'] = $isDebt;
-            $chain['payment_term_id'] = $validated['payment_term_id'] ?? null;
+            $chain['payment_term_id'] = $validated['payment_term_id'] ?? $chain['payment_term_id'] ?? null;
             $request->session()->put($sessionKey, $chain);
 
             return response()->json([
@@ -779,6 +800,10 @@ class PosSellController extends Controller
         $chain = $request->session()->get($sessionKey);
 
         if ($chain) {
+            if (! isset($chain['flow'])) {
+                $chain['flow'] = !empty($chain['is_debt']) ? 'kasbon' : 'full_payment';
+            }
+
             return response()->json([
                 'has_chain' => true,
                 'payment_chain' => $chain,
@@ -800,12 +825,19 @@ class PosSellController extends Controller
         $validated = $request->validate([
             'cart_token' => ['required', 'string', 'uuid'],
             'grand_total' => ['required', 'numeric', 'min:0.01'],
-            'is_debt' => ['required', 'boolean'],
+            'is_debt' => ['nullable', 'boolean'],
+            'flow' => ['nullable', 'string', 'in:full_payment,kasbon'],
             'payment_term_id' => ['nullable', 'integer'],
         ]);
 
         $cartToken = $validated['cart_token'];
         $sessionKey = "payment_chain_{$cartToken}";
+
+        $flow = $validated['flow'] ?? null;
+        if (! $flow) {
+            $flow = !empty($validated['is_debt']) ? 'kasbon' : 'full_payment';
+        }
+        $isDebt = ($flow === 'kasbon');
 
         // Initialize chain if not exists
         if (! $request->session()->has($sessionKey)) {
@@ -817,11 +849,82 @@ class PosSellController extends Controller
         }
 
         $chain = $request->session()->get($sessionKey);
-        $chain['is_debt'] = $validated['is_debt'];
+        $chain['flow'] = $flow;
+        $chain['is_debt'] = $isDebt;
         $chain['payment_term_id'] = $validated['payment_term_id'] ?? null;
         $request->session()->put($sessionKey, $chain);
 
         return response()->json(['success' => true]);
+    }
+
+    public function reconcilePaymentChain(Request $request): JsonResponse
+    {
+        if ($denied = $this->ensureCheckoutPermission($request)) {
+            return $denied;
+        }
+
+        $validated = $request->validate([
+            'cart_token' => ['required', 'string', 'uuid'],
+            'grand_total' => ['required', 'numeric', 'min:0.01'],
+            'flow' => ['nullable', 'string', 'in:full_payment,kasbon'],
+        ]);
+
+        $cartToken = $validated['cart_token'];
+        $grandTotal = (float) $validated['grand_total'];
+        $flow = $validated['flow'] ?? null;
+        $sessionKey = "payment_chain_{$cartToken}";
+
+        $activeSession = $request->attributes->get('pos_active_session');
+        if (! $activeSession instanceof PosSession) {
+            abort(403, 'Active POS session context is required.');
+        }
+
+        /** @var \Modules\Pos\Services\PosCartMutationLock $mutationLock */
+        $mutationLock = app(\Modules\Pos\Services\PosCartMutationLock::class);
+
+        return $mutationLock->withLock($this->currentSettingId(), (int) $activeSession->id, function () use ($request, $sessionKey, $cartToken, $grandTotal, $flow) {
+            $chain = $request->session()->get($sessionKey);
+
+            if (! $chain) {
+                $chain = [
+                    'cart_token' => $cartToken,
+                    'payments' => [],
+                    'original_grand_total' => $grandTotal,
+                    'remainder' => $grandTotal,
+                    'flow' => $flow ?? 'full_payment',
+                    'is_debt' => ($flow === 'kasbon'),
+                    'staged_at' => now()->toIso8601String(),
+                ];
+                $request->session()->put($sessionKey, $chain);
+
+                return response()->json([
+                    'success' => true,
+                    'has_chain' => true,
+                    'payment_chain' => $chain,
+                    'remainder' => $grandTotal,
+                ]);
+            }
+
+            $payments = $chain['payments'] ?? [];
+            $totalPaid = (float) array_sum(array_column($payments, 'amount'));
+            $newRemainder = round($grandTotal - $totalPaid, 2);
+
+            $chain['original_grand_total'] = $grandTotal;
+            $chain['remainder'] = $newRemainder;
+            if ($flow && ! isset($chain['flow'])) {
+                $chain['flow'] = $flow;
+                $chain['is_debt'] = ($flow === 'kasbon');
+            }
+
+            $request->session()->put($sessionKey, $chain);
+
+            return response()->json([
+                'success' => true,
+                'has_chain' => true,
+                'payment_chain' => $chain,
+                'remainder' => $newRemainder,
+            ]);
+        });
     }
 
     public function resetPaymentChain(Request $request): JsonResponse
@@ -835,22 +938,27 @@ class PosSellController extends Controller
         ]);
 
         $cartToken = $validated['cart_token'];
-        $sessionKey = "payment_chain_{$cartToken}";
-
-        $request->session()->forget($sessionKey);
-
         $activeSession = $request->attributes->get('pos_active_session');
         if (! $activeSession instanceof PosSession) {
             abort(403, 'Active POS session context is required.');
         }
 
-        app(\Modules\Pos\Services\PosTemporaryPaymentImageService::class)->deleteAllByCartToken(
-            $cartToken,
-            $this->currentSettingId(),
-            (int) $activeSession->id
-        );
+        /** @var \Modules\Pos\Services\PosCartMutationLock $mutationLock */
+        $mutationLock = app(\Modules\Pos\Services\PosCartMutationLock::class);
+
+        $mutationLock->withLock($this->currentSettingId(), (int) $activeSession->id, function () use ($request, $cartToken, $activeSession) {
+            $sessionKey = "payment_chain_{$cartToken}";
+            $request->session()->forget($sessionKey);
+
+            app(\Modules\Pos\Services\PosTemporaryPaymentImageService::class)->deleteAllByCartToken(
+                $cartToken,
+                $this->currentSettingId(),
+                (int) $activeSession->id
+            );
+        });
 
         return response()->json([
+            'success' => true,
             'message' => 'Payment chain cleared.',
         ], 200);
     }
@@ -931,7 +1039,10 @@ class PosSellController extends Controller
             }
             $cartToken = (string) $request->input('cart_token', '');
 
-            $paymentPayload['is_debt'] = $request->boolean('is_debt');
+            $flow = $request->input('flow');
+            $isDebt = ($flow === 'kasbon') || $request->boolean('is_debt');
+            $paymentPayload['flow'] = $flow ?: ($isDebt ? 'kasbon' : 'full_payment');
+            $paymentPayload['is_debt'] = $isDebt;
             $paymentPayload['payment_term_id'] = $request->input('payment_term_id');
             $paymentPayload['approval_token'] = $request->input('approval_token');
             $paymentPayload['acknowledge_lifecycle_warning'] = $request->boolean('acknowledge_lifecycle_warning');
@@ -958,9 +1069,11 @@ class PosSellController extends Controller
                         $paymentPayload['payments'] = $mappedPayments;
                     }
 
-                    if (!empty($sessionPaymentChain['is_debt'])) {
+                    $chainIsDebt = ($sessionPaymentChain['flow'] ?? null) === 'kasbon' || !empty($sessionPaymentChain['is_debt']);
+                    if ($chainIsDebt) {
                         $paymentPayload['is_debt'] = true;
-                        if (!empty($sessionPaymentChain['payment_term_id'])) {
+                        $paymentPayload['flow'] = 'kasbon';
+                        if (empty($paymentPayload['payment_term_id']) && !empty($sessionPaymentChain['payment_term_id'])) {
                             $paymentPayload['payment_term_id'] = $sessionPaymentChain['payment_term_id'];
                         }
                     }

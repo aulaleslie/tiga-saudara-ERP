@@ -21,7 +21,7 @@
         height: 100%;
         display: grid;
         grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
-        grid-template-rows: clamp(64px, 9dvh, 86px) clamp(104px, 16dvh, 150px) minmax(0, 1fr) auto clamp(132px, 19dvh, 184px);
+        grid-template-rows: clamp(64px, 9dvh, 86px) clamp(104px, 16dvh, 150px) minmax(0, 1fr) auto clamp(200px, 26dvh, 240px);
         grid-template-areas:
             "info     nav"
             "search   search"
@@ -81,8 +81,13 @@
 
     .pos-area-nav .card-body,
     .pos-area-search .card-body,
-    .pos-area-customer .card-body {
+    .pos-area-customer .card-body,
+    .pos-area-payment .card-body {
         overflow: visible;
+    }
+
+    .pos-area-payment .card-body {
+        padding: 0.38rem 0.62rem 0.45rem;
     }
 
     .pos-section-title {
@@ -993,38 +998,104 @@
         display: flex;
         flex-direction: column;
         justify-content: space-between;
-        gap: 0.45rem;
+        gap: 0.35rem;
         height: 100%;
     }
 
+    .pos-payment-summary {
+        flex: 0 0 auto;
+    }
+
+    .pos-payment-summary-label {
+        line-height: 1.15;
+        margin-bottom: 0.1rem;
+        font-size: 0.76rem;
+    }
+
     .pos-total-value {
-        font-size: clamp(1.25rem, 2.4vw, 1.82rem);
+        font-size: clamp(1.2rem, 2.2vw, 1.7rem);
         font-weight: 700;
-        line-height: 1.1;
+        line-height: 1.15;
         margin-bottom: 0;
     }
 
     .pos-payment-shell .btn {
-        padding-top: 0.5rem;
-        padding-bottom: 0.5rem;
-        font-size: 0.92rem;
+        padding-top: 0.45rem;
+        padding-bottom: 0.45rem;
+        font-size: 0.9rem;
     }
 
     .pos-payment-actions {
         display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
+        flex-direction: row;
+        align-items: stretch;
+        gap: 0.45rem;
+        flex: 1 1 auto;
+        min-height: 0;
     }
 
-    .pos-payment-secondary-actions {
+    .pos-payment-primary-col {
+        flex: 1.25 1 0;
+        min-width: 0;
         display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem;
     }
 
-    .pos-payment-secondary-actions .btn {
+    .pos-payment-primary-col .btn {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        padding: 0.5rem 0.4rem;
+        height: 100%;
+        min-height: 4.8rem;
+    }
+
+    .pos-payment-primary-col .pos-checkout-title {
+        font-size: 1.1rem;
+        font-weight: 700;
+        line-height: 1.2;
+    }
+
+    .pos-payment-primary-col .pos-checkout-subtitle {
+        font-size: 0.72rem;
+        line-height: 1.2;
+        margin-top: 0.2rem;
+        opacity: 0.85;
+    }
+
+    .pos-payment-secondary-stack {
         flex: 1 1 0;
         min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+        justify-content: stretch;
+    }
+
+    .pos-payment-secondary-stack .btn {
+        width: 100%;
+        flex: 1 1 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.28rem 0.45rem;
+        font-size: 0.82rem;
+        font-weight: 600;
+        line-height: 1.2;
+        min-height: 1.95rem;
+        white-space: nowrap;
+    }
+
+    .pos-payment-secondary-stack .btn:only-child {
+        min-height: 3.5rem;
+    }
+
+    .pos-payment-primary-col:only-child,
+    .pos-payment-secondary-stack:only-child {
+        flex: 1 1 100%;
+        width: 100%;
     }
 
     .pos-save-print-btn {
@@ -1040,9 +1111,19 @@
         color: #fff;
     }
 
-    @media (max-width: 575.98px) {
-        .pos-payment-secondary-actions {
+    @media (max-width: 767.98px) {
+        .pos-payment-actions {
             flex-direction: column;
+        }
+
+        .pos-payment-primary-col,
+        .pos-payment-secondary-stack {
+            width: 100%;
+            flex: 1 1 auto;
+        }
+
+        .pos-payment-primary-col .btn {
+            min-height: 3.8rem;
         }
     }
 
@@ -1079,7 +1160,11 @@
 
         .pos-viewport {
             gap: 0.4rem;
-            grid-template-rows: clamp(58px, 8dvh, 76px) clamp(92px, 14dvh, 126px) minmax(0, 1fr) auto clamp(118px, 21dvh, 164px);
+            grid-template-rows: clamp(58px, 8dvh, 76px) clamp(92px, 14dvh, 126px) minmax(0, 1fr) auto clamp(190px, 26dvh, 215px);
+        }
+
+        .pos-area-payment .card-body {
+            padding: 0.26rem 0.52rem 0.32rem;
         }
 
         .pos-card .card-header {
@@ -1115,14 +1200,45 @@
             padding: 0.24rem 0.32rem;
         }
 
-        .pos-total-value {
-            font-size: clamp(1.1rem, 2.1vw, 1.55rem);
+        .pos-payment-shell {
+            gap: 0.22rem;
         }
 
-        .pos-payment-shell .btn {
-            font-size: 0.82rem;
-            padding-top: 0.36rem;
-            padding-bottom: 0.36rem;
+        .pos-payment-summary-label {
+            font-size: 0.7rem;
+            margin-bottom: 0.05rem;
+        }
+
+        .pos-total-value {
+            font-size: clamp(1.05rem, 2vw, 1.45rem);
+        }
+
+        .pos-payment-actions {
+            gap: 0.35rem;
+        }
+
+        .pos-payment-primary-col .btn {
+            min-height: 4.2rem;
+            padding: 0.35rem 0.3rem;
+        }
+
+        .pos-payment-primary-col .pos-checkout-title {
+            font-size: 0.98rem;
+        }
+
+        .pos-payment-primary-col .pos-checkout-subtitle {
+            font-size: 0.66rem;
+            margin-top: 0.15rem;
+        }
+
+        .pos-payment-secondary-stack {
+            gap: 0.22rem;
+        }
+
+        .pos-payment-secondary-stack .btn {
+            font-size: 0.76rem;
+            padding: 0.2rem 0.35rem;
+            min-height: 1.75rem;
         }
     }
 
@@ -1140,15 +1256,24 @@
     @media (max-width: 991.98px) {
         .pos-viewport {
             grid-template-columns: minmax(0, 6fr) minmax(0, 4fr);
-            grid-template-rows: clamp(64px, 10dvh, 88px) clamp(96px, 15dvh, 132px) minmax(0, 1fr) auto clamp(128px, 22dvh, 176px);
+            grid-template-rows: clamp(64px, 10dvh, 88px) clamp(96px, 15dvh, 132px) minmax(0, 1fr) auto clamp(195px, 25dvh, 230px);
         }
     }
 
     @media (max-width: 767.98px) and (orientation: landscape) {
         .pos-viewport {
             grid-template-columns: minmax(0, 58fr) minmax(0, 42fr);
-            grid-template-rows: clamp(60px, 12dvh, 76px) clamp(92px, 18dvh, 124px) minmax(0, 1fr) auto clamp(118px, 24dvh, 160px);
+            grid-template-rows: clamp(60px, 12dvh, 76px) clamp(92px, 18dvh, 124px) minmax(0, 1fr) auto clamp(180px, 27dvh, 215px);
             gap: 0.35rem;
+        }
+
+        .pos-payment-actions {
+            flex-direction: row;
+        }
+
+        .pos-payment-primary-col,
+        .pos-payment-secondary-stack {
+            width: auto;
         }
 
         .pos-shell {

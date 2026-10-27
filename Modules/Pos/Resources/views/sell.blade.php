@@ -1703,6 +1703,10 @@
                  if (btnCheckout) {
                      btnCheckout.disabled = !canCheckout;
                  }
+                 const btnKasbon = document.getElementById('pos-checkout-kasbon');
+                 if (btnKasbon) {
+                     btnKasbon.disabled = !canCheckout;
+                 }
 
                  if (saveDraftButton) {
                      saveDraftButton.disabled = !canSaveDraft;
@@ -4768,152 +4772,190 @@
                 }
             });
 
-            if (btnCheckout) {
-                btnCheckout.addEventListener('click', async function () {
-                    if (requiresTerminalForCheckout) {
-                        setCartStatus('Sesi kasir harus terhubung ke terminal sebelum membuka pembayaran.', 'text-danger');
-                        return;
-                    }
+            async function initiateCheckoutFlow(flow, triggeringBtn) {
+                if (requiresTerminalForCheckout) {
+                    setCartStatus('Sesi kasir harus terhubung ke terminal sebelum membuka pembayaran.', 'text-danger');
+                    return;
+                }
 
-                    if (!hasCheckoutAuthority) {
-                        setCartStatus('Anda tidak memiliki izin pembayaran POS.', 'text-danger');
-                        return;
-                    }
+                if (!hasCheckoutAuthority) {
+                    setCartStatus('Anda tidak memiliki izin pembayaran POS.', 'text-danger');
+                    return;
+                }
 
-                    if (noteDebounceHandle) {
-                        clearTimeout(noteDebounceHandle);
-                        noteDebounceHandle = null;
-                    }
-                    const saved = await submitNoteUpdate();
-                    if (!saved) {
-                        setCartStatus('Gagal menyimpan catatan, pembayaran dibatalkan.', 'text-danger');
-                        return;
-                    }
-
-                    console.log('[CHECKOUT] Preflight check initiated');
-                    const originalHtml = btnCheckout.innerHTML;
-                    btnCheckout.disabled = true;
-                    btnCheckout.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Validasi...';
-
-                    let acknowledgedWarning = false;
-                    try {
-                        const preflight = await jsonRequest(checkoutPreflightEndpoint, 'POST', {
-                            acknowledge_lifecycle_warning: false
-                        });
-                        console.log('[CHECKOUT] Preflight success', preflight);
-                    } catch (error) {
-                        const helper = window.BundleLifecycleWarning;
-                        if (!helper || typeof helper.resolveLifecycleWarning !== 'function' || typeof helper.buildLifecycleWarningModalHtml !== 'function') {
-                            console.error('BundleLifecycleWarning helper is unavailable.');
-                            btnCheckout.disabled = false;
-                            btnCheckout.innerHTML = originalHtml;
-                            setCartStatus('Gagal memverifikasi status paket produk: modul peringatan tidak tersedia.', 'text-danger', true);
-                            return;
-                        }
-
-                        const warningData = helper.resolveLifecycleWarning(error);
-
-                        if (warningData && Array.isArray(warningData.items) && warningData.items.length > 0) {
-                            const modalHtml = helper.buildLifecycleWarningModalHtml(
-                                warningData,
-                                'Terdapat perubahan status pada paket produk dalam transaksi ini.',
-                                'Apakah Anda ingin melanjutkan transaksi dengan komposisi yang tersimpan?'
-                            );
-
-                            const result = await Swal.fire({
+                if (flow === 'kasbon') {
+                    const hasCustomer = currentSnapshot && currentSnapshot.customer && currentSnapshot.customer.resolved_customer_id ? true : false;
+                    if (!hasCustomer) {
+                        setCartStatus('Pilih pelanggan terlebih dahulu untuk transaksi Kasbon.', 'text-danger');
+                        if (typeof Swal !== 'undefined') {
+                            Swal.fire({
                                 icon: 'warning',
-                                title: 'Peringatan Status Paket',
-                                html: modalHtml,
-                                showCancelButton: true,
-                                confirmButtonText: 'Lanjutkan Transaksi',
-                                cancelButtonText: 'Batal',
+                                title: 'Pelanggan Diperlukan',
+                                text: 'Pilih pelanggan terlebih dahulu sebelum membuka transaksi Kasbon.',
                             });
+                        }
+                        return;
+                    }
+                }
 
-                            if (result.isConfirmed) {
-                                acknowledgedWarning = true;
-                                window.posLifecycleAcknowledged = true;
-                                if (typeof PosStagedPayment !== 'undefined' && typeof PosStagedPayment.setLifecycleAcknowledged === 'function') {
-                                    PosStagedPayment.setLifecycleAcknowledged(true);
+                if (noteDebounceHandle) {
+                    clearTimeout(noteDebounceHandle);
+                    noteDebounceHandle = null;
+                }
+                const saved = await submitNoteUpdate();
+                if (!saved) {
+                    setCartStatus('Gagal menyimpan catatan, pembayaran dibatalkan.', 'text-danger');
+                    return;
+                }
+
+                console.log('[CHECKOUT] Preflight check initiated for flow:', flow);
+                const originalHtml = triggeringBtn ? triggeringBtn.innerHTML : '';
+                if (triggeringBtn) {
+                    triggeringBtn.disabled = true;
+                    triggeringBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Validasi...';
+                }
+
+                let acknowledgedWarning = false;
+                try {
+                    const preflight = await jsonRequest(checkoutPreflightEndpoint, 'POST', {
+                        acknowledge_lifecycle_warning: false
+                    });
+                    console.log('[CHECKOUT] Preflight success', preflight);
+                } catch (error) {
+                    const helper = window.BundleLifecycleWarning;
+                    if (!helper || typeof helper.resolveLifecycleWarning !== 'function' || typeof helper.buildLifecycleWarningModalHtml !== 'function') {
+                        console.error('BundleLifecycleWarning helper is unavailable.');
+                        if (triggeringBtn) {
+                            triggeringBtn.disabled = false;
+                            triggeringBtn.innerHTML = originalHtml;
+                        }
+                        setCartStatus('Gagal memverifikasi status paket produk: modul peringatan tidak tersedia.', 'text-danger', true);
+                        return;
+                    }
+
+                    const warningData = helper.resolveLifecycleWarning(error);
+
+                    if (warningData && Array.isArray(warningData.items) && warningData.items.length > 0) {
+                        const modalHtml = helper.buildLifecycleWarningModalHtml(
+                            warningData,
+                            'Terdapat perubahan status pada paket produk dalam transaksi ini.',
+                            'Apakah Anda ingin melanjutkan transaksi dengan komposisi yang tersimpan?'
+                        );
+
+                        const result = await Swal.fire({
+                            icon: 'warning',
+                            title: 'Peringatan Status Paket',
+                            html: modalHtml,
+                            showCancelButton: true,
+                            confirmButtonText: 'Lanjutkan Transaksi',
+                            cancelButtonText: 'Batal',
+                        });
+
+                        if (result.isConfirmed) {
+                            acknowledgedWarning = true;
+                            window.posLifecycleAcknowledged = true;
+                            if (typeof PosStagedPayment !== 'undefined' && typeof PosStagedPayment.setLifecycleAcknowledged === 'function') {
+                                PosStagedPayment.setLifecycleAcknowledged(true);
+                            }
+                            try {
+                                await jsonRequest(checkoutPreflightEndpoint, 'POST', {
+                                    acknowledge_lifecycle_warning: true
+                                });
+                            } catch (ackError) {
+                                if (triggeringBtn) {
+                                    triggeringBtn.disabled = false;
+                                    triggeringBtn.innerHTML = originalHtml;
                                 }
-                                try {
-                                    await jsonRequest(checkoutPreflightEndpoint, 'POST', {
-                                        acknowledge_lifecycle_warning: true
-                                    });
-                                } catch (ackError) {
-                                    btnCheckout.disabled = false;
-                                    btnCheckout.innerHTML = originalHtml;
-                                    const hasUnfulfilled = Array.isArray(ackError.details?.unfulfilled_lines) && ackError.details.unfulfilled_lines.length > 0;
-                                    const hasInvalid = Array.isArray(ackError.details?.invalid_lines) && ackError.details.invalid_lines.length > 0;
-                                    if (ackError.details && (hasUnfulfilled || hasInvalid)) {
-                                        showMismatchModal(ackError.message, ackError.details);
-                                    } else {
-                                        setCartStatus(ackError.message || 'Validasi checkout gagal.', 'text-danger', true);
-                                    }
-                                    return;
+                                const hasUnfulfilled = Array.isArray(ackError.details?.unfulfilled_lines) && ackError.details.unfulfilled_lines.length > 0;
+                                const hasInvalid = Array.isArray(ackError.details?.invalid_lines) && ackError.details.invalid_lines.length > 0;
+                                if (ackError.details && (hasUnfulfilled || hasInvalid)) {
+                                    showMismatchModal(ackError.message, ackError.details);
+                                } else {
+                                    setCartStatus(ackError.message || 'Validasi checkout gagal.', 'text-danger', true);
                                 }
-                            } else {
-                                btnCheckout.disabled = false;
-                                btnCheckout.innerHTML = originalHtml;
                                 return;
                             }
                         } else {
-                            console.error('[CHECKOUT] Preflight failed', error);
-                            btnCheckout.disabled = false;
-                            btnCheckout.innerHTML = originalHtml;
-
-                            const hasUnfulfilled = Array.isArray(error.details?.unfulfilled_lines) && error.details.unfulfilled_lines.length > 0;
-                            const hasInvalid = Array.isArray(error.details?.invalid_lines) && error.details.invalid_lines.length > 0;
-
-                            if (error.details && (hasUnfulfilled || hasInvalid)) {
-                                showMismatchModal(error.message, error.details);
-                            } else {
-                                setCartStatus(error.message || 'Validasi checkout gagal.', 'text-danger', true);
-                                Swal.fire({
-                                    icon: 'error',
-                                    title: 'Gagal Validasi',
-                                    text: error.message || 'Terdapat kendala pada stok atau serial produk Anda.',
-                                });
+                            if (triggeringBtn) {
+                                triggeringBtn.disabled = false;
+                                triggeringBtn.innerHTML = originalHtml;
                             }
                             return;
                         }
-                    }
-
-                    btnCheckout.disabled = false;
-                    btnCheckout.innerHTML = originalHtml;
-
-                    console.log('[CHECKOUT] Proceeding to staged payment modal', { currentSnapshot, PosStagedPayment: typeof PosStagedPayment });
-
-                    // Wire to staged payment flow using cart token and grand total
-                    if (currentSnapshot && currentSnapshot.totals) {
-                        if (typeof PosStagedPayment !== 'undefined' && typeof PosStagedPayment.setLifecycleAcknowledged === 'function') {
-                            PosStagedPayment.setLifecycleAcknowledged(acknowledgedWarning || !!window.posLifecycleAcknowledged);
-                        }
-
-                        // Generate token if it doesn't exist yet
-                        let cartToken = currentSnapshot.staged_payment_token;
-                        if (!cartToken) {
-                            cartToken = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-                                const r = Math.random() * 16 | 0;
-                                const v = c === 'x' ? r : (r & 0x3 | 0x8);
-                                return v.toString(16);
-                            });
-                            currentSnapshot.staged_payment_token = cartToken;
-                            console.log('[CHECKOUT] Generated new token:', cartToken);
-                        }
-
-                        const grandTotal = currentSnapshot.totals.grand_total || 0;
-                        const hasCustomer = currentSnapshot.customer && currentSnapshot.customer.resolved_customer_id ? true : false;
-                        const customerName = hasCustomer && currentSnapshot.customer.selected_customer ? currentSnapshot.customer.selected_customer.customer_name : '-';
-                        console.log('[CHECKOUT] Opening modal with token:', cartToken, 'grandTotal:', grandTotal, 'hasCustomer:', hasCustomer, 'customerName:', customerName);
-
-                        if (typeof PosStagedPayment !== 'undefined') {
-                            PosStagedPayment.openModal(cartToken, grandTotal, hasCustomer, customerName);
-                        } else {
-                            console.error('[CHECKOUT] PosStagedPayment module not loaded');
-                        }
                     } else {
-                        console.warn('[CHECKOUT] No snapshot or totals available');
+                        console.error('[CHECKOUT] Preflight failed', error);
+                        if (triggeringBtn) {
+                            triggeringBtn.disabled = false;
+                            triggeringBtn.innerHTML = originalHtml;
+                        }
+
+                        const hasUnfulfilled = Array.isArray(error.details?.unfulfilled_lines) && error.details.unfulfilled_lines.length > 0;
+                        const hasInvalid = Array.isArray(error.details?.invalid_lines) && error.details.invalid_lines.length > 0;
+
+                        if (error.details && (hasUnfulfilled || hasInvalid)) {
+                            showMismatchModal(error.message, error.details);
+                        } else {
+                            setCartStatus(error.message || 'Validasi checkout gagal.', 'text-danger', true);
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'Gagal Validasi',
+                                text: error.message || 'Terdapat kendala pada stok atau serial produk Anda.',
+                            });
+                        }
+                        return;
                     }
+                }
+
+                if (triggeringBtn) {
+                    triggeringBtn.disabled = false;
+                    triggeringBtn.innerHTML = originalHtml;
+                }
+
+                console.log('[CHECKOUT] Proceeding to staged payment modal', { currentSnapshot, flow, PosStagedPayment: typeof PosStagedPayment });
+
+                // Wire to staged payment flow using cart token and grand total
+                if (currentSnapshot && currentSnapshot.totals) {
+                    if (typeof PosStagedPayment !== 'undefined' && typeof PosStagedPayment.setLifecycleAcknowledged === 'function') {
+                        PosStagedPayment.setLifecycleAcknowledged(acknowledgedWarning || !!window.posLifecycleAcknowledged);
+                    }
+
+                    // Generate token if it doesn't exist yet
+                    let cartToken = currentSnapshot.staged_payment_token;
+                    if (!cartToken) {
+                        cartToken = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                            const r = Math.random() * 16 | 0;
+                            const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                            return v.toString(16);
+                        });
+                        currentSnapshot.staged_payment_token = cartToken;
+                        console.log('[CHECKOUT] Generated new token:', cartToken);
+                    }
+
+                    const grandTotal = currentSnapshot.totals.grand_total || 0;
+                    const hasCustomer = currentSnapshot.customer && currentSnapshot.customer.resolved_customer_id ? true : false;
+                    const customerName = hasCustomer && currentSnapshot.customer.selected_customer ? currentSnapshot.customer.selected_customer.customer_name : '-';
+                    console.log('[CHECKOUT] Opening modal with token:', cartToken, 'grandTotal:', grandTotal, 'hasCustomer:', hasCustomer, 'customerName:', customerName, 'flow:', flow);
+
+                    if (typeof PosStagedPayment !== 'undefined') {
+                        PosStagedPayment.openModal(cartToken, grandTotal, hasCustomer, customerName, flow);
+                    } else {
+                        console.error('[CHECKOUT] PosStagedPayment module not loaded');
+                    }
+                } else {
+                    console.warn('[CHECKOUT] No snapshot or totals available');
+                }
+            }
+
+            if (btnCheckout) {
+                btnCheckout.addEventListener('click', function () {
+                    initiateCheckoutFlow('full_payment', btnCheckout);
+                });
+            }
+
+            const btnKasbonCheckout = document.getElementById('pos-checkout-kasbon');
+            if (btnKasbonCheckout) {
+                btnKasbonCheckout.addEventListener('click', function () {
+                    initiateCheckoutFlow('kasbon', btnKasbonCheckout);
                 });
             }
 
@@ -5079,7 +5121,8 @@
                                     currentSnapshot.staged_payment_token,
                                     currentSnapshot.totals?.grand_total || 0,
                                     hasCustomer,
-                                    customerName
+                                    customerName,
+                                    data.payment_chain.flow || (data.payment_chain.is_debt ? 'kasbon' : 'full_payment')
                                 );
                             }
                         })
