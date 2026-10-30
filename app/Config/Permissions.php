@@ -341,6 +341,7 @@ return [
         'pos.sell' => 'Penjualan',
         'pos.checkout.payment' => 'Pembayaran Checkout',
         'pos.sessions.open' => 'Buka Sesi',
+        'pos.sessions.open.total-only' => 'Buka Sesi dengan Total Nominal (Tanpa Hitung Pecahan)',
         'pos.sessions.require-terminal' => 'Wajib Pilih Terminal',
         'pos.sessions.close' => 'Tutup Sesi',
         'pos.sessions.close-admin' => 'Tutup Terminal (Admin)',

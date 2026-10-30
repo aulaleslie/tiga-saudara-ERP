@@ -206,7 +206,7 @@ class POSLiveSessionMonitorTest extends TestCase
             $terminal->id,
             $cashier->id,
             $openingFloat,
-            [(string) ((int) $openingFloat) => 1],
+            ['1000' => (int) ($openingFloat / 1000)],
             $cashier->id
         );
 

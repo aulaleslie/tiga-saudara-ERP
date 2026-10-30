@@ -123,9 +123,8 @@ class PosTerminalController extends Controller
 
     private function policyPayload(StorePosTerminalRequest|UpdatePosTerminalRequest $request): array
     {
-        return [
+        $payload = [
             'require_opening_float' => $request->boolean('require_opening_float', true),
-            'allow_total_only_float_input' => $request->boolean('allow_total_only_float_input', true),
             'close_variance_approval_threshold' => (float) ($request->input('close_variance_approval_threshold', 0)),
             'cash_threshold' => $request->filled('cash_threshold') ? (float) $request->input('cash_threshold') : null,
             'auto_open_drawer_on_session_open' => $request->boolean('auto_open_drawer_on_session_open'),
@@ -135,5 +134,14 @@ class PosTerminalController extends Controller
             'require_pickup_supervisor_approval' => $request->boolean('require_pickup_supervisor_approval', true),
             'metadata' => $request->input('policy_metadata'),
         ];
+
+        // Retired for opening cash: nominal opening is governed by the
+        // `pos.sessions.open.total-only` user permission. The stored column is
+        // retained for compatibility and only written when explicitly supplied.
+        if ($request->has('allow_total_only_float_input')) {
+            $payload['allow_total_only_float_input'] = $request->boolean('allow_total_only_float_input');
+        }
+
+        return $payload;
     }
 }

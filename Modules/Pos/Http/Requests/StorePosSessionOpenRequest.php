@@ -5,6 +5,9 @@ namespace Modules\Pos\Http\Requests;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
+use Illuminate\Contracts\Validation\Validator;
+use Modules\Pos\Exceptions\PosOpeningCashException;
+use Modules\Pos\Services\PosOpeningCashNormalizer;
 use Modules\Pos\Services\PosRolePolicyService;
 
 class StorePosSessionOpenRequest extends FormRequest
@@ -17,8 +20,6 @@ class StorePosSessionOpenRequest extends FormRequest
     public function rules(): array
     {
         $settingId = (int) session('setting_id');
-        $terminalId = $this->input('terminal_id');
-        $hasTerminal = !empty($terminalId);
         $user = $this->user();
         $rolePolicy = app(PosRolePolicyService::class);
         $isFloorStaffStyleSession = $user !== null
@@ -36,14 +37,36 @@ class StorePosSessionOpenRequest extends FormRequest
                         ->where('is_active', true)
                     ),
             ],
-            'opening_float_total' => [
-                $hasTerminal ? 'required' : 'nullable',
-                'numeric',
-                'gt:0',
+            'opening_cash_input_mode' => [
+                'nullable',
+                Rule::in(PosOpeningCashNormalizer::modes()),
             ],
+            // Detailed opening-cash rules (counts, permission, totals) are enforced by
+            // PosOpeningCashNormalizer in withValidator() and again in the lifecycle service.
+            'opening_float_total' => ['nullable'],
             'opening_denominations' => ['nullable', 'array'],
-            'opening_denominations.*' => ['nullable', 'integer', 'min:0'],
             'notes' => ['nullable', 'string', 'max:500'],
         ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator): void {
+            if ($validator->errors()->isNotEmpty()) {
+                return;
+            }
+
+            try {
+                app(PosOpeningCashNormalizer::class)->normalize(
+                    $this->filled('terminal_id'),
+                    $this->input('opening_cash_input_mode'),
+                    $this->input('opening_float_total'),
+                    $this->input('opening_denominations'),
+                    $this->user()
+                );
+            } catch (PosOpeningCashException $exception) {
+                $validator->errors()->add($exception->field, $exception->getMessage());
+            }
+        });
     }
 }

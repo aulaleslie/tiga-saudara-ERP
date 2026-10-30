@@ -149,6 +149,7 @@ final class PosPermissionMatrix
                     'pos.void',
                     'pos.checkout.debt',
                     'pos.checkout.debt.request',
+                    'pos.sessions.open.total-only',
                 ],
             ],
             'returns' => [

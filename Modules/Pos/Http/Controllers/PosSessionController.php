@@ -3,6 +3,8 @@
 namespace Modules\Pos\Http\Controllers;
 
 use DomainException;
+use Modules\Pos\Exceptions\PosOpeningCashException;
+use Modules\Pos\Services\PosOpeningCashNormalizer;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Contracts\Support\Renderable;
@@ -132,7 +134,17 @@ class PosSessionController extends Controller
             ->active()
             ->first();
 
-        return view('pos::session.open', compact('terminals', 'roleCapabilities', 'activeSessionInOtherSetting'));
+        $openingCashNormalizer = app(PosOpeningCashNormalizer::class);
+        $cashDenominations = $openingCashNormalizer->enabledDenominations();
+        $canUseNominalOpening = $openingCashNormalizer->canUseNominal($user);
+
+        return view('pos::session.open', compact(
+            'terminals',
+            'roleCapabilities',
+            'activeSessionInOtherSetting',
+            'cashDenominations',
+            'canUseNominalOpening'
+        ));
     }
 
     public function store(StorePosSessionOpenRequest $request, PosSessionLifecycleService $sessionLifecycleService): RedirectResponse
@@ -146,11 +158,18 @@ class PosSessionController extends Controller
                 $settingId,
                 $terminalId,
                 $cashierId,
-                (float) $request->input('opening_float_total'),
+                is_numeric($request->input('opening_float_total')) ? (float) $request->input('opening_float_total') : 0.0,
                 $request->input('opening_denominations'),
                 $cashierId,
-                $request->filled('notes') ? $request->string('notes')->value() : null
+                $request->filled('notes') ? $request->string('notes')->value() : null,
+                null,
+                $request->input('opening_cash_input_mode') ?: PosOpeningCashNormalizer::MODE_DENOMINATIONS
             );
+        } catch (PosOpeningCashException $exception) {
+            return redirect()
+                ->route('pos.sessions.create')
+                ->withInput()
+                ->withErrors([$exception->field => $exception->getMessage()]);
         } catch (DomainException $exception) {
             return redirect()
                 ->route('pos.sessions.create')

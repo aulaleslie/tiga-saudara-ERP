@@ -327,7 +327,7 @@ class POSStandaloneBundleRowPersistenceTest extends TestCase
             $terminal->id,
             $cashier->id,
             100000,
-            [],
+            ['100000' => 1],
             $cashier->id
         );
     }

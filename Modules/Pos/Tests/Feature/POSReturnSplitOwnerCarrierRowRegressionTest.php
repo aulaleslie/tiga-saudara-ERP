@@ -984,7 +984,7 @@ class POSReturnSplitOwnerCarrierRowRegressionTest extends TestCase
         ]);
 
         $methods = $this->seedPaymentMethods($setting, true);
-        $session = app(PosSessionLifecycleService::class)->openSession($setting->id, $terminal->id, $cashier->id, 100000, [], $cashier->id);
+        $session = app(PosSessionLifecycleService::class)->openSession($setting->id, $terminal->id, $cashier->id, 100000, ['100000' => 1], $cashier->id);
         $customer = Customer::factory()->create(['setting_id' => $setting->id]);
         $setting->update(['pos_walk_in_customer_id' => $customer->id]);
         $ownerBCustomer = Customer::factory()->create(['setting_id' => $ownerB->id]);
@@ -1084,7 +1084,7 @@ class POSReturnSplitOwnerCarrierRowRegressionTest extends TestCase
             ->firstOrFail();
 
         $terminal = PosTerminal::query()->where('setting_id', $setting->id)->firstOrFail();
-        $session = app(PosSessionLifecycleService::class)->openSession($setting->id, $terminal->id, $context['cashier']->id, 100000, [], $context['cashier']->id);
+        $session = app(PosSessionLifecycleService::class)->openSession($setting->id, $terminal->id, $context['cashier']->id, 100000, ['100000' => 1], $context['cashier']->id);
 
         $transaction = PosTransaction::create([
             'setting_id' => $setting->id,

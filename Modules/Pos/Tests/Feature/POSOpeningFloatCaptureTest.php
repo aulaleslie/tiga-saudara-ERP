@@ -5,8 +5,10 @@ namespace Modules\Pos\Tests\Feature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Currency\Entities\Currency;
+use Modules\Pos\Entities\PosSessionCashEvent;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
+use Modules\Setting\Entities\CashDenomination;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\SettingSaleLocation;
@@ -49,12 +51,13 @@ class POSOpeningFloatCaptureTest extends TestCase
             'pos.checkout.payment',
             'pos.checkout.debt',
             'pos.checkout.debt.request',
+            'pos.sessions.open.total-only',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
     }
 
-    public function test_it_opens_session_with_total_and_denominations_and_records_open_float_event(): void
+    public function test_it_opens_session_from_denomination_counts_and_records_open_float_event(): void
     {
         $setting = $this->createSetting('BIZ A');
         $user = $this->createUserForSetting($setting, [
@@ -70,10 +73,12 @@ class POSOpeningFloatCaptureTest extends TestCase
             ->withSession(['setting_id' => $setting->id])
             ->post(route('pos.sessions.store'), [
                 'terminal_id' => $terminal->id,
-                'opening_float_total' => '150000',
+                // Tampered client total must be ignored in denomination mode.
+                'opening_float_total' => '999999',
                 'opening_denominations' => [
                     '100000' => 1,
                     '50000' => 1,
+                    '1000' => '',
                 ],
                 'notes' => 'Shift pagi',
             ]);
@@ -103,11 +108,14 @@ class POSOpeningFloatCaptureTest extends TestCase
             'amount' => 150000,
             'performed_by' => $user->id,
             'notes' => 'SHIFT PAGI',
-            'denominations' => null,
         ]);
+
+        $event = PosSessionCashEvent::query()->where('pos_session_id', $sessionId)->firstOrFail();
+        $this->assertSame(['100000' => 1, '50000' => 1], $event->denominations);
+        $this->assertSame('denominations', $event->metadata['opening_cash_input_mode'] ?? null);
     }
 
-    public function test_it_allows_total_only_input_when_terminal_policy_allows_it(): void
+    public function test_terminal_total_only_flag_does_not_authorize_total_only_input(): void
     {
         $setting = $this->createSetting('BIZ A');
         $user = $this->createUserForSetting($setting, [
@@ -119,26 +127,324 @@ class POSOpeningFloatCaptureTest extends TestCase
         $terminal = $this->createTerminalForSetting($setting, allowTotalOnly: true);
         $this->enablePaymentMethodForSetting($setting);
 
-        $response = $this->actingAs($user)
+        foreach ([
+            ['opening_float_total' => '100000', 'opening_denominations' => []],
+            ['opening_float_total' => '100000', 'opening_cash_input_mode' => 'nominal'],
+        ] as $payload) {
+            $this->actingAs($user)
+                ->withSession(['setting_id' => $setting->id])
+                ->from(route('pos.sessions.create'))
+                ->post(route('pos.sessions.store'), ['terminal_id' => $terminal->id] + $payload)
+                ->assertRedirect(route('pos.sessions.create'))
+                ->assertSessionHasErrors();
+        }
+
+        $this->assertDatabaseCount('pos_sessions', 0);
+        $this->assertDatabaseCount('pos_session_cash_events', 0);
+    }
+
+    public function test_authorized_user_can_open_with_nominal_total_and_stale_counts_are_ignored(): void
+    {
+        $setting = $this->createSetting('BIZ NOMINAL');
+        $user = $this->createUserForSetting($setting, [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.sessions.open.total-only',
+        ]);
+        $terminal = $this->createTerminalForSetting($setting, allowTotalOnly: false);
+        $this->enablePaymentMethodForSetting($setting);
+
+        $this->actingAs($user)
             ->withSession(['setting_id' => $setting->id])
             ->post(route('pos.sessions.store'), [
                 'terminal_id' => $terminal->id,
-                'opening_float_total' => '100000',
-                'opening_denominations' => [],
-            ]);
+                'opening_cash_input_mode' => 'nominal',
+                'opening_float_total' => '150000',
+                'opening_denominations' => ['100000' => 5],
+            ])
+            ->assertRedirect(route('pos.sell'));
 
-        $response->assertRedirect(route('pos.sell'));
+        $session = \Modules\Pos\Entities\PosSession::query()->where('cashier_user_id', $user->id)->firstOrFail();
+        $this->assertEquals(150000, (float) $session->opening_float_total);
+        $this->assertEquals(150000, (float) $session->expected_cash_total);
 
-        $sessionId = (int) \DB::table('pos_sessions')
-            ->where('setting_id', $setting->id)
-            ->where('cashier_user_id', $user->id)
-            ->value('id');
+        $event = PosSessionCashEvent::query()->where('pos_session_id', $session->id)->firstOrFail();
+        $this->assertNull($event->denominations);
+        $this->assertSame('nominal', $event->metadata['opening_cash_input_mode'] ?? null);
+        $this->assertSame((int) $user->id, (int) $event->performed_by);
+    }
 
-        $this->assertDatabaseHas('pos_session_cash_events', [
-            'pos_session_id' => $sessionId,
-            'event_type' => 'OPEN_FLOAT',
-            'amount' => 100000,
+    public function test_authorized_user_defaults_to_denomination_mode_when_mode_omitted(): void
+    {
+        $setting = $this->createSetting('BIZ NOMINAL DEFAULT');
+        $user = $this->createUserForSetting($setting, [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.sessions.open.total-only',
         ]);
+        $terminal = $this->createTerminalForSetting($setting);
+        $this->enablePaymentMethodForSetting($setting);
+
+        $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->from(route('pos.sessions.create'))
+            ->post(route('pos.sessions.store'), [
+                'terminal_id' => $terminal->id,
+                'opening_float_total' => '150000',
+            ])
+            ->assertRedirect(route('pos.sessions.create'))
+            ->assertSessionHasErrors(['opening_denominations']);
+
+        $this->assertDatabaseCount('pos_sessions', 0);
+    }
+
+    public function test_bypass_permission_alone_does_not_allow_opening_session(): void
+    {
+        $setting = $this->createSetting('BIZ BYPASS ONLY');
+        $user = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open.total-only']);
+        $terminal = $this->createTerminalForSetting($setting);
+        $this->enablePaymentMethodForSetting($setting);
+
+        $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('pos.sessions.store'), [
+                'terminal_id' => $terminal->id,
+                'opening_cash_input_mode' => 'nominal',
+                'opening_float_total' => '150000',
+            ])
+            ->assertForbidden();
+
+        $this->assertDatabaseCount('pos_sessions', 0);
+    }
+
+    /**
+     * @dataProvider invalidCountProvider
+     */
+    public function test_it_rejects_invalid_denomination_counts(array $counts): void
+    {
+        $setting = $this->createSetting('BIZ INVALID COUNTS');
+        $user = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $terminal = $this->createTerminalForSetting($setting);
+        $this->enablePaymentMethodForSetting($setting);
+
+        $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->from(route('pos.sessions.create'))
+            ->post(route('pos.sessions.store'), [
+                'terminal_id' => $terminal->id,
+                'opening_denominations' => $counts,
+            ])
+            ->assertRedirect(route('pos.sessions.create'))
+            ->assertSessionHasErrors(['opening_denominations']);
+
+        $this->assertDatabaseCount('pos_sessions', 0);
+        $this->assertDatabaseCount('pos_session_cash_events', 0);
+    }
+
+    public static function invalidCountProvider(): array
+    {
+        return [
+            'negative' => [['50000' => '-1']],
+            'fractional' => [['50000' => '1.5']],
+            'nonnumeric' => [['50000' => 'abc']],
+            'zero sum' => [['50000' => '0', '10000' => '']],
+            'empty' => [[]],
+            'unknown denomination' => [['12345' => '1']],
+            'overflow' => [['100000' => '999999999999']],
+        ];
+    }
+
+    public function test_it_rejects_disabled_denomination_submitted_from_stale_form(): void
+    {
+        $setting = $this->createSetting('BIZ STALE');
+        $user = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $terminal = $this->createTerminalForSetting($setting);
+        $this->enablePaymentMethodForSetting($setting);
+
+        CashDenomination::query()->where('value', 75000)->update(['is_enabled' => false]);
+
+        $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->from(route('pos.sessions.create'))
+            ->post(route('pos.sessions.store'), [
+                'terminal_id' => $terminal->id,
+                'opening_denominations' => ['75000' => '1', '50000' => '1'],
+            ])
+            ->assertRedirect(route('pos.sessions.create'))
+            ->assertSessionHasErrors(['opening_denominations']);
+
+        $this->assertDatabaseCount('pos_sessions', 0);
+    }
+
+    public function test_all_disabled_denominations_block_counted_opening_but_allow_authorized_nominal(): void
+    {
+        $setting = $this->createSetting('BIZ ALL DISABLED');
+        $cashier = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $terminal = $this->createTerminalForSetting($setting);
+        $this->enablePaymentMethodForSetting($setting);
+
+        CashDenomination::query()->update(['is_enabled' => false]);
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sessions.create'))
+            ->assertOk()
+            ->assertSee('Belum ada pecahan uang yang aktif');
+
+        $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->from(route('pos.sessions.create'))
+            ->post(route('pos.sessions.store'), [
+                'terminal_id' => $terminal->id,
+                'opening_float_total' => '100000',
+            ])
+            ->assertSessionHasErrors(['opening_denominations']);
+
+        $supervisor = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.sessions.open.total-only']);
+
+        $this->actingAs($supervisor)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('pos.sessions.store'), [
+                'terminal_id' => $terminal->id,
+                'opening_cash_input_mode' => 'nominal',
+                'opening_float_total' => '100000',
+            ])
+            ->assertRedirect(route('pos.sell'));
+
+        $this->assertDatabaseCount('pos_sessions', 1);
+    }
+
+    public function test_open_form_renders_global_enabled_denominations_and_nominal_switch_only_for_permitted_users(): void
+    {
+        CashDenomination::query()->where('value', 75000)->update(['is_enabled' => false]);
+        CashDenomination::query()->create(['value' => 150000, 'type' => 'banknote', 'is_enabled' => true, 'position' => 99]);
+        $before = CashDenomination::query()->orderBy('id')->get(['value', 'is_enabled', 'position'])->toArray();
+
+        foreach (['BIZ FORM A', 'BIZ FORM B'] as $name) {
+            $setting = $this->createSetting($name);
+            $location = Location::create(['name' => 'FORM LOC ' . $setting->id, 'setting_id' => $setting->id]);
+            $this->enableSaleLocationForSetting($setting, $location);
+            $this->enablePaymentMethodForSetting($setting);
+
+            $cashier = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment']);
+
+            $this->actingAs($cashier)
+                ->withSession(['setting_id' => $setting->id])
+                ->get(route('pos.sessions.create'))
+                ->assertOk()
+                ->assertSee('pos-open-workspace', false)
+                ->assertSee('Hitung saldo awal')
+                ->assertSee('Isi jumlah lembar atau keping. Kolom kosong dihitung nol.')
+                ->assertSee('Ringkasan saldo awal')
+                ->assertSee('Total saldo awal')
+                ->assertSee('Tanpa terminal, pembayaran belum tersedia.')
+                ->assertSee('name="opening_denominations[100000]"', false)
+                ->assertSee('name="opening_denominations[150000]"', false)
+                ->assertSee('name="opening_denominations[100]"', false)
+                ->assertSee('aria-label="Jumlah Rp50.000, lembar"', false)
+                ->assertSee('aria-label="Jumlah Rp100, keping"', false)
+                ->assertDontSee('name="opening_denominations[75000]"', false)
+                ->assertSee('lembar')
+                ->assertSee('keping')
+                ->assertSee('value="denominations"', false)
+                ->assertDontSee('id="opening_cash_nominal_switch"', false);
+
+            $supervisor = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment', 'pos.sessions.open.total-only']);
+
+            $this->actingAs($supervisor)
+                ->withSession(['setting_id' => $setting->id])
+                ->get(route('pos.sessions.create'))
+                ->assertOk()
+                ->assertSee('id="opening_cash_nominal_switch"', false)
+                ->assertSee('aria-pressed="false"', false)
+                ->assertSee('Input nominal')
+                ->assertSee('value="denominations"', false);
+        }
+
+        $this->assertSame($before, CashDenomination::query()->orderBy('id')->get(['value', 'is_enabled', 'position'])->toArray());
+    }
+
+    public function test_open_form_restores_old_mode_and_counts_after_validation_failure(): void
+    {
+        $setting = $this->createSetting('BIZ RESTORE');
+        $terminal = $this->createTerminalForSetting($setting);
+        $location = Location::create(['name' => 'RESTORE LOC ' . $setting->id, 'setting_id' => $setting->id]);
+        $this->enableSaleLocationForSetting($setting, $location);
+        $this->enablePaymentMethodForSetting($setting);
+
+        $supervisor = $this->createUserForSetting($setting, [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment', 'pos.sessions.open.total-only',
+        ]);
+
+        // Denomination validation error restores submitted quantity.
+        $this->actingAs($supervisor)
+            ->withSession([
+                'setting_id' => $setting->id,
+                '_old_input' => [
+                    'terminal_id' => $terminal->id,
+                    'opening_cash_input_mode' => 'denominations',
+                    'opening_denominations' => ['50000' => '3'],
+                ],
+            ])
+            ->get(route('pos.sessions.create'))
+            ->assertOk()
+            ->assertSee('value="denominations"', false)
+            ->assertSee('value="3"', false);
+
+        // Nominal validation error restores nominal mode and formatted amount for permitted user.
+        $this->actingAs($supervisor)
+            ->withSession([
+                'setting_id' => $setting->id,
+                '_old_input' => [
+                    'terminal_id' => $terminal->id,
+                    'opening_cash_input_mode' => 'nominal',
+                    'opening_float_total' => '250000',
+                ],
+            ])
+            ->get(route('pos.sessions.create'))
+            ->assertOk()
+            ->assertSee('id="opening_cash_input_mode" value="nominal"', false)
+            ->assertSee('value="250.000"', false);
+    }
+
+    public function test_open_form_renders_validation_feedback_on_redirect_when_non_scalar_inputs_are_submitted(): void
+    {
+        $setting = $this->createSetting('BIZ NON SCALAR RETRY');
+        $terminal = $this->createTerminalForSetting($setting);
+        $location = Location::create(['name' => 'NON SCALAR LOC ' . $setting->id, 'setting_id' => $setting->id]);
+        $this->enableSaleLocationForSetting($setting, $location);
+        $this->enablePaymentMethodForSetting($setting);
+
+        $supervisor = $this->createUserForSetting($setting, [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment', 'pos.sessions.open.total-only',
+        ]);
+
+        // Nested array inside opening_denominations[50000][] must not crash the retry page.
+        $this->actingAs($supervisor)
+            ->withSession(['setting_id' => $setting->id])
+            ->followingRedirects()
+            ->from(route('pos.sessions.create'))
+            ->post(route('pos.sessions.store'), [
+                'terminal_id' => $terminal->id,
+                'opening_denominations' => ['50000' => ['1']],
+            ])
+            ->assertOk()
+            ->assertSee('Jumlah pecahan uang harus berupa bilangan bulat tidak negatif.');
+
+        // Array in opening_float_total[] in nominal mode must not crash the retry page.
+        $this->actingAs($supervisor)
+            ->withSession(['setting_id' => $setting->id])
+            ->followingRedirects()
+            ->from(route('pos.sessions.create'))
+            ->post(route('pos.sessions.store'), [
+                'terminal_id' => $terminal->id,
+                'opening_cash_input_mode' => 'nominal',
+                'opening_float_total' => ['100000'],
+            ])
+            ->assertOk()
+            ->assertSee('Total saldo awal wajib diisi dengan angka lebih dari nol.');
     }
 
     public function test_it_rejects_when_opening_float_total_is_less_than_or_equal_to_cash_threshold(): void
@@ -154,7 +460,7 @@ class POSOpeningFloatCaptureTest extends TestCase
     public function test_it_rejects_non_positive_opening_float_totals(): void
     {
         $setting = $this->createSetting('BIZ A');
-        $user = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $user = $this->createUserForSetting($setting, ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.sessions.open.total-only']);
         $terminal = $this->createTerminalForSetting($setting, allowTotalOnly: true);
         $this->enablePaymentMethodForSetting($setting);
 
@@ -163,6 +469,7 @@ class POSOpeningFloatCaptureTest extends TestCase
             ->from(route('pos.sessions.create'))
             ->post(route('pos.sessions.store'), [
                 'terminal_id' => $terminal->id,
+                'opening_cash_input_mode' => 'nominal',
                 'opening_float_total' => '0',
                 'opening_denominations' => [
                     '50000' => 1,
@@ -246,7 +553,7 @@ class POSOpeningFloatCaptureTest extends TestCase
             ->get(route('pos.sessions.create'))
             ->assertOk()
             ->assertSee('Terminal tidak dipakai untuk floor staff')
-            ->assertSee('Floor staff bekerja tanpa terminal.')
+            ->assertSee('Sesi tanpa terminal untuk menyiapkan dan menyerahkan draf.')
             ->assertDontSee('Cari terminal...');
     }
 
@@ -286,7 +593,7 @@ class POSOpeningFloatCaptureTest extends TestCase
             ->withSession(['setting_id' => $setting->id])
             ->post(route('pos.sessions.store'), [
                 'terminal_id' => $terminal->id,
-                'opening_float_total' => '100000',
+                'opening_denominations' => ['100000' => '1'],
                 'notes' => 'Terminal session with float',
             ]);
 
@@ -319,7 +626,7 @@ class POSOpeningFloatCaptureTest extends TestCase
             ->withSession(['setting_id' => $setting->id])
             ->post(route('pos.sessions.store'), [
                 'terminal_id' => $terminal->id,
-                'opening_float_total' => '100000',
+                'opening_denominations' => ['50000' => '2'],
                 'notes' => 'Kasbon-only terminal session',
             ])
             ->assertRedirect(route('pos.sell'));
@@ -352,7 +659,7 @@ class POSOpeningFloatCaptureTest extends TestCase
 
     private function createUserForSetting(Setting $setting, array $permissions): User
     {
-        $role = Role::firstOrCreate(['name' => 'POS CASHIER ' . $setting->id . '-' . count($permissions)]);
+        $role = Role::firstOrCreate(['name' => 'POS CASHIER ' . $setting->id . '-' . md5(implode('|', $permissions))]);
         $role->syncPermissions($permissions);
 
         $user = User::factory()->create();
@@ -399,7 +706,7 @@ class POSOpeningFloatCaptureTest extends TestCase
         ]);
 
         $paymentMethod = \Modules\Setting\Entities\PaymentMethod::create([
-            'name' => 'Cash',
+            'name' => 'Cash ' . $setting->id,
             'coa_id' => $coa->id,
             'is_cash' => true,
         ]);

@@ -97,6 +97,60 @@ class POSTerminalRegistryPolicyTest extends TestCase
 
         $response->assertOk();
         $response->assertDontSee('name="location_id"', false);
+        $response->assertDontSee('name="allow_total_only_float_input"', false);
+        $response->assertDontSee('Izinkan input total saldo awal saja');
+    }
+
+    public function test_edit_form_hides_retired_total_only_float_checkbox_and_update_preserves_stored_column(): void
+    {
+        $setting = $this->createSetting('BIZ A');
+        $user = $this->createSettingsUser($setting, true);
+
+        $terminal = PosTerminal::create([
+            'setting_id' => $setting->id,
+            'code' => 'COUNTER-01',
+            'name' => 'A TERMINAL',
+            'is_active' => 1,
+        ]);
+
+        PosTerminalPolicy::create([
+            'terminal_id' => $terminal->id,
+            'require_session_open' => 1,
+            'require_opening_float' => 1,
+            'allow_total_only_float_input' => 0,
+            'close_variance_approval_threshold' => 0,
+            'cash_threshold' => null,
+            'auto_open_drawer_on_session_open' => 0,
+            'auto_open_drawer_on_cash_sale' => 0,
+            'auto_open_drawer_on_pickup' => 0,
+            'auto_open_drawer_on_close' => 0,
+            'require_pickup_supervisor_approval' => 1,
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.terminals.edit', $terminal->id))
+            ->assertOk()
+            ->assertDontSee('name="allow_total_only_float_input"', false)
+            ->assertDontSee('Izinkan input total saldo awal saja');
+
+        $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->put(route('pos.terminals.update', $terminal->id), [
+                'code' => 'COUNTER-01',
+                'name' => 'A TERMINAL UPDATED',
+                'is_active' => '1',
+                'require_opening_float' => '1',
+                'close_variance_approval_threshold' => '10000',
+                'require_pickup_supervisor_approval' => '1',
+            ])
+            ->assertRedirect(route('pos.terminals.index'));
+
+        $this->assertDatabaseHas('pos_terminal_policies', [
+            'terminal_id' => $terminal->id,
+            'allow_total_only_float_input' => 0,
+            'close_variance_approval_threshold' => 10000,
+        ]);
     }
 
     public function test_it_enforces_code_uniqueness_per_setting_and_allows_same_code_other_setting(): void

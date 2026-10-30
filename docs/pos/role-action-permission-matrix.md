@@ -74,3 +74,8 @@ Expected behavior:
 - **Administrator Assignment**: `pos.checkout.debt.request` is not automatically granted by default bundles (`floor_staff`, `cashier`, `manager`). Administrators must explicitly assign `pos.checkout.debt.request` (or `pos.checkout.debt`) to roles/users who need Kasbon checkout access.
 - `pos.sell` controls POS shell/cart access, not payment authority.
 - Price override direct bypass is controlled only by `pos.overrides.price`.
+- **Opening cash (terminal sessions)**: Opening a session with a terminal defaults to counting banknotes/coins using the globally enabled cash denominations (`Konfigurasi Pecahan Uang`). The server derives the opening total from the counts; any client-submitted total is ignored in this mode.
+  - **Nominal entry (`pos.sessions.open.total-only`, `Buka Sesi dengan Total Nominal`, grouped under `Pengecualian Hak Akses`)**: Allows a user who also holds `pos.sessions.open` to explicitly switch to entering a total without counts. It is not granted by default bundles (`floor_staff`, `cashier`, `manager`) and is checked against the acting user at submission time. Holding it alone does not allow opening a session.
+  - The terminal policy flag `allow_total_only_float_input` is retired for opening cash: its checkbox is removed from terminal configuration, it neither grants nor denies nominal entry, and the stored column is retained only for compatibility/rollback.
+  - Request contract: `opening_cash_input_mode` is `denominations` (default when omitted) or `nominal`. Total-only requests without the permission and explicit `nominal` mode are rejected.
+  - Terminal-free sessions remain unchanged: no opening cash is required and it normalizes to zero.

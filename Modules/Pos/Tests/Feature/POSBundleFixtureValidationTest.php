@@ -125,6 +125,25 @@ class POSBundleFixtureValidationTest extends TestCase
         }
     }
 
+    public function test_pos_sessions_open_total_only_is_registered_in_exceptions_cluster_without_default_bundle_grants(): void
+    {
+        $allPermissions = require base_path('app/Config/Permissions.php');
+        $this->assertArrayHasKey('POS', $allPermissions);
+        $this->assertArrayHasKey('pos.sessions.open.total-only', $allPermissions['POS']);
+
+        $clusters = PosPermissionMatrix::capabilityClusters();
+        $this->assertArrayHasKey('exceptions', $clusters);
+        $this->assertContains('pos.sessions.open.total-only', $clusters['exceptions']['permissions']);
+
+        foreach (PosPermissionMatrix::supportedBundles() as $bundleKey => $bundle) {
+            $this->assertNotContains(
+                'pos.sessions.open.total-only',
+                $bundle['permissions'],
+                "Default bundle [{$bundleKey}] must not automatically grant pos.sessions.open.total-only"
+            );
+        }
+    }
+
     public function test_independent_flow_capabilities_for_payment_only_direct_debt_request_debt_combined_neither_and_super_admin(): void
     {
         $setting = $this->createSetting();

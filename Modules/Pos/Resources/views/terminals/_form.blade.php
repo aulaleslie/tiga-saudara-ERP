@@ -53,10 +53,6 @@
             <label class="form-check-label" for="require_opening_float">Wajib saldo awal</label>
         </div>
         <div class="form-check mb-2">
-            <input type="checkbox" class="form-check-input" id="allow_total_only_float_input" name="allow_total_only_float_input" value="1" @checked($checkboxValue('allow_total_only_float_input', true))>
-            <label class="form-check-label" for="allow_total_only_float_input">Izinkan input total saldo awal saja</label>
-        </div>
-        <div class="form-check mb-2">
             <input type="checkbox" class="form-check-input" id="require_pickup_supervisor_approval" name="require_pickup_supervisor_approval" value="1" @checked($checkboxValue('require_pickup_supervisor_approval', true))>
             <label class="form-check-label" for="require_pickup_supervisor_approval">Wajib persetujuan supervisor untuk pengambilan</label>
         </div>

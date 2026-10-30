@@ -8,7 +8,11 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Currency\Entities\Currency;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTerminalPolicy;
+use Modules\Pos\Entities\PosSessionCashEvent;
+use Modules\Pos\Exceptions\PosOpeningCashException;
+use Modules\Pos\Services\PosOpeningCashNormalizer;
 use Modules\Pos\Services\PosSessionLifecycleService;
+use Modules\Setting\Entities\CashDenomination;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Spatie\Permission\Models\Permission;
@@ -43,6 +47,7 @@ class POSSessionLifecycleTest extends TestCase
         Permission::findOrCreate('pos.sell', 'web');
         Permission::findOrCreate('pos.sessions.open', 'web');
         Permission::findOrCreate('pos.sessions.view', 'web');
+        Permission::findOrCreate('pos.sessions.open.total-only', 'web');
     }
 
     public function test_open_session_creates_open_session_for_valid_terminal_and_cashier(): void
@@ -201,7 +206,7 @@ class POSSessionLifecycleTest extends TestCase
             $terminal->id,
             $user->id,
             25000,
-            ['25000' => 1],
+            ['20000' => 1, '5000' => 1],
             $user->id
         );
 
@@ -224,6 +229,86 @@ class POSSessionLifecycleTest extends TestCase
         /** @var PosSessionLifecycleService $service */
         $service = app(PosSessionLifecycleService::class);
         $service->openSession($setting->id, $terminal->id, $user->id, 100000, ['100000' => 1], $user->id);
+    }
+
+    public function test_direct_service_total_only_call_without_mode_or_permission_is_rejected(): void
+    {
+        $setting = $this->createSetting('BIZ DIRECT');
+        $user = $this->createUserForSetting($setting, 'Cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $terminal = $this->createTerminalForSetting($setting);
+        $this->enablePaymentMethodForSetting($setting);
+        $service = app(PosSessionLifecycleService::class);
+
+        foreach ([null, PosOpeningCashNormalizer::MODE_NOMINAL] as $mode) {
+            try {
+                $service->openSession($setting->id, $terminal->id, $user->id, 100000, null, $user->id, null, null, $mode);
+                $this->fail('Expected opening cash rejection.');
+            } catch (PosOpeningCashException) {
+                // expected
+            }
+        }
+
+        try {
+            $service->openSession($setting->id, $terminal->id, $user->id, 100000, null, $user->id, null, null, 'bogus');
+            $this->fail('Expected unknown mode rejection.');
+        } catch (PosOpeningCashException $exception) {
+            $this->assertSame('opening_cash_input_mode', $exception->field);
+        }
+
+        $this->assertDatabaseCount('pos_sessions', 0);
+        $this->assertDatabaseCount('pos_session_cash_events', 0);
+    }
+
+    public function test_direct_service_nominal_call_respects_current_permission_of_acting_user(): void
+    {
+        $setting = $this->createSetting('BIZ DIRECT NOMINAL');
+        $user = $this->createUserForSetting($setting, 'Supervisor', ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.sessions.open.total-only']);
+        $terminal = $this->createTerminalForSetting($setting);
+        $this->enablePaymentMethodForSetting($setting);
+        $service = app(PosSessionLifecycleService::class);
+
+        // Revoke after "page load".
+        Role::findByName('Supervisor')->revokePermissionTo('pos.sessions.open.total-only');
+        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+        $user = $user->fresh();
+
+        try {
+            $service->openSession($setting->id, $terminal->id, $user->id, 100000, null, $user->id, null, null, PosOpeningCashNormalizer::MODE_NOMINAL);
+            $this->fail('Expected revoked permission rejection.');
+        } catch (PosOpeningCashException) {
+            $this->assertDatabaseCount('pos_sessions', 0);
+        }
+
+        Role::findByName('Supervisor')->givePermissionTo('pos.sessions.open.total-only');
+        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+
+        $session = $service->openSession($setting->id, $terminal->id, $user->id, 120000, ['50000' => 9], $user->id, null, null, PosOpeningCashNormalizer::MODE_NOMINAL);
+        $this->assertEquals(120000, (float) $session->opening_float_total);
+        $this->assertEquals(120000, (float) $session->expected_cash_total);
+    }
+
+    public function test_counted_opening_evidence_survives_configuration_changes_and_idempotent_reopen(): void
+    {
+        $setting = $this->createSetting('BIZ EVIDENCE');
+        $user = $this->createUserForSetting($setting, 'Cashier', ['pos.access', 'pos.sell', 'pos.sessions.open']);
+        $terminal = $this->createTerminalForSetting($setting);
+        $this->enablePaymentMethodForSetting($setting);
+        $service = app(PosSessionLifecycleService::class);
+
+        $session = $service->openSession($setting->id, $terminal->id, $user->id, 1, ['50000' => '2', '10000' => 3, '75000' => 0], $user->id);
+        $this->assertEquals(130000, (float) $session->opening_float_total);
+        $this->assertEquals(130000, (float) $session->expected_cash_total);
+
+        CashDenomination::query()->where('value', 50000)->update(['is_enabled' => false]);
+
+        $again = $service->openSession($setting->id, $terminal->id, $user->id, 1, ['10000' => 1], $user->id);
+        $this->assertSame((int) $session->id, (int) $again->id);
+
+        $events = PosSessionCashEvent::query()->where('pos_session_id', $session->id)->get();
+        $this->assertCount(1, $events);
+        $this->assertSame(['50000' => 2, '10000' => 3], $events->first()->denominations);
+        $this->assertEquals(130000, (float) $events->first()->amount);
+        $this->assertSame('denominations', $events->first()->metadata['opening_cash_input_mode']);
     }
 
     public function test_create_session_view_redirects_when_no_enabled_payment_methods(): void

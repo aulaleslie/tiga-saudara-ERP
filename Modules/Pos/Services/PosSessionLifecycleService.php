@@ -17,7 +17,8 @@ class PosSessionLifecycleService
     public function __construct(
         private readonly PosTerminalRuntimeResolver $terminalResolver,
         private readonly PosCashDrawerService $cashDrawerService,
-        private readonly PosRolePolicyService $rolePolicyService
+        private readonly PosRolePolicyService $rolePolicyService,
+        private readonly PosOpeningCashNormalizer $openingCashNormalizer
     ) {
     }
 
@@ -29,7 +30,8 @@ class PosSessionLifecycleService
         ?array $openingDenominations = null,
         ?int $openedBy = null,
         ?string $notes = null,
-        ?array $metadata = null
+        ?array $metadata = null,
+        ?string $openingCashInputMode = null
     ): PosSession {
         return DB::transaction(function () use (
             $settingId,
@@ -39,7 +41,8 @@ class PosSessionLifecycleService
             $openingDenominations,
             $openedBy,
             $notes,
-            $metadata
+            $metadata,
+            $openingCashInputMode
         ) {
             $cashier = User::query()->find($cashierUserId);
             if (! $cashier) {
@@ -68,13 +71,18 @@ class PosSessionLifecycleService
                 throw new DomainException('Configure at least one payment method before opening a POS session.');
             }
 
-            $openingTotal = $normalizedTerminalId !== null
-                ? round($openingFloatTotal, 2)
-                : 0;
+            $actingUser = $openedBy && (int) $openedBy !== (int) $cashier->id
+                ? User::query()->find($openedBy)
+                : $cashier;
 
-            if ($normalizedTerminalId !== null && $openingTotal <= 0) {
-                throw new DomainException('Opening float total must be greater than zero.');
-            }
+            $openingCash = $this->openingCashNormalizer->normalize(
+                $normalizedTerminalId !== null,
+                $openingCashInputMode,
+                $openingFloatTotal,
+                $openingDenominations,
+                $actingUser
+            );
+            $openingTotal = $openingCash['total'];
 
             $activeSessionForUser = PosSession::query()
                 ->where('cashier_user_id', $cashierUserId)
@@ -159,10 +167,12 @@ class PosSessionLifecycleService
                     'event_type' => PosSessionCashEvent::EVENT_OPEN_FLOAT,
                     'direction' => PosSessionCashEvent::DIRECTION_IN,
                     'amount' => $openingTotal,
-                    'denominations' => null,
+                    'denominations' => $openingCash['denominations'],
                     'performed_by' => $openedByUserId,
                     'notes' => $notes,
-                    'metadata' => null,
+                    'metadata' => $openingCash['mode'] !== null
+                        ? ['opening_cash_input_mode' => $openingCash['mode']]
+                        : null,
                     'occurred_at' => now(),
                 ]);
 
