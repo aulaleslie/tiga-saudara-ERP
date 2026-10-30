@@ -148,6 +148,7 @@ final class PosPermissionMatrix
                     'pos.overrides.discount',
                     'pos.void',
                     'pos.checkout.debt',
+                    'pos.checkout.debt.request',
                 ],
             ],
             'returns' => [

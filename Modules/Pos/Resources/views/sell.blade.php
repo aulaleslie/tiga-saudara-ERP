@@ -14,6 +14,12 @@
         $terminalLabelShort = \Illuminate\Support\Str::limit($terminalLabelFull, 30);
         $posTransactionsEnabled = (bool) (settings()->pos_transactions_enabled ?? false);
         $hasCheckoutAuthority = (bool) (($roleCapabilities['has_checkout_authority'] ?? $roleCapabilities['can_checkout'] ?? false) === true);
+        $hasPaymentAuthority = (bool) (($roleCapabilities['has_payment_checkout_authority'] ?? (auth()->check() && auth()->user()->can('pos.checkout.payment'))) === true);
+        $hasDirectDebtAuthority = (bool) (($roleCapabilities['has_direct_debt_checkout_authority'] ?? (auth()->check() && auth()->user()->can('pos.checkout.debt'))) === true);
+        $hasRequestDebtAuthority = (bool) (($roleCapabilities['has_request_debt_checkout_authority'] ?? (auth()->check() && auth()->user()->can('pos.checkout.debt.request'))) === true);
+        $hasDebtAuthority = (bool) (($roleCapabilities['has_debt_checkout_authority'] ?? ($hasDirectDebtAuthority || $hasRequestDebtAuthority)) === true);
+        $requiresDebtApproval = (bool) (($roleCapabilities['requires_debt_approval'] ?? (! $hasDirectDebtAuthority && $hasRequestDebtAuthority)) === true);
+        $canSwitchCheckoutFlow = (bool) (($roleCapabilities['can_switch_checkout_flow'] ?? ($hasPaymentAuthority && $hasDebtAuthority)) === true);
         $canCheckoutFlow = (bool) (($roleCapabilities['can_use_payment_flow'] ?? false) === true);
         $checkoutDisabledTitle = ! $hasCheckoutAuthority
             ? 'Membutuhkan izin pos.checkout.payment untuk membuka pembayaran.'
@@ -331,7 +337,15 @@
             const roleCapabilities = @json($roleCapabilities ?? []);
             console.log('[INIT] roleCapabilities: ' + JSON.stringify(roleCapabilities));
             const hasCheckoutAuthority = Boolean(roleCapabilities && (roleCapabilities.has_checkout_authority === true || roleCapabilities.can_checkout === true));
+            const hasPaymentAuthority = Boolean(roleCapabilities && roleCapabilities.has_payment_checkout_authority === true);
+            const hasDirectDebtAuthority = Boolean(roleCapabilities && roleCapabilities.has_direct_debt_checkout_authority === true);
+            const hasRequestDebtAuthority = Boolean(roleCapabilities && roleCapabilities.has_request_debt_checkout_authority === true);
+            const hasDebtAuthority = Boolean(roleCapabilities && (roleCapabilities.has_debt_checkout_authority === true || hasDirectDebtAuthority || hasRequestDebtAuthority));
+            const requiresDebtApproval = Boolean(roleCapabilities && (roleCapabilities.requires_debt_approval === true || (!hasDirectDebtAuthority && hasRequestDebtAuthority)));
+            const canSwitchCheckoutFlow = Boolean(roleCapabilities && (roleCapabilities.can_switch_checkout_flow === true || (hasPaymentAuthority && hasDebtAuthority)));
             const canCheckoutByRole = Boolean(roleCapabilities && roleCapabilities.can_use_payment_flow === true);
+            const canCheckoutLunas = Boolean(roleCapabilities && (roleCapabilities.can_checkout_lunas === true || (canCheckoutByRole && hasPaymentAuthority)));
+            const canCheckoutKasbon = Boolean(roleCapabilities && (roleCapabilities.can_checkout_kasbon === true || (canCheckoutByRole && hasDebtAuthority)));
             const requiresTerminalForCheckout = hasCheckoutAuthority && !canCheckoutByRole;
             const canReduceQuantity = Boolean(
               typeof roleCapabilities?.can_reduce_quantity === 'boolean' ? roleCapabilities.can_reduce_quantity :
@@ -1701,11 +1715,11 @@
                  const canCheckout = canSaveDraft && allSerialsValid && canCheckoutByRole;
 
                  if (btnCheckout) {
-                     btnCheckout.disabled = !canCheckout;
+                     btnCheckout.disabled = !(canCheckout && canCheckoutLunas);
                  }
                  const btnKasbon = document.getElementById('pos-checkout-kasbon');
                  if (btnKasbon) {
-                     btnKasbon.disabled = !canCheckout;
+                     btnKasbon.disabled = !(canCheckout && canCheckoutKasbon);
                  }
 
                  if (saveDraftButton) {
@@ -4783,6 +4797,16 @@
                     return;
                 }
 
+                if (flow === 'kasbon' && !hasDebtAuthority) {
+                    setCartStatus('Anda tidak memiliki izin untuk membuka alur Kasbon.', 'text-danger');
+                    return;
+                }
+
+                if (flow === 'full_payment' && !hasPaymentAuthority) {
+                    setCartStatus('Anda tidak memiliki izin untuk membuka alur Bayar Lunas.', 'text-danger');
+                    return;
+                }
+
                 if (flow === 'kasbon') {
                     const hasCustomer = currentSnapshot && currentSnapshot.customer && currentSnapshot.customer.resolved_customer_id ? true : false;
                     if (!hasCustomer) {
@@ -5057,6 +5081,11 @@
                     spinner: document.getElementById('staged-payment-spinner'),
                     errorAlert: document.getElementById('staged-payment-error'),
                     canUsePaymentFlow: canCheckoutByRole,
+                    canUseLunasFlow: canCheckoutLunas,
+                    canUseKasbonFlow: canCheckoutKasbon,
+                    canSwitchFlow: canCheckoutByRole && canSwitchCheckoutFlow,
+                    requiresKasbonApproval: requiresDebtApproval,
+                    defaultFlow: hasPaymentAuthority ? 'full_payment' : (hasDebtAuthority ? 'kasbon' : 'full_payment'),
                     paymentFlowBlockedMessage: requiresTerminalForCheckout
                         ? 'Sesi kasir harus terhubung ke terminal sebelum membuka pembayaran.'
                         : 'Anda tidak memiliki izin pembayaran POS.',

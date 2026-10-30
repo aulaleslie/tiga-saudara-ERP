@@ -2,6 +2,7 @@
 
 namespace Modules\Pos\Services;
 
+use DomainException;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -248,9 +249,30 @@ class FinalizePosCheckoutService
         // Determine if legacy single-payment or multi-payment path
         $isMultiPayment = isset($paymentPayload['payments']) && is_array($paymentPayload['payments']);
 
-        $isDebt = (bool) ($paymentPayload['is_debt'] ?? false);
+        $rolePolicy = app(PosRolePolicyService::class);
+        $flowResolution = $rolePolicy->resolveFlowFromIndicators($paymentPayload);
+        if ($flowResolution['contradictory']) {
+            throw new PosCheckoutValidationException(
+                'FLOW_STATE_MISMATCH',
+                $rolePolicy->flowStateMismatchMessage()
+            );
+        }
+
+        $effectiveFlow = $flowResolution['flow'] ?? 'full_payment';
+        $isDebt = ($effectiveFlow === 'kasbon');
         $paymentTermId = isset($paymentPayload['payment_term_id']) ? (int) $paymentPayload['payment_term_id'] : null;
         $approvalToken = $paymentPayload['approval_token'] ?? null;
+
+        $cashierUser = User::find($cashierUserId);
+        if (! $cashierUser) {
+            throw new PosCheckoutValidationException('APPROVAL_REQUIRED', 'Kasir tidak valid, otorisasi ditolak.');
+        }
+
+        if (! $rolePolicy->hasFlowAuthority($cashierUser, $effectiveFlow)) {
+            throw new DomainException(
+                $isDebt ? 'DEBT_PERMISSION_REQUIRED' : 'CHECKOUT_FLOW_PERMISSION_REQUIRED'
+            );
+        }
 
         if ($isMultiPayment) {
             $payment = $this->normalizeMultiPayment($settingId, $paymentPayload['payments']);
@@ -269,12 +291,8 @@ class FinalizePosCheckoutService
             if (!$this->authorizationService) {
                 throw new PosCheckoutValidationException('APPROVAL_REQUIRED', 'Layanan otorisasi tidak tersedia, tidak dapat memproses utang.');
             }
-            $user = User::find($cashierUserId);
-            if (!$user) {
-                throw new PosCheckoutValidationException('APPROVAL_REQUIRED', 'Kasir tidak valid, otorisasi ditolak.');
-            }
             $authResult = $this->authorizationService->authorize(
-                $user,
+                $cashierUser,
                 PosActionApprovalRequest::ACTION_CHECKOUT_AS_DEBT,
                 $approvalToken
             );

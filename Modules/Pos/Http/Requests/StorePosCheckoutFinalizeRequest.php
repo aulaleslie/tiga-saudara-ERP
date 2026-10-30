@@ -33,7 +33,7 @@ class StorePosCheckoutFinalizeRequest extends FormRequest
             ], 403));
         }
 
-        if (! $user->can('pos.checkout.payment')) {
+        if (! app(PosRolePolicyService::class)->hasCheckoutAuthority($user)) {
             throw new HttpResponseException(response()->json([
                 'code' => 'CHECKOUT_PERMISSION_REQUIRED',
                 'message' => 'Anda tidak memiliki izin untuk mengakses alur pembayaran POS.',
@@ -62,12 +62,13 @@ class StorePosCheckoutFinalizeRequest extends FormRequest
         $hasMultiPayments = $multiPayments !== null && is_array($multiPayments);
         $hasCartToken = ! empty($cartToken);
 
-        $isDebt = (bool) $this->input('is_debt', false);
+        $isDebt = ($this->input('flow') === 'kasbon') || (bool) $this->input('is_debt', false);
 
         $rules = [
             'idempotency_key' => ['required', 'string', 'max:100'],
             'cart_token' => ['nullable', 'string', 'uuid'],
             'client_context' => ['nullable', 'array'],
+            'flow' => ['nullable', 'string', 'in:full_payment,kasbon'],
             'is_debt' => ['nullable', 'boolean'],
             'payment_term_id' => ['nullable', 'integer', 'exists:payment_terms,id'],
             'approval_token' => ['nullable', 'string'],

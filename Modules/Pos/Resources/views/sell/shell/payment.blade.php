@@ -10,7 +10,28 @@
                                     <div id="pos-payment-summary-total" class="pos-total-value">Rp0</div>
                                 </div>
                                 <div class="pos-payment-actions">
-                                    @if($hasCheckoutAuthority)
+                                    @php
+                                        $hasLunasAction = (bool) (($hasPaymentAuthority ?? null) !== null
+                                            ? $hasPaymentAuthority
+                                            : (auth()->check() && auth()->user()->can('pos.checkout.payment')));
+                                        $hasDirectDebtAction = (bool) (($hasDirectDebtAuthority ?? null) !== null
+                                            ? $hasDirectDebtAuthority
+                                            : (auth()->check() && auth()->user()->can('pos.checkout.debt')));
+                                        $hasRequestDebtAction = (bool) (($hasRequestDebtAuthority ?? null) !== null
+                                            ? $hasRequestDebtAuthority
+                                            : (auth()->check() && auth()->user()->can('pos.checkout.debt.request')));
+                                        $hasKasbon = (bool) (($hasDebtAuthority ?? null) !== null
+                                            ? $hasDebtAuthority
+                                            : ($hasDirectDebtAction || $hasRequestDebtAction));
+                                        $requiresKasbonApproval = (bool) (($requiresDebtApproval ?? null) !== null
+                                            ? $requiresDebtApproval
+                                            : (! $hasDirectDebtAction && $hasRequestDebtAction));
+                                        $kasbonButtonLabel = $requiresKasbonApproval
+                                            ? 'Kasbon · Perlu Persetujuan'
+                                            : 'Kasbon';
+                                    @endphp
+
+                                    @if($hasLunasAction)
                                         <div class="pos-payment-primary-col">
                                             <button id="pos-checkout-final"
                                                     class="btn btn-primary btn-lg"
@@ -33,7 +54,6 @@
                                             && auth()->user()->can('pos.transactions.save')
                                             && auth()->user()->can('pos.transactions.load')
                                             && auth()->user()->can('pos.transactions.print-current');
-                                        $hasKasbon = $hasCheckoutAuthority && auth()->user()->can('pos.checkout.debt');
                                         $hasAnySecondary = $hasSaveDraft || $hasSavePrint || $hasKasbon;
                                     @endphp
 
@@ -57,11 +77,12 @@
                                                         type="button"
                                                         disabled
                                                         data-flow="kasbon"
+                                                        data-requires-approval="{{ $requiresKasbonApproval ? '1' : '0' }}"
                                                         @if(! $canCheckoutFlow)
                                                             data-permission-locked="1"
                                                             title="{{ $checkoutDisabledTitle }}"
                                                         @endif>
-                                                    Kasbon
+                                                    {{ $kasbonButtonLabel }}
                                                 </button>
                                             @endif
                                         </div>

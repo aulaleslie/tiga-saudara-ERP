@@ -20,8 +20,10 @@ class StorePosSessionOpenRequest extends FormRequest
         $terminalId = $this->input('terminal_id');
         $hasTerminal = !empty($terminalId);
         $user = $this->user();
+        $rolePolicy = app(PosRolePolicyService::class);
         $isFloorStaffStyleSession = $user !== null
-            && app(PosRolePolicyService::class)->detectRole($user) === PosRolePolicyService::PROFILE_HELPER;
+            && ! $rolePolicy->hasCheckoutAuthority($user)
+            && $rolePolicy->detectRole($user) === PosRolePolicyService::PROFILE_HELPER;
 
         return [
             'terminal_id' => [

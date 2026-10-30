@@ -43,6 +43,13 @@ class PosCartActionAuthorizationService
             ];
         }
 
+        if (
+            $actionType === PosActionApprovalRequest::ACTION_CHECKOUT_AS_DEBT
+            && ! $user->can('pos.checkout.debt.request')
+        ) {
+            throw new DomainException('DEBT_PERMISSION_REQUIRED');
+        }
+
         if ($approvalToken !== null && $approvalToken !== '') {
             $expectedContext = array_merge(['action_type' => $actionType], $expected);
             $tokenRecord = $this->tokenService->validateToken($approvalToken, $user->id, $expectedContext);
@@ -82,6 +89,13 @@ class PosCartActionAuthorizationService
                 'reason' => null,
                 'request' => null,
             ];
+        }
+
+        if (
+            $actionType === PosActionApprovalRequest::ACTION_CHECKOUT_AS_DEBT
+            && ! $user->can('pos.checkout.debt.request')
+        ) {
+            throw new DomainException('DEBT_PERMISSION_REQUIRED');
         }
 
         if ($approvalToken !== null && $approvalToken !== '') {

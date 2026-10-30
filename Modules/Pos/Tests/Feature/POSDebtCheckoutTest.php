@@ -64,6 +64,7 @@ class POSDebtCheckoutTest extends TestCase
             'pos.sessions.open',
             'pos.checkout.payment',
             'pos.checkout.debt',
+            'pos.checkout.debt.request',
             'pos.supervisor.approval',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
@@ -265,12 +266,18 @@ class POSDebtCheckoutTest extends TestCase
 
     public function test_debt_authorization_flows(): void
     {
-        $context = $this->createSplitCheckoutContext(false, ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment']);
+        $context = $this->createSplitCheckoutContext(false, [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.checkout.payment',
+            'pos.checkout.debt.request',
+        ]);
         $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 1);
         $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
         $term = PaymentTerm::query()->create(['name' => 'Net 30', 'longevity' => 30]);
 
-        // 1. Cashier without pos.checkout.debt and no token -> APPROVAL_REQUIRED
+        // 1. Cashier with pos.checkout.debt.request (without pos.checkout.debt) and no token -> APPROVAL_REQUIRED
         $response1 = $this->finalize($context['cashier'], $context['setting'], [
             'idempotency_key' => 'K-DEBT-AUTH-001',
             'is_debt' => true,
@@ -311,7 +318,7 @@ class POSDebtCheckoutTest extends TestCase
         ]);
         $response2->assertStatus(201);
 
-        // 4. Cashier with direct permission -> succeeds
+        // 4. Cashier with direct permission -> succeeds without token
         $cashierWithPerm = $this->createUserForSetting($context['setting'], 'DEBT CASHIER 2', ['pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment', 'pos.checkout.debt']);
         $newTerminal = \Modules\Pos\Entities\PosTerminal::query()->create(['name' => 'TERM 2', 'code' => 'TERM2', 'setting_id' => $context['setting']->id, 'location_id' => $context['terminal_location']->id]); \Modules\Pos\Entities\PosTerminalPolicy::query()->create(['terminal_id' => $newTerminal->id, 'receipt_header' => 'H', 'receipt_footer' => 'F', 'max_discount_percentage' => 100]);
         \Illuminate\Support\Facades\Cache::flush();
@@ -327,6 +334,161 @@ class POSDebtCheckoutTest extends TestCase
             'payment' => ['payment_method_id' => $context['methods']['cash']->id, 'amount_paid' => 0],
         ]);
         $response3->assertStatus(201);
+
+        // 5. Cashier with BOTH pos.checkout.debt and pos.checkout.debt.request -> direct permission takes precedence (no approval token required)
+        $cashierWithBoth = $this->createUserForSetting($context['setting'], 'DEBT CASHIER BOTH', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.checkout.debt',
+            'pos.checkout.debt.request',
+        ]);
+        $terminal3 = \Modules\Pos\Entities\PosTerminal::query()->create(['name' => 'TERM 3', 'code' => 'TERM3', 'setting_id' => $context['setting']->id, 'location_id' => $context['terminal_location']->id]);
+        \Modules\Pos\Entities\PosTerminalPolicy::query()->create(['terminal_id' => $terminal3->id, 'receipt_header' => 'H', 'receipt_footer' => 'F', 'max_discount_percentage' => 100]);
+        \Illuminate\Support\Facades\Cache::flush();
+        $this->openSession($context['setting'], $terminal3, $cashierWithBoth);
+
+        $this->addCartLine($cashierWithBoth, $context['setting'], $context['product']->id, 1);
+        $this->selectCustomerInCart($cashierWithBoth, $context['setting'], $context['customer']);
+
+        $response4 = $this->finalize($cashierWithBoth, $context['setting'], [
+            'idempotency_key' => 'K-DEBT-AUTH-004',
+            'is_debt' => true,
+            'payment_term_id' => $term->id,
+            'payment' => ['payment_method_id' => $context['methods']['cash']->id, 'amount_paid' => 0],
+        ]);
+        $response4->assertStatus(201);
+    }
+
+    public function test_debt_approval_request_and_token_consumption_denied_without_debt_or_request_permission_and_when_revoked(): void
+    {
+        $context = $this->createSplitCheckoutContext(false, [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.checkout.payment',
+        ]);
+        $this->addCartLine($context['cashier'], $context['setting'], $context['product']->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+        $term = PaymentTerm::query()->create(['name' => 'Net 30 Denied', 'longevity' => 30]);
+
+        // 1. Payment-only cashier cannot create a CHECKOUT_AS_DEBT approval request
+        $deniedReq = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.approval-requests.store'), [
+                'action_type' => 'CHECKOUT_AS_DEBT',
+                'target_type' => 'pos_cart',
+                'target_id' => 0,
+                'payload' => [],
+            ]);
+        $deniedReq->assertStatus(403)
+            ->assertJsonPath('code', 'DEBT_PERMISSION_REQUIRED');
+        $this->assertSame(0, PosActionApprovalRequest::query()->count());
+
+        // 2. Payment-only cashier cannot finalize Kasbon checkout
+        $deniedFinalize = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-DEBT-DENIED-001',
+            'is_debt' => true,
+            'payment_term_id' => $term->id,
+            'payment' => ['payment_method_id' => $context['methods']['cash']->id, 'amount_paid' => 0],
+        ]);
+        $deniedFinalize->assertStatus(403);
+
+        // 3. Grant pos.checkout.debt.request, stage Kasbon DP, create & approve request
+        $role = $context['cashier']->roles()->first();
+        $role->givePermissionTo('pos.checkout.debt.request');
+        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+        $context['cashier']->unsetRelation('roles')->unsetRelation('permissions');
+
+        $cartToken = \Illuminate\Support\Str::uuid()->toString();
+        $stageRes = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson('/pos/sell/checkout/stage-payment', [
+                'cart_token' => $cartToken,
+                'payment_method_id' => $context['methods']['cash']->id,
+                'amount' => 20000,
+                'grand_total' => 100000,
+                'flow' => 'kasbon',
+                'is_debt' => true,
+                'payment_term_id' => $term->id,
+            ]);
+        $stageRes->assertStatus(201);
+
+        $supervisor = $this->createUserForSetting($context['setting'], 'DEBT SUP REVOKED', [
+            'pos.access',
+            'pos.supervisor.approval',
+            'pos.checkout.debt',
+        ]);
+
+        $reqRes = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.approval-requests.store'), [
+                'action_type' => 'CHECKOUT_AS_DEBT',
+                'target_type' => 'pos_session',
+                'target_id' => $context['session']->id,
+                'payload' => ['cart_token' => $cartToken],
+            ]);
+        $reqRes->assertStatus(201);
+        $requestId = (int) $reqRes->json('request_id');
+
+        $this->actingAs($supervisor)
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.supervisor.approval-requests.approve', ['id' => $requestId]))
+            ->assertStatus(200);
+
+        $statusRes = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->getJson(route('pos.sell.approval-requests.show', ['id' => $requestId]));
+        $token = (string) $statusRes->json('approval_token');
+        $this->assertNotEmpty($token);
+
+        // 4. Revoke pos.checkout.debt.request BEFORE completion
+        $role->revokePermissionTo('pos.checkout.debt.request');
+        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+        $context['cashier']->unsetRelation('roles')->unsetRelation('permissions');
+
+        // 5. Attempting to finalize with the valid token must be rejected with 403 and NOT consume the token
+        $revokedFinalize = $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-DEBT-REVOKED-001',
+            'cart_token' => $cartToken,
+            'flow' => 'kasbon',
+            'is_debt' => true,
+            'payment_term_id' => $term->id,
+            'approval_token' => $token,
+        ]);
+        $revokedFinalize->assertStatus(403);
+
+        $approvalRecord = PosActionApprovalRequest::query()->findOrFail($requestId);
+        $this->assertSame(PosActionApprovalRequest::STATUS_APPROVED, $approvalRecord->status);
+        $this->assertNull($approvalRecord->consumed_at, 'Approval token must not be consumed when user lacks debt permission');
+
+        // Direct service invocation also rejects without consuming the token
+        $authService = app(\Modules\Pos\Services\PosCartActionAuthorizationService::class);
+        try {
+            $authService->authorizeWithoutConsuming(
+                $context['cashier'],
+                'CHECKOUT_AS_DEBT',
+                $token,
+                ['setting_id' => $context['setting']->id]
+            );
+            $this->fail('Expected DomainException DEBT_PERMISSION_REQUIRED was not thrown.');
+        } catch (\DomainException $e) {
+            $this->assertSame('DEBT_PERMISSION_REQUIRED', $e->getMessage());
+        }
+
+        try {
+            $authService->authorize(
+                $context['cashier'],
+                'CHECKOUT_AS_DEBT',
+                $token
+            );
+            $this->fail('Expected DomainException DEBT_PERMISSION_REQUIRED was not thrown.');
+        } catch (\DomainException $e) {
+            $this->assertSame('DEBT_PERMISSION_REQUIRED', $e->getMessage());
+        }
+
+        $approvalRecord->refresh();
+        $this->assertNull($approvalRecord->consumed_at);
     }
 
     public function test_split_debt_allocation_reconciles_per_sale(): void

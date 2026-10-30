@@ -25,6 +25,7 @@ class PosApprovalRequestService
         array $payload
     ): PosActionApprovalRequest {
         $this->assertSupportedAction($actionType);
+        $this->assertRequesterCanCreateRequest($requester, $actionType);
 
         // Cancel any existing PENDING or APPROVED requests for the same action+target from this user
         // This prevents stale approvals from showing in the cart when a new request is created
@@ -278,6 +279,23 @@ class PosApprovalRequestService
         }
 
         $this->requiredPermissionForAction($actionType);
+    }
+
+    private function assertRequesterCanCreateRequest(User $requester, string $actionType): void
+    {
+        if ($actionType !== PosActionApprovalRequest::ACTION_CHECKOUT_AS_DEBT) {
+            return;
+        }
+
+        if ($requester->hasRole('Super Admin')) {
+            return;
+        }
+
+        if ($requester->can('pos.checkout.debt') || $requester->can('pos.checkout.debt.request')) {
+            return;
+        }
+
+        throw new DomainException('DEBT_PERMISSION_REQUIRED');
     }
 
     private function requiredPermissionForAction(string $actionType): string

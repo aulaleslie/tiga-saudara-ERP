@@ -49,6 +49,8 @@ abstract class PosTransactionFeatureTestCase extends TestCase
             'pos.access',
             'pos.sell',
             'pos.checkout.payment',
+            'pos.checkout.debt',
+            'pos.checkout.debt.request',
             'pos.sessions.open',
             'pos.sessions.view',
             'pos.cart.clear',

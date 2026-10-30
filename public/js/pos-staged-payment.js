@@ -120,10 +120,18 @@ window.PosStagedPayment = (function () {
     let cachedPaymentMethods = [];
     let selectedPaymentMethod = null;
     let canUsePaymentFlow = true;
+    let canUseLunasFlow = true;
+    let canUseKasbonFlow = true;
+    let canSwitchFlow = true;
+    let requiresKasbonApproval = false;
+    let defaultFlow = 'full_payment';
+    let isFlowLocked = false;
+    let flowLockedMessage = null;
     let paymentFlowBlockedMessage = 'Sesi kasir harus terhubung ke terminal sebelum membuka pembayaran.';
 
     // Reset button DOM element
     let stagedPaymentResetBtn = null;
+    let listenersBound = false;
 
     // Task 3.1: Initialize state machine
     function initialize(config = {}) {
@@ -200,7 +208,32 @@ window.PosStagedPayment = (function () {
         flowSwitchCancelBtn = document.getElementById('pos-flow-switch-cancel-btn');
 
         canUsePaymentFlow = config.canUsePaymentFlow !== false;
+        canUseLunasFlow = config.canUseLunasFlow !== undefined
+            ? Boolean(config.canUseLunasFlow)
+            : (config.canUseFullPaymentFlow !== undefined ? Boolean(config.canUseFullPaymentFlow) : true);
+        canUseKasbonFlow = config.canUseKasbonFlow !== undefined
+            ? Boolean(config.canUseKasbonFlow)
+            : true;
+        canSwitchFlow = config.canSwitchFlow !== undefined
+            ? Boolean(config.canSwitchFlow)
+            : (canUseLunasFlow && canUseKasbonFlow);
+        requiresKasbonApproval = Boolean(config.requiresKasbonApproval);
+        defaultFlow = config.defaultFlow
+            || (canUseLunasFlow ? 'full_payment' : (canUseKasbonFlow ? 'kasbon' : 'full_payment'));
+        currentFlow = defaultFlow;
+        isFlowLocked = false;
+        flowLockedMessage = null;
         paymentFlowBlockedMessage = config.paymentFlowBlockedMessage || paymentFlowBlockedMessage;
+
+        if (stagedSwitchFlowBtn) {
+            if (canSwitchFlow) {
+                stagedSwitchFlowBtn.classList.remove('d-none');
+                stagedSwitchFlowBtn.disabled = false;
+            } else {
+                stagedSwitchFlowBtn.classList.add('d-none');
+                stagedSwitchFlowBtn.disabled = true;
+            }
+        }
 
         console.log('[PosStagedPayment] DOM elements cached:', {
             modalElement: !!stagedModalElement,
@@ -209,11 +242,14 @@ window.PosStagedPayment = (function () {
             submitButton: !!stagedSubmitButton,
         });
 
-        setupEventListeners();
+        if (!listenersBound) {
+            setupEventListeners();
 
-        // Task 5.1 & 5.2: Initialize formatters
-        setupAmountInputFormatter();
-        setupQuickAddButtons();
+            // Task 5.1 & 5.2: Initialize formatters
+            setupAmountInputFormatter();
+            setupQuickAddButtons();
+            listenersBound = true;
+        }
     }
 
     // Task 3.2: Setup event listeners
@@ -353,8 +389,9 @@ window.PosStagedPayment = (function () {
     }
 
     // Task 5.1 & 5.2: Open modal with cart token and grand total
-    async function openModal(cartToken, grandTotal, hasCustomer = true, customerName = '-', flow = 'full_payment') {
-        console.log('[PosStagedPayment] openModal called with:', { cartToken, grandTotal, hasCustomer, customerName, flow });
+    async function openModal(cartToken, grandTotal, hasCustomer = true, customerName = '-', flow = null) {
+        const requestedFlow = flow || defaultFlow;
+        console.log('[PosStagedPayment] openModal called with:', { cartToken, grandTotal, hasCustomer, customerName, flow: requestedFlow });
 
         if (!ensurePaymentFlowAvailable()) {
             return;
@@ -370,11 +407,26 @@ window.PosStagedPayment = (function () {
 
         // If same cart token already has an active chain
         if (paymentChain && currentCartToken === cartToken) {
+            if (isFlowLocked) {
+                await updateFlowUI();
+                renderPaymentChain();
+                updateRemainderDisplay();
+                updateAmountHint();
+                showError(flowLockedMessage || getFlowDeniedMessage(currentFlow, true));
+                if (stagedModalElement) $(stagedModalElement).modal('show');
+                return;
+            }
+
             const numericGrandTotal = Number(grandTotal) || 0;
             const previousTotal = Number(paymentChain.original_grand_total) || 0;
             const totalChanged = Math.abs(previousTotal - numericGrandTotal) > 0.001;
 
             if (flow && flow !== currentFlow) {
+                if (!canSwitchFlow || !isFlowAccessible(flow)) {
+                    showError(getFlowDeniedMessage(flow));
+                    if (stagedModalElement) $(stagedModalElement).modal('show');
+                    return;
+                }
                 // Cashier requested to switch flow (e.g. from Bayar Lunas to Kasbon or vice versa)
                 // If dirty (staged payments, entered amount, evidence, edc), switchFlow confirms before resetting
                 await switchFlow(flow, totalChanged ? numericGrandTotal : null);
@@ -409,7 +461,7 @@ window.PosStagedPayment = (function () {
             // Reopening same flow: bypass reset, preserve progress
             state = States.SELECTING_METHOD;
             clearErrors();
-            updateFlowUI();
+            await updateFlowUI();
             renderPaymentChain();
             updateRemainderDisplay();
             updateAmountHint();
@@ -426,7 +478,7 @@ window.PosStagedPayment = (function () {
         }
         
         currentCartToken = cartToken;
-        currentFlow = flow || 'full_payment';
+        currentFlow = requestedFlow;
         resetStageForm();
 
         currentFinalizeIdempotencyKey = null;
@@ -434,9 +486,18 @@ window.PosStagedPayment = (function () {
         // Try to recover payment chain from session
         const recovered = await checkReloadRecovery(cartToken, grandTotal);
         if (!recovered) {
+            if (!isFlowAccessible(requestedFlow)) {
+                showError(getFlowDeniedMessage(requestedFlow));
+                return;
+            }
+            isFlowLocked = false;
+            flowLockedMessage = null;
+            currentFlow = requestedFlow;
             // Start fresh with provided grand total
             initializeNewPaymentChain(cartToken, grandTotal);
-            updateFlowUI();
+            await updateFlowUI();
+        } else if (isFlowLocked) {
+            showError(flowLockedMessage || getFlowDeniedMessage(currentFlow, true));
         }
 
         if (stagedModalElement) {
@@ -499,6 +560,15 @@ window.PosStagedPayment = (function () {
                 currentFlow = 'full_payment';
             }
 
+            const chainFlowAccessible = (data.flow_accessible !== false) && isFlowAccessible(currentFlow);
+            if (!chainFlowAccessible) {
+                isFlowLocked = true;
+                flowLockedMessage = data.flow_access_message || getFlowDeniedMessage(currentFlow, true);
+            } else {
+                isFlowLocked = false;
+                flowLockedMessage = null;
+            }
+
             if (currentFlow === 'kasbon') {
                 await loadPaymentTerms();
                 if (stagedPaymentTermSelect && data.payment_chain.payment_term_id) {
@@ -506,9 +576,12 @@ window.PosStagedPayment = (function () {
                 }
             }
 
-            updateFlowUI();
+            await updateFlowUI();
             renderPaymentChain();
             updateRemainderDisplay();
+            if (isFlowLocked) {
+                showError(flowLockedMessage);
+            }
             return true;
         } catch (error) {
             console.error('Reload recovery error:', error);
@@ -877,6 +950,13 @@ window.PosStagedPayment = (function () {
 
     // Task 4.1 & 4.2: Validate current stage
     function updateStageValidation() {
+        if (isFlowLocked || !isFlowAccessible(currentFlow)) {
+            if (stagedSubmitButton) {
+                stagedSubmitButton.disabled = true;
+            }
+            return;
+        }
+
         let isValid = true;
         const remainder = paymentChain?.remainder !== undefined ? paymentChain.remainder : 0;
         const isDebt = (currentFlow === 'kasbon');
@@ -944,6 +1024,11 @@ window.PosStagedPayment = (function () {
             return;
         }
 
+        if (isFlowLocked || !isFlowAccessible(currentFlow)) {
+            showError(flowLockedMessage || getFlowDeniedMessage(currentFlow, isFlowLocked));
+            return;
+        }
+
         const remainder = paymentChain?.remainder !== undefined ? paymentChain.remainder : 0;
         const isDebt = (currentFlow === 'kasbon');
         const amount = Number(stagedAmountInput.dataset.rawValue || stagedAmountInput.value || 0);
@@ -1002,6 +1087,11 @@ window.PosStagedPayment = (function () {
 
         if (confirmModalElement) {
             $(confirmModalElement).modal('hide');
+        }
+
+        if (isFlowLocked || !isFlowAccessible(currentFlow)) {
+            showError(flowLockedMessage || getFlowDeniedMessage(currentFlow, isFlowLocked));
+            return;
         }
 
         setProcessing(true);
@@ -1247,6 +1337,11 @@ window.PosStagedPayment = (function () {
             return;
         }
 
+        if (!canSwitchFlow || isFlowLocked || !isFlowAccessible(targetFlow)) {
+            showError(isFlowLocked ? (flowLockedMessage || getFlowDeniedMessage(currentFlow, true)) : getFlowDeniedMessage(targetFlow));
+            return;
+        }
+
         if (targetFlow === 'kasbon' && !currentHasCustomer) {
             showError('Pilih pelanggan terlebih dahulu untuk menggunakan fitur Kasbon.');
             return;
@@ -1287,11 +1382,28 @@ window.PosStagedPayment = (function () {
 
     // Execute authoritative server reset under cart-scope
     async function executeAuthoritativeReset(targetFlow, targetGrandTotal = null) {
+        if (isFlowLocked || !isFlowAccessible(currentFlow)) {
+            showError(flowLockedMessage || getFlowDeniedMessage(currentFlow, true));
+            return false;
+        }
+
+        if (targetFlow && !isFlowAccessible(targetFlow)) {
+            showError(getFlowDeniedMessage(targetFlow));
+            return false;
+        }
+
         setProcessing(true);
         clearErrors();
 
         try {
             if (currentCartToken) {
+                const resetBody = {
+                    cart_token: currentCartToken,
+                };
+                if (targetFlow) {
+                    resetBody.target_flow = targetFlow;
+                }
+
                 const response = await fetch('/pos/sell/checkout/payment-chain', {
                     method: 'DELETE',
                     headers: {
@@ -1299,9 +1411,7 @@ window.PosStagedPayment = (function () {
                         'Accept': 'application/json',
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        cart_token: currentCartToken,
-                    }),
+                    body: JSON.stringify(resetBody),
                 });
 
                 if (!response.ok) {
@@ -1359,6 +1469,11 @@ window.PosStagedPayment = (function () {
             return;
         }
 
+        if (isFlowLocked || !isFlowAccessible(currentFlow)) {
+            showError(flowLockedMessage || getFlowDeniedMessage(currentFlow, true));
+            return;
+        }
+
         if (!confirm('Anda yakin ingin menghapus semua pembayaran yang sudah diproses? Tindakan ini tidak dapat dibatalkan.')) {
             return;
         }
@@ -1374,6 +1489,11 @@ window.PosStagedPayment = (function () {
         if (event && typeof event.preventDefault === 'function') event.preventDefault();
 
         if (state === States.PROCESSING) return;
+
+        if (isFlowLocked || !isFlowAccessible('kasbon')) {
+            showError(flowLockedMessage || getFlowDeniedMessage('kasbon', isFlowLocked));
+            return;
+        }
 
         if (!currentHasCustomer) {
             showError('Pilih pelanggan terlebih dahulu untuk transaksi Kasbon.');
@@ -1403,7 +1523,20 @@ window.PosStagedPayment = (function () {
 
         if (stagedFlowBadge) {
             stagedFlowBadge.className = isKasbon ? 'badge badge-danger px-2 py-1 ml-2' : 'badge badge-primary px-2 py-1 ml-2';
-            stagedFlowBadge.textContent = isKasbon ? 'Kasbon (Piutang)' : 'Bayar Lunas';
+            stagedFlowBadge.textContent = isKasbon
+                ? (requiresKasbonApproval ? 'Kasbon · Perlu Persetujuan' : 'Kasbon (Piutang)')
+                : 'Bayar Lunas';
+        }
+
+        if (stagedSwitchFlowBtn) {
+            const canShowSwitch = Boolean(canSwitchFlow && !isFlowLocked);
+            if (canShowSwitch) {
+                stagedSwitchFlowBtn.classList.remove('d-none');
+                stagedSwitchFlowBtn.disabled = false;
+            } else {
+                stagedSwitchFlowBtn.classList.add('d-none');
+                stagedSwitchFlowBtn.disabled = true;
+            }
         }
 
         if (stagedSwitchFlowText) {
@@ -1435,6 +1568,18 @@ window.PosStagedPayment = (function () {
             } else {
                 stagedFinishKasbonBtn.classList.add('d-none');
             }
+            stagedFinishKasbonBtn.disabled = isFlowLocked;
+        }
+
+        if (stagedMethodSearchInput) stagedMethodSearchInput.disabled = isFlowLocked;
+        if (stagedAmountInput) stagedAmountInput.disabled = isFlowLocked;
+        if (stagedEdcReferenceInput) stagedEdcReferenceInput.disabled = isFlowLocked;
+        if (stagedPaymentTermSelect && isFlowLocked) stagedPaymentTermSelect.disabled = true;
+        if (stagedPaymentResetBtn) {
+            stagedPaymentResetBtn.disabled = isFlowLocked;
+            stagedPaymentResetBtn.style.opacity = isFlowLocked ? '0.5' : '1';
+            stagedPaymentResetBtn.style.cursor = isFlowLocked ? 'not-allowed' : 'pointer';
+            stagedPaymentResetBtn.style.pointerEvents = isFlowLocked ? 'none' : 'auto';
         }
 
         if (stagedSubmitButton) {
@@ -1554,6 +1699,11 @@ window.PosStagedPayment = (function () {
             return;
         }
 
+        if (isFlowLocked || !isFlowAccessible(currentFlow)) {
+            showError(flowLockedMessage || getFlowDeniedMessage(currentFlow, isFlowLocked));
+            return;
+        }
+
         if (!paymentChain) {
             showError('Payment chain is missing');
             return;
@@ -1637,7 +1787,7 @@ window.PosStagedPayment = (function () {
                         }
                     }
 
-                    if (data.code === 'APPROVAL_REQUIRED' || (data.message && data.message.includes('otorisasi'))) {
+                    if (response.status !== 403 && (data.code === 'APPROVAL_REQUIRED' || (data.message && data.message.includes('otorisasi')))) {
                         throw new Error('APPROVAL_REQUIRED');
                     }
                     throw new Error(data.message || 'Gagal menyelesaikan pembayaran');
@@ -1885,6 +2035,26 @@ window.PosStagedPayment = (function () {
         return false;
     }
 
+    function isFlowAccessible(flow) {
+        if (flow === 'kasbon') {
+            return Boolean(canUseKasbonFlow);
+        }
+
+        return Boolean(canUseLunasFlow);
+    }
+
+    function getFlowDeniedMessage(flow, isRecovery = false) {
+        if (flow === 'kasbon') {
+            return isRecovery
+                ? 'Rantai pembayaran Kasbon tersimpan pada sesi ini, tetapi Anda tidak lagi memiliki izin untuk melanjutkan atau mereset alur Kasbon.'
+                : 'Anda tidak memiliki izin untuk memproses checkout Kasbon (Piutang).';
+        }
+
+        return isRecovery
+            ? 'Rantai pembayaran Bayar Lunas tersimpan pada sesi ini, tetapi Anda tidak lagi memiliki izin untuk melanjutkan atau mereset alur Bayar Lunas.'
+            : 'Anda tidak memiliki izin untuk memproses checkout Bayar Lunas.';
+    }
+
     // Helper: Clear errors
     function clearErrors() {
         if (stagedErrorAlert) {
@@ -1995,6 +2165,9 @@ window.PosStagedPayment = (function () {
         printReceipt,
         switchFlow,
         isDirty,
+        isFlowAccessible,
+        canSwitchFlow: () => canSwitchFlow,
+        isFlowLocked: () => isFlowLocked,
         getCurrentFlow: () => currentFlow,
         getActiveGeneration: () => activeGeneration,
         getPaymentChain: () => paymentChain,

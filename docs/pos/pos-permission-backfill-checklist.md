@@ -5,9 +5,11 @@ Use this checklist before deploying permission-driven POS capabilities to produc
 ## 1. Sync Permission Registry
 
 - [ ] Deploy code containing updated `app/Config/Permissions.php`.
-- [ ] Run `php artisan permissions:sync` on each environment.
+- [ ] Run `php artisan permissions:sync` (or `php artisan db:seed --class=PermissionsTableSeeder`) on each environment.
 - [ ] Verify these permissions exist in `permissions` table:
   - `pos.checkout.payment`
+  - `pos.checkout.debt`
+  - `pos.checkout.debt.request`
   - `pos.sessions.require-terminal`
   - `pos.cart.clear`
   - `pos.cart.line.remove`
@@ -16,9 +18,10 @@ Use this checklist before deploying permission-driven POS capabilities to produc
 ## 2. Assign Live Bundles
 
 - [ ] Helper role has: `pos.access`, `pos.sell`, `pos.sessions.open`, `pos.transactions.save`.
-- [ ] Helper role does not have: `pos.checkout.payment`, `pos.sessions.require-terminal`.
-- [ ] Cashier role has: helper permissions + `pos.checkout.payment`, `pos.sessions.require-terminal`.
-- [ ] Manager role has: cashier permissions + supervisor/direct-action permissions as required by SOP.
+- [ ] Helper role does not have: `pos.checkout.payment`, `pos.checkout.debt`, `pos.checkout.debt.request`, `pos.sessions.require-terminal`.
+- [ ] Cashier role has: helper permissions + `pos.checkout.payment` (for Bayar Lunas).
+- [ ] Explicitly assign `pos.checkout.debt.request` (under **Pengecualian Hak Akses**) to cashier roles/users who are permitted to initiate Kasbon transactions with supervisor approval. Note that `pos.checkout.payment` alone no longer permits initiating or requesting approval for Kasbon checkouts, and `pos.checkout.debt.request` is not auto-granted to existing roles or default bundles.
+- [ ] Manager role has: cashier permissions + `pos.checkout.debt` (direct Kasbon without approval) + supervisor/direct-action permissions as required by SOP.
 
 ## 3. Live-Style Verification
 

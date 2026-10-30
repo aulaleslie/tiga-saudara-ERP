@@ -24,6 +24,8 @@ class POSBundleFixtureValidationTest extends TestCase
     {
         parent::setUp();
 
+        $this->withoutVite();
+
         Currency::create([
             'currency_name' => 'Rupiah',
             'code' => 'IDR',
@@ -36,6 +38,9 @@ class POSBundleFixtureValidationTest extends TestCase
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
 
         $permissions = [];
+        foreach (PosPermissionMatrix::capabilityClusters() as $cluster) {
+            $permissions = array_merge($permissions, $cluster['permissions']);
+        }
         foreach (PosPermissionMatrix::supportedBundles() as $bundle) {
             $permissions = array_merge($permissions, $bundle['permissions']);
         }
@@ -99,6 +104,224 @@ class POSBundleFixtureValidationTest extends TestCase
             ->withSession(['setting_id' => $setting->id])
             ->get(route('pos.sell'))
             ->assertOk();
+    }
+
+    public function test_pos_checkout_debt_request_is_registered_in_exceptions_cluster_without_default_bundle_grants(): void
+    {
+        $allPermissions = require base_path('app/Config/Permissions.php');
+        $this->assertArrayHasKey('POS', $allPermissions);
+        $this->assertArrayHasKey('pos.checkout.debt.request', $allPermissions['POS']);
+
+        $clusters = PosPermissionMatrix::capabilityClusters();
+        $this->assertArrayHasKey('exceptions', $clusters);
+        $this->assertContains('pos.checkout.debt.request', $clusters['exceptions']['permissions']);
+
+        foreach (PosPermissionMatrix::supportedBundles() as $bundleKey => $bundle) {
+            $this->assertNotContains(
+                'pos.checkout.debt.request',
+                $bundle['permissions'],
+                "Default bundle [{$bundleKey}] must not automatically grant pos.checkout.debt.request"
+            );
+        }
+    }
+
+    public function test_independent_flow_capabilities_for_payment_only_direct_debt_request_debt_combined_neither_and_super_admin(): void
+    {
+        $setting = $this->createSetting();
+        $terminal = $this->createTerminal($setting, 'FLOWS');
+        $sessionWithTerminal = new PosSession(['terminal_id' => $terminal->id]);
+        $sessionWithoutTerminal = new PosSession(['terminal_id' => null]);
+
+        $paymentOnly = $this->createUserForSetting($setting, 'Payment Only Cashier', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.transactions.save', 'pos.transactions.load', 'pos.checkout.payment',
+        ]);
+        $directDebtOnly = $this->createUserForSetting($setting, 'Direct Debt Only Cashier', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.transactions.save', 'pos.transactions.load', 'pos.checkout.debt',
+        ]);
+        $requestDebtOnly = $this->createUserForSetting($setting, 'Request Debt Only Cashier', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.transactions.save', 'pos.transactions.load', 'pos.checkout.debt.request',
+        ]);
+        $combinedPaymentAndRequestDebt = $this->createUserForSetting($setting, 'Payment And Request Debt Cashier', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.transactions.save', 'pos.transactions.load', 'pos.checkout.payment', 'pos.checkout.debt.request',
+        ]);
+        $combinedDirectAndRequestDebt = $this->createUserForSetting($setting, 'Direct And Request Debt Cashier', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.transactions.save', 'pos.transactions.load', 'pos.checkout.debt', 'pos.checkout.debt.request',
+        ]);
+        $neitherCheckout = $this->createUserForSetting($setting, 'No Checkout Helper', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.transactions.save', 'pos.transactions.load',
+        ]);
+        $superAdmin = $this->createUserForSetting($setting, 'Super Admin', []);
+
+        /** @var PosRolePolicyService $rolePolicy */
+        $rolePolicy = app(PosRolePolicyService::class);
+
+        // 1. Payment-only
+        $paymentFlags = $rolePolicy->capabilityFlags($paymentOnly, $sessionWithTerminal);
+        $this->assertTrue($paymentFlags['can_checkout']);
+        $this->assertTrue($paymentFlags['has_payment_checkout_authority']);
+        $this->assertFalse($paymentFlags['has_debt_checkout_authority']);
+        $this->assertFalse($paymentFlags['has_direct_debt_checkout_authority']);
+        $this->assertFalse($paymentFlags['has_request_debt_checkout_authority']);
+        $this->assertFalse($paymentFlags['requires_debt_approval']);
+        $this->assertFalse($paymentFlags['can_switch_checkout_flow']);
+        $this->assertTrue($paymentFlags['can_use_payment_flow']);
+        $this->assertTrue($paymentFlags['can_checkout_lunas']);
+        $this->assertFalse($paymentFlags['can_checkout_kasbon']);
+
+        $paymentNoTerminalFlags = $rolePolicy->capabilityFlags($paymentOnly, $sessionWithoutTerminal);
+        $this->assertTrue($paymentNoTerminalFlags['can_checkout']);
+        $this->assertFalse($paymentNoTerminalFlags['can_use_payment_flow']);
+        $this->assertFalse($paymentNoTerminalFlags['can_checkout_lunas']);
+        $this->assertFalse($paymentNoTerminalFlags['can_checkout_kasbon']);
+
+        // 2. Direct-debt-only
+        $directDebtFlags = $rolePolicy->capabilityFlags($directDebtOnly, $sessionWithTerminal);
+        $this->assertTrue($directDebtFlags['can_checkout']);
+        $this->assertFalse($directDebtFlags['has_payment_checkout_authority']);
+        $this->assertTrue($directDebtFlags['has_debt_checkout_authority']);
+        $this->assertTrue($directDebtFlags['has_direct_debt_checkout_authority']);
+        $this->assertFalse($directDebtFlags['has_request_debt_checkout_authority']);
+        $this->assertFalse($directDebtFlags['requires_debt_approval']);
+        $this->assertFalse($directDebtFlags['can_switch_checkout_flow']);
+        $this->assertTrue($directDebtFlags['can_use_payment_flow']);
+        $this->assertFalse($directDebtFlags['can_checkout_lunas']);
+        $this->assertTrue($directDebtFlags['can_checkout_kasbon']);
+        $this->assertSame(PosRolePolicyService::PROFILE_CASHIER, $directDebtFlags['role']);
+
+        $directDebtNoTerminalFlags = $rolePolicy->capabilityFlags($directDebtOnly, $sessionWithoutTerminal);
+        $this->assertFalse($directDebtNoTerminalFlags['can_use_payment_flow']);
+        $this->assertFalse($directDebtNoTerminalFlags['can_checkout_kasbon']);
+
+        // 3. Request-debt-only
+        $requestDebtFlags = $rolePolicy->capabilityFlags($requestDebtOnly, $sessionWithTerminal);
+        $this->assertTrue($requestDebtFlags['can_checkout']);
+        $this->assertFalse($requestDebtFlags['has_payment_checkout_authority']);
+        $this->assertTrue($requestDebtFlags['has_debt_checkout_authority']);
+        $this->assertFalse($requestDebtFlags['has_direct_debt_checkout_authority']);
+        $this->assertTrue($requestDebtFlags['has_request_debt_checkout_authority']);
+        $this->assertTrue($requestDebtFlags['requires_debt_approval']);
+        $this->assertFalse($requestDebtFlags['can_switch_checkout_flow']);
+        $this->assertTrue($requestDebtFlags['can_use_payment_flow']);
+        $this->assertFalse($requestDebtFlags['can_checkout_lunas']);
+        $this->assertTrue($requestDebtFlags['can_checkout_kasbon']);
+        $this->assertSame(PosRolePolicyService::PROFILE_CASHIER, $requestDebtFlags['role']);
+
+        // 4. Combined payment + request debt
+        $combinedFlags = $rolePolicy->capabilityFlags($combinedPaymentAndRequestDebt, $sessionWithTerminal);
+        $this->assertTrue($combinedFlags['can_checkout']);
+        $this->assertTrue($combinedFlags['has_payment_checkout_authority']);
+        $this->assertTrue($combinedFlags['has_debt_checkout_authority']);
+        $this->assertTrue($combinedFlags['requires_debt_approval']);
+        $this->assertTrue($combinedFlags['can_switch_checkout_flow']);
+        $this->assertTrue($combinedFlags['can_checkout_lunas']);
+        $this->assertTrue($combinedFlags['can_checkout_kasbon']);
+
+        $combinedNoTerminalFlags = $rolePolicy->capabilityFlags($combinedPaymentAndRequestDebt, $sessionWithoutTerminal);
+        $this->assertTrue($combinedNoTerminalFlags['can_switch_checkout_flow']);
+        $this->assertFalse($combinedNoTerminalFlags['can_checkout_lunas']);
+        $this->assertFalse($combinedNoTerminalFlags['can_checkout_kasbon']);
+
+        // 5. Combined direct + request debt (direct takes precedence)
+        $bothDebtFlags = $rolePolicy->capabilityFlags($combinedDirectAndRequestDebt, $sessionWithTerminal);
+        $this->assertTrue($bothDebtFlags['has_debt_checkout_authority']);
+        $this->assertTrue($bothDebtFlags['has_direct_debt_checkout_authority']);
+        $this->assertTrue($bothDebtFlags['has_request_debt_checkout_authority']);
+        $this->assertFalse($bothDebtFlags['requires_debt_approval']);
+
+        // 6. Neither checkout permission
+        $neitherFlags = $rolePolicy->capabilityFlags($neitherCheckout, $sessionWithTerminal);
+        $this->assertFalse($neitherFlags['can_checkout']);
+        $this->assertFalse($neitherFlags['has_payment_checkout_authority']);
+        $this->assertFalse($neitherFlags['has_debt_checkout_authority']);
+        $this->assertFalse($neitherFlags['can_use_payment_flow']);
+        $this->assertFalse($neitherFlags['can_checkout_lunas']);
+        $this->assertFalse($neitherFlags['can_checkout_kasbon']);
+        $this->assertFalse($neitherFlags['can_switch_checkout_flow']);
+
+        // 7. Super Admin (retains full authority and manager exception without terminal)
+        $superAdminFlags = $rolePolicy->capabilityFlags($superAdmin, $sessionWithoutTerminal);
+        $this->assertTrue($superAdminFlags['can_checkout']);
+        $this->assertTrue($superAdminFlags['has_payment_checkout_authority']);
+        $this->assertTrue($superAdminFlags['has_debt_checkout_authority']);
+        $this->assertTrue($superAdminFlags['has_direct_debt_checkout_authority']);
+        $this->assertFalse($superAdminFlags['requires_debt_approval']);
+        $this->assertTrue($superAdminFlags['can_use_payment_flow']);
+        $this->assertTrue($superAdminFlags['can_checkout_lunas']);
+        $this->assertTrue($superAdminFlags['can_checkout_kasbon']);
+        $this->assertTrue($superAdminFlags['can_switch_checkout_flow']);
+
+        // 8. Request-debt-only user with oversight permissions does NOT qualify for manager terminal-less exception
+        $requestDebtWithOversight = $this->createUserForSetting($setting, 'Request Debt Oversight User', [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.checkout.debt.request',
+            'pos.sessions.view',
+            'pos.sessions.close-admin',
+            'pos.transactions.edit.any',
+        ]);
+        $requestDebtOversightNoTerminalFlags = $rolePolicy->capabilityFlags($requestDebtWithOversight, $sessionWithoutTerminal);
+        $this->assertFalse($requestDebtOversightNoTerminalFlags['is_manager_checkout_role']);
+        $this->assertFalse($requestDebtOversightNoTerminalFlags['can_use_payment_flow']);
+        $this->assertFalse($requestDebtOversightNoTerminalFlags['can_checkout_kasbon']);
+    }
+
+    public function test_pos_sell_shell_renders_flow_buttons_and_labels_per_permission_profile(): void
+    {
+        $setting = $this->createSetting();
+
+        $paymentOnly = $this->createUserForSetting($setting, 'Shell Payment Only', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment',
+        ]);
+        $requestDebtOnly = $this->createUserForSetting($setting, 'Shell Request Debt Only', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.debt.request',
+        ]);
+        $directDebtOnly = $this->createUserForSetting($setting, 'Shell Direct Debt Only', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.debt',
+        ]);
+        $combinedRequestDebt = $this->createUserForSetting($setting, 'Shell Combined Request Debt', [
+            'pos.access', 'pos.sell', 'pos.sessions.open', 'pos.checkout.payment', 'pos.checkout.debt.request',
+        ]);
+
+        $this->createActiveSession($setting, $this->createTerminal($setting, 'SHELL-PAY'), $paymentOnly);
+        $this->createActiveSession($setting, $this->createTerminal($setting, 'SHELL-REQ'), $requestDebtOnly);
+        $this->createActiveSession($setting, $this->createTerminal($setting, 'SHELL-DIR'), $directDebtOnly);
+        $this->createActiveSession($setting, $this->createTerminal($setting, 'SHELL-COMB'), $combinedRequestDebt);
+
+        // Payment-only sees Bayar Lunas button, not Kasbon button
+        $this->actingAs($paymentOnly)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sell'))
+            ->assertOk()
+            ->assertSee('id="pos-checkout-final"', false)
+            ->assertDontSee('id="pos-checkout-kasbon"', false);
+
+        // Request-debt-only sees Kasbon · Perlu Persetujuan button, not Bayar Lunas button
+        $this->actingAs($requestDebtOnly)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sell'))
+            ->assertOk()
+            ->assertDontSee('id="pos-checkout-final"', false)
+            ->assertSee('id="pos-checkout-kasbon"', false)
+            ->assertSee('Kasbon · Perlu Persetujuan');
+
+        // Direct-debt-only sees Kasbon button without approval suffix, not Bayar Lunas button
+        $this->actingAs($directDebtOnly)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sell'))
+            ->assertOk()
+            ->assertDontSee('id="pos-checkout-final"', false)
+            ->assertSee('id="pos-checkout-kasbon"', false)
+            ->assertDontSee('Kasbon · Perlu Persetujuan');
+
+        // Combined user sees both buttons and approval suffix when debt access is request-only
+        $this->actingAs($combinedRequestDebt)
+            ->withSession(['setting_id' => $setting->id])
+            ->get(route('pos.sell'))
+            ->assertOk()
+            ->assertSee('id="pos-checkout-final"', false)
+            ->assertSee('id="pos-checkout-kasbon"', false)
+            ->assertSee('Kasbon · Perlu Persetujuan');
     }
 
     private function createSetting(): Setting

@@ -669,6 +669,114 @@ async function runBrowserRegressionTests() {
     const fallbackRemainder = Math.round((90000 - totalStaged) * 100) / 100;
     assert.strictEqual(fallbackRemainder, -30000, 'Fallback calculation must produce signed remainder -30,000');
 
+    // =========================================================================
+    // 20. Test Separate Flow Capabilities, Labels, and Switch Gating
+    // =========================================================================
+    console.log('--- Testing Separate Flow Capabilities, Labels, and Switch Gating ---');
+    // Case A: Payment-only user (canUseLunasFlow=true, canUseKasbonFlow=false, canSwitchFlow=false)
+    context.PosStagedPayment.initialize({
+        canUsePaymentFlow: true,
+        canUseLunasFlow: true,
+        canUseKasbonFlow: false,
+        canSwitchFlow: false,
+        requiresKasbonApproval: false,
+        defaultFlow: 'full_payment',
+    });
+    assert.strictEqual(context.PosStagedPayment.canSwitchFlow(), false, 'Payment-only user must not be able to switch flows');
+    assert.strictEqual(elements['staged-switch-flow-btn'].classList.contains('d-none'), true, 'Switch flow button must be hidden for payment-only user');
+    assert.strictEqual(elements['staged-switch-flow-btn'].disabled, true, 'Switch flow button must be disabled for payment-only user');
+
+    await context.PosStagedPayment.openModal('cart-pay-only-001', 100000, true, 'Pelanggan A', null);
+    assert.strictEqual(context.PosStagedPayment.getCurrentFlow(), 'full_payment', 'Default flow for payment-only user must be full_payment');
+    assert.strictEqual(elements['staged-flow-badge'].textContent, 'Bayar Lunas');
+
+    // Attempt to switch to kasbon must be blocked without DELETE request
+    httpCalls.length = 0;
+    await context.PosStagedPayment.switchFlow('kasbon');
+    assert.strictEqual(context.PosStagedPayment.getCurrentFlow(), 'full_payment', 'Payment-only user must remain in full_payment when switching to kasbon');
+    assert.ok(elements['staged-payment-error'].textContent.includes('izin'), 'Permission error message must be displayed');
+    const forbiddenSwitchDeletes = httpCalls.filter(c => c.url.includes('/pos/sell/checkout/payment-chain') && c.method === 'DELETE');
+    assert.strictEqual(forbiddenSwitchDeletes.length, 0, 'Forbidden flow switch must not issue DELETE payment-chain');
+
+    // Case B: Request-debt-only user (canUseLunasFlow=false, canUseKasbonFlow=true, requiresKasbonApproval=true)
+    context.PosStagedPayment.initialize({
+        canUsePaymentFlow: true,
+        canUseLunasFlow: false,
+        canUseKasbonFlow: true,
+        canSwitchFlow: false,
+        requiresKasbonApproval: true,
+        defaultFlow: 'kasbon',
+    });
+    await context.PosStagedPayment.openModal('cart-kasbon-only-001', 100000, true, 'Pelanggan B', null);
+    assert.strictEqual(context.PosStagedPayment.getCurrentFlow(), 'kasbon', 'Default flow for Kasbon-only user must be kasbon');
+    assert.strictEqual(elements['staged-flow-badge'].textContent, 'Kasbon · Perlu Persetujuan', 'Request-only Kasbon badge must indicate approval requirement');
+    assert.strictEqual(elements['staged-switch-flow-btn'].classList.contains('d-none'), true, 'Switch flow button must be hidden for Kasbon-only user');
+
+    await context.PosStagedPayment.switchFlow('full_payment');
+    assert.strictEqual(context.PosStagedPayment.getCurrentFlow(), 'kasbon', 'Kasbon-only user must remain in kasbon when switching to full_payment');
+
+    // =========================================================================
+    // 21. Test Locked Resume Behavior When Staged Chain Flow Access Is Lost
+    // =========================================================================
+    console.log('--- Testing Locked Resume Behavior When Staged Chain Flow Access Is Lost ---');
+    const preLockFetch = context.fetch;
+    context.fetch = async (url, options = {}) => {
+        if (url.includes('/pos/sell/checkout/payment-chain?cart_token=cart-locked-001') && (!options.method || options.method === 'GET')) {
+            httpCalls.push({ url, method: 'GET', body: null });
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    has_chain: true,
+                    flow_accessible: false,
+                    missing_permission: 'pos.checkout.debt / pos.checkout.debt.request',
+                    flow_access_message: 'Rantai pembayaran Kasbon tersimpan pada sesi ini, tetapi Anda tidak lagi memiliki izin untuk melanjutkan atau mereset alur Kasbon.',
+                    payment_chain: {
+                        payments: [
+                            { method_id: 2, method_name: 'Tunai', amount: 40000 }
+                        ],
+                        original_grand_total: 100000,
+                        remainder: 60000,
+                        flow: 'kasbon',
+                        is_debt: true,
+                        payment_term_id: 1,
+                    },
+                }),
+            };
+        }
+        return preLockFetch(url, options);
+    };
+
+    context.PosStagedPayment.initialize({
+        canUsePaymentFlow: true,
+        canUseLunasFlow: true,
+        canUseKasbonFlow: false,
+        canSwitchFlow: false,
+        requiresKasbonApproval: false,
+        defaultFlow: 'full_payment',
+    });
+
+    httpCalls.length = 0;
+    await context.PosStagedPayment.openModal('cart-locked-001', 100000, true, 'Pelanggan C', 'full_payment');
+
+    assert.strictEqual(context.PosStagedPayment.isFlowLocked(), true, 'Recovered inaccessible chain must lock flow');
+    assert.strictEqual(context.PosStagedPayment.getCurrentFlow(), 'kasbon', 'Recovered chain flow must reflect stored kasbon flow');
+    assert.strictEqual(context.PosStagedPayment.getPaymentChain().payments.length, 1, 'Staged payments must be preserved in memory');
+    assert.strictEqual(context.PosStagedPayment.getPaymentChain().remainder, 60000, 'Staged remainder must be preserved');
+    assert.strictEqual(elements['staged-payment-submit'].disabled, true, 'Submit button must be disabled when flow is locked');
+    assert.strictEqual(elements['staged-finish-kasbon-btn'].disabled, true, 'Finish Kasbon button must be disabled when flow is locked');
+    assert.strictEqual(elements['staged-payment-reset-btn'].disabled, true, 'Reset button must be disabled when flow is locked');
+    assert.ok(elements['staged-payment-error'].textContent.includes('tidak lagi memiliki izin'), 'Locked recovery message must be shown');
+
+    // Attempting reset or switch while locked must be blocked without issuing DELETE
+    httpCalls.length = 0;
+    const resetResult = await context.PosStagedPayment.executeAuthoritativeReset('full_payment');
+    assert.strictEqual(resetResult, false, 'Authoritative reset must return false when flow is locked');
+    const lockedDeletes = httpCalls.filter(c => c.url.includes('/pos/sell/checkout/payment-chain') && c.method === 'DELETE');
+    assert.strictEqual(lockedDeletes.length, 0, 'Locked chain must never issue DELETE payment-chain');
+
+    context.fetch = preLockFetch;
+
     console.log('ALL JAVASCRIPT STATE MACHINE REGRESSION TESTS PASSED!');
 }
 

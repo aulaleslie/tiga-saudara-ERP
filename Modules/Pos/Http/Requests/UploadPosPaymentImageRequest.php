@@ -2,15 +2,8 @@
 
 namespace Modules\Pos\Http\Requests;
 
-use Illuminate\Foundation\Http\FormRequest;
-
-class UploadPosPaymentImageRequest extends FormRequest
+class UploadPosPaymentImageRequest extends PosPaymentImageRequest
 {
-    public function authorize(): bool
-    {
-        return $this->user()->can('pos.sell');
-    }
-
     public function rules(): array
     {
         return [

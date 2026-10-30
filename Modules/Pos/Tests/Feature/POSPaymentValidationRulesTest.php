@@ -55,6 +55,8 @@ class POSPaymentValidationRulesTest extends TestCase
             'pos.sell',
             'pos.sessions.open',
             'pos.checkout.payment',
+            'pos.checkout.debt',
+            'pos.checkout.debt.request',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -417,7 +419,25 @@ class POSPaymentValidationRulesTest extends TestCase
         $cartToken = (string) ($snapshot['staged_payment_token'] ?? '');
         $grandTotal = (float) ($snapshot['totals']['grand_total'] ?? 50000);
 
-        // Stage a cash underpayment with is_debt true
+        // Without debt or request debt permission, cash underpayment with is_debt true is forbidden
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.checkout.stage-payment'), [
+                'cart_token' => $cartToken,
+                'payment_method_id' => $methods['cash']->id,
+                'amount' => 45000,
+                'grand_total' => $grandTotal,
+                'is_debt' => true,
+                'payment_term_id' => $paymentTerm->id,
+            ])
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'CHECKOUT_FLOW_PERMISSION_REQUIRED');
+
+        // Grant pos.checkout.debt.request and stage a cash underpayment with is_debt true
+        $context['cashier']->roles()->first()->givePermissionTo('pos.checkout.debt.request');
+        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+        $context['cashier']->unsetRelation('roles')->unsetRelation('permissions');
+
         $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])
             ->postJson(route('pos.sell.checkout.stage-payment'), [
@@ -450,6 +470,22 @@ class POSPaymentValidationRulesTest extends TestCase
             ->json('cart_snapshot');
 
         $cartToken = (string) ($snapshot['staged_payment_token'] ?? '');
+
+        // Denied without debt/request permission
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.checkout.sync-debt-state'), [
+                'cart_token' => $cartToken,
+                'grand_total' => 50000,
+                'is_debt' => true,
+                'payment_term_id' => 1
+            ])
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'CHECKOUT_FLOW_PERMISSION_REQUIRED');
+
+        $context['cashier']->roles()->first()->givePermissionTo('pos.checkout.debt.request');
+        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+        $context['cashier']->unsetRelation('roles')->unsetRelation('permissions');
         
         $this->actingAs($context['cashier'])
             ->withSession(['setting_id' => $context['setting']->id])

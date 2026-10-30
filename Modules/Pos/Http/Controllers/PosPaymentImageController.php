@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 use Modules\Pos\Http\Requests\DeletePosPaymentImageRequest;
 use Modules\Pos\Http\Requests\UploadPosPaymentImageRequest;
+use Modules\Pos\Services\PosRolePolicyService;
 use Modules\Pos\Services\PosTemporaryPaymentImageService;
 
 class PosPaymentImageController extends Controller
@@ -15,6 +16,41 @@ class PosPaymentImageController extends Controller
     public function __construct(
         private readonly PosTemporaryPaymentImageService $imageService
     ) {}
+
+    private function ensureStagedChainFlowAccessible($request, string $cartToken): ?JsonResponse
+    {
+        $chain = $request->session()->get("payment_chain_{$cartToken}");
+        if (! is_array($chain)) {
+            return null;
+        }
+
+        /** @var PosRolePolicyService $rolePolicy */
+        $rolePolicy = app(PosRolePolicyService::class);
+        $chainFlowResolution = $rolePolicy->resolvePaymentChainFlow($chain);
+
+        if ($chainFlowResolution['contradictory']) {
+            return response()->json([
+                'code' => 'FLOW_STATE_MISMATCH',
+                'message' => $rolePolicy->flowStateMismatchMessage(),
+            ], 422);
+        }
+
+        if (! $chainFlowResolution['has_explicit_flow']) {
+            return null;
+        }
+
+        $flow = $chainFlowResolution['flow'];
+        $user = $request->user();
+        if ($user && $rolePolicy->hasFlowAuthority($user, $flow)) {
+            return null;
+        }
+
+        return response()->json([
+            'code' => 'CHECKOUT_FLOW_PERMISSION_REQUIRED',
+            'missing_permission' => $rolePolicy->missingPermissionForFlow($flow),
+            'message' => $rolePolicy->flowPermissionDeniedMessage($flow, true),
+        ], 403);
+    }
 
     protected function currentSettingId(): int
     {
@@ -51,6 +87,10 @@ class PosPaymentImageController extends Controller
             return response()->json(['message' => 'Sesi POS tidak ditemukan.'], 403);
         }
 
+        if ($denied = $this->ensureStagedChainFlowAccessible($request, (string) $cartToken)) {
+            return $denied;
+        }
+
         try {
             $image = $this->imageService->uploadImage(
                 $request->file('image'),
@@ -80,6 +120,10 @@ class PosPaymentImageController extends Controller
 
         if (!$sessionId) {
             return response()->json(['message' => 'Sesi POS tidak ditemukan.'], 403);
+        }
+
+        if ($denied = $this->ensureStagedChainFlowAccessible($request, (string) $cartToken)) {
+            return $denied;
         }
 
         $sessionKey = "payment_chain_{$cartToken}";

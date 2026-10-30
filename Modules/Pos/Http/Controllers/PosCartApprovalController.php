@@ -107,6 +107,13 @@ class PosCartApprovalController extends Controller
                 $payload
             );
         } catch (DomainException $e) {
+            if ($e->getMessage() === 'DEBT_PERMISSION_REQUIRED') {
+                return response()->json([
+                    'code' => 'DEBT_PERMISSION_REQUIRED',
+                    'message' => 'Anda tidak memiliki izin untuk mengajukan atau menyelesaikan Kasbon.',
+                ], 403);
+            }
+
             return response()->json([
                 'message' => $e->getMessage(),
             ], 422);

@@ -5,11 +5,18 @@
                     <div class="d-flex align-items-center flex-wrap gap-2">
                         <h5 class="modal-title mb-0" id="pos-staged-checkout-modal-label">Pembayaran</h5>
                         <span id="staged-flow-badge" class="badge badge-primary px-2 py-1 ml-2">Bayar Lunas</span>
-                        @can('pos.checkout.debt')
+                        @php
+                            $canSwitchStagedFlow = (bool) (($canSwitchCheckoutFlow ?? null) !== null
+                                ? $canSwitchCheckoutFlow
+                                : (auth()->check()
+                                    && auth()->user()->can('pos.checkout.payment')
+                                    && (auth()->user()->can('pos.checkout.debt') || auth()->user()->can('pos.checkout.debt.request'))));
+                        @endphp
+                        @if($canSwitchStagedFlow)
                         <button type="button" id="staged-switch-flow-btn" class="btn btn-sm btn-outline-secondary ml-2" title="Ganti Alur Pembayaran">
                             <i class="fas fa-exchange-alt mr-1"></i> <span id="staged-switch-flow-text">Ganti ke Kasbon</span>
                         </button>
-                        @endcan
+                        @endif
                     </div>
                     <button type="button" id="staged-payment-close-btn" class="close" data-dismiss="modal" aria-label="Tutup">
                         <span aria-hidden="true">&times;</span>

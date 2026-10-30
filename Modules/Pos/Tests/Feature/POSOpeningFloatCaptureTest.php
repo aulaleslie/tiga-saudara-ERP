@@ -25,6 +25,8 @@ class POSOpeningFloatCaptureTest extends TestCase
     {
         parent::setUp();
 
+        $this->withoutVite();
+
         Currency::create([
             'currency_name' => 'Rupiah',
             'code' => 'IDR',
@@ -44,6 +46,9 @@ class POSOpeningFloatCaptureTest extends TestCase
             'pos.transactions.view',
             'pos.transactions.save',
             'pos.transactions.load',
+            'pos.checkout.payment',
+            'pos.checkout.debt',
+            'pos.checkout.debt.request',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -292,6 +297,38 @@ class POSOpeningFloatCaptureTest extends TestCase
             'terminal_id' => $terminal->id,
             'opening_float_total' => 100000,
             'expected_cash_total' => 100000,
+        ]);
+    }
+
+    public function test_kasbon_only_user_with_draft_permissions_can_open_session_with_terminal(): void
+    {
+        $setting = $this->createSetting('BIZ KASBON ONLY TERMINAL');
+        $user = $this->createUserForSetting($setting, [
+            'pos.access',
+            'pos.sell',
+            'pos.sessions.open',
+            'pos.transactions.view',
+            'pos.transactions.save',
+            'pos.transactions.load',
+            'pos.checkout.debt.request',
+        ]);
+        $terminal = $this->createTerminalForSetting($setting, allowTotalOnly: true);
+        $this->enablePaymentMethodForSetting($setting);
+
+        $this->actingAs($user)
+            ->withSession(['setting_id' => $setting->id])
+            ->post(route('pos.sessions.store'), [
+                'terminal_id' => $terminal->id,
+                'opening_float_total' => '100000',
+                'notes' => 'Kasbon-only terminal session',
+            ])
+            ->assertRedirect(route('pos.sell'));
+
+        $this->assertDatabaseHas('pos_sessions', [
+            'setting_id' => $setting->id,
+            'cashier_user_id' => $user->id,
+            'terminal_id' => $terminal->id,
+            'opening_float_total' => 100000,
         ]);
     }
 

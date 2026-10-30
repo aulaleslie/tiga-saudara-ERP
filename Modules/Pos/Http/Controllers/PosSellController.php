@@ -662,14 +662,18 @@ class PosSellController extends Controller
         $grandTotal = (float) $validated['grand_total'];
         $paymentImageToken = $validated['payment_image_token'] ?? null;
 
-        $flow = $validated['flow'] ?? null;
-        if (! $flow) {
-            $flow = !empty($validated['is_debt']) ? 'kasbon' : 'full_payment';
-        }
-        $isDebt = ($flow === 'kasbon');
-
         try {
             $sessionKey = "payment_chain_{$cartToken}";
+            $existingChain = $request->session()->has($sessionKey)
+                ? (array) $request->session()->get($sessionKey)
+                : null;
+
+            $flowAuth = $this->resolveAndAuthorizeEffectiveFlow($request, $validated, $existingChain);
+            if ($flowAuth['denied'] !== null) {
+                return $flowAuth['denied'];
+            }
+            $flow = $flowAuth['flow'];
+            $isDebt = ($flow === 'kasbon');
 
             // Initialize chain if not exists
             if (! $request->session()->has($sessionKey)) {
@@ -800,19 +804,29 @@ class PosSellController extends Controller
         $chain = $request->session()->get($sessionKey);
 
         if ($chain) {
-            if (! isset($chain['flow'])) {
-                $chain['flow'] = !empty($chain['is_debt']) ? 'kasbon' : 'full_payment';
-            }
+            $chainFlowResolution = $this->resolveChainFlow((array) $chain);
+            $chain['flow'] = $chainFlowResolution['flow'];
+
+            /** @var PosRolePolicyService $rolePolicyService */
+            $rolePolicyService = app(PosRolePolicyService::class);
+            $flowAccessible = ! $chainFlowResolution['contradictory']
+                && $rolePolicyService->hasFlowAuthority($request->user(), (string) $chain['flow']);
 
             return response()->json([
                 'has_chain' => true,
                 'payment_chain' => $chain,
+                'flow_accessible' => $flowAccessible,
+                'missing_permission' => $flowAccessible ? null : $this->missingPermissionForFlow((string) $chain['flow']),
+                'flow_access_message' => $flowAccessible ? null : $this->flowPermissionDeniedMessage((string) $chain['flow'], true),
             ]);
         }
 
         return response()->json([
             'has_chain' => false,
             'payment_chain' => null,
+            'flow_accessible' => true,
+            'missing_permission' => null,
+            'flow_access_message' => null,
         ]);
     }
 
@@ -832,11 +846,15 @@ class PosSellController extends Controller
 
         $cartToken = $validated['cart_token'];
         $sessionKey = "payment_chain_{$cartToken}";
+        $existingChain = $request->session()->has($sessionKey)
+            ? (array) $request->session()->get($sessionKey)
+            : null;
 
-        $flow = $validated['flow'] ?? null;
-        if (! $flow) {
-            $flow = !empty($validated['is_debt']) ? 'kasbon' : 'full_payment';
+        $flowAuth = $this->resolveAndAuthorizeEffectiveFlow($request, $validated, $existingChain);
+        if ($flowAuth['denied'] !== null) {
+            return $flowAuth['denied'];
         }
+        $flow = $flowAuth['flow'];
         $isDebt = ($flow === 'kasbon');
 
         // Initialize chain if not exists
@@ -867,11 +885,15 @@ class PosSellController extends Controller
             'cart_token' => ['required', 'string', 'uuid'],
             'grand_total' => ['required', 'numeric', 'min:0.01'],
             'flow' => ['nullable', 'string', 'in:full_payment,kasbon'],
+            'is_debt' => ['nullable', 'boolean'],
         ]);
 
         $cartToken = $validated['cart_token'];
         $grandTotal = (float) $validated['grand_total'];
-        $flow = $validated['flow'] ?? null;
+        $requestFlowResolution = $this->resolveFlowFromArray($validated);
+        if ($requestFlowResolution['contradictory']) {
+            return $this->flowStateMismatchResponse();
+        }
         $sessionKey = "payment_chain_{$cartToken}";
 
         $activeSession = $request->attributes->get('pos_active_session');
@@ -882,8 +904,15 @@ class PosSellController extends Controller
         /** @var \Modules\Pos\Services\PosCartMutationLock $mutationLock */
         $mutationLock = app(\Modules\Pos\Services\PosCartMutationLock::class);
 
-        return $mutationLock->withLock($this->currentSettingId(), (int) $activeSession->id, function () use ($request, $sessionKey, $cartToken, $grandTotal, $flow) {
+        return $mutationLock->withLock($this->currentSettingId(), (int) $activeSession->id, function () use ($request, $sessionKey, $cartToken, $grandTotal, $validated) {
             $chain = $request->session()->get($sessionKey);
+            $existingChain = is_array($chain) ? $chain : null;
+
+            $flowAuth = $this->resolveAndAuthorizeEffectiveFlow($request, $validated, $existingChain);
+            if ($flowAuth['denied'] !== null) {
+                return $flowAuth['denied'];
+            }
+            $effectiveFlow = $flowAuth['flow'];
 
             if (! $chain) {
                 $chain = [
@@ -891,8 +920,8 @@ class PosSellController extends Controller
                     'payments' => [],
                     'original_grand_total' => $grandTotal,
                     'remainder' => $grandTotal,
-                    'flow' => $flow ?? 'full_payment',
-                    'is_debt' => ($flow === 'kasbon'),
+                    'flow' => $effectiveFlow,
+                    'is_debt' => ($effectiveFlow === 'kasbon'),
                     'staged_at' => now()->toIso8601String(),
                 ];
                 $request->session()->put($sessionKey, $chain);
@@ -911,10 +940,8 @@ class PosSellController extends Controller
 
             $chain['original_grand_total'] = $grandTotal;
             $chain['remainder'] = $newRemainder;
-            if ($flow && ! isset($chain['flow'])) {
-                $chain['flow'] = $flow;
-                $chain['is_debt'] = ($flow === 'kasbon');
-            }
+            $chain['flow'] = $effectiveFlow;
+            $chain['is_debt'] = ($effectiveFlow === 'kasbon');
 
             $request->session()->put($sessionKey, $chain);
 
@@ -935,9 +962,12 @@ class PosSellController extends Controller
 
         $validated = $request->validate([
             'cart_token' => ['required', 'string', 'uuid'],
+            'target_flow' => ['nullable', 'string', 'in:full_payment,kasbon'],
+            'flow' => ['nullable', 'string', 'in:full_payment,kasbon'],
         ]);
 
         $cartToken = $validated['cart_token'];
+        $targetFlow = $validated['target_flow'] ?? $validated['flow'] ?? null;
         $activeSession = $request->attributes->get('pos_active_session');
         if (! $activeSession instanceof PosSession) {
             abort(403, 'Active POS session context is required.');
@@ -946,8 +976,29 @@ class PosSellController extends Controller
         /** @var \Modules\Pos\Services\PosCartMutationLock $mutationLock */
         $mutationLock = app(\Modules\Pos\Services\PosCartMutationLock::class);
 
-        $mutationLock->withLock($this->currentSettingId(), (int) $activeSession->id, function () use ($request, $cartToken, $activeSession) {
+        return $mutationLock->withLock($this->currentSettingId(), (int) $activeSession->id, function () use ($request, $cartToken, $targetFlow, $activeSession) {
             $sessionKey = "payment_chain_{$cartToken}";
+            $existingChain = $request->session()->get($sessionKey);
+
+            if (is_array($existingChain)) {
+                $chainFlowResolution = $this->resolveChainFlow($existingChain);
+                if ($chainFlowResolution['contradictory']) {
+                    return $this->flowStateMismatchResponse();
+                }
+
+                if ($chainFlowResolution['has_explicit_flow']) {
+                    if ($denied = $this->ensureCheckoutFlowPermission($request, $chainFlowResolution['flow'])) {
+                        return $denied;
+                    }
+                }
+            }
+
+            if ($targetFlow !== null) {
+                if ($denied = $this->ensureCheckoutFlowPermission($request, $targetFlow)) {
+                    return $denied;
+                }
+            }
+
             $request->session()->forget($sessionKey);
 
             app(\Modules\Pos\Services\PosTemporaryPaymentImageService::class)->deleteAllByCartToken(
@@ -955,12 +1006,12 @@ class PosSellController extends Controller
                 $this->currentSettingId(),
                 (int) $activeSession->id
             );
-        });
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Payment chain cleared.',
-        ], 200);
+            return response()->json([
+                'success' => true,
+                'message' => 'Payment chain cleared.',
+            ], 200);
+        });
     }
 
     public function checkoutPreflight(
@@ -1039,44 +1090,59 @@ class PosSellController extends Controller
             }
             $cartToken = (string) $request->input('cart_token', '');
 
-            $flow = $request->input('flow');
-            $isDebt = ($flow === 'kasbon') || $request->boolean('is_debt');
-            $paymentPayload['flow'] = $flow ?: ($isDebt ? 'kasbon' : 'full_payment');
+            $sessionPaymentChain = null;
+            if (! empty($cartToken)) {
+                $sessionKey = "payment_chain_{$cartToken}";
+                $sessionPaymentChain = $request->session()->get($sessionKey);
+            }
+
+            $existingChain = is_array($sessionPaymentChain) ? $sessionPaymentChain : null;
+            $flowAuth = $this->resolveAndAuthorizeEffectiveFlow(
+                $request,
+                $request->only(['flow', 'is_debt']),
+                $existingChain
+            );
+            if ($flowAuth['denied'] !== null) {
+                return $flowAuth['denied'];
+            }
+
+            if (
+                is_array($sessionPaymentChain)
+                && (! empty($request->input('payment')) || ! empty($request->input('payments')))
+                && ! empty($sessionPaymentChain['payments'])
+            ) {
+                return $this->flowStateMismatchResponse();
+            }
+
+            $effectiveFlow = $flowAuth['flow'];
+
+            $isDebt = ($effectiveFlow === 'kasbon');
+            $paymentPayload['flow'] = $effectiveFlow;
             $paymentPayload['is_debt'] = $isDebt;
             $paymentPayload['payment_term_id'] = $request->input('payment_term_id');
             $paymentPayload['approval_token'] = $request->input('approval_token');
             $paymentPayload['acknowledge_lifecycle_warning'] = $request->boolean('acknowledge_lifecycle_warning');
 
-            // If no payments in request, check if there's a staged payment chain in session
-            if (empty($request->input('payment')) && empty($request->input('payments')) && ! empty($cartToken)) {
-                $sessionKey = "payment_chain_{$cartToken}";
-                $sessionPaymentChain = $request->session()->get($sessionKey);
-
-                if ($sessionPaymentChain) {
-                    if (!empty($sessionPaymentChain['payments'])) {
-                        // Map session payment chain fields from method_id/amount to payment_method_id/amount_paid
-                        $mappedPayments = [];
-                        foreach ($sessionPaymentChain['payments'] as $payment) {
-                            $mappedPayments[] = [
-                                'payment_method_id' => $payment['method_id'] ?? null,
-                                'amount_paid' => $payment['amount'] ?? 0,
-                                'reference' => $payment['edc_reference'] ?? null,
-                                'stage_order' => $payment['stage_order'] ?? null,
-                                'payment_image_token' => $payment['payment_image']['token'] ?? null,
-                            ];
-                        }
-
-                        $paymentPayload['payments'] = $mappedPayments;
+            // If no payments in request, merge staged payment chain from session
+            if (empty($request->input('payment')) && empty($request->input('payments')) && is_array($sessionPaymentChain)) {
+                if (! empty($sessionPaymentChain['payments'])) {
+                    // Map session payment chain fields from method_id/amount to payment_method_id/amount_paid
+                    $mappedPayments = [];
+                    foreach ($sessionPaymentChain['payments'] as $payment) {
+                        $mappedPayments[] = [
+                            'payment_method_id' => $payment['method_id'] ?? null,
+                            'amount_paid' => $payment['amount'] ?? 0,
+                            'reference' => $payment['edc_reference'] ?? null,
+                            'stage_order' => $payment['stage_order'] ?? null,
+                            'payment_image_token' => $payment['payment_image']['token'] ?? null,
+                        ];
                     }
 
-                    $chainIsDebt = ($sessionPaymentChain['flow'] ?? null) === 'kasbon' || !empty($sessionPaymentChain['is_debt']);
-                    if ($chainIsDebt) {
-                        $paymentPayload['is_debt'] = true;
-                        $paymentPayload['flow'] = 'kasbon';
-                        if (empty($paymentPayload['payment_term_id']) && !empty($sessionPaymentChain['payment_term_id'])) {
-                            $paymentPayload['payment_term_id'] = $sessionPaymentChain['payment_term_id'];
-                        }
-                    }
+                    $paymentPayload['payments'] = $mappedPayments;
+                }
+
+                if ($isDebt && empty($paymentPayload['payment_term_id']) && ! empty($sessionPaymentChain['payment_term_id'])) {
+                    $paymentPayload['payment_term_id'] = $sessionPaymentChain['payment_term_id'];
                 }
             }
 
@@ -1111,6 +1177,13 @@ class PosSellController extends Controller
                 'message' => 'Checkout posting failed due to an internal error.',
             ], 500);
         } catch (DomainException $exception) {
+            if (in_array($exception->getMessage(), ['DEBT_PERMISSION_REQUIRED', 'CHECKOUT_FLOW_PERMISSION_REQUIRED'], true)) {
+                return response()->json([
+                    'code' => $exception->getMessage(),
+                    'message' => 'Anda tidak memiliki izin untuk menyelesaikan alur pembayaran yang dipilih.',
+                ], 403);
+            }
+
             return response()->json([
                 'code' => $exception->getMessage(),
                 'message' => $exception->getMessage(),
@@ -1219,7 +1292,10 @@ class PosSellController extends Controller
             ], 403);
         }
 
-        if (! $user->can('pos.checkout.payment')) {
+        /** @var PosRolePolicyService $rolePolicyService */
+        $rolePolicyService = app(PosRolePolicyService::class);
+
+        if (! $rolePolicyService->hasCheckoutAuthority($user)) {
             return response()->json([
                 'code' => 'CHECKOUT_PERMISSION_REQUIRED',
                 'message' => 'Anda tidak memiliki izin untuk mengakses alur pembayaran POS.',
@@ -1235,9 +1311,6 @@ class PosSellController extends Controller
             ], 403);
         }
 
-        /** @var PosRolePolicyService $rolePolicyService */
-        $rolePolicyService = app(PosRolePolicyService::class);
-
         if (! $rolePolicyService->canCheckout($user, $activeSession)) {
             return response()->json([
                 'code' => 'CHECKOUT_TERMINAL_REQUIRED',
@@ -1246,5 +1319,142 @@ class PosSellController extends Controller
         }
 
         return null;
+    }
+
+    private function ensureCheckoutFlowPermission(Request $request, string $flow): ?JsonResponse
+    {
+        $user = $request->user();
+        if (! $user) {
+            return response()->json([
+                'code' => 'UNAUTHENTICATED',
+                'message' => 'Authentication is required.',
+            ], 403);
+        }
+
+        /** @var PosRolePolicyService $rolePolicyService */
+        $rolePolicyService = app(PosRolePolicyService::class);
+
+        if (! $rolePolicyService->hasFlowAuthority($user, $flow)) {
+            return response()->json([
+                'code' => 'CHECKOUT_FLOW_PERMISSION_REQUIRED',
+                'missing_permission' => $this->missingPermissionForFlow($flow),
+                'message' => $this->flowPermissionDeniedMessage($flow),
+            ], 403);
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve and authorize the effective checkout flow against optional request indicators
+     * and an optional existing session payment chain.
+     *
+     * @param  array<string, mixed>  $requestData
+     * @param  array<string, mixed>|null  $existingChain
+     * @return array{flow: string, denied: ?JsonResponse}
+     */
+    private function resolveAndAuthorizeEffectiveFlow(
+        Request $request,
+        array $requestData,
+        ?array $existingChain = null
+    ): array {
+        $requestFlowResolution = $this->resolveFlowFromArray($requestData);
+        if ($requestFlowResolution['contradictory']) {
+            return [
+                'flow' => 'full_payment',
+                'denied' => $this->flowStateMismatchResponse(),
+            ];
+        }
+
+        $requestedFlow = $requestFlowResolution['flow'];
+
+        if (is_array($existingChain)) {
+            $chainFlowResolution = $this->resolveChainFlow($existingChain);
+            if ($chainFlowResolution['contradictory']) {
+                return [
+                    'flow' => 'full_payment',
+                    'denied' => $this->flowStateMismatchResponse(),
+                ];
+            }
+
+            if ($chainFlowResolution['has_explicit_flow']) {
+                if ($denied = $this->ensureCheckoutFlowPermission($request, $chainFlowResolution['flow'])) {
+                    return [
+                        'flow' => $chainFlowResolution['flow'],
+                        'denied' => $denied,
+                    ];
+                }
+            }
+
+            if ($requestedFlow !== null) {
+                if ($denied = $this->ensureCheckoutFlowPermission($request, $requestedFlow)) {
+                    return [
+                        'flow' => $requestedFlow,
+                        'denied' => $denied,
+                    ];
+                }
+
+                if ($chainFlowResolution['has_explicit_flow'] && $requestedFlow !== $chainFlowResolution['flow']) {
+                    return [
+                        'flow' => $chainFlowResolution['flow'],
+                        'denied' => $this->flowStateMismatchResponse(),
+                    ];
+                }
+            }
+
+            $effectiveFlow = $chainFlowResolution['has_explicit_flow']
+                ? $chainFlowResolution['flow']
+                : ($requestedFlow ?? 'full_payment');
+        } else {
+            $effectiveFlow = $requestedFlow ?? 'full_payment';
+        }
+
+        if ($denied = $this->ensureCheckoutFlowPermission($request, $effectiveFlow)) {
+            return [
+                'flow' => $effectiveFlow,
+                'denied' => $denied,
+            ];
+        }
+
+        return [
+            'flow' => $effectiveFlow,
+            'denied' => null,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{flow: ?string, contradictory: bool}
+     */
+    private function resolveFlowFromArray(array $data): array
+    {
+        return app(PosRolePolicyService::class)->resolveFlowFromIndicators($data);
+    }
+
+    /**
+     * @param  array<string, mixed>  $chain
+     * @return array{flow: string, has_explicit_flow: bool, contradictory: bool}
+     */
+    private function resolveChainFlow(array $chain): array
+    {
+        return app(PosRolePolicyService::class)->resolvePaymentChainFlow($chain);
+    }
+
+    private function missingPermissionForFlow(string $flow): string
+    {
+        return app(PosRolePolicyService::class)->missingPermissionForFlow($flow);
+    }
+
+    private function flowPermissionDeniedMessage(string $flow, bool $isStagedRecovery = false): string
+    {
+        return app(PosRolePolicyService::class)->flowPermissionDeniedMessage($flow, $isStagedRecovery);
+    }
+
+    private function flowStateMismatchResponse(): JsonResponse
+    {
+        return response()->json([
+            'code' => 'FLOW_STATE_MISMATCH',
+            'message' => app(PosRolePolicyService::class)->flowStateMismatchMessage(),
+        ], 422);
     }
 }
