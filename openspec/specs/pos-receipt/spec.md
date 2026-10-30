@@ -290,24 +290,24 @@ Current receipts SHALL display current purchase total, retained paid amount, and
 - **AND** no successful print audit or financial mutation is recorded
 
 ### Requirement: Receipt displays the existing POS transaction note
-The following display behavior SHALL apply only when the current receipt business has Catatan visibility enabled. When disabled, the associated explanatory content SHALL be omitted without changing underlying transaction calculations or moving content elsewhere. Existing historical and preview content eligibility SHALL still apply.
+The following display behavior SHALL apply when Catatan visibility is enabled by the receipt-page checkbox, whose initial value follows the current receipt business setting. When disabled, the associated explanatory content SHALL be omitted without changing underlying transaction calculations or moving content elsewhere. Existing historical and preview content eligibility SHALL still apply.
 POS receipts SHALL display the existing POS transaction note as `Catatan` after payments and before return history, or before the tail space when no return history exists. The note SHALL be rendered as escaped plain text with preserved line breaks and wrapping within the thermal width. Null, empty and whitespace-only notes SHALL omit the section. Linked Sales notes and checkout notes MUST NOT be substituted. Current, explicit historical, draft and loaded receipts SHALL use the note of their resolved POS transaction; receipts without a provable source transaction SHALL omit it.
 
 #### Scenario: Multiline note is printed safely
 - **WHEN** the source POS transaction has a multiline note containing HTML characters
-- **AND** the corresponding note visibility setting is enabled for the receipt business
+- **AND** the effective receipt-page note visibility is enabled
 - **THEN** the receipt prints the literal text with its line breaks under `Catatan` after payments and before any return history
 - **AND** the text does not execute as markup or overflow the receipt width
 
 #### Scenario: Empty note or missing source transaction
 - **WHEN** the transaction note is whitespace-only or no source POS transaction can be resolved
-- **AND** the corresponding note visibility setting is enabled for the receipt business
+- **AND** the effective receipt-page note visibility is enabled
 - **THEN** no `Catatan` heading or placeholder is printed
 - **AND** an internal linked Sales note is not printed as a substitute
 
 #### Scenario: Historical and preview notes
 - **WHEN** an explicit historical receipt or draft or loaded receipt is rendered
-- **AND** the corresponding note visibility setting is enabled for the receipt business
+- **AND** the effective receipt-page note visibility is enabled
 - **THEN** it includes the existing source POS transaction note using the same placement and escaping rules
 - **AND** this does not claim that the note is an immutable checkout-time snapshot
 
@@ -387,7 +387,7 @@ After an authorized linked Sales price adjustment, ordinary completed receipts S
 - **THEN** it retains existing preview pricing behavior and does not display completed transaction price-adjustment notices
 
 ### Requirement: Receipt visibility controls presentation only
-All existing requirements to display notes, return-history details and price-adjustment explanations SHALL be conditional on their business visibility settings. These switches MUST NOT change receipt calculations, financial validation, return effects, effective serials, remaining quantities, updated transaction prices, totals, payments or outstanding debt. Price-adjustment visibility SHALL control standard and packed notices and return-time price comparisons in their existing locations; return-time comparisons SHALL additionally require their return-history container to be visible. Hidden content MUST NOT be moved into another section. Enabling a section SHALL preserve existing content eligibility, formatting, placement and escaping. It MUST NOT add current adjustments to explicit historical receipts or completed-price comparisons to draft/loaded previews.
+All existing requirements to display notes, return-history details and price-adjustment explanations SHALL be conditional on their business visibility settings, with the receipt-page checkbox overriding only note visibility for the open page. These switches MUST NOT change receipt calculations, financial validation, return effects, effective serials, remaining quantities, updated transaction prices, totals, payments or outstanding debt. Price-adjustment visibility SHALL control standard and packed notices and return-time price comparisons in their existing locations; return-time comparisons SHALL additionally require their return-history container to be visible. Hidden content MUST NOT be moved into another section. Enabling a section SHALL preserve existing content eligibility, formatting, placement and escaping. It MUST NOT add current adjustments to explicit historical receipts or completed-price comparisons to draft/loaded previews.
 
 #### Scenario: Hidden explanations preserve current purchase
 - **WHEN** a current receipt contains updated Sales prices and completed return effects with all explanatory visibility switches disabled
@@ -452,3 +452,35 @@ Authoritative remaining row totals SHALL remain independent of displayed unit-pr
 - **WHEN** the last remaining units are fully cash-returned
 - **THEN** existing rules omit the item from the current main purchase list and retain eligible return details
 - **AND** explicit historical receipts continue to show original checkout quantities, packing, and amounts
+
+### Requirement: Receipt pages offer a local transaction note checkbox
+Every POS receipt page with Cetak Struk SHALL offer a labeled Tampilkan Catatan Transaksi checkbox alongside that button, including checkout, transaction print/reprint, global-payment, historical, draft/loaded and Kas Bon collection receipts. Its state SHALL immediately control note visibility on screen and paper. The checkbox and its label MUST NOT print.
+
+#### Scenario: Show and hide a nonempty note
+- **WHEN** a cashier checks or unchecks Tampilkan Catatan Transaksi on an open receipt containing a note
+- **THEN** the note section immediately appears or disappears in the preview
+- **AND** printing through Cetak Struk or the browser uses that same visibility
+- **AND** hidden notes leave no heading, divider or reserved gap
+- **AND** the control and label are absent from print output
+
+#### Scenario: No eligible transaction note
+- **WHEN** a receipt has no resolved source POS transaction or its note is null, empty or whitespace-only
+- **THEN** the checkbox remains available with the business default
+- **AND** checking it does not display a note heading or placeholder
+
+#### Scenario: Local choice does not change unrelated receipt content
+- **WHEN** a cashier toggles the note checkbox
+- **THEN** all other receipt visibility choices, purchase facts, totals, payments, debt and print audit behavior remain unchanged
+- **AND** no print or reprint audit event is created by toggling
+
+### Requirement: Kas Bon collection receipts use the linked transaction note
+Kas Bon collection print and reprint receipts SHALL use the linked POS transaction's note for Catatan Transaksi and the collection business's current note visibility default. They MUST NOT substitute collection notes, Sales notes or checkout notes. Notes SHALL use escaped plain text with preserved line breaks and thermal-width wrapping, after payment/debt details and before the footer.
+
+#### Scenario: Print a collection receipt with transaction notes
+- **WHEN** a Kas Bon collection receipt is printed or reprinted with a nonempty linked POS transaction note and note visibility enabled
+- **THEN** it shows that transaction note using the same safe formatting as other POS receipts
+- **AND** the collection payment snapshot and balances remain unchanged
+
+#### Scenario: Collection has no eligible transaction note
+- **WHEN** a collection has a missing linked transaction or a blank transaction note, even if collection notes exist
+- **THEN** its receipt omits the entire Catatan section regardless of checkbox state

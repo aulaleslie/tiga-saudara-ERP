@@ -167,7 +167,9 @@ class POSReceiptNotesAndPriceAdjustmentTest extends PosLineageSchemaAndCheckoutT
 
         $this->assertNull($receiptData['note']);
         $html = view('pos::receipt', compact('receiptData'))->render();
-        $this->assertStringNotContainsString('Catatan', $html);
+        $this->assertStringContainsString('Tampilkan Catatan Transaksi', $html);
+        $this->assertStringNotContainsString('Catatan:', $html);
+        $this->assertStringNotContainsString('id="pos-receipt-note"', $html);
         $this->assertStringNotContainsString('CHECKOUT NOTE', $html);
         $this->assertStringNotContainsString('SALE NOTE', $html);
 
@@ -181,7 +183,9 @@ class POSReceiptNotesAndPriceAdjustmentTest extends PosLineageSchemaAndCheckoutT
         $legacyData = $receiptService->getReceiptData($mockCheckout);
         $this->assertNull($legacyData['note']);
         $htmlLegacy = view('pos::receipt', ['receiptData' => $legacyData])->render();
-        $this->assertStringNotContainsString('Catatan', $htmlLegacy);
+        $this->assertStringContainsString('Tampilkan Catatan Transaksi', $htmlLegacy);
+        $this->assertStringNotContainsString('Catatan:', $htmlLegacy);
+        $this->assertStringNotContainsString('id="pos-receipt-note"', $htmlLegacy);
     }
 
     /**
@@ -868,6 +872,26 @@ class POSReceiptNotesAndPriceAdjustmentTest extends PosLineageSchemaAndCheckoutT
         $htmlGlobal = $resGlobal->getContent();
         $this->assertStringContainsString('PARITY TEST NOTE', $htmlGlobal);
         $this->assertStringContainsString('Harga satuan: 100.000 → 85.000', $htmlGlobal);
+
+        // 5b. Explicit historical receipt paths (checkout, transaction, global-payment)
+        $resHistCheckout = $this->get(route('pos.sell.checkout.receipt', ['checkout' => $checkout, 'historical' => 1]));
+        $resHistCheckout->assertStatus(200);
+        $htmlHistCheckout = $resHistCheckout->getContent();
+
+        $resHistTxn = $this->get(route('pos.transactions.receipt', ['transaction' => $transaction, 'historical' => 1]));
+        $resHistTxn->assertStatus(200);
+        $htmlHistTxn = $resHistTxn->getContent();
+
+        $resHistGlobal = $this->get(route('pos.global-payments.receipt.historical', ['transaction_id' => $transaction->id]));
+        $resHistGlobal->assertStatus(200);
+        $htmlHistGlobal = $resHistGlobal->getContent();
+
+        foreach ([$htmlView, $htmlReprint, $htmlTxn, $htmlTxnReprint, $htmlGlobal, $htmlHistCheckout, $htmlHistTxn, $htmlHistGlobal] as $endpointHtml) {
+            $this->assertStringContainsString('id="pos-receipt-show-note-toggle"', $endpointHtml);
+            $this->assertStringContainsString('Tampilkan Catatan Transaksi', $endpointHtml);
+            $this->assertStringContainsString('data-default-checked="1"', $endpointHtml);
+            $this->assertStringContainsString('id="pos-receipt-note"', $endpointHtml);
+        }
 
         // 6. Assert print logs recorded action-specific print types
         $printLogs = PosReceiptPrintLog::query()->where('setting_id', $setting->id)->get();

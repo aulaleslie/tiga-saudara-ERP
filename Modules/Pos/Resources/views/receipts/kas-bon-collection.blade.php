@@ -103,6 +103,11 @@
         .no-print {
             margin-bottom: 12px;
             text-align: center;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 8px 12px;
         }
 
         .no-print button {
@@ -114,6 +119,29 @@
             color: #fff;
             border: 1px solid #007bff;
             border-radius: 4px;
+        }
+
+        .no-print .receipt-note-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            line-height: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .no-print .receipt-note-toggle input[type="checkbox"] {
+            width: 14px;
+            height: 14px;
+            cursor: pointer;
+            margin: 0;
+        }
+
+        .receipt-note[hidden],
+        [data-receipt-note][hidden] {
+            display: none !important;
         }
 
         .reprint-badge {
@@ -151,7 +179,9 @@
                 print-color-adjust: exact;
             }
 
-            .no-print {
+            .no-print,
+            .receipt-note[hidden],
+            [data-receipt-note][hidden] {
                 display: none !important;
             }
 
@@ -187,6 +217,11 @@
 @php
     $snapshot = $collection->receipt_snapshot ?? [];
     $setting = $collection->setting ?? settings();
+    $visibility = $receiptVisibility ?? [];
+    $showNote = (bool) ($visibility['show_note'] ?? $visibility['pos_receipt_show_note'] ?? false);
+    $resolvedTransactionNote = isset($transactionNote) && trim((string) $transactionNote) !== ''
+        ? (string) $transactionNote
+        : null;
     $collectedAt = $collection->collected_at 
         ? \Carbon\Carbon::parse($collection->collected_at)->translatedFormat('d M, Y H:i:s')
         : now()->translatedFormat('d M, Y H:i:s');
@@ -210,9 +245,7 @@
     $remainingDebt = (float) ($snapshot['remaining_debt'] ?? $collection->remaining_debt);
 @endphp
 
-<div class="no-print">
-    <button onclick="window.print()">Cetak Struk</button>
-</div>
+@include('pos::receipts.partials.print-actions', ['showNote' => $showNote])
 
 <div class="receipt-container">
     @if(!empty($isReprint))
@@ -340,10 +373,16 @@
         </tr>
     </table>
 
+    @include('pos::receipts.partials.transaction-note', [
+        'showNote' => $showNote,
+        'noteText' => $resolvedTransactionNote,
+    ])
+
     <div class="footer-note">
         <div>Bukti pembayaran sah atas pelunasan / angsuran Kas Bon.</div>
         <div>Terima kasih atas pembayaran Anda.</div>
     </div>
 </div>
+@include('pos::receipts.partials.note-toggle-script')
 </body>
 </html>

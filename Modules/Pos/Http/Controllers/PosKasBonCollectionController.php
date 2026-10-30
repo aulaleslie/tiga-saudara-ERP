@@ -245,11 +245,10 @@ class PosKasBonCollectionController extends Controller
             ]);
         }
 
-        return view('pos::receipts.kas-bon-collection', [
-            'collection' => $collection,
-            'isReprint' => $isReprint,
-            'printHistory' => $printHistory,
-        ]);
+        return view(
+            'pos::receipts.kas-bon-collection',
+            $this->buildCollectionReceiptViewData($collection, $isReprint, $printHistory)
+        );
     }
 
     /**
@@ -300,10 +299,44 @@ class PosKasBonCollectionController extends Controller
             ]);
         }
 
-        return view('pos::receipts.kas-bon-collection', [
+        return view(
+            'pos::receipts.kas-bon-collection',
+            $this->buildCollectionReceiptViewData($collection, true, $printHistory)
+        );
+    }
+
+    /**
+     * Build view data for Kas Bon collection print and reprint receipts using
+     * the collection's own business visibility setting and linked POS transaction note.
+     */
+    public function buildCollectionReceiptViewData(
+        PosKasBonCollection $collection,
+        bool $isReprint,
+        array $printHistory
+    ): array {
+        $collectionSettingId = (int) ($collection->setting_id ?? 0);
+        $collectionSetting = $collection->relationLoaded('setting')
+            ? $collection->getRelation('setting')
+            : null;
+
+        $receiptVisibility = $this->receiptService->resolveReceiptVisibility(
+            $collectionSettingId > 0 ? $collectionSettingId : null,
+            $collectionSetting instanceof \Modules\Setting\Entities\Setting ? $collectionSetting : null
+        );
+
+        $linkedTransaction = $collection->relationLoaded('transaction')
+            ? $collection->getRelation('transaction')
+            : $collection->transaction;
+        $transactionNote = ($linkedTransaction instanceof PosTransaction && trim((string) $linkedTransaction->note) !== '')
+            ? (string) $linkedTransaction->note
+            : null;
+
+        return [
             'collection' => $collection,
-            'isReprint' => true,
+            'isReprint' => $isReprint,
             'printHistory' => $printHistory,
-        ]);
+            'receiptVisibility' => $receiptVisibility,
+            'transactionNote' => $transactionNote,
+        ];
     }
 }

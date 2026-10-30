@@ -773,6 +773,240 @@ class PosKasBonUiAndReceiptTest extends TestCase
         $this->assertStringContainsString('toCanonicalAmount(', $js);
         $this->assertStringContainsString('FinancialInput.setCanonicalValue', $js);
     }
+
+    public function test_kas_bon_collection_receipt_print_and_reprint_render_transaction_note_with_default_on_and_off(): void
+    {
+        $kb = $this->createKasBonTransaction(150000, 30000);
+        $rawMultilineNote = "Catatan Transaksi Baris 1\n<script>alert('kb')</script> & <b>Penting</b>\nBaris 3";
+        $kb['transaction']->update(['note' => $rawMultilineNote]);
+        $kb['sale']->update(['note' => 'CATATAN SALE INTERNAL JANGAN TAMPIL']);
+        $kb['checkout']->update(['note' => 'CATATAN CHECKOUT INTERNAL JANGAN TAMPIL']);
+
+        $reviewRes = $this->actingAs($this->cashier)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->getJson(route('pos.kas-bon.review', ['transaction_id' => $kb['transaction']->id]));
+        $fingerprint = $reviewRes->json('data.fingerprint');
+
+        $collectRes = $this->actingAs($this->cashier)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->postJson(route('pos.kas-bon.collect', ['transaction_id' => $kb['transaction']->id]), [
+                'fingerprint' => $fingerprint,
+                'amount_to_pay' => 50000,
+                'methods' => [
+                    [
+                        'payment_method_id' => $this->cashMethod->id,
+                        'amount' => 50000,
+                        'note' => 'CATATAN METODE PEMBAYARAN JANGAN JADI CATATAN TRANSAKSI',
+                    ],
+                ],
+                'idempotency_key' => 'kb-note-toggle-' . uniqid(),
+                'note' => 'CATATAN KOLEKSI JANGAN JADI CATATAN TRANSAKSI',
+            ]);
+        $collectRes->assertOk();
+        $collectionId = (int) $collectRes->json('collection_id');
+        $collectionBefore = \Modules\Pos\Entities\PosKasBonCollection::findOrFail($collectionId);
+        $snapshotBefore = $collectionBefore->receipt_snapshot;
+
+        // 1. Default OFF on initial print
+        $this->setting->update(['pos_receipt_show_note' => false]);
+
+        $printRes = $this->actingAs($this->cashier)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->get(route('pos.kas-bon.collections.receipt', ['collection_id' => $collectionId]));
+
+        $printRes->assertOk();
+        $printHtml = $printRes->getContent();
+
+        $this->assertKasBonNoteControlState($printHtml, false);
+        $this->assertKasBonNoteEffectiveVisibility($printHtml, false, 'Catatan Transaksi Baris 1');
+        $this->assertStringNotContainsString("<script>alert('kb')</script>", $printHtml);
+        $this->assertStringContainsString("&lt;script&gt;alert(&#039;kb&#039;)&lt;/script&gt; &amp; &lt;b&gt;Penting&lt;/b&gt;", $printHtml);
+        $this->assertStringNotContainsString('CATATAN SALE INTERNAL JANGAN TAMPIL', $printHtml);
+        $this->assertStringNotContainsString('CATATAN CHECKOUT INTERNAL JANGAN TAMPIL', $printHtml);
+        $this->assertStringNotContainsString('CATATAN KOLEKSI JANGAN JADI CATATAN TRANSAKSI', $printHtml);
+        $this->assertStringNotContainsString('CATATAN METODE PEMBAYARAN JANGAN JADI CATATAN TRANSAKSI', $printHtml);
+
+        $posDebt = strpos($printHtml, 'Sisa Hutang Kas Bon');
+        $posNote = strpos($printHtml, 'id="pos-receipt-note"');
+        $posFooter = strpos($printHtml, 'Bukti pembayaran sah atas pelunasan');
+        $this->assertNotFalse($posDebt);
+        $this->assertNotFalse($posNote);
+        $this->assertNotFalse($posFooter);
+        $this->assertTrue($posDebt < $posNote, 'Note must appear after payment/debt details');
+        $this->assertTrue($posNote < $posFooter, 'Note must appear before footer');
+
+        // 2. Default ON on reprint
+        $this->setting->update(['pos_receipt_show_note' => true]);
+        $this->cashier->givePermissionTo('pos.receipts.reprint');
+
+        $reprintRes = $this->actingAs($this->cashier)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->get(route('pos.kas-bon.collections.receipt.reprint', ['collection_id' => $collectionId]));
+
+        $reprintRes->assertOk();
+        $reprintHtml = $reprintRes->getContent();
+
+        $this->assertKasBonNoteControlState($reprintHtml, true);
+        $this->assertKasBonNoteEffectiveVisibility($reprintHtml, true, 'Catatan Transaksi Baris 1');
+        $this->assertStringContainsString("&lt;script&gt;alert(&#039;kb&#039;)&lt;/script&gt; &amp; &lt;b&gt;Penting&lt;/b&gt;", $reprintHtml);
+
+        // Snapshot and balances remain untouched
+        $collectionAfter = $collectionBefore->fresh();
+        $this->assertEquals($snapshotBefore, $collectionAfter->receipt_snapshot);
+        $this->assertEquals(50000.0, (float) $collectionAfter->amount_collected);
+        $this->assertEquals(70000.0, (float) $collectionAfter->remaining_debt);
+    }
+
+    public function test_kas_bon_collection_receipt_resolves_collection_business_visibility_without_active_business_fallback_and_omits_blank_or_missing_transaction_note(): void
+    {
+        $kb = $this->createKasBonTransaction(100000, 0);
+        $kb['transaction']->update(['note' => 'Catatan Bisnis Koleksi']);
+
+        $otherSetting = Setting::create([
+            'company_name' => 'Toko Cabang Lain',
+            'company_email' => 'cabang@example.com',
+            'company_phone' => '0812000111',
+            'company_address' => 'Jl. Cabang No. 2',
+            'default_currency_id' => 1,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'cabang@example.com',
+            'footer_text' => 'Footer Cabang',
+            'document_prefix' => 'CB',
+            'purchase_prefix_document' => 'PR',
+            'sale_prefix_document' => 'SL',
+            'pos_enabled' => true,
+            'pos_receipt_show_note' => true,
+        ]);
+
+        // Collection business has note OFF, while otherSetting has note ON
+        $this->setting->update(['pos_receipt_show_note' => false]);
+
+        $reviewRes = $this->actingAs($this->cashier)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->getJson(route('pos.kas-bon.review', ['transaction_id' => $kb['transaction']->id]));
+        $fingerprint = $reviewRes->json('data.fingerprint');
+
+        $collectRes = $this->actingAs($this->cashier)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->postJson(route('pos.kas-bon.collect', ['transaction_id' => $kb['transaction']->id]), [
+                'fingerprint' => $fingerprint,
+                'amount_to_pay' => 40000,
+                'methods' => [
+                    ['payment_method_id' => $this->cashMethod->id, 'amount' => 40000],
+                ],
+                'idempotency_key' => 'kb-isolation-' . uniqid(),
+                'note' => 'Catatan koleksi internal',
+            ]);
+        $collectRes->assertOk();
+        $collection = \Modules\Pos\Entities\PosKasBonCollection::with(['transaction', 'setting'])->findOrFail((int) $collectRes->json('collection_id'));
+
+        // Simulate active session switched to otherSetting (where pos_receipt_show_note is true)
+        session(['setting_id' => $otherSetting->id]);
+
+        $controller = app(\Modules\Pos\Http\Controllers\PosKasBonCollectionController::class);
+
+        $isolatedHtml = view(
+            'pos::receipts.kas-bon-collection',
+            $controller->buildCollectionReceiptViewData($collection, false, ['count' => 1])
+        )->render();
+
+        // Must follow $collection->setting_id (false), NOT active session $otherSetting (true)
+        $this->assertKasBonNoteControlState($isolatedHtml, false);
+        $this->assertKasBonNoteEffectiveVisibility($isolatedHtml, false, 'Catatan Bisnis Koleksi');
+
+        // Even if collection setting cannot be resolved, it must default to unchecked (false) and NEVER fall back to active session
+        $unresolvableSettingCollection = clone $collection;
+        $unresolvableSettingCollection->setting_id = 999999;
+        $unresolvableSettingCollection->setRelation('setting', null);
+
+        $missingSettingHtml = view(
+            'pos::receipts.kas-bon-collection',
+            $controller->buildCollectionReceiptViewData($unresolvableSettingCollection, false, ['count' => 1])
+        )->render();
+
+        $this->assertKasBonNoteControlState($missingSettingHtml, false);
+        $this->assertKasBonNoteEffectiveVisibility($missingSettingHtml, false, 'Catatan Bisnis Koleksi');
+
+        // Empty / whitespace transaction note omits Catatan section even when setting is ON and collection/Sale notes exist
+        $this->setting->update(['pos_receipt_show_note' => true]);
+        $kb['transaction']->update(['note' => "   \n\t  "]);
+        $kb['sale']->update(['note' => 'CATATAN SALE SAAT KOSONG']);
+        $this->cashier->givePermissionTo('pos.receipts.reprint');
+
+        $blankNoteRes = $this->actingAs($this->cashier)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->get(route('pos.kas-bon.collections.receipt.reprint', ['collection_id' => $collection->id]));
+
+        $blankNoteRes->assertOk();
+        $blankHtml = $blankNoteRes->getContent();
+        $this->assertKasBonNoteControlState($blankHtml, true);
+        $this->assertStringNotContainsString('id="pos-receipt-note"', $blankHtml);
+        $this->assertStringNotContainsString('Catatan:', $blankHtml);
+        $this->assertStringNotContainsString('Catatan koleksi internal', $blankHtml);
+        $this->assertStringNotContainsString('CATATAN SALE SAAT KOSONG', $blankHtml);
+
+        // Missing linked transaction omits Catatan section even when collection notes exist
+        $missingTrxCollection = clone $collection->fresh();
+        $missingTrxCollection->pos_transaction_id = null;
+        $missingTrxCollection->setRelation('transaction', null);
+
+        $missingTrxHtml = view(
+            'pos::receipts.kas-bon-collection',
+            $controller->buildCollectionReceiptViewData($missingTrxCollection, true, ['count' => 2])
+        )->render();
+
+        $this->assertKasBonNoteControlState($missingTrxHtml, true);
+        $this->assertStringNotContainsString('id="pos-receipt-note"', $missingTrxHtml);
+        $this->assertStringNotContainsString('Catatan:', $missingTrxHtml);
+        $this->assertStringNotContainsString('Catatan koleksi internal', $missingTrxHtml);
+    }
+
+    private function assertKasBonNoteControlState(string $html, bool $expectedChecked): void
+    {
+        $this->assertMatchesRegularExpression(
+            '/<div class="no-print">.*?<button onclick="window\.print\(\)">Cetak Struk<\/button>.*?<label class="receipt-note-toggle" for="pos-receipt-show-note-toggle">.*?<span>Tampilkan Catatan Transaksi<\/span>.*?<\/label>.*?<\/div>/s',
+            $html
+        );
+
+        $this->assertStringContainsString(
+            $expectedChecked ? 'data-default-checked="1"' : 'data-default-checked="0"',
+            $html
+        );
+
+        if ($expectedChecked) {
+            $this->assertMatchesRegularExpression(
+                '/<input[^>]*id="pos-receipt-show-note-toggle"[^>]*(?<!-)checked(?![a-zA-Z0-9_-])[^>]*>/s',
+                $html
+            );
+        } else {
+            $this->assertDoesNotMatchRegularExpression(
+                '/<input[^>]*id="pos-receipt-show-note-toggle"[^>]*(?<!-)checked(?![a-zA-Z0-9_-])[^>]*>/s',
+                $html
+            );
+        }
+
+        $this->assertStringContainsString('.receipt-note[hidden]', $html);
+        $this->assertStringContainsString('initializeFromDefault()', $html);
+    }
+
+    private function assertKasBonNoteEffectiveVisibility(string $html, bool $expectedVisible, string $expectedText): void
+    {
+        $this->assertStringContainsString('id="pos-receipt-note"', $html);
+        $this->assertStringContainsString('Catatan:', $html);
+        $this->assertStringContainsString($expectedText, $html);
+
+        if ($expectedVisible) {
+            $this->assertDoesNotMatchRegularExpression(
+                '/<div[^>]*id="pos-receipt-note"[^>]*\bhidden\b[^>]*>/s',
+                $html
+            );
+        } else {
+            $this->assertMatchesRegularExpression(
+                '/<div[^>]*id="pos-receipt-note"[^>]*\bhidden\b[^>]*>/s',
+                $html
+            );
+        }
+    }
 }
 
 

@@ -130,12 +130,40 @@
         .no-print {
             margin-bottom: 12px;
             text-align: center;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 8px 12px;
         }
 
         .no-print button {
             padding: 10px 20px;
             font-size: 14px;
             cursor: pointer;
+        }
+
+        .no-print .receipt-note-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            line-height: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .no-print .receipt-note-toggle input[type="checkbox"] {
+            width: 14px;
+            height: 14px;
+            cursor: pointer;
+            margin: 0;
+        }
+
+        .receipt-note[hidden],
+        [data-receipt-note][hidden] {
+            display: none !important;
         }
 
         table.items-table, table.totals-table, table.payment-table {
@@ -189,7 +217,9 @@
                 padding: 2px 0;
             }
 
-            .no-print {
+            .no-print,
+            .receipt-note[hidden],
+            [data-receipt-note][hidden] {
                 display: none !important;
             }
 
@@ -237,9 +267,7 @@
             : true);
 @endphp
 
-<div class="no-print">
-    <button onclick="window.print()">Cetak Struk</button>
-</div>
+@include('pos::receipts.partials.print-actions', ['showNote' => $showNote])
 
 <div class="receipt-container">
     @if(!empty($receiptData['is_historical_checkout']))
@@ -452,12 +480,10 @@
             </tbody>
         </table>
 
-        @if($showNote && !empty(trim($receiptData['note'] ?? '')))
-            <div class="receipt-note" style="margin-top: 5px; border-top: 1px dashed #000; padding-top: 4px;">
-                <div style="font-size: 11px; font-weight: 700; margin-bottom: 2px;">Catatan:</div>
-                <div style="font-weight: 400; font-size: 10px; line-height: 13px; white-space: pre-wrap; word-break: break-word;">{{ $receiptData['note'] }}</div>
-            </div>
-        @endif
+        @include('pos::receipts.partials.transaction-note', [
+            'showNote' => $showNote,
+            'noteText' => $receiptData['note'] ?? null,
+        ])
 
         @if($showReturnHistory && !empty($receiptData['return_history']))
             <div class="return-history" style="margin-top: 5px; border-top: 1px dashed #000; padding-top: 4px;">
@@ -572,6 +598,7 @@
         </div>
     </div>
 </div>
+@include('pos::receipts.partials.note-toggle-script')
 @if(!empty($autoPrint))
     <script>
         window.addEventListener('load', function () { window.print(); });

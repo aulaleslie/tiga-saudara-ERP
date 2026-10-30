@@ -184,8 +184,8 @@ class PosReceiptSectionVisibilityTest extends PosLineageSchemaAndCheckoutTest
         ]);
         $htmlDefault = view('pos::receipt', ['receiptData' => $dataDefault])->render();
 
-        $this->assertStringNotContainsString('Catatan:', $htmlDefault);
-        $this->assertStringNotContainsString('Important customer instructions', $htmlDefault);
+        $this->assertNoteControlState($htmlDefault, false);
+        $this->assertNoteEffectiveVisibility($htmlDefault, false, 'Important customer instructions');
         $this->assertStringNotContainsString('RIWAYAT RETUR', $htmlDefault);
         $this->assertStringNotContainsString('Harga satuan: 100.000 → 90.000', $htmlDefault);
         $this->assertStringNotContainsString('Harga satuan saat retur:', $htmlDefault);
@@ -204,8 +204,8 @@ class PosReceiptSectionVisibilityTest extends PosLineageSchemaAndCheckoutTest
             ],
         ]);
         $htmlNote = view('pos::receipt', ['receiptData' => $dataNoteOnly])->render();
-        $this->assertStringContainsString('Catatan:', $htmlNote);
-        $this->assertStringContainsString('Important customer instructions', $htmlNote);
+        $this->assertNoteControlState($htmlNote, true);
+        $this->assertNoteEffectiveVisibility($htmlNote, true, 'Important customer instructions');
         $this->assertStringNotContainsString('RIWAYAT RETUR', $htmlNote);
         $this->assertStringNotContainsString('Harga satuan:', $htmlNote);
 
@@ -456,14 +456,16 @@ class PosReceiptSectionVisibilityTest extends PosLineageSchemaAndCheckoutTest
 
         // 4. Rendered output verification: presentation differs, financial facts remain
         // When enabled:
-        $this->assertStringContainsString('Catatan:', $htmlEnabled);
+        $this->assertNoteControlState($htmlEnabled, true);
+        $this->assertNoteEffectiveVisibility($htmlEnabled, true, 'Transaction financial note');
         $this->assertStringContainsString('RIWAYAT RETUR', $htmlEnabled);
         $this->assertStringContainsString('Harga satuan:', $htmlEnabled);
         $this->assertStringContainsString('Harga sudah termasuk PPN', $htmlEnabled);
         $this->assertStringContainsString('<div class="receipt-tail-space"></div>', $htmlEnabled);
 
         // When disabled:
-        $this->assertStringNotContainsString('Catatan:', $htmlDisabled);
+        $this->assertNoteControlState($htmlDisabled, false);
+        $this->assertNoteEffectiveVisibility($htmlDisabled, false, 'Transaction financial note');
         $this->assertStringNotContainsString('RIWAYAT RETUR', $htmlDisabled);
         $this->assertStringNotContainsString('Harga satuan:', $htmlDisabled);
         $this->assertStringNotContainsString('Harga sudah termasuk PPN', $htmlDisabled);
@@ -474,5 +476,170 @@ class PosReceiptSectionVisibilityTest extends PosLineageSchemaAndCheckoutTest
         $this->assertStringContainsString('ITEM-P2', $htmlDisabled);
         $this->assertStringContainsString('240.000', $htmlDisabled);
         $this->assertStringContainsString('Terima Kasih Telah Berbelanja', $htmlDisabled);
+    }
+
+    public function test_shared_receipt_note_toggle_separates_eligibility_from_initial_visibility_and_escapes_multiline_html(): void
+    {
+        $rawMultilineNote = "Baris 1: Titip tetangga\n<script>alert('xss')</script> & <b>Fragile</b>\nBaris 3: Jangan dibanting";
+
+        $baseReceipt = [
+            'business_name' => 'Toggle Note Store',
+            'date' => now()->format('Y-m-d H:i:s'),
+            'receipt_number' => 'REC-TOGGLE-001',
+            'pos_transaction_code' => 'TRX-TOGGLE-001',
+            'customer_name' => 'Pelanggan Toggle',
+            'cashier_name' => 'Kasir Toggle',
+            'terminal_name' => 'T1',
+            'note' => $rawMultilineNote,
+            'lines' => [
+                [
+                    'product_name' => 'Produk Uji',
+                    'qty' => 1,
+                    'sub_total' => 50000,
+                ],
+            ],
+            'grand_total' => 50000,
+            'payment_breakdown' => [
+                ['method_name' => 'Tunai', 'amount' => 50000],
+            ],
+            'return_history' => [
+                [
+                    'reference' => 'RET-TOGGLE-001',
+                    'date' => now()->format('d-m-Y H:i'),
+                    'status' => 'Selesai',
+                    'debt_reduction' => 0,
+                    'actual_refund' => 10000,
+                    'items' => [
+                        [
+                            'product_name' => 'Produk Retur',
+                            'quantity' => 1,
+                            'resolution' => 'cash',
+                            'line_total' => 10000,
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        // 1. Setting ON: checkbox checked, eligible note rendered and visible, escaped, placed after payments and before return history
+        $htmlSettingOn = view('pos::receipt', [
+            'receiptData' => array_merge($baseReceipt, [
+                'receipt_visibility' => [
+                    'show_note' => true,
+                    'show_return_history' => true,
+                ],
+            ]),
+        ])->render();
+
+        $this->assertNoteControlState($htmlSettingOn, true);
+        $this->assertNoteEffectiveVisibility($htmlSettingOn, true, 'Baris 1: Titip tetangga');
+        $this->assertStringNotContainsString("<script>alert('xss')</script>", $htmlSettingOn);
+        $this->assertStringContainsString("&lt;script&gt;alert(&#039;xss&#039;)&lt;/script&gt; &amp; &lt;b&gt;Fragile&lt;/b&gt;", $htmlSettingOn);
+        $this->assertStringContainsString("Baris 1: Titip tetangga\n&lt;script&gt;alert(&#039;xss&#039;)&lt;/script&gt; &amp; &lt;b&gt;Fragile&lt;/b&gt;\nBaris 3: Jangan dibanting", $htmlSettingOn);
+
+        $posPayment = strpos($htmlSettingOn, 'Bayar: Tunai');
+        $posNote = strpos($htmlSettingOn, 'id="pos-receipt-note"');
+        $posReturnHistory = strpos($htmlSettingOn, 'RIWAYAT RETUR');
+        $this->assertNotFalse($posPayment);
+        $this->assertNotFalse($posNote);
+        $this->assertNotFalse($posReturnHistory);
+        $this->assertTrue($posPayment < $posNote, 'Note must be placed after payment details');
+        $this->assertTrue($posNote < $posReturnHistory, 'Note must be placed before return history');
+
+        // 2. Setting OFF: checkbox unchecked, eligible note still rendered in DOM for local toggling but initially hidden
+        $htmlSettingOff = view('pos::receipt', [
+            'receiptData' => array_merge($baseReceipt, [
+                'receipt_visibility' => [
+                    'show_note' => false,
+                    'show_return_history' => true,
+                ],
+            ]),
+        ])->render();
+
+        $this->assertNoteControlState($htmlSettingOff, false);
+        $this->assertNoteEffectiveVisibility($htmlSettingOff, false, 'Baris 1: Titip tetangga');
+        $this->assertStringNotContainsString("<script>alert('xss')</script>", $htmlSettingOff);
+        $this->assertStringContainsString("&lt;script&gt;alert(&#039;xss&#039;)&lt;/script&gt;", $htmlSettingOff);
+
+        // 3. Missing receipt_visibility configuration: defaults to unchecked and initially hidden, but still toggleable
+        $htmlMissingConfig = view('pos::receipt', [
+            'receiptData' => $baseReceipt,
+        ])->render();
+
+        $this->assertNoteControlState($htmlMissingConfig, false);
+        $this->assertNoteEffectiveVisibility($htmlMissingConfig, false, 'Baris 1: Titip tetangga');
+
+        // 4. Blank, whitespace-only, and null notes: checkbox stays available with business default, but note section is completely omitted
+        foreach ([null, '', "   \n\t  "] as $emptyNote) {
+            $htmlEmptyOn = view('pos::receipt', [
+                'receiptData' => array_merge($baseReceipt, [
+                    'note' => $emptyNote,
+                    'receipt_visibility' => ['show_note' => true],
+                ]),
+            ])->render();
+
+            $this->assertNoteControlState($htmlEmptyOn, true);
+            $this->assertStringNotContainsString('id="pos-receipt-note"', $htmlEmptyOn);
+            $this->assertStringNotContainsString('Catatan:', $htmlEmptyOn);
+
+            $htmlEmptyOff = view('pos::receipt', [
+                'receiptData' => array_merge($baseReceipt, [
+                    'note' => $emptyNote,
+                    'receipt_visibility' => ['show_note' => false],
+                ]),
+            ])->render();
+
+            $this->assertNoteControlState($htmlEmptyOff, false);
+            $this->assertStringNotContainsString('id="pos-receipt-note"', $htmlEmptyOff);
+            $this->assertStringNotContainsString('Catatan:', $htmlEmptyOff);
+        }
+    }
+
+    private function assertNoteControlState(string $html, bool $expectedChecked): void
+    {
+        // Control and Cetak Struk button must reside inside .no-print
+        $this->assertMatchesRegularExpression(
+            '/<div class="no-print">.*?<button onclick="window\.print\(\)">Cetak Struk<\/button>.*?<label class="receipt-note-toggle" for="pos-receipt-show-note-toggle">.*?<span>Tampilkan Catatan Transaksi<\/span>.*?<\/label>.*?<\/div>/s',
+            $html
+        );
+
+        $expectedDefaultAttr = $expectedChecked ? 'data-default-checked="1"' : 'data-default-checked="0"';
+        $this->assertStringContainsString($expectedDefaultAttr, $html);
+
+        if ($expectedChecked) {
+            $this->assertMatchesRegularExpression(
+                '/<input[^>]*id="pos-receipt-show-note-toggle"[^>]*(?<!-)checked(?![a-zA-Z0-9_-])[^>]*>/s',
+                $html
+            );
+        } else {
+            $this->assertDoesNotMatchRegularExpression(
+                '/<input[^>]*id="pos-receipt-show-note-toggle"[^>]*(?<!-)checked(?![a-zA-Z0-9_-])[^>]*>/s',
+                $html
+            );
+        }
+
+        // Verify print and screen CSS enforce hidden state and local toggle script is wired
+        $this->assertStringContainsString('.receipt-note[hidden]', $html);
+        $this->assertStringContainsString('initializeFromDefault()', $html);
+        $this->assertStringContainsString("toggle.addEventListener('change', syncNoteVisibility);", $html);
+    }
+
+    private function assertNoteEffectiveVisibility(string $html, bool $expectedVisible, string $expectedText): void
+    {
+        $this->assertStringContainsString('id="pos-receipt-note"', $html);
+        $this->assertStringContainsString('Catatan:', $html);
+        $this->assertStringContainsString($expectedText, $html);
+
+        if ($expectedVisible) {
+            $this->assertDoesNotMatchRegularExpression(
+                '/<div[^>]*id="pos-receipt-note"[^>]*\bhidden\b[^>]*>/s',
+                $html
+            );
+        } else {
+            $this->assertMatchesRegularExpression(
+                '/<div[^>]*id="pos-receipt-note"[^>]*\bhidden\b[^>]*>/s',
+                $html
+            );
+        }
     }
 }
