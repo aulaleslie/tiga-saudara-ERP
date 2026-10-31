@@ -204,11 +204,31 @@ class PosReturnRoundingValuationServiceTest extends TestCase
     }
 
     /** @test */
-    public function it_blocks_ambiguous_evidence_and_invalid_arguments(): void
+    public function it_values_partial_and_full_zero_price_returns_without_creating_money(): void
+    {
+        foreach ([1.0, 2.0] as $quantity) {
+            $value = $this->service->calculateCumulativeValuation(0.0, 2.0, $quantity, 0.0, 100.0, 0.0);
+
+            $this->assertEquals(0.0, $value['current_return_amount']);
+            $this->assertEquals(0.0, $value['target_cumulative_amount']);
+            $this->assertEquals(0.0, $value['remaining_commercial_value']);
+            $this->assertSame($quantity === 2.0, $value['is_exhaustion']);
+        }
+    }
+
+    /** @test */
+    public function it_rejects_excess_quantity_even_for_zero_price_returns(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->service->calculateCumulativeValuation(0.0, 1.0, 2.0, 0.0, 100.0, 0.0);
+    }
+
+    /** @test */
+    public function it_rejects_negative_baseline_amounts(): void
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->service->calculateCumulativeValuation(
-            baselineAmount: 0.0,
+            baselineAmount: -1.0,
             baselineQuantity: 120.0,
             cumulativeReturnedQuantity: 1.0,
             previouslyCommittedAmount: 0.0,

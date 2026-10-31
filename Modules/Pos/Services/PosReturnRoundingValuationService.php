@@ -84,8 +84,8 @@ class PosReturnRoundingValuationService
         float $increment,
         float $storedResidual
     ): array {
-        if ($baselineQuantity <= 0 || $baselineAmount <= 0) {
-            throw new \InvalidArgumentException('Commercial line baseline evidence is ambiguous: quantity and returnable amount must be positive.');
+        if ($baselineQuantity <= 0 || $baselineAmount < 0) {
+            throw new \InvalidArgumentException('Commercial line baseline evidence is ambiguous: quantity must be positive and returnable amount must be non-negative.');
         }
 
         if ($storedResidual < -0.01) {
@@ -363,8 +363,8 @@ class PosReturnRoundingValuationService
             }
         }
 
-        if ($baselineQuantity <= 0 || $baselineAmount <= 0) {
-            throw new \RuntimeException("Commercial baseline for line {$lineKey} is ambiguous: quantity ({$baselineQuantity}) or amount ({$baselineAmount}) is not positive.");
+        if ($baselineQuantity <= 0 || $baselineAmount < 0) {
+            throw new \RuntimeException("Commercial baseline for line {$lineKey} is ambiguous: quantity ({$baselineQuantity}) must be positive and amount ({$baselineAmount}) must be non-negative.");
         }
 
         $isBundle = false;

@@ -230,6 +230,56 @@ class PosReturnRoundingLifecycleIntegrationTest extends PosTransactionFeatureTes
     }
 
     /** @test */
+    public function it_approves_a_mixed_paid_and_zero_price_return(): void
+    {
+        $fixture = $this->createSynthetic9218Fixture();
+        $fixture['ptl2']->update([
+            'qty' => 1,
+            'unit_price' => 0,
+            'line_meta' => [
+                'price_source' => 'LINE_UNIT_PRICE_OVERRIDE',
+                'line_gross_minor' => 0,
+                'line_net_minor' => 0,
+                'line_total_minor' => 0,
+            ],
+        ]);
+        $fixture['detail2']->update(['quantity' => 1, 'price' => 0, 'unit_price' => 0, 'sub_total' => 0]);
+        $fixture['dd2']->update(['dispatched_quantity' => 1]);
+        $fixture['sale']->update(['total_amount' => 15000, 'paid_amount' => 15000]);
+        $fixture['sale']->salePayments()->update(['amount' => 15000]);
+        $fixture['checkout']->update(['grand_total' => 15000]);
+
+        $this->actingAsInSetting($this->user, $this->setting);
+        $snapshot = $this->snapshotService->build($fixture['transaction']->id);
+        $draft = $this->submissionService->store([
+            'pos_transaction_id' => $fixture['transaction']->id,
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'source_snapshot' => $snapshot,
+            'source_snapshot_hash' => $snapshot['hash'],
+            'lines' => array_map(fn ($detail) => [
+                'sale_detail_id' => $detail->id,
+                'quantity' => 1,
+                'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            ], [$fixture['detail1'], $fixture['detail2']]),
+        ]);
+
+        $this->actingAsInSetting($this->approver, $this->setting);
+        $pending = $this->submissionService->submitDraftForApproval($draft);
+        $plan = $this->plannerService->plan($pending);
+        $this->assertFalse($plan['is_blocked'], json_encode($plan));
+        $this->assertEquals(15000.0, (float) $plan['actual_refund']);
+
+        $this->lifecycleService->executeApprovalFromPreview($pending->id, PosReturn::OPTION_CASH_RETURN, $plan);
+
+        $this->assertSame(PosReturn::STATUS_COMPLETED, $pending->fresh()->status);
+        $this->assertEquals(0, (float) $fixture['detail2']->fresh()->quantity);
+        $this->assertEquals(0, (float) $fixture['sale']->fresh()->total_amount);
+        $zeroState = $fixture['sale']->fresh()->return_rounding_context['commercial_lines']['ptl_' . $fixture['ptl2']->id];
+        $this->assertEquals(1, $zeroState['committed_quantity']);
+        $this->assertEquals(0, $zeroState['committed_amount']);
+    }
+
+    /** @test */
     public function it_preserves_untouched_marker_line_subtotal_and_checkout_snapshot_when_returning_notebook()
     {
         $fixture = $this->createSynthetic9218Fixture();
