@@ -227,10 +227,17 @@ class Sale extends BaseModel implements HasMedia
      * This formula is the single source of truth for settlement calculations:
      *   live_due = total_amount - (active cash payments + active credit applications)
      *
+     * Canonical units: Sale decimal/currency units (matching total_amount, sale_payments.amount,
+     * and sale_payment_credit_applications.amount, rounded at decimal:2).
+     * Fallback behavior: When no active payments or credits exist, live due evaluates to total_amount.
+     * When payments/credits meet or exceed total_amount, raw formula may be <= 0.
+     * Clamping to zero is provided by canonicalClampedLiveDueFormula(), orderByLiveDueAmount(),
+     * and getLiveDueAmountAttribute().
+     *
      * Used by scopeWhereLiveDueAmountGreaterThan and scopeWhereLiveDueAmountLessThanOrEqual
      * to ensure both scopes implement the exact same calculation without drift.
      */
-    private static function canonicalLiveDueFormula(): string
+    public static function canonicalLiveDueFormula(): string
     {
         return 'total_amount - COALESCE((
             SELECT SUM(amount) FROM sale_payments
@@ -242,6 +249,30 @@ class Sale extends BaseModel implements HasMedia
             WHERE sp.sale_id = sales.id
             AND sp.status = ?
         ), 0)';
+    }
+
+    /**
+     * Get SQL expression for zero-clamped live due amount.
+     * CASE WHEN (formula) < 0 THEN 0 ELSE (formula) END
+     */
+    public static function canonicalClampedLiveDueFormula(): string
+    {
+        $formula = self::canonicalLiveDueFormula();
+        return "CASE WHEN ({$formula}) < 0 THEN 0 ELSE ({$formula}) END";
+    }
+
+    /**
+     * Order by canonical clamped live due amount.
+     */
+    public function scopeOrderByLiveDueAmount($query, string $direction = 'asc')
+    {
+        $direction = strtolower($direction) === 'desc' ? 'desc' : 'asc';
+        $active = SalePayment::STATUS_ACTIVE;
+
+        return $query->orderByRaw(
+            self::canonicalClampedLiveDueFormula() . ' ' . $direction,
+            [$active, $active, $active, $active]
+        );
     }
 
     /**
@@ -299,6 +330,24 @@ class Sale extends BaseModel implements HasMedia
     }
 
     /**
+     * Eager load effective payment and credit aggregates for live balance calculations.
+     */
+    public function scopeWithLiveSettlementAggregates($query)
+    {
+        return $query
+            ->withSum(['salePayments as active_payments_sum' => function ($q) {
+                $q->where('status', SalePayment::STATUS_ACTIVE);
+            }], 'amount')
+            ->selectSub(function ($sub) {
+                $sub->from('sale_payment_credit_applications as spca')
+                    ->join('sale_payments as sp', 'spca.sale_payment_id', '=', 'sp.id')
+                    ->whereColumn('sp.sale_id', 'sales.id')
+                    ->where('sp.status', SalePayment::STATUS_ACTIVE)
+                    ->selectRaw('COALESCE(SUM(spca.amount), 0)');
+            }, 'active_credits_sum');
+    }
+
+    /**
      * Calculate the canonical settlement total from active payments and credits.
      * This is the single source of truth for settlement calculations:
      *   - SUM(sale_payments.amount WHERE status = ACTIVE)
@@ -323,12 +372,16 @@ class Sale extends BaseModel implements HasMedia
                 ->sum('amount');
         }
 
-        // Get sum of credit applications attached to active payments
-        $creditSum = (float) DB::table('sale_payment_credit_applications')
-            ->join('sale_payments', 'sale_payment_credit_applications.sale_payment_id', '=', 'sale_payments.id')
-            ->where('sale_payments.sale_id', $this->id)
-            ->where('sale_payments.status', SalePayment::STATUS_ACTIVE)
-            ->sum('sale_payment_credit_applications.amount');
+        if (array_key_exists('active_credits_sum', $this->attributes)) {
+            $creditSum = (float) ($this->attributes['active_credits_sum'] ?: 0);
+        } else {
+            // Get sum of credit applications attached to active payments
+            $creditSum = (float) DB::table('sale_payment_credit_applications')
+                ->join('sale_payments', 'sale_payment_credit_applications.sale_payment_id', '=', 'sale_payments.id')
+                ->where('sale_payments.sale_id', $this->id)
+                ->where('sale_payments.status', SalePayment::STATUS_ACTIVE)
+                ->sum('sale_payment_credit_applications.amount');
+        }
 
         return round($monetarySum + $creditSum, 2);
     }

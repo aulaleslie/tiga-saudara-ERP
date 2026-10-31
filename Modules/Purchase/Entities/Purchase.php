@@ -313,6 +313,36 @@ class Purchase extends BaseModel implements HasMedia
         });
     }
 
+    /**
+     * Get the canonical settlement SQL formula for live due amount.
+     * This formula is the single source of truth for settlement calculations:
+     *   live_due = total_amount - (active cash payments)
+     *
+     * Canonical units: Purchase currency units (integer amounts matching total_amount
+     * and purchase_payments.amount storage, without currency rescaling).
+     * Fallback behavior: When no active payments exist, live due evaluates to total_amount.
+     * When active payments meet or exceed total_amount, raw formula may be <= 0.
+     * Clamping to zero is provided by canonicalClampedLiveDueFormula() and orderByLiveDueAmount().
+     */
+    public static function canonicalLiveDueFormula(): string
+    {
+        return 'total_amount - COALESCE((
+            SELECT SUM(amount) FROM purchase_payments
+            WHERE purchase_payments.purchase_id = purchases.id
+            AND purchase_payments.status = ?
+        ), 0)';
+    }
+
+    /**
+     * Get SQL expression for zero-clamped live due amount.
+     * CASE WHEN (formula) < 0 THEN 0 ELSE (formula) END
+     */
+    public static function canonicalClampedLiveDueFormula(): string
+    {
+        $formula = self::canonicalLiveDueFormula();
+        return "CASE WHEN ({$formula}) < 0 THEN 0 ELSE ({$formula}) END";
+    }
+
     public function scopeCompleted($query) {
         return $query->where('status', 'Completed');
     }
@@ -328,12 +358,32 @@ class Purchase extends BaseModel implements HasMedia
 
     public function scopeWhereLiveDueAmountGreaterThan($query, $amount = 0)
     {
-        return $query->whereRaw('total_amount - COALESCE((SELECT SUM(amount) FROM purchase_payments WHERE purchase_payments.purchase_id = purchases.id AND purchase_payments.status = ?), 0) > ?', [\Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE, $amount]);
+        return $query->whereRaw(
+            self::canonicalLiveDueFormula() . ' > ?',
+            [\Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE, $amount]
+        );
     }
 
     public function scopeWhereLiveDueAmountLessThanOrEqual($query, $amount = 0)
     {
-        return $query->whereRaw('total_amount - COALESCE((SELECT SUM(amount) FROM purchase_payments WHERE purchase_payments.purchase_id = purchases.id AND purchase_payments.status = ?), 0) <= ?', [\Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE, $amount]);
+        return $query->whereRaw(
+            self::canonicalLiveDueFormula() . ' <= ?',
+            [\Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE, $amount]
+        );
+    }
+
+    /**
+     * Order by canonical clamped live due amount.
+     */
+    public function scopeOrderByLiveDueAmount($query, string $direction = 'asc')
+    {
+        $direction = strtolower($direction) === 'desc' ? 'desc' : 'asc';
+        $active = \Modules\Purchase\Entities\PurchasePayment::STATUS_ACTIVE;
+
+        return $query->orderByRaw(
+            self::canonicalClampedLiveDueFormula() . ' ' . $direction,
+            [$active, $active]
+        );
     }
 
     public function getShippingAmountAttribute($value) {

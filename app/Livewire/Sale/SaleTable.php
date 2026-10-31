@@ -301,7 +301,8 @@ class SaleTable extends Component
         }
 
         $query = ($this->showArchived ? Sale::archived() : Sale::query())
-            ->with(['customer', 'saleDetails', 'tags', 'posCheckout.transaction', 'checkoutSale.checkout.transaction', 'tenantSetting']);
+            ->with(['customer', 'saleDetails', 'tags', 'posCheckout.transaction', 'checkoutSale.checkout.transaction', 'tenantSetting'])
+            ->withLiveSettlementAggregates();
 
         // Apply setting scope only if not in global mode
         if (!$this->globalMode) {
@@ -348,19 +349,11 @@ class SaleTable extends Component
                 $q->whereIn('payment_status', $this->paymentStatusFilters);
             })
             ->when($this->dueAmountOnly, function ($q) {
-                if ($this->globalMode) {
-                    $q->whereLiveDueAmountGreaterThan(0);
-                } else {
-                    $q->where('due_amount', '>', 0);
-                }
+                $q->whereLiveDueAmountGreaterThan(0);
             })
             ->when($this->overdueOnly, function ($q) {
-                $q->where('due_date', '<', Carbon::today());
-                if ($this->globalMode) {
-                    $q->whereLiveDueAmountGreaterThan(0);
-                } else {
-                    $q->where('due_amount', '>', 0);
-                }
+                $q->where('due_date', '<', Carbon::today())
+                  ->whereLiveDueAmountGreaterThan(0);
             })
             ->when($this->paidLast30DaysOnly, function ($q) {
                 $thirtyDaysAgo = Carbon::today()->subDays(30)->format('Y-m-d');

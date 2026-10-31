@@ -312,6 +312,11 @@
                                         <td class="right">
                                             <strong>{{ formatRupiah($purchase->total_amount) }}</strong></td>
                                     </tr>
+                                    <tr>
+                                        <td class="left"><strong>Sisa Pembayaran</strong></td>
+                                        <td class="right">
+                                            <strong>{{ formatRupiah($purchase->live_due_amount) }}</strong></td>
+                                    </tr>
                                     </tbody>
                                 </table>
                             </div>

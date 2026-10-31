@@ -233,11 +233,7 @@
                         @endif
                     </td>
                     <td>
-                        @if ($globalMode)
-                            {{ format_currency($sale->live_due_amount) }}
-                        @else
-                            {{ format_currency($sale->due_amount) }}
-                        @endif
+                        {{ format_currency($sale->live_due_amount) }}
                     </td>
                     <td>
                         {{ $sale->payment_due_date ? \Carbon\Carbon::parse($sale->payment_due_date)->format('d M Y') : '-' }}

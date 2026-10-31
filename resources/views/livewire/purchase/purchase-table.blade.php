@@ -195,7 +195,7 @@
                         <td>{{ $purchase->supplier->supplier_name ?? '-' }}</td>
                     @endif
                     <td>{{ format_currency($purchase->total_amount) }}</td>
-                    <td>{{ format_currency($globalMode ? $purchase->live_due_amount : $purchase->due_amount) }}</td>
+                    <td>{{ format_currency($purchase->live_due_amount) }}</td>
                     <td>
                         @foreach ($purchase->tags as $tag)
                             <span class="badge badge-info me-1">

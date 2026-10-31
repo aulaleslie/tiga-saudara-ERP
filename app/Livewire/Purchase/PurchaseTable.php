@@ -359,19 +359,11 @@ class PurchaseTable extends Component
                 $q->whereIn('payment_status', \App\Constants\PaymentStatus::variantsFor($this->paymentStatusFilters));
             })
             ->when($this->dueAmountOnly, function ($q) {
-                if ($this->globalMode) {
-                    $q->whereLiveDueAmountGreaterThan(0);
-                } else {
-                    $q->where('due_amount', '>', 0);
-                }
+                $q->whereLiveDueAmountGreaterThan(0);
             })
             ->when($this->overdueOnly, function ($q) {
-                $q->where('due_date', '<', Carbon::today());
-                if ($this->globalMode) {
-                    $q->whereLiveDueAmountGreaterThan(0);
-                } else {
-                    $q->where('due_amount', '>', 0);
-                }
+                $q->where('due_date', '<', Carbon::today())
+                  ->whereLiveDueAmountGreaterThan(0);
             })
             ->when($this->paidLast30DaysOnly, function ($q) {
                 $thirtyDaysAgo = Carbon::today()->subDays(30)->format('Y-m-d');
@@ -423,7 +415,11 @@ class PurchaseTable extends Component
             ->when($this->sortField === 'date', function ($q) {
                 $q->orderByRaw('COALESCE(purchases.reporting_date, purchases.date) ' . ($this->sortDirection === 'asc' ? 'asc' : 'desc'));
             }, function ($q) {
-                $q->orderBy($this->sortField, $this->sortDirection);
+                if ($this->sortField === 'due_amount') {
+                    $q->orderByLiveDueAmount($this->sortDirection);
+                } else {
+                    $q->orderBy($this->sortField, $this->sortDirection);
+                }
             })
             ->when($this->sortField !== 'id', function ($q) {
                 $q->orderBy('id', $this->sortDirection);

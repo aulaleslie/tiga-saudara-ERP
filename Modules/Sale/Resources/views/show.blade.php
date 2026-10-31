@@ -274,6 +274,10 @@
                                 <td class="left"><strong>Total Keseluruhan</strong></td>
                                 <td class="right"><strong>{{ format_currency($sale->total_amount) }}</strong></td>
                             </tr>
+                            <tr>
+                                <td class="left"><strong>Sisa Tagihan</strong></td>
+                                <td class="right"><strong>{{ format_currency($sale->live_due_amount) }}</strong></td>
+                            </tr>
                             </tbody>
                         </table>
                     </div>
