@@ -7,14 +7,19 @@ use Modules\Product\Http\Requests\CrossBusinessPriceUpdateRequest;
 use Modules\Product\Http\Requests\GlobalHppUpdateRequest;
 use Modules\Product\Entities\Product;
 use Modules\Product\Services\CrossBusinessPriceService;
+use Modules\Product\Services\GlobalProjectedHppService;
 
 class CrossBusinessPriceController extends Controller
 {
     protected CrossBusinessPriceService $priceService;
+    protected GlobalProjectedHppService $projectedHppService;
 
-    public function __construct(CrossBusinessPriceService $priceService)
-    {
+    public function __construct(
+        CrossBusinessPriceService $priceService,
+        GlobalProjectedHppService $projectedHppService
+    ) {
         $this->priceService = $priceService;
+        $this->projectedHppService = $projectedHppService;
     }
 
     public function edit(Product $product)
@@ -31,6 +36,9 @@ class CrossBusinessPriceController extends Controller
         $firstExistingRow = collect($prices)->firstWhere('is_existing', true);
         $activeExistingRow = ($activeRow && !empty($activeRow['is_existing'])) ? $activeRow : null;
         $currentGlobalHpp = $activeExistingRow['average_purchase_price'] ?? ($firstExistingRow['average_purchase_price'] ?? 0);
+        $projectedHpp = $product->stock_managed
+            ? $this->projectedHppService->project($product, (float) $currentGlobalHpp)
+            : null;
 
         // Check if existing averages diverge
         $existingAverages = collect($prices)
@@ -48,6 +56,7 @@ class CrossBusinessPriceController extends Controller
             'bundleSnapshot',
             'globalHppSnapshot',
             'currentGlobalHpp',
+            'projectedHpp',
             'hasDivergentAverages'
         ));
     }
@@ -105,5 +114,4 @@ class CrossBusinessPriceController extends Controller
         }
     }
 }
-
 

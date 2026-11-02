@@ -101,6 +101,36 @@ class CrossBusinessPriceAccessTest extends TestCase
         $this->assertStringNotContainsString($route, $productUnauth['action']);
     }
 
+    public function test_projection_purchase_link_requires_global_purchase_access()
+    {
+        $globalAccess = Permission::firstOrCreate(['name' => 'purchasePayments.global.access', 'guard_name' => 'web']);
+        $this->authorizedUser->givePermissionTo($globalAccess);
+        $priceOnlyUser = User::factory()->create();
+        $priceOnlyUser->givePermissionTo($this->permission);
+        $role = Role::firstOrCreate(['name' => 'test-role']);
+        $priceOnlyUser->settings()->attach(1, ['role_id' => $role->id]);
+        $expectedUrl = route('purchases.global-payments.index', ['projection_product_id' => $this->product->id]);
+
+        $authorizedResponse = $this->actingAs($this->authorizedUser)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $authorizedResponse->assertOk()
+            ->assertSee($expectedUrl)
+            ->assertSee('target="_blank"', false)
+            ->assertSee('rel="noopener noreferrer"', false);
+
+        $this->actingAs($priceOnlyUser)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product))
+            ->assertOk()
+            ->assertDontSee('Lihat pembelian terkait');
+
+        $this->actingAs($priceOnlyUser)
+            ->get($expectedUrl)
+            ->assertForbidden();
+    }
+
     public function test_unauthorized_user_cannot_save_global_hpp()
     {
         $response = $this->actingAs($this->unauthorizedUser)

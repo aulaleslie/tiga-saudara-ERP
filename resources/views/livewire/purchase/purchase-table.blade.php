@@ -167,7 +167,11 @@
                                 return ($detail->product->product_name ?? $detail->product_name) . ' (Qty: ' . $detail->quantity . ')';
                             })->implode("\n");
                         @endphp
-                        <a href="{{ $globalMode ? route('purchases.global-payments.show', $purchase->id) : route('purchases.show', $purchase->id) }}"
+                        <a href="{{ $globalMode
+                            ? route('purchases.global-payments.show', $projectionProductId
+                                ? ['purchase_id' => $purchase->id, 'projection_product_id' => $projectionProductId]
+                                : $purchase->id)
+                            : route('purchases.show', $purchase->id) }}"
                            class="text-primary font-weight-bold purchase-ref-tooltip"
                            data-toggle="tooltip"
                            data-placement="top"
@@ -207,7 +211,12 @@
                     <td>@include('purchase::partials.payment-status', ['data' => $purchase])</td>
                     <td>
                         @if($globalMode)
-                            @include('purchase::partials.global-payment-actions', ['data' => $purchase, 'tableRefreshId' => $this->tableRefreshId])
+                            @if($projectionProductId)
+                                <a href="{{ route('purchases.global-payments.show', ['purchase_id' => $purchase->id, 'projection_product_id' => $projectionProductId]) }}"
+                                   class="btn btn-sm btn-info" title="Lihat Pembelian">Detail</a>
+                            @else
+                                @include('purchase::partials.global-payment-actions', ['data' => $purchase, 'tableRefreshId' => $this->tableRefreshId])
+                            @endif
                         @else
                             @include('purchase::partials.actions', ['data' => $purchase, 'tableRefreshId' => $this->tableRefreshId])
                         @endif

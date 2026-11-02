@@ -3,10 +3,7 @@
 namespace App\Services\Reports;
 
 use Illuminate\Support\Facades\DB;
-use Modules\Purchase\Entities\Purchase;
-use Modules\Purchase\Entities\PurchaseDetail;
-use Modules\Purchase\Entities\ReceivedNote;
-use Modules\Purchase\Entities\ReceivedNoteDetail;
+use Modules\Purchase\Services\ApprovedOutstandingPurchaseLinesQuery;
 
 class CrossBusinessInDeliveryStockService
 {
@@ -33,36 +30,14 @@ class CrossBusinessInDeliveryStockService
             return [];
         }
 
-        $purchaseTable = (new Purchase())->getTable();
-        $detailTable = (new PurchaseDetail())->getTable();
-        $rnTable = (new ReceivedNote())->getTable();
-        $rnDetailTable = (new ReceivedNoteDetail())->getTable();
+        $outstandingLines = app(ApprovedOutstandingPurchaseLinesQuery::class)
+            ->build($productIds, $businessIds);
 
-        // Aggregate approved-received quantity per purchase detail in SQL via a correlated
-        // subquery, then clamp each detail's outstanding quantity to >= 0 and sum by
-        // product/setting — all performed in the database to avoid loading every
-        // outstanding purchase detail row into PHP and to keep decimal precision.
-        $receivedSubquery = DB::table($rnDetailTable)
-            ->join($rnTable, "{$rnDetailTable}.received_note_id", '=', "{$rnTable}.id")
-            ->whereColumn("{$rnDetailTable}.po_detail_id", "{$detailTable}.id")
-            ->where("{$rnTable}.status", ReceivedNote::STATUS_APPROVED)
-            ->selectRaw("COALESCE(SUM({$rnDetailTable}.quantity_received), 0)");
-
-        $outstandingExpr = "({$detailTable}.quantity - ({$receivedSubquery->toSql()}))";
-
-        $rows = DB::table($detailTable)
-            ->join($purchaseTable, "{$purchaseTable}.id", '=', "{$detailTable}.purchase_id")
-            ->whereIn("{$detailTable}.product_id", $productIds)
-            ->whereIn("{$purchaseTable}.setting_id", $businessIds)
-            ->whereIn("{$purchaseTable}.status", [Purchase::STATUS_APPROVED, Purchase::STATUS_RECEIVED_PARTIALLY])
-            ->whereNull("{$purchaseTable}.archived_at")
-            ->select([
-                "{$detailTable}.product_id",
-                "{$purchaseTable}.setting_id",
-                DB::raw("SUM(CASE WHEN {$outstandingExpr} > 0 THEN {$outstandingExpr} ELSE 0 END) as outstanding"),
-            ])
-            ->addBinding(array_merge($receivedSubquery->getBindings(), $receivedSubquery->getBindings()), 'select')
-            ->groupBy("{$detailTable}.product_id", "{$purchaseTable}.setting_id")
+        $rows = DB::query()
+            ->fromSub($outstandingLines, 'outstanding_purchase_lines')
+            ->select('product_id', 'setting_id')
+            ->selectRaw('SUM(outstanding_quantity) as outstanding')
+            ->groupBy('product_id', 'setting_id')
             ->get();
 
         $matrix = [];

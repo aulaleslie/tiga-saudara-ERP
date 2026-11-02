@@ -8,7 +8,7 @@
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
         @if(isset($globalMode) && $globalMode)
-            <li class="breadcrumb-item"><a href="{{ route('purchases.global-payments.index') }}">Pembayaran Pembelian Global</a></li>
+            <li class="breadcrumb-item"><a href="{{ route('purchases.global-payments.index', !empty($projectionProductId) ? ['projection_product_id' => $projectionProductId] : []) }}">Pembayaran Pembelian Global</a></li>
         @else
             <li class="breadcrumb-item"><a href="{{ route('purchases.index') }}">Pembelian</a></li>
         @endif
@@ -66,7 +66,7 @@
                             @endif
                         @endif
                         <a class="btn btn-sm btn-info {{ (isset($globalMode) && $globalMode) ? 'mfs-auto' : '' }} mfe-1 d-print-none"
-                           href="{{ (isset($globalMode) && $globalMode) ? route('purchases.global-payments.index') : route('purchases.index') }}">
+                           href="{{ (isset($globalMode) && $globalMode) ? route('purchases.global-payments.index', !empty($projectionProductId) ? ['projection_product_id' => $projectionProductId] : []) : route('purchases.index') }}">
                             <i class="bi bi-back"></i> Kembali
                         </a>
                     </div>
@@ -114,7 +114,9 @@
                                 <div>Tanggal: {{ \Carbon\Carbon::parse($purchase->effective_date)->format('d M, Y') }}</div>
                                 <div>Tanggal Jatuh Tempo: {{ \Carbon\Carbon::parse($purchase->due_date)->format('d M, Y') }}</div>
                                 <div class="mt-2">
-                                    @if(isset($globalMode) && $globalMode)
+                                    @if(!empty($projectionProductId))
+                                        <span>Nomor Pembelian Supplier: {{ $purchase->supplier_purchase_number ?: '-' }}</span>
+                                    @elseif(isset($globalMode) && $globalMode)
                                         <livewire:purchase.supplier-purchase-number-editor
                                             :purchaseId="$purchase->id"
                                             :globalMode="true"
@@ -128,7 +130,9 @@
                                     @endif
                                 </div>
                                 <div class="mt-2">
-                                    @if(isset($globalMode) && $globalMode)
+                                    @if(!empty($projectionProductId))
+                                        <span>No. Faktur Pajak: {{ $purchase->tax_ref_no ?: '-' }}</span>
+                                    @elseif(isset($globalMode) && $globalMode)
                                         <livewire:purchase.tax-ref-no-editor
                                             :purchaseId="$purchase->id"
                                             :globalMode="true"
@@ -325,7 +329,9 @@
                         <div class="row mt-4" id="purchase-attachments">
                             <div class="col-sm-12">
                                 <h5 class="mb-2 border-bottom pb-2">Catatan:</h5>
-                                @if(isset($globalMode) && $globalMode)
+                                @if(!empty($projectionProductId))
+                                    <div>{{ $purchase->note ?: '-' }}</div>
+                                @elseif(isset($globalMode) && $globalMode)
                                     <livewire:purchase.purchase-note-editor
                                         :purchaseId="$purchase->id"
                                         :globalMode="true"
@@ -644,12 +650,14 @@
                         @endif
 
                         <!-- Payments Table -->
+                        @if(empty($projectionProductId))
                         <div class="row mt-4">
                             <div class="col-lg-12">
                                 <div class="card">
                                     <div class="card-body">
                                         <div class="d-flex justify-content-between align-items-center mb-3">
                                             <h4 class="mb-0">Pembayaran</h4>
+                                            @if(empty($projectionProductId))
                                             @can('purchasePayments.create')
                                                 @if($purchase->status === Purchase::STATUS_RECEIVED || $purchase->status === Purchase::STATUS_RECEIVED_PARTIALLY)
                                                     @if((isset($globalMode) && $globalMode ? $purchase->live_due_amount : $purchase->due_amount) > 0)
@@ -659,6 +667,7 @@
                                                     @endif
                                                 @endif
                                             @endcan
+                                            @endif
                                         </div>
                                         <div class="table-responsive">
                                             <table id="payments-table" class="table table-striped table-bordered">
@@ -680,6 +689,7 @@
                                 </div>
                             </div>
                         </div>
+                        @endif
 
                         <div class="card-footer text-end">
                             @if(isset($globalMode) && $globalMode)
@@ -983,6 +993,7 @@
 @endpush
 
 @push('page_scripts')
+    @if(empty($projectionProductId))
     <script>
         $(document).ready(function () {
             $('#payments-table').DataTable({
@@ -1017,6 +1028,7 @@
             });
         });
     </script>
+    @endif
 
     @if($canCancelReceivals)
     <script>

@@ -8,6 +8,8 @@ use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Modules\Purchase\Entities\Purchase;
+use Modules\Product\Entities\Product;
+use Modules\Purchase\Services\ApprovedOutstandingPurchaseLinesQuery;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Gate;
 
@@ -46,6 +48,9 @@ class PurchaseTable extends Component
     public bool $globalMode = false;
 
     #[Locked]
+    public ?int $projectionProductId = null;
+
+    #[Locked]
     public int $tableRefreshId = 0;
 
     // Global mode filters: draft state (not yet applied)
@@ -73,12 +78,20 @@ class PurchaseTable extends Component
     #[Url]
     public ?string $selectedCardFilter = null;
 
-    public function mount($settingId = null, $statusFilter = null, $purchaseId = null, $supplierId = null, $globalMode = false)
+    public function mount($settingId = null, $statusFilter = null, $purchaseId = null, $supplierId = null, $globalMode = false, $projectionProductId = null)
     {
         $this->globalMode = $globalMode;
 
         if ($this->globalMode) {
             abort_if(Gate::denies('purchasePayments.global.access'), 403);
+        }
+
+        if ($projectionProductId !== null) {
+            abort_unless($this->globalMode, 403);
+            abort_unless(filter_var($projectionProductId, FILTER_VALIDATE_INT) !== false, 404);
+            $projectionProductId = (int) $projectionProductId;
+            abort_unless(Product::query()->whereKey($projectionProductId)->exists(), 404);
+            $this->projectionProductId = $projectionProductId;
         }
 
         if (!$this->globalMode) {
@@ -106,9 +119,22 @@ class PurchaseTable extends Component
         $this->normalizeDateRanges();
 
         // Apply card filter from URL if set
-        if ($this->selectedCardFilter !== null) {
+        if ($this->projectionProductId !== null) {
+            $this->clearPaymentFilters();
+        } elseif ($this->selectedCardFilter !== null) {
             $this->applyCardFilterType($this->selectedCardFilter);
         }
+    }
+
+    private function clearPaymentFilters(): void
+    {
+        $this->paymentStatusFilter = null;
+        $this->paymentStatusFilters = null;
+        $this->overdueOnly = false;
+        $this->dueAmountOnly = false;
+        $this->paidLast30DaysOnly = false;
+        $this->cardStatusFilter = null;
+        $this->selectedCardFilter = null;
     }
 
     private function normalizeDateRanges()
@@ -245,6 +271,10 @@ class PurchaseTable extends Component
     #[On('purchase-filter')]
     public function applyPurchaseFilter($type = null)
     {
+        if ($this->projectionProductId !== null) {
+            return;
+        }
+
         $this->applyCardFilterType($type);
         $this->incrementRefreshId();
         $this->resetPage();
@@ -300,6 +330,7 @@ class PurchaseTable extends Component
 
     public function render()
     {
+        $projectionMode = $this->projectionProductId !== null;
         $statuses = null;
         if (!empty($this->statusFilter) && !empty($this->cardStatusFilter)) {
             $statuses = array_intersect((array) $this->statusFilter, $this->cardStatusFilter);
@@ -318,8 +349,16 @@ class PurchaseTable extends Component
                 $q->where('setting_id', $this->settingId);
             })
             ->when($this->globalMode, function ($q) {
-                $q->whereNull('archived_at')
-                  ->globalPaymentEligible();
+                $q->whereNull('archived_at');
+                if ($this->projectionProductId !== null) {
+                    $sourcePurchaseIds = app(ApprovedOutstandingPurchaseLinesQuery::class)
+                        ->build([$this->projectionProductId])
+                        ->select('purchase_id')
+                        ->distinct();
+                    $q->whereIn('purchases.id', $sourcePurchaseIds);
+                } else {
+                    $q->globalPaymentEligible();
+                }
 
                 // Apply business filter if set (empty array means all businesses)
                 if (!empty($this->globalBusinessFilters)) {
@@ -351,21 +390,21 @@ class PurchaseTable extends Component
             ->when(! empty($this->supplierId), function ($q) {
                 $q->where('supplier_id', $this->supplierId);
             })
-            ->when(! empty($this->paymentStatusFilter), function ($q) {
+            ->when(! $projectionMode && ! empty($this->paymentStatusFilter), function ($q) {
                 // Stored casing varies by writer; match every spelling of the requested status.
                 $q->whereIn('payment_status', \App\Constants\PaymentStatus::variants($this->paymentStatusFilter));
             })
-            ->when(! empty($this->paymentStatusFilters), function ($q) {
+            ->when(! $projectionMode && ! empty($this->paymentStatusFilters), function ($q) {
                 $q->whereIn('payment_status', \App\Constants\PaymentStatus::variantsFor($this->paymentStatusFilters));
             })
-            ->when($this->dueAmountOnly, function ($q) {
+            ->when(! $projectionMode && $this->dueAmountOnly, function ($q) {
                 $q->whereLiveDueAmountGreaterThan(0);
             })
-            ->when($this->overdueOnly, function ($q) {
+            ->when(! $projectionMode && $this->overdueOnly, function ($q) {
                 $q->where('due_date', '<', Carbon::today())
                   ->whereLiveDueAmountGreaterThan(0);
             })
-            ->when($this->paidLast30DaysOnly, function ($q) {
+            ->when(! $projectionMode && $this->paidLast30DaysOnly, function ($q) {
                 $thirtyDaysAgo = Carbon::today()->subDays(30)->format('Y-m-d');
                 if ($this->globalMode) {
                     $q->whereLiveDueAmountLessThanOrEqual(0)
@@ -443,6 +482,7 @@ class PurchaseTable extends Component
         return view($view, compact('purchases'), [
             'globalMode' => $this->globalMode,
             'availableSettings' => $availableSettings,
+            'projectionProductId' => $this->projectionProductId,
         ]);
     }
 

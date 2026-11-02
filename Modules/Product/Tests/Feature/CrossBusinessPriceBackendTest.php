@@ -81,6 +81,59 @@ class CrossBusinessPriceBackendTest extends TestCase
         $this->assertEquals(0, $priceB['average_purchase_price']);
     }
 
+    public function test_projected_hpp_uses_the_global_baseline_and_repeats_for_missing_price_rows()
+    {
+        ProductPrice::updateOrCreate(
+            ['product_id' => $this->product->id, 'setting_id' => 1],
+            [
+                'sale_price' => 100,
+                'tier_1_price' => 90,
+                'tier_2_price' => 80,
+                'last_purchase_price' => 50,
+                'average_purchase_price' => 45,
+            ]
+        );
+        ProductPrice::updateOrCreate(
+            ['product_id' => $this->product->id, 'setting_id' => 2],
+            [
+                'sale_price' => 100,
+                'tier_1_price' => 90,
+                'tier_2_price' => 80,
+                'last_purchase_price' => 50,
+                'average_purchase_price' => 99,
+            ]
+        );
+
+        $response = $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product));
+
+        $response->assertOk()
+            ->assertSee('Proyeksi HPP (Rp)')
+            ->assertSee('Estimasi HPP jika seluruh sisa pembelian yang disetujui diterima sekarang.')
+            ->assertDontSee('name="projected_hpp"', false)
+            ->assertViewHas('projectedHpp', 45.0);
+
+        $currency = settings()->currency;
+        $projectedDisplay = ($currency?->symbol ?? 'Rp') . '. 45';
+        $this->assertSame(2, substr_count($response->getContent(), $projectedDisplay));
+        $this->assertSame(1, substr_count($response->getContent(), 'Nilai Harga Beli Rata-rata saat ini berbeda antar bisnis.'));
+        $this->assertSame(45.0, (float) ProductPrice::where('product_id', $this->product->id)->where('setting_id', 1)->value('average_purchase_price'));
+        $this->assertSame(99.0, (float) ProductPrice::where('product_id', $this->product->id)->where('setting_id', 2)->value('average_purchase_price'));
+    }
+
+    public function test_stockless_product_displays_projection_as_not_applicable()
+    {
+        $this->product->update(['stock_managed' => false]);
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => 1])
+            ->get(route('products.cross-business-prices.edit', $this->product))
+            ->assertOk()
+            ->assertSee('Tidak berlaku')
+            ->assertViewHas('projectedHpp', null);
+    }
+
     public function test_valid_save_updates_all_businesses_while_preserving_average_and_taxes()
     {
         $tax1 = \Modules\Setting\Entities\Tax::firstOrCreate(['name' => 'Tax 1'], ['value' => 10]);
@@ -1514,5 +1567,3 @@ class CrossBusinessPriceBackendTest extends TestCase
         $this->assertEquals(30000, (float) $p2->fresh()->average_purchase_price);
     }
 }
-
-

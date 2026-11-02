@@ -5,7 +5,13 @@ namespace Modules\Purchase\Tests\Feature;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Livewire\Livewire;
+use Modules\Product\Entities\Product;
 use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Entities\PurchaseDetail;
+use Modules\Purchase\Entities\PurchasePayment;
+use Modules\Purchase\Entities\ReceivedNote;
+use Modules\Purchase\Entities\ReceivedNoteDetail;
+use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 use Modules\People\Entities\Supplier;
 use Spatie\Permission\Models\Permission;
@@ -69,6 +75,38 @@ class GlobalPurchasePaymentTableTest extends TestCase
         ], $overrides));
     }
 
+    private function createProduct(): Product
+    {
+        return Product::create([
+            'setting_id' => $this->setting1->id,
+            'product_name' => 'Projection Source Product',
+            'product_code' => 'PROJECTION-SOURCE',
+            'product_quantity' => 0,
+            'product_cost' => 0,
+            'product_price' => 0,
+            'product_unit' => 'pc',
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+    }
+
+    private function createPurchaseLine(Purchase $purchase, Product $product, float $quantity): PurchaseDetail
+    {
+        return PurchaseDetail::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => $quantity,
+            'unit_price' => 1000,
+            'price' => 1000,
+            'sub_total' => $quantity * 1000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+    }
+
     public function test_global_mode_shows_purchases_across_all_settings()
     {
         $purchase1 = $this->createPurchase(['setting_id' => $this->setting1->id]);
@@ -118,6 +156,118 @@ class GlobalPurchasePaymentTableTest extends TestCase
         Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, ['globalMode' => true])
             ->assertSee($unpaid->reference)
             ->assertSee($paid->reference);
+    }
+
+    public function test_projection_mode_shows_distinct_outstanding_approved_sources_independent_of_payment_status(): void
+    {
+        $product = $this->createProduct();
+        $paidSource = $this->createPurchase([
+            'setting_id' => $this->setting1->id,
+            'status' => Purchase::STATUS_APPROVED,
+            'payment_status' => 'PAID',
+            'due_amount' => 0,
+            'total_amount' => 10000,
+        ]);
+        PurchasePayment::create([
+            'purchase_id' => $paidSource->id,
+            'amount' => 10000,
+            'date' => now(),
+            'reference' => 'PAY-' . uniqid(),
+            'payment_method' => 'Cash',
+            'status' => PurchasePayment::STATUS_ACTIVE,
+        ]);
+        $this->createPurchaseLine($paidSource, $product, 3);
+        $this->createPurchaseLine($paidSource, $product, 2);
+
+        $partialSource = $this->createPurchase([
+            'setting_id' => $this->setting2->id,
+            'status' => Purchase::STATUS_RECEIVED_PARTIALLY,
+        ]);
+        $partialLine = $this->createPurchaseLine($partialSource, $product, 10);
+        $location = Location::create([
+            'name' => 'Projection Source Warehouse',
+            'setting_id' => $this->setting2->id,
+            'is_active' => true,
+        ]);
+        $receipt = ReceivedNote::create([
+            'po_id' => $partialSource->id,
+            'location_id' => $location->id,
+            'external_delivery_number' => 'DN-' . uniqid(),
+            'date' => now()->format('Y-m-d'),
+            'status' => ReceivedNote::STATUS_APPROVED,
+        ]);
+        ReceivedNoteDetail::create([
+            'received_note_id' => $receipt->id,
+            'po_detail_id' => $partialLine->id,
+            'quantity_received' => 4,
+        ]);
+
+        $otherProduct = Product::create([
+            'setting_id' => $this->setting1->id,
+            'product_name' => 'Other Product',
+            'product_code' => 'OTHER-PRODUCT',
+            'product_quantity' => 0,
+            'product_cost' => 0,
+            'product_price' => 0,
+            'product_unit' => 'pc',
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+        $wrongProductSource = $this->createPurchase(['status' => Purchase::STATUS_APPROVED]);
+        $this->createPurchaseLine($wrongProductSource, $otherProduct, 5);
+        $fullyReceivedSource = $this->createPurchase(['status' => Purchase::STATUS_RECEIVED]);
+        $this->createPurchaseLine($fullyReceivedSource, $product, 5);
+        $archivedSource = $this->createPurchase([
+            'status' => Purchase::STATUS_APPROVED,
+            'archived_at' => now(),
+        ]);
+        $this->createPurchaseLine($archivedSource, $product, 5);
+
+        $component = Livewire::test(\App\Livewire\Purchase\PurchaseTable::class, [
+            'globalMode' => true,
+            'projectionProductId' => $product->id,
+        ])
+            ->set('paymentStatusFilter', 'UNPAID')
+            ->assertSee($paidSource->reference)
+            ->assertSee($partialSource->reference)
+            ->assertDontSee($wrongProductSource->reference)
+            ->assertDontSee($fullyReceivedSource->reference)
+            ->assertDontSee($archivedSource->reference)
+            ->assertDontSee('Tambah Pembayaran')
+            ->assertSee('projection_product_id=' . $product->id);
+
+        $this->assertSame(
+            1,
+            substr_count($component->html(), $paidSource->reference)
+        );
+
+        $component->set('perPage', 1)
+            ->call('gotoPage', 2)
+            ->assertSee($paidSource->reference)
+            ->assertDontSee($partialSource->reference);
+
+        $component->set('draftGlobalBusinessFilters', [$this->setting1->id])
+            ->set('draftDocumentDateFrom', now()->format('Y-m-d'))
+            ->set('draftDocumentDateTo', now()->addDay()->format('Y-m-d'))
+            ->call('applyGlobalFilters')
+            ->assertSee($paidSource->reference)
+            ->assertDontSee($partialSource->reference)
+            ->call('resetGlobalFilters')
+            ->assertSee($partialSource->reference)
+            ->set('search', $partialSource->reference)
+            ->set('sortField', 'reference')
+            ->set('sortDirection', 'asc')
+            ->assertSee($partialSource->reference)
+            ->assertDontSee($paidSource->reference)
+            ->set('draftDocumentDateFrom', now()->addDay()->format('Y-m-d'))
+            ->set('draftDocumentDateTo', now()->addDay()->format('Y-m-d'))
+            ->call('applyGlobalFilters')
+            ->assertSee('Tidak ada data yang ditemukan.')
+            ->assertDontSee($partialSource->reference)
+            ->call('resetGlobalFilters')
+            ->assertSee($partialSource->reference);
+
+        $this->assertSame($product->id, $component->get('projectionProductId'));
     }
 
     public function test_draft_filters_do_not_change_results_prematurely()

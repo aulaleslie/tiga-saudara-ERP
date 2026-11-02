@@ -23,6 +23,7 @@ class GlobalPurchasePaymentAuthTest extends TestCase
         Permission::findOrCreate('purchasePayments.create', 'web');
         Permission::findOrCreate('purchases.access', 'web');
         Permission::findOrCreate('purchases.reporting-date.override', 'web');
+        Permission::findOrCreate('purchases.due-date.override', 'web');
         
         $this->user = \App\Models\User::factory()->create(['is_active' => 1]);
         
@@ -57,7 +58,9 @@ class GlobalPurchasePaymentAuthTest extends TestCase
 
         $routes = [
             route('purchases.global-payments.index'),
+            route('purchases.global-payments.index', ['projection_product_id' => 1]),
             route('purchases.global-payments.show', $purchase->id),
+            route('purchases.global-payments.show', ['purchase_id' => $purchase->id, 'projection_product_id' => 1]),
             route('purchases.global-payments.history', $purchase->id),
             route('purchases.global-payments.create', $supplier->id),
         ];

@@ -69,6 +69,13 @@
 
                 @php
                     $baseUnitName = $product->baseUnit?->name ?? $product->baseUnit?->short_name ?? 'Unit';
+                    $currency = settings()->currency;
+                    $formatWholeCurrency = function($val) use ($currency) {
+                        $symbol = $currency?->symbol ?? 'Rp';
+                        $thousandSeparator = $currency?->thousand_separator ?? '.';
+                        $decimalSeparator = $currency?->decimal_separator ?? ',';
+                        return $symbol . '. ' . number_format(round((float) $val), 0, $decimalSeparator, $thousandSeparator);
+                    };
                     $formatDecimalDisplay = function($val) {
                         if ($val === null || $val === '') return '';
                         if (!is_numeric($val)) return $val;
@@ -108,6 +115,15 @@
                                             <th>Tier 2 (Rp)</th>
                                             <th>Harga Beli (Rp)</th>
                                             <th>Harga Beli Rata-rata (Rp)</th>
+                                            <th>
+                                                <span title="Estimasi HPP jika seluruh sisa pembelian yang disetujui diterima sekarang.">Proyeksi HPP (Rp)</span>
+                                                @can('purchasePayments.global.access')
+                                                    <a class="small text-nowrap ms-1"
+                                                       href="{{ route('purchases.global-payments.index', ['projection_product_id' => $product->id]) }}"
+                                                       target="_blank"
+                                                       rel="noopener noreferrer">Lihat pembelian terkait ↗</a>
+                                                @endcan
+                                            </th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -152,6 +168,9 @@
                                                 </td>
                                                 <td>
                                                     <input type="text" class="form-control price-mask" value="{{ $formatDecimalDisplay($price['average_purchase_price']) }}" readonly disabled>
+                                                </td>
+                                                <td class="text-nowrap">
+                                                    {{ $product->stock_managed ? $formatWholeCurrency($projectedHpp) : 'Tidak berlaku' }}
                                                 </td>
                                             </tr>
                                         @endforeach

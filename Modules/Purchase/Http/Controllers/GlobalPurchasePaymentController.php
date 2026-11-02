@@ -5,23 +5,50 @@ namespace Modules\Purchase\Http\Controllers;
 use Illuminate\Routing\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Modules\Product\Entities\Product;
+use Modules\Purchase\Entities\Purchase;
+use Modules\Purchase\Services\ApprovedOutstandingPurchaseLinesQuery;
 
 class GlobalPurchasePaymentController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
         abort_if(Gate::denies('purchasePayments.global.access'), 403);
-        
-        return view('purchase::payments.global-index');
+
+        $projectionProduct = null;
+        if ($request->query->has('projection_product_id')) {
+            $validated = $request->validate([
+                'projection_product_id' => 'required|integer|min:1|exists:products,id',
+            ]);
+            $projectionProduct = Product::findOrFail((int) $validated['projection_product_id']);
+        }
+
+        return view('purchase::payments.global-index', compact('projectionProduct'));
     }
 
-    public function show($purchase_id)
+    public function show(Request $request, $purchase_id)
     {
         abort_if(Gate::denies('purchasePayments.global.access'), 403);
 
-        $purchase = \Modules\Purchase\Entities\Purchase::globalPaymentEligible()
-            ->whereNull('archived_at')
-            ->findOrFail($purchase_id);
+        $validated = $request->validate([
+            'projection_product_id' => 'sometimes|required|integer|min:1|exists:products,id',
+        ]);
+        $projectionProductId = isset($validated['projection_product_id'])
+            ? (int) $validated['projection_product_id']
+            : null;
+
+        $purchaseQuery = Purchase::query()->whereNull('archived_at');
+        if ($projectionProductId !== null) {
+            $sourcePurchaseIds = app(ApprovedOutstandingPurchaseLinesQuery::class)
+                ->build([$projectionProductId])
+                ->select('purchase_id')
+                ->distinct();
+            $purchaseQuery->whereIn('purchases.id', $sourcePurchaseIds);
+        } else {
+            $purchaseQuery->globalPaymentEligible();
+        }
+
+        $purchase = $purchaseQuery->findOrFail($purchase_id);
 
         $purchase->load([
             'tags',
@@ -68,7 +95,8 @@ class GlobalPurchasePaymentController extends Controller
             'receivedNotes' => $receivedNotes,
             'normBatches' => $normBatches,
             'globalMode' => true,
-            'setting' => $setting
+            'setting' => $setting,
+            'projectionProductId' => $projectionProductId,
         ]);
     }
 
