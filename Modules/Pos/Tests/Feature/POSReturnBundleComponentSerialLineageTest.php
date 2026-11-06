@@ -600,7 +600,8 @@ class POSReturnBundleComponentSerialLineageTest extends PosTransactionFeatureTes
         $secondSnapshot = $this->snapshotService->build($transaction->id);
 
         $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('Serial yang diretur sudah diklaim oleh retur lain');
+        // The claimed quantity guard rejects before the serial-claim check; both are actionable rejections.
+        $this->expectExceptionMessage('Kuantitas retur melebihi batas yang diizinkan');
 
         $this->submissionService->store([
             'pos_transaction_id' => $transaction->id,

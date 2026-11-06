@@ -100,19 +100,7 @@ class PosReturnSubmissionService
                 ->get()
                 ->keyBy('sale_id');
 
-            $valuationSelections = $data['line_selections'] ?? [];
-            if (empty($valuationSelections)) {
-                foreach ($data['lines'] ?? [] as $l) {
-                    $k = !empty($l['returned_serial_id'])
-                        ? (($l['pos_transaction_line_id'] ?? $l['sale_detail_id']) . '-' . $l['returned_serial_id'])
-                        : (string) $l['sale_detail_id'];
-                    $valuationSelections[$k] = [
-                        'resolution' => $l['resolution'] ?? PosReturnLine::RESOLUTION_NONE,
-                        'quantity' => $l['quantity'] ?? 0,
-                        'bundle_return_scope' => $l['bundle_return_scope'] ?? null,
-                    ];
-                }
-            }
+            $valuationSelections = $this->buildNormalizedValuationSelections($data, $validatedLines);
             $valuationResult = app(\Modules\Pos\Services\PosReturnRoundingValuationService::class)->evaluateDraftValuation(
                 $snapshotToSave,
                 $valuationSelections,
@@ -251,6 +239,7 @@ class PosReturnSubmissionService
                 if ($isSerial) {
                     $lineTotal = $unitPrice;
                 }
+                $valuationErrorMessage = null;
                 $expectedCashAmount = ($resolution === PosReturnLine::RESOLUTION_CASH_RETURN && !$isSynthesizedComponent)
                     ? $lineTotal
                     : 0;
@@ -263,6 +252,7 @@ class PosReturnSubmissionService
                     if (isset($valuationResult['lines'][$lineKey])) {
                         $expectedCashAmount = (float) $valuationResult['lines'][$lineKey]['refund_amount'];
                         $lineTotal = $expectedCashAmount;
+                        $valuationErrorMessage = $valuationResult['lines'][$lineKey]['valuation_error'] ?? null;
                     } elseif ($saleDetail) {
                         try {
                             $valuationService = app(\Modules\Pos\Services\PosReturnRoundingValuationService::class);
@@ -277,6 +267,8 @@ class PosReturnSubmissionService
                                 ? (float) $baseline['stored_residual']
                                 : (float) ($saleDetail->sub_total ?? $baseline['stored_residual']);
 
+                            $cumQty = min((float) $baseline['baseline_quantity'], $prevQty + $quantity);
+
                             $val = $valuationService->calculateCumulativeValuation(
                                 $baseline['baseline_returnable_amount'],
                                 $baseline['baseline_quantity'],
@@ -288,6 +280,16 @@ class PosReturnSubmissionService
                             $expectedCashAmount = $val['current_return_amount'];
                             $lineTotal = $expectedCashAmount;
                         } catch (\Throwable $e) {
+                            // Never persist a silently substituted amount. The draft is
+                            // kept (duplicate claims are rejected at submit/approval), but
+                            // is flagged with line_meta.valuation_error, and submission is blocked.
+                            \Illuminate\Support\Facades\Log::warning('POS return draft valuation unavailable', [
+                                'sale_detail_id' => $lineData['sale_detail_id'] ?? null,
+                                'error' => $e->getMessage(),
+                            ]);
+                            $expectedCashAmount = 0;
+                            $lineTotal = 0;
+                            $valuationErrorMessage = $e->getMessage();
                         }
                     }
                 }
@@ -428,6 +430,9 @@ class PosReturnSubmissionService
                 // Task 3.7/3.9: Trace bundled components for actionable lines.
                 // Task 3.10: Informational only — no stock reservation or mutation occurs here.
                 $lineMetaUpdate = [];
+                if ($valuationErrorMessage !== null) {
+                    $lineMetaUpdate['valuation_error'] = $valuationErrorMessage;
+                }
                 if ($isBundle && $resolution !== PosReturnLine::RESOLUTION_NONE) {
                     // Task 3.9: Use PTL bundle items as authoritative source when available.
                     $bundleId = $ptlIsBundle ? (int) ($ptl->line_meta['bundle_id'] ?? 0) : 0;
@@ -507,19 +512,7 @@ class PosReturnSubmissionService
                 ->get()
                 ->keyBy('sale_id');
 
-            $valuationSelections = $data['line_selections'] ?? [];
-            if (empty($valuationSelections)) {
-                foreach ($data['lines'] ?? [] as $l) {
-                    $k = !empty($l['returned_serial_id'])
-                        ? (($l['pos_transaction_line_id'] ?? $l['sale_detail_id']) . '-' . $l['returned_serial_id'])
-                        : (string) $l['sale_detail_id'];
-                    $valuationSelections[$k] = [
-                        'resolution' => $l['resolution'] ?? PosReturnLine::RESOLUTION_NONE,
-                        'quantity' => $l['quantity'] ?? 0,
-                        'bundle_return_scope' => $l['bundle_return_scope'] ?? null,
-                    ];
-                }
-            }
+            $valuationSelections = $this->buildNormalizedValuationSelections($data, $validatedLines);
             $valuationResult = app(\Modules\Pos\Services\PosReturnRoundingValuationService::class)->evaluateDraftValuation(
                 $currentSnapshot,
                 $valuationSelections,
@@ -626,6 +619,7 @@ class PosReturnSubmissionService
                 }
 
                 $lineTotal = $isSerial ? $unitPrice : ($quantity * $unitPrice);
+                $valuationErrorMessage = null;
                 $expectedCashAmount = ($resolution === PosReturnLine::RESOLUTION_CASH_RETURN && !$isSynthesizedComponent)
                     ? $lineTotal
                     : 0;
@@ -638,6 +632,7 @@ class PosReturnSubmissionService
                     if (isset($valuationResult['lines'][$lineKey])) {
                         $expectedCashAmount = (float) $valuationResult['lines'][$lineKey]['refund_amount'];
                         $lineTotal = $expectedCashAmount;
+                        $valuationErrorMessage = $valuationResult['lines'][$lineKey]['valuation_error'] ?? null;
                     } elseif ($saleDetail) {
                         try {
                             $valuationService = app(\Modules\Pos\Services\PosReturnRoundingValuationService::class);
@@ -652,6 +647,8 @@ class PosReturnSubmissionService
                                 ? (float) $baseline['stored_residual']
                                 : (float) ($saleDetail->sub_total ?? $baseline['stored_residual']);
 
+                            $cumQty = min((float) $baseline['baseline_quantity'], $prevQty + $quantity);
+
                             $val = $valuationService->calculateCumulativeValuation(
                                 $baseline['baseline_returnable_amount'],
                                 $baseline['baseline_quantity'],
@@ -663,6 +660,16 @@ class PosReturnSubmissionService
                             $expectedCashAmount = $val['current_return_amount'];
                             $lineTotal = $expectedCashAmount;
                         } catch (\Throwable $e) {
+                            // Never persist a silently substituted amount. The draft is
+                            // kept (duplicate claims are rejected at submit/approval), but
+                            // is flagged with line_meta.valuation_error, and submission is blocked.
+                            \Illuminate\Support\Facades\Log::warning('POS return draft valuation unavailable', [
+                                'sale_detail_id' => $lineData['sale_detail_id'] ?? null,
+                                'error' => $e->getMessage(),
+                            ]);
+                            $expectedCashAmount = 0;
+                            $lineTotal = 0;
+                            $valuationErrorMessage = $e->getMessage();
                         }
                     }
                 }
@@ -780,6 +787,9 @@ class PosReturnSubmissionService
                 // Task 3.7/3.9: Trace bundled components for actionable lines.
                 // Task 3.10: Informational only — no stock reservation or mutation occurs here.
                 $lineMetaUpdate = [];
+                if ($valuationErrorMessage !== null) {
+                    $lineMetaUpdate['valuation_error'] = $valuationErrorMessage;
+                }
                 if ($isBundle && $resolution !== PosReturnLine::RESOLUTION_NONE) {
                     $bundleId = $ptlIsBundle ? (int) ($ptl->line_meta['bundle_id'] ?? 0) : 0;
 
@@ -863,6 +873,12 @@ class PosReturnSubmissionService
                 }
             }
 
+            $unvalued = $lockedReturn->lines->first(fn (PosReturnLine $l) => !empty(data_get($l->line_meta, 'valuation_error')));
+            if ($unvalued) {
+                throw new \Exception('Nilai retur kas tidak dapat dihitung untuk produk ' . ($unvalued->product_name ?? '') . ': '
+                    . data_get($unvalued->line_meta, 'valuation_error') . ' Perbarui draft retur setelah data sumber diperbaiki.');
+            }
+
             $transaction = $lockedReturn->posTransaction()->with(['customer', 'completedCheckout'])->firstOrFail();
             $currentSnapshot = $this->snapshotService->build($transaction->id);
 
@@ -922,6 +938,34 @@ class PosReturnSubmissionService
 
             return $lockedReturn->refresh();
         });
+    }
+
+    /**
+     * Build valuation selections from the normalized, validated line intent
+     * (header-default resolutions already applied; explicit "none" preserved)
+     * so valuation, persistence and totals agree on every line's resolution.
+     *
+     * @param array<string, mixed> $data
+     * @param array<int, array<string, mixed>> $validatedLines
+     * @return array<string, array<string, mixed>>
+     */
+    protected function buildNormalizedValuationSelections(array $data, array $validatedLines): array
+    {
+        $selections = $data['line_selections'] ?? [];
+
+        foreach ($validatedLines as $l) {
+            $key = !empty($l['returned_serial_id'])
+                ? (($l['pos_transaction_line_id'] ?? $l['sale_detail_id']) . '-' . $l['returned_serial_id'])
+                : (string) $l['sale_detail_id'];
+
+            $selections[$key] = [
+                'resolution' => $l['resolution'] ?? PosReturnLine::RESOLUTION_NONE,
+                'quantity' => $l['quantity'] ?? 0,
+                'bundle_return_scope' => $l['bundle_return_scope'] ?? null,
+            ];
+        }
+
+        return $selections;
     }
 
     /**

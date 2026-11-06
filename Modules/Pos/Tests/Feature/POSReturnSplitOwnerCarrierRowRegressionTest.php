@@ -636,11 +636,16 @@ class POSReturnSplitOwnerCarrierRowRegressionTest extends TestCase
         $componentSerialBefore = ProductSerialNumber::find($context['componentSerial']->id)->only(['status', 'dispatch_detail_id']);
         $parentSerialBefore = ProductSerialNumber::find($context['parentSerial']->id)->only(['status', 'dispatch_detail_id']);
 
+        // The unreliable valuation must be explicit, never a silent zero.
+        $secondLine = $secondReturn->fresh()->lines->first();
+        $this->assertNotEmpty(data_get($secondLine->line_meta, 'valuation_error'), 'Unavailable valuation must be flagged on the draft line.');
+
         $rejected = false;
         try {
             $submissionService->submitDraftForApproval($secondReturn->fresh());
         } catch (\Throwable $e) {
             $rejected = true;
+            $this->assertStringContainsString('tidak dapat dihitung', $e->getMessage());
         }
 
         $this->assertTrue($rejected, 'A second whole-bundle cash return against an already-fully-refunded parent/component quantity must be rejected before mutation.');

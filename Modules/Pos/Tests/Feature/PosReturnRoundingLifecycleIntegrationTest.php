@@ -835,6 +835,11 @@ class PosReturnRoundingLifecycleIntegrationTest extends PosTransactionFeatureTes
             ]
         ]);
 
+        // The draft itself reconciles to the remaining 880,000 (a silent unit-price
+        // fallback would have produced 890,000 and hidden the cumulative history).
+        $this->assertEquals(880000.0, (float) $draft2->fresh()->total_amount);
+        $this->assertEmpty(data_get($draft2->fresh()->lines->first()->line_meta, 'valuation_error'));
+
         $this->actingAsInSetting($this->approver, $this->setting);
         $pending2 = $this->submissionService->submitDraftForApproval($draft2);
         $plan2 = $this->plannerService->plan($pending2);

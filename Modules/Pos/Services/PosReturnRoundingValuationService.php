@@ -341,6 +341,19 @@ class PosReturnRoundingValuationService
                 $baselineAmount += $componentAmount;
             }
 
+            // A frozen commercial baseline recorded on the sale wins over the
+            // (possibly already reduced) live sale detail: executed returns shrink
+            // the detail, which must not shrink the baseline or the commitment
+            // would be counted against it twice.
+            $frozenSale = $saleDetail->relationLoaded('sale') ? $saleDetail->sale : Sale::find($saleDetail->sale_id);
+            $frozenLine = data_get($frozenSale?->return_rounding_context, 'commercial_lines.detail_' . $detailId);
+            if (is_array($frozenLine)
+                && (float) ($frozenLine['baseline_quantity'] ?? 0) > 0
+                && (float) ($frozenLine['baseline_returnable_amount'] ?? -1) >= 0) {
+                $baselineQuantity = (float) $frozenLine['baseline_quantity'];
+                $baselineAmount = (float) $frozenLine['baseline_returnable_amount'];
+            }
+
             if ($source instanceof PosReturnLine && ($baselineQuantity <= 0 || $baselineAmount <= 0)) {
                 $candidateQty = (float) ($saleDetail->quantity ?? 0) + (float) $source->quantity;
                 $candidateAmt = (float) ($saleDetail->sub_total ?? 0) + (float) ($source->expected_cash_amount ?? $source->line_total ?? 0);
@@ -724,6 +737,7 @@ class PosReturnRoundingValuationService
             $isActionable = false;
             $refundAmount = 0.0;
             $retainedAmount = 0.0;
+            $valuationError = null;
 
             if ($res === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT) {
                 $isActionable = true;
@@ -755,6 +769,18 @@ class PosReturnRoundingValuationService
                     if ($isBundle && $bundleScope === PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY) {
                         $commKey = 'detail_' . $line['sale_detail_id'];
                         $baselineQty = (float) ($saleDetail?->quantity ?? $line['original_quantity'] ?? $line['quantity'] ?? 1);
+                        // Executed returns already reduced the live detail: restore the original
+                        // quantity from the frozen baseline, or from the returned history.
+                        $frozenLine = $sale ? data_get($sale->return_rounding_context, 'commercial_lines.' . $commKey) : null;
+                        if (is_array($frozenLine) && (float) ($frozenLine['baseline_quantity'] ?? 0) > 0) {
+                            $baselineQty = (float) $frozenLine['baseline_quantity'];
+                        } elseif ($sale) {
+                            $baselineQty += (float) $this->queryHistoricalCommittedReturns($sale, $commKey, [
+                                'commercial_line_id' => (int) $line['sale_detail_id'],
+                                'baseline_quantity' => $baselineQty,
+                                'baseline_returnable_amount' => 0.0,
+                            ], $ignorePosReturnId)['quantity'];
+                        }
                         $baselineAmt = round($parentAllocatedPrice * $baselineQty, 2);
                         $storedResidual = (float) ($saleDetail?->sub_total ?? 0);
                         if ($storedResidual <= 0) {
@@ -832,9 +858,10 @@ class PosReturnRoundingValuationService
                     $draftAccumulated[$commKey]['qty'] += $quantity;
                     $draftAccumulated[$commKey]['amt'] += $refundAmount;
                 } catch (\Throwable $e) {
-                    $refundAmount = ($isBundle && $bundleScope === PosReturnLine::BUNDLE_RETURN_SCOPE_PARENT_ONLY)
-                        ? round($quantity * $parentAllocatedPrice, 2)
-                        : round($quantity * (float) $line['unit_price'], 2);
+                    // Never substitute quantity x unit price: surface the failure so
+                    // callers can block submission instead of persisting a guess.
+                    $refundAmount = 0.0;
+                    $valuationError = $e->getMessage();
                 }
 
                 $totalCashReturn += $refundAmount;
@@ -848,6 +875,7 @@ class PosReturnRoundingValuationService
                 'refund_amount' => $refundAmount,
                 'retained_amount' => $retainedAmount,
                 'is_actionable' => $isActionable,
+                'valuation_error' => $valuationError,
             ];
         }
 

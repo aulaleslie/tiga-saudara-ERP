@@ -286,7 +286,7 @@ class POSReturnBundleRegressionTest extends PosTransactionFeatureTestCase
             ->call('submit');
 
         $this->assertStringContainsString(
-            'harus mencakup seluruh unit bundel',
+            'alokasi penjualan sumbernya tidak ditemukan',
             $component->get('error'),
             'Parent-only bundle cash_return with an unresolvable catalog-backed component (comp2 has no allocation row at all) must be rejected as incomplete, never silently excluded.'
         );

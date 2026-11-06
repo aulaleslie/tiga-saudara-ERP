@@ -389,10 +389,11 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
         $this->assertGreaterThan(0, (int) $parentStock->quantity);
         $this->assertGreaterThan(0, (int) $componentStock->quantity);
 
-        // Only the parent's own SaleReturn carries the single customer refund;
-        // the cross-owner component's SaleReturn never gets its own separate refund payment.
-        $this->assertTrue(SaleReturnPayment::query()->where('sale_return_id', $parentSaleReturn->id)->exists());
-        $this->assertFalse(SaleReturnPayment::query()->where('sale_return_id', $componentSaleReturn->id)->exists());
+        // Each owner refunds its own commercial share of the whole bundle
+        // (1300 = parent 1000 + component owner 300); nothing is refunded twice.
+        $this->assertSame(1000.0, (float) SaleReturnPayment::query()->where('sale_return_id', $parentSaleReturn->id)->sum('amount'));
+        $this->assertSame(300.0, (float) SaleReturnPayment::query()->where('sale_return_id', $componentSaleReturn->id)->sum('amount'));
+        $this->assertSame(1300.0, (float) SaleReturnPayment::query()->whereIn('sale_return_id', [$parentSaleReturn->id, $componentSaleReturn->id])->sum('amount'));
 
         // HPP reversed exactly once per detail.
         $parentDetail->refresh();
@@ -514,11 +515,11 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
             'tax_id' => null,
         ]);
 
-        $posReturn = $this->createPosReturnShell(['return_option' => PosReturn::OPTION_CASH_RETURN, 'total_amount' => 1000]);
+        $posReturn = $this->createPosReturnShell(['return_option' => PosReturn::OPTION_CASH_RETURN, 'total_amount' => 1300]);
         $saleReturn = $this->createSaleReturnShell($posReturn, $sale, [
             'return_type' => 'Cash Return',
-            'total_amount' => 1000,
-            'due_amount' => 1000,
+            'total_amount' => 1300,
+            'due_amount' => 1300,
         ]);
 
         $parentLine = PosReturnLine::query()->create([
@@ -561,7 +562,7 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
             'quantity' => 2,
             'unit_price' => 300,
             'line_total' => 600,
-            'expected_cash_amount' => 0,
+            'expected_cash_amount' => 300,
             'bundle_group_key' => $parentLine->bundle_group_key,
             'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
             'bundle_quantity' => 1,
@@ -605,7 +606,8 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
             'quantity' => 2,
             'price' => 300,
             'unit_price' => 300,
-            'sub_total' => 0,
+            // Component owner share of the returned unit (1300 = parent 1000 + 300).
+            'sub_total' => 300,
             'product_discount_amount' => 0,
             'product_discount_type' => 'fixed',
             'product_tax_amount' => 0,
@@ -615,7 +617,7 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
             'execution_context' => [
                 'row_type' => 'component',
                 'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
-                'cash_return_amount' => 0,
+                'cash_return_amount' => 300,
                 'component_sale_bundle_item_id' => $bundleItem->id,
                 'commercial_value_source' => 'sale_bundle_item',
             ],
@@ -632,8 +634,8 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
         $this->assertSame(1, (int) $parentStock->quantity);
         $this->assertSame(2, (int) $componentStock->quantity);
 
-        // Single refund on the parent's SaleReturn only, for the partial (1 unit) amount.
-        $this->assertTrue(SaleReturnPayment::query()->where('sale_return_id', $saleReturn->id)->where('amount', 1000)->exists());
+        // One refund on the SaleReturn for the partial (1 unit) bundle value: parent 1000 + component share 300.
+        $this->assertSame(1300.0, (float) SaleReturnPayment::query()->where('sale_return_id', $saleReturn->id)->sum('amount'));
 
         // HPP reversed exactly once per detail, proportional to the returned quantity.
         $parentDetail->refresh();
@@ -1462,16 +1464,16 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
 
         $parentSaleReturn = $this->createSaleReturnShell($posReturn, $sale, [
             'return_type' => 'Cash Return',
-            'total_amount' => 1300,
-            'due_amount' => 1300,
+            'total_amount' => 1000,
+            'due_amount' => 1000,
         ]);
 
         $componentSaleReturn = $this->createSaleReturnShell($posReturn, $sale, [
             'setting_id' => $this->settingB->id,
             'location_id' => $this->locationB->id,
             'return_type' => 'Cash Return',
-            'total_amount' => 0,
-            'due_amount' => 0,
+            'total_amount' => 300,
+            'due_amount' => 300,
         ]);
 
         $parentLine = PosReturnLine::query()->create([
@@ -1491,7 +1493,7 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
             'quantity' => 1,
             'unit_price' => 1000,
             'line_total' => 1000,
-            'expected_cash_amount' => 1300,
+            'expected_cash_amount' => 1000,
             'bundle_group_key' => 'BUNDLE-SPLIT-' . uniqid(),
             'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
             'bundle_quantity' => 1,
@@ -1516,7 +1518,7 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
             'quantity' => 1,
             'unit_price' => 300,
             'line_total' => 300,
-            'expected_cash_amount' => 0,
+            'expected_cash_amount' => 300,
             'bundle_group_key' => $parentLine->bundle_group_key,
             'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
             'bundle_quantity' => 1,
@@ -1537,7 +1539,7 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
             'quantity' => 1,
             'price' => 1000,
             'unit_price' => 1000,
-            'sub_total' => 1300,
+            'sub_total' => 1000,
             'product_discount_amount' => 0,
             'product_discount_type' => 'fixed',
             'product_tax_amount' => 0,
@@ -1545,7 +1547,7 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
             'execution_context' => [
                 'row_type' => 'parent',
                 'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
-                'cash_return_amount' => 1300,
+                'cash_return_amount' => 1000,
             ],
         ]);
 
@@ -1562,11 +1564,9 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
             'quantity' => 1,
             'price' => 300,
             'unit_price' => 300,
-            // Internal allocation amount is 0 — the component never carries its
-            // own separate customer-facing refund; the whole-bundle refund is
-            // carried entirely by the parent's own SaleReturn (design.md decision:
-            // "Parent group alone carries the customer refund").
-            'sub_total' => 0,
+            // The component owner refunds its own commercial share of the bundle
+            // (SaleBundleItem share 300); parent 1000 + component 300 = 1300.
+            'sub_total' => 300,
             'product_discount_amount' => 0,
             'product_discount_type' => 'fixed',
             'product_tax_amount' => 0,
@@ -1576,7 +1576,7 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
             'execution_context' => [
                 'row_type' => 'component',
                 'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
-                'cash_return_amount' => 0,
+                'cash_return_amount' => 300,
                 'component_sale_bundle_item_id' => $bundleItem->id,
                 'commercial_value_source' => 'sale_bundle_item',
             ],
@@ -1711,7 +1711,7 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
             'quantity' => 1,
             'unit_price' => 1000,
             'line_total' => 1000,
-            'expected_cash_amount' => 1300,
+            'expected_cash_amount' => 1000,
             'bundle_group_key' => 'BUNDLE-CHAIN-' . uniqid(),
             'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
             'bundle_quantity' => 1,
@@ -1736,7 +1736,7 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
             'quantity' => 1,
             'unit_price' => 300,
             'line_total' => 300,
-            'expected_cash_amount' => 0,
+            'expected_cash_amount' => 300,
             'serial_number_ids' => [$bNewer->id],
             'returned_serial_id' => $bNewer->id,
             'bundle_group_key' => $parentLine->bundle_group_key,
@@ -1759,7 +1759,7 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
             'quantity' => 1,
             'price' => 1000,
             'unit_price' => 1000,
-            'sub_total' => 1300,
+            'sub_total' => 1000,
             'product_discount_amount' => 0,
             'product_discount_type' => 'fixed',
             'product_tax_amount' => 0,
@@ -1767,7 +1767,7 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
             'execution_context' => [
                 'row_type' => 'parent',
                 'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
-                'cash_return_amount' => 1300,
+                'cash_return_amount' => 1000,
             ],
         ]);
 
@@ -1795,7 +1795,7 @@ class POSReturnBundleLifecycleExecutionTest extends PosTransactionFeatureTestCas
             'execution_context' => [
                 'row_type' => 'component',
                 'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
-                'cash_return_amount' => 0,
+                'cash_return_amount' => 300,
                 'component_sale_bundle_item_id' => $bundleItem->id,
                 'commercial_value_source' => 'sale_bundle_item',
                 'component_serial_ids' => [$bNewer->id],

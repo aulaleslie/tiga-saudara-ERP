@@ -141,7 +141,7 @@ class POSReturnCostReversalTest extends PosTransactionFeatureTestCase
             'dispatch_id' => $dispatch->id,
             'sale_id' => $sale->id,
             'product_id' => $product->id,
-            'dispatched_quantity' => 1,
+            'dispatched_quantity' => 2,
             'location_id' => $this->location->id,
             'tax_id' => null,
         ]);
@@ -151,15 +151,16 @@ class POSReturnCostReversalTest extends PosTransactionFeatureTestCase
             'product_id' => $product->id,
             'product_name' => $product->product_name,
             'product_code' => $product->product_code,
-            'quantity' => 1,
-            'price' => 600,
-            'unit_price' => 600,
+            // Two bundles sold for 600 in total (300 each); composition of 4 components.
+            'quantity' => 2,
+            'price' => 300,
+            'unit_price' => 300,
             'sub_total' => 600,
             'product_discount_amount' => 0,
             'product_discount_type' => 'fixed',
             'product_tax_amount' => 0,
             'cost_unit_snapshot' => 250,
-            'cost_total_snapshot' => 250,
+            'cost_total_snapshot' => 500,
             'cost_snapshot_source' => SalesCostSnapshotService::SOURCE_CURRENT_AVERAGE_PRICE,
             'cost_snapshot_at' => now(),
         ]);
@@ -182,24 +183,50 @@ class POSReturnCostReversalTest extends PosTransactionFeatureTestCase
             'cost_snapshot_at' => now(),
         ]);
 
+        // The component's own source allocation (unpriced sibling row + dispatch):
+        // composition 2 per bundle x 2 bundles sold = 4.
+        $componentSaleDetail = SaleDetails::query()->create([
+            'sale_id' => $sale->id,
+            'product_id' => $componentProduct->id,
+            'product_name' => $componentProduct->product_name,
+            'product_code' => $componentProduct->product_code,
+            'quantity' => 4,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 0,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+        $componentDispatchDetail = DispatchDetail::query()->create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $componentProduct->id,
+            'dispatched_quantity' => 4,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+        ]);
+
         $posReturn = $this->createPosReturn([
             'status' => PosReturn::STATUS_PENDING_APPROVAL,
             'approval_status' => PosReturn::APPROVAL_STATUS_PENDING,
             'return_option' => PosReturn::OPTION_CASH_RETURN,
-            'total_amount' => 120,
+            'total_amount' => 300,
         ]);
 
         $saleReturn = $this->createSaleReturn($posReturn, $sale, [
             'status' => 'PENDING APPROVAL',
             'approval_status' => 'PENDING',
             'return_type' => 'Cash Return',
-            'total_amount' => 120,
+            'total_amount' => 300,
             'paid_amount' => 0,
-            'due_amount' => 120,
+            'due_amount' => 300,
         ]);
 
-        // Only 2 of the 4 component units are returned: a PARTIAL bundle cash reversal.
-        $componentLine = PosReturnLine::query()->create([
+        // Return ONE of the two sold bundles. The refundable commercial amount is the
+        // parent's 300 (components are priced 0); component HPP is a separate,
+        // immutable snapshot that must not be confused with a refund amount.
+        $parentLine = PosReturnLine::query()->create([
             'pos_return_id' => $posReturn->id,
             'pos_checkout_sale_id' => 1,
             'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
@@ -211,17 +238,73 @@ class POSReturnCostReversalTest extends PosTransactionFeatureTestCase
             'source_setting_id' => $this->setting->id,
             'source_location_id' => $this->location->id,
             'tax_id' => null,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'unit_price' => 300,
+            'line_total' => 300,
+            'expected_cash_amount' => 300,
+            'serial_number_ids' => null,
+            'bundle_group_key' => 'bundle-1',
+            'bundle_quantity' => 1,
+            'bundle_return_scope' => PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'replacement_product_id' => null,
+            'replacement_quantity' => null,
+        ]);
+        SaleReturnDetail::query()->create([
+            'sale_return_id' => $saleReturn->id,
+            'pos_return_line_id' => $parentLine->id,
+            'sale_detail_id' => $saleDetail->id,
+            'dispatch_detail_id' => $dispatchDetail->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'location_id' => $this->location->id,
+            'tax_id' => null,
+            'quantity' => 1,
+            'price' => 300,
+            'unit_price' => 300,
+            'sub_total' => 300,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'execution_context' => [
+                'row_type' => 'parent',
+                'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+                'cash_return_amount' => 300,
+                'planned_amount' => 300,
+            ],
+        ]);
+
+        // The matching 2 of the 4 component units come back with that bundle (HPP only).
+
+        $componentLine = PosReturnLine::query()->create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => 1,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            'sale_return_id' => $saleReturn->id,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $componentSaleDetail->id,
+            'dispatch_detail_id' => $componentDispatchDetail->id,
+            'bundle_parent_sale_detail_id' => $saleDetail->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'tax_id' => null,
             'product_id' => $componentProduct->id,
             'product_name' => $componentProduct->product_name,
             'product_code' => $componentProduct->product_code,
             'quantity' => 2,
             'unit_price' => 0,
-            'line_total' => 120,
-            'expected_cash_amount' => 120,
+            'line_total' => 0,
+            'expected_cash_amount' => 0,
             'serial_number_ids' => null,
             'bundle_group_key' => 'bundle-1',
-            'bundle_quantity' => null,
-            'component_quantity_per_bundle' => null,
+            'bundle_quantity' => 1,
+            'component_quantity_per_bundle' => 2,
+            'bundle_return_scope' => PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE,
             'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
             'replacement_product_id' => null,
             'replacement_quantity' => null,
@@ -230,8 +313,8 @@ class POSReturnCostReversalTest extends PosTransactionFeatureTestCase
         $componentDetail = SaleReturnDetail::query()->create([
             'sale_return_id' => $saleReturn->id,
             'pos_return_line_id' => $componentLine->id,
-            'sale_detail_id' => $saleDetail->id,
-            'dispatch_detail_id' => $dispatchDetail->id,
+            'sale_detail_id' => $componentSaleDetail->id,
+            'dispatch_detail_id' => $componentDispatchDetail->id,
             'component_sale_bundle_item_id' => $bundleItem->id,
             'cost_origin' => SaleReturnDetail::COST_ORIGIN_BUNDLE_ITEM,
             'product_id' => $componentProduct->id,
@@ -242,7 +325,7 @@ class POSReturnCostReversalTest extends PosTransactionFeatureTestCase
             'quantity' => 2,
             'price' => 0,
             'unit_price' => 0,
-            'sub_total' => 120,
+            'sub_total' => 0,
             'product_discount_amount' => 0,
             'product_discount_type' => 'fixed',
             'product_tax_amount' => 0,
@@ -251,7 +334,7 @@ class POSReturnCostReversalTest extends PosTransactionFeatureTestCase
                 'row_type' => 'component',
                 'component_sale_bundle_item_id' => $bundleItem->id,
                 'commercial_value_source' => 'sale_bundle_item',
-                'planned_amount' => 120,
+                'planned_amount' => 0,
             ],
         ]);
 

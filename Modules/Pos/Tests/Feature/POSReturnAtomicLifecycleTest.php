@@ -31,18 +31,24 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
 
     protected $actor;
 
+    protected $terminal;
+
+    protected $session;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->setting = $this->createSetting('POS Return Atomic Lifecycle Test');
-        [, $this->location] = $this->createTerminalWithLocation($this->setting);
+        [$terminal, $this->location] = $this->createTerminalWithLocation($this->setting);
+        $this->terminal = $terminal;
 
         Permission::findOrCreate('pos.access', 'web');
 
         $this->actor = $this->createUserForSetting($this->setting, 'POS Return Atomic Actor', [
             'pos.access',
         ]);
+        $this->session = $this->openSession($this->setting, $this->terminal, $this->actor);
     }
 
     /** @test */
@@ -365,19 +371,16 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
 
         [$posReturn, , , , , $cashSaleDetail] = $this->createPendingApprovalMixedResolutionReturn();
 
-        PosReturnLine::query()
-            ->where('pos_return_id', $posReturn->id)
-            ->where('resolution', PosReturnLine::RESOLUTION_CASH_RETURN)
-            ->update(['expected_cash_amount' => 240]);
-
+        // Source: 2 units at 600 (sub_total 1200, discount 150, tax 50). Returning
+        // 1 of 2 units removes half of the quantity and of each prorated amount.
         app(PosReturnLifecycleService::class)->executeApprovalFromPreview($posReturn->id);
 
         $cashSaleDetail = $cashSaleDetail->fresh();
 
-        $this->assertSame(4, (int) $cashSaleDetail->quantity);
-        $this->assertSame(960.0, (float) $cashSaleDetail->sub_total);
-        $this->assertSame(120.0, (float) $cashSaleDetail->product_discount_amount);
-        $this->assertSame(40.0, (float) $cashSaleDetail->product_tax_amount);
+        $this->assertSame(1, (int) $cashSaleDetail->quantity);
+        $this->assertSame(600.0, (float) $cashSaleDetail->sub_total);
+        $this->assertSame(75.0, (float) $cashSaleDetail->product_discount_amount);
+        $this->assertSame(25.0, (float) $cashSaleDetail->product_tax_amount);
     }
 
     /** @test */
@@ -391,10 +394,12 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
 
         $cashSaleDetail = $cashSaleDetail->fresh();
 
-        $this->assertSame(4, (int) $cashSaleDetail->quantity);
+        // The validated cash amount (600) is the monetary source of truth: the
+        // source residual drops by exactly that amount (1200 -> 600).
+        $this->assertSame(1, (int) $cashSaleDetail->quantity);
         $this->assertSame(600.0, (float) $cashSaleDetail->sub_total);
-        $this->assertSame(120.0, (float) $cashSaleDetail->product_discount_amount);
-        $this->assertSame(40.0, (float) $cashSaleDetail->product_tax_amount);
+        $this->assertSame(75.0, (float) $cashSaleDetail->product_discount_amount);
+        $this->assertSame(25.0, (float) $cashSaleDetail->product_tax_amount);
     }
 
     /** @test */
@@ -408,8 +413,8 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
 
         $cashSale = Sale::query()->findOrFail($cashSaleReturn->sale_id);
 
-        $this->assertSame(560.0, (float) $cashSale->total_amount);
-        $this->assertSame(560.0, (float) $cashSale->paid_amount);
+        $this->assertSame(1400.0, (float) $cashSale->total_amount);
+        $this->assertSame(1400.0, (float) $cashSale->paid_amount);
         $this->assertSame(0.0, (float) $cashSale->due_amount);
         $this->assertSame('PAID', (string) $cashSale->payment_status);
     }
@@ -825,14 +830,16 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
 
         $cashSale = Sale::query()->findOrFail($cashSaleReturn->sale_id);
         $cashSale->update([
-            'paid_amount' => 800,
-            'due_amount' => 1200,
+            // Sale total 2000, active payments 900 + 600 + 200 = 1700. A 600 cash
+            // return lowers the total to 1400, so 300 of payments must be undone.
+            'paid_amount' => 1700,
+            'due_amount' => 300,
             'payment_status' => 'PARTIAL',
         ]);
 
         $firstPayment = SalePayment::query()->create([
             'sale_id' => $cashSale->id,
-            'amount' => 300,
+            'amount' => 900,
             'date' => now()->subDays(2)->toDateString(),
             'reference' => 'PAY-A-' . uniqid(),
             'payment_method' => 'Cash',
@@ -840,7 +847,7 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
         ]);
         $secondPayment = SalePayment::query()->create([
             'sale_id' => $cashSale->id,
-            'amount' => 300,
+            'amount' => 600,
             'date' => now()->subDay()->toDateString(),
             'reference' => 'PAY-B-' . uniqid(),
             'payment_method' => 'Transfer',
@@ -870,7 +877,7 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             ->where('status', SalePayment::STATUS_ACTIVE)
             ->first(fn (SalePayment $payment) => (int) $payment->id !== (int) $firstPayment->id);
 
-        $this->assertSame(560.0, (float) $cashSale->paid_amount);
+        $this->assertSame(1400.0, (float) $cashSale->paid_amount);
         $this->assertSame(0.0, (float) $cashSale->due_amount);
         $this->assertSame('PAID', (string) $cashSale->payment_status);
         $this->assertCount(4, $payments);
@@ -882,14 +889,15 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
         $this->assertSame((int) $cashSaleReturn->id, (int) $secondPayment->fresh()->invalidation_source_id);
         $this->assertSame((string) $secondPayment->fresh()->payment_method, (string) $replacementPayment?->payment_method);
         $this->assertSame(2, (int) $replacementPayment?->stage_order);
-        $this->assertSame(260.0, (float) $replacementPayment?->amount);
+        // last payment (200) is fully undone, the second is split 600 -> 500.
+        $this->assertSame(500.0, (float) $replacementPayment?->amount);
         $this->assertSame('EDC-B', (string) $replacementPayment?->edc_reference);
         $this->assertNull($replacementPayment?->idempotency_key);
         $this->assertStringContainsString(
             strtoupper('Auto-split from invalidated payment #' . $secondPayment->id),
             strtoupper((string) $replacementPayment?->note)
         );
-        $this->assertSame(560.0, (float) SalePayment::query()
+        $this->assertSame(1400.0, (float) SalePayment::query()
             ->where('sale_id', $cashSale->id)
             ->active()
             ->sum('amount'));
@@ -1329,9 +1337,11 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'product_id' => $cashProduct->id,
             'product_name' => $cashProduct->product_name,
             'product_code' => $cashProduct->product_code,
-            'quantity' => 5,
-            'price' => 240,
-            'unit_price' => 240,
+            // Source charge consistent with the 600 cash-return line below:
+            // 2 units dispatched/sold at 600 each (no rounding drift).
+            'quantity' => 2,
+            'price' => 600,
+            'unit_price' => 600,
             'sub_total' => 1200,
             'product_discount_amount' => 150,
             'product_discount_type' => 'fixed',
@@ -1986,9 +1996,9 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'product_name' => $parentProduct->product_name,
             'product_code' => $parentProduct->product_code,
             'quantity' => 1,
-            'price' => 300,
-            'unit_price' => 300,
-            'sub_total' => 300,
+            'price' => 500,
+            'unit_price' => 500,
+            'sub_total' => 500,
             'product_discount_amount' => 0,
             'product_discount_type' => 'fixed',
             'product_tax_amount' => 0,
@@ -1999,9 +2009,9 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'product_name' => $componentProduct->product_name,
             'product_code' => $componentProduct->product_code,
             'quantity' => 2,
-            'price' => 60,
-            'unit_price' => 60,
-            'sub_total' => 120,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 0,
             'product_discount_amount' => 0,
             'product_discount_type' => 'fixed',
             'product_tax_amount' => 0,
@@ -2012,9 +2022,9 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'product_name' => $stocklessProduct->product_name,
             'product_code' => $stocklessProduct->product_code,
             'quantity' => 1,
-            'price' => 80,
-            'unit_price' => 80,
-            'sub_total' => 80,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 0,
             'product_discount_amount' => 0,
             'product_discount_type' => 'fixed',
             'product_tax_amount' => 0,
@@ -2075,9 +2085,9 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'product_name' => $parentProduct->product_name,
             'product_code' => $parentProduct->product_code,
             'quantity' => 1,
-            'unit_price' => 300,
-            'line_total' => 300,
-            'expected_cash_amount' => 300,
+            'unit_price' => 500,
+            'line_total' => 500,
+            'expected_cash_amount' => 500,
             'serial_number_ids' => null,
             'bundle_group_key' => $bundleGroupKey,
             'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
@@ -2103,9 +2113,9 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'product_name' => $componentProduct->product_name,
             'product_code' => $componentProduct->product_code,
             'quantity' => 2,
-            'unit_price' => 60,
-            'line_total' => 120,
-            'expected_cash_amount' => 120,
+            'unit_price' => 0,
+            'line_total' => 0,
+            'expected_cash_amount' => 0,
             'serial_number_ids' => null,
             'bundle_group_key' => $bundleGroupKey,
             'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
@@ -2130,9 +2140,9 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'product_name' => $stocklessProduct->product_name,
             'product_code' => $stocklessProduct->product_code,
             'quantity' => 1,
-            'unit_price' => 80,
-            'line_total' => 80,
-            'expected_cash_amount' => 80,
+            'unit_price' => 0,
+            'line_total' => 0,
+            'expected_cash_amount' => 0,
             'serial_number_ids' => null,
             'bundle_group_key' => $bundleGroupKey,
             'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
@@ -2154,9 +2164,9 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'location_id' => $pkpLocation->id,
             'tax_id' => $tax->id,
             'quantity' => 1,
-            'price' => 300,
-            'unit_price' => 300,
-            'sub_total' => 300,
+            'price' => 500,
+            'unit_price' => 500,
+            'sub_total' => 500,
             'product_discount_amount' => 0,
             'product_discount_type' => 'fixed',
             'product_tax_amount' => 0,
@@ -2174,9 +2184,9 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'location_id' => $this->location->id,
             'tax_id' => null,
             'quantity' => 2,
-            'price' => 60,
-            'unit_price' => 60,
-            'sub_total' => 120,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 0,
             'product_discount_amount' => 0,
             'product_discount_type' => 'fixed',
             'product_tax_amount' => 0,
@@ -2194,9 +2204,9 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'location_id' => $this->location->id,
             'tax_id' => null,
             'quantity' => 1,
-            'price' => 80,
-            'unit_price' => 80,
-            'sub_total' => 80,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 0,
             'product_discount_amount' => 0,
             'product_discount_type' => 'fixed',
             'product_tax_amount' => 0,
@@ -2322,6 +2332,70 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'total_amount' => 420,
         ]);
 
+        // The commercial baseline of a whole-bundle return is the POS transaction
+        // line's charged total across all owner sales (300 parent + 120 component).
+        $posTransaction = \Modules\Pos\Entities\PosTransaction::query()->create([
+            'setting_id' => $this->setting->id,
+            'code' => 'TXN-ZQ-' . uniqid(),
+            'status' => \Modules\Pos\Entities\PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->actor->id,
+            'owner_user_id' => $this->actor->id,
+            'last_saved_by' => $this->actor->id,
+            'source_pos_session_id' => $this->session->id,
+        ]);
+        $posTransactionLine = \Modules\Pos\Entities\PosTransactionLine::query()->create([
+            'pos_transaction_id' => $posTransaction->id,
+            'line_no' => 1,
+            'product_id' => $parentProduct->id,
+            'product_name_snapshot' => $parentProduct->product_name,
+            'product_code_snapshot' => $parentProduct->product_code,
+            'qty' => 1,
+            'unit_price' => 420,
+            'tax_id' => null,
+            'tax_rate_snapshot' => 0,
+            'line_discount_type' => 'fixed',
+            'line_discount_value' => 0,
+            'line_meta' => [
+                'bundle_id' => 9100,
+                'is_bundle' => true,
+                'bundle_items' => [[
+                    'product_id' => $componentProduct->id,
+                    'product_name' => $componentProduct->product_name,
+                    'product_code' => $componentProduct->product_code,
+                    'quantity' => 2,
+                ]],
+            ],
+        ]);
+        $posCheckout = \Modules\Pos\Entities\PosCheckout::query()->create([
+            'setting_id' => $this->setting->id,
+            'pos_transaction_id' => $posTransaction->id,
+            'pos_session_id' => $this->session->id,
+            'terminal_id' => $this->terminal->id,
+            'cashier_user_id' => $this->actor->id,
+            'status' => \Modules\Pos\Entities\PosCheckout::STATUS_POSTED,
+            'grand_total' => 420,
+            'receipt_number' => 'RCP-ZQ-' . uniqid(),
+            'idempotency_key' => 'IDEM-ZQ-' . uniqid(),
+            'payload_hash' => 'HASH-ZQ-' . uniqid(),
+        ]);
+        $posTransaction->update(['completed_checkout_id' => $posCheckout->id]);
+        $checkoutSaleIds = [];
+        foreach ([[$parentSale, 300], [$componentSale, 120]] as [$checkoutSaleModel, $checkoutSaleTotal]) {
+            $checkoutSaleIds[$checkoutSaleModel->id] = \Modules\Pos\Entities\PosCheckoutSale::query()->create([
+                'pos_checkout_id' => $posCheckout->id,
+                'sale_id' => $checkoutSaleModel->id,
+                'source_setting_id' => $this->setting->id,
+                'source_location_id' => $this->location->id,
+                'grand_total' => $checkoutSaleTotal,
+                'split_key' => 'SPLIT-ZQ-' . uniqid(),
+                'tax_bucket' => 'NON_TAX',
+            ])->id;
+        }
+        $posReturn->update([
+            'pos_transaction_id' => $posTransaction->id,
+            'pos_checkout_id' => $posCheckout->id,
+        ]);
+
         $parentSaleReturn = $this->createSaleReturn($posReturn, $parentSale, [
             'status' => 'PENDING APPROVAL',
             'approval_status' => 'PENDING',
@@ -2345,10 +2419,11 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
 
         $parentLine = PosReturnLine::query()->create([
             'pos_return_id' => $posReturn->id,
-            'pos_checkout_sale_id' => 1,
+            'pos_checkout_sale_id' => $checkoutSaleIds[$parentSale->id],
             'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
             'sale_return_id' => $parentSaleReturn->id,
             'sale_id' => $parentSale->id,
+            'pos_transaction_line_id' => $posTransactionLine->id,
             'sale_detail_id' => $parentSaleDetail->id,
             'dispatch_detail_id' => $parentDispatchDetail->id,
             'source_setting_id' => $this->setting->id,
@@ -2416,9 +2491,40 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
                 'planned_amount' => 300,
             ],
         ]);
+        // Production synthesizes a real component line for the whole-bundle return;
+        // the component return detail must reference its own line, not the parent's.
+        $componentLine = PosReturnLine::query()->create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => $checkoutSaleIds[$componentSale->id],
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            'sale_return_id' => $componentSaleReturn->id,
+            'sale_id' => $componentSale->id,
+            'sale_detail_id' => $componentPlaceholderDetail->id,
+            'dispatch_detail_id' => $componentDispatchDetail->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'tax_id' => null,
+            'product_id' => $componentProduct->id,
+            'product_name' => $componentProduct->product_name,
+            'product_code' => $componentProduct->product_code,
+            'quantity' => 2,
+            'unit_price' => 60,
+            'line_total' => 120,
+            'expected_cash_amount' => 120,
+            'serial_number_ids' => null,
+            'bundle_group_key' => $bundleGroupKey,
+            'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
+            'bundle_quantity' => 1,
+            'component_quantity_per_bundle' => 2,
+            'bundle_return_scope' => PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'replacement_product_id' => null,
+            'replacement_quantity' => null,
+            'line_meta' => ['sale_bundle_item_id' => $componentBundleItem->id],
+        ]);
         SaleReturnDetail::query()->create([
             'sale_return_id' => $componentSaleReturn->id,
-            'pos_return_line_id' => $parentLine->id,
+            'pos_return_line_id' => $componentLine->id,
             'sale_detail_id' => $componentPlaceholderDetail->id,
             'dispatch_detail_id' => $componentDispatchDetail->id,
             'product_id' => $componentProduct->id,
@@ -2628,6 +2734,88 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'total_amount' => 600,
         ]);
 
+        // Commercial baseline for the whole-bundle cash return: the POS transaction
+        // line charged total across owner sales (300 parent + 120 component).
+        $posTransaction = \Modules\Pos\Entities\PosTransaction::query()->create([
+            'setting_id' => $this->setting->id,
+            'code' => 'TXN-MIX-' . uniqid(),
+            'status' => \Modules\Pos\Entities\PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->actor->id,
+            'owner_user_id' => $this->actor->id,
+            'last_saved_by' => $this->actor->id,
+            'source_pos_session_id' => $this->session->id,
+        ]);
+        $bundlePtl = \Modules\Pos\Entities\PosTransactionLine::query()->create([
+            'pos_transaction_id' => $posTransaction->id,
+            'line_no' => 1,
+            'product_id' => $parentProduct->id,
+            'product_name_snapshot' => $parentProduct->product_name,
+            'product_code_snapshot' => $parentProduct->product_code,
+            'qty' => 1,
+            'unit_price' => 420,
+            'tax_id' => null,
+            'tax_rate_snapshot' => 0,
+            'line_discount_type' => 'fixed',
+            'line_discount_value' => 0,
+            'line_meta' => [
+                'bundle_id' => 9100,
+                'is_bundle' => true,
+                'bundle_items' => [[
+                    'product_id' => $componentProduct->id,
+                    'product_name' => $componentProduct->product_name,
+                    'product_code' => $componentProduct->product_code,
+                    'quantity' => 2,
+                ]],
+            ],
+        ]);
+        $replacementPtl = \Modules\Pos\Entities\PosTransactionLine::query()->create([
+            'pos_transaction_id' => $posTransaction->id,
+            'line_no' => 2,
+            'product_id' => $parentProduct->id,
+            'product_name_snapshot' => $parentProduct->product_name,
+            'product_code_snapshot' => $parentProduct->product_code,
+            'qty' => 1,
+            'unit_price' => 300,
+            'tax_id' => null,
+            'tax_rate_snapshot' => 0,
+            'line_discount_type' => 'fixed',
+            'line_discount_value' => 0,
+            'line_meta' => [],
+        ]);
+        // Same SKU appears twice in the transaction: bind each sale detail to its
+        // own transaction line so bundle identity is explicit, never positional.
+        $cashSaleDetail->update(['pos_transaction_line_id' => $bundlePtl->id]);
+        $replacementSaleDetail->update(['pos_transaction_line_id' => $replacementPtl->id]);
+        $posCheckout = \Modules\Pos\Entities\PosCheckout::query()->create([
+            'setting_id' => $this->setting->id,
+            'pos_transaction_id' => $posTransaction->id,
+            'pos_session_id' => $this->session->id,
+            'terminal_id' => $this->terminal->id,
+            'cashier_user_id' => $this->actor->id,
+            'status' => \Modules\Pos\Entities\PosCheckout::STATUS_POSTED,
+            'grand_total' => 720,
+            'receipt_number' => 'RCP-MIX-' . uniqid(),
+            'idempotency_key' => 'IDEM-MIX-' . uniqid(),
+            'payload_hash' => 'HASH-MIX-' . uniqid(),
+        ]);
+        $posTransaction->update(['completed_checkout_id' => $posCheckout->id]);
+        $checkoutSaleIds = [];
+        foreach ([[$cashSale, 300], [$componentSale, 120], [$replacementSale, 300]] as [$checkoutSaleModel, $checkoutSaleTotal]) {
+            $checkoutSaleIds[$checkoutSaleModel->id] = \Modules\Pos\Entities\PosCheckoutSale::query()->create([
+                'pos_checkout_id' => $posCheckout->id,
+                'sale_id' => $checkoutSaleModel->id,
+                'source_setting_id' => $this->setting->id,
+                'source_location_id' => $this->location->id,
+                'grand_total' => $checkoutSaleTotal,
+                'split_key' => 'SPLIT-MIX-' . uniqid(),
+                'tax_bucket' => 'NON_TAX',
+            ])->id;
+        }
+        $posReturn->update([
+            'pos_transaction_id' => $posTransaction->id,
+            'pos_checkout_id' => $posCheckout->id,
+        ]);
+
         $cashSaleReturn = $this->createSaleReturn($posReturn, $cashSale, [
             'status' => 'PENDING APPROVAL',
             'approval_status' => 'PENDING',
@@ -2658,7 +2846,8 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
 
         $cashLine = PosReturnLine::query()->create([
             'pos_return_id' => $posReturn->id,
-            'pos_checkout_sale_id' => 1,
+            'pos_checkout_sale_id' => $checkoutSaleIds[$cashSale->id],
+            'pos_transaction_line_id' => $bundlePtl->id,
             'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
             'sale_return_id' => $cashSaleReturn->id,
             'sale_id' => $cashSale->id,
@@ -2694,7 +2883,7 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
         ]);
         $replacementLine = PosReturnLine::query()->create([
             'pos_return_id' => $posReturn->id,
-            'pos_checkout_sale_id' => 1,
+            'pos_checkout_sale_id' => $checkoutSaleIds[$replacementSale->id],
             'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
             'sale_return_id' => $replacementSaleReturn->id,
             'sale_id' => $replacementSale->id,
@@ -2766,9 +2955,38 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
                 'planned_amount' => 300,
             ],
         ]);
+        $componentLine = PosReturnLine::query()->create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => $checkoutSaleIds[$componentSale->id],
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            'sale_return_id' => $componentSaleReturn->id,
+            'sale_id' => $componentSale->id,
+            'sale_detail_id' => $componentPlaceholderDetail->id,
+            'dispatch_detail_id' => $componentDispatchDetail->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'tax_id' => null,
+            'product_id' => $componentProduct->id,
+            'product_name' => $componentProduct->product_name,
+            'product_code' => $componentProduct->product_code,
+            'quantity' => 2,
+            'unit_price' => 60,
+            'line_total' => 120,
+            'expected_cash_amount' => 120,
+            'serial_number_ids' => null,
+            'bundle_group_key' => $cashLine->bundle_group_key,
+            'bundle_parent_sale_detail_id' => $cashSaleDetail->id,
+            'bundle_quantity' => 1,
+            'component_quantity_per_bundle' => 2,
+            'bundle_return_scope' => PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'replacement_product_id' => null,
+            'replacement_quantity' => null,
+            'line_meta' => ['sale_bundle_item_id' => $componentBundleItem->id],
+        ]);
         SaleReturnDetail::query()->create([
             'sale_return_id' => $componentSaleReturn->id,
-            'pos_return_line_id' => $cashLine->id,
+            'pos_return_line_id' => $componentLine->id,
             'sale_detail_id' => $componentPlaceholderDetail->id,
             'dispatch_detail_id' => $componentDispatchDetail->id,
             'product_id' => $componentProduct->id,

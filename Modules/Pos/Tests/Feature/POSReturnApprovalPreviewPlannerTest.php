@@ -507,6 +507,109 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
             'product_id' => $componentProduct->id,
             'name' => $componentProduct->product_name,
             'quantity' => 2,
+            'price' => 0,
+            'sub_total' => 0,
+            'tax_id' => null,
+            'tax_amount' => 0,
+            'line_group_key' => 'pos-0-0',
+        ]);
+
+        // Component's own real sibling SaleDetails row (unit_price = 0),
+        // quantity 2 (matching the total component quantity for this bundle
+        // line: quantity_per_bundle 1 * parent quantity 2) — required by
+        // PosReturnSubmissionService::synthesizeBundleCashReturnComponents(),
+        // which matches on product_id + unit_price === 0.0.
+        $componentSaleDetail = SaleDetails::query()->create([
+            'sale_id' => $parentSale->id,
+            'product_id' => $componentProduct->id,
+            'quantity' => 2,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 0,
+            'product_name' => $componentProduct->product_name,
+            'product_code' => $componentProduct->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        DispatchDetail::query()->create([
+            'dispatch_id' => $parentDispatchDetail->dispatch_id,
+            'sale_id' => $parentSale->id,
+            'product_id' => $componentProduct->id,
+            'dispatched_quantity' => 2,
+            'location_id' => $this->secondLocation->id,
+        ]);
+
+        $posReturn = $this->makePendingReturn($transaction->id, [
+            [
+                'sale_detail_id' => $parentDetail->id,
+                'quantity' => 2,
+                'returned_serial_id' => $returnedSerial->id,
+                'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            ],
+        ]);
+
+        $plan = $this->planner->plan($posReturn->fresh());
+
+        $this->assertFalse($plan['is_blocked'], json_encode($plan['blockers'] ?? []));
+
+        $componentGroup = collect($plan['groups'])->first(function (array $group) {
+            return ($group['source_owner']['setting_id'] ?? null) === $this->secondSetting->id;
+        });
+        $this->assertNotNull($componentGroup);
+
+        $componentDetail = $componentGroup['planned_details'][0];
+        $this->assertSame('component', $componentDetail['row_type']);
+        // A serial-tracked return line is normalized to one unit, so with a
+        // captured ratio of 1 component per bundle the component quantity is 1.
+        $this->assertSame(1.0, (float) $componentDetail['quantity']);
+        // Component allocations carry unit_price = 0 under the new model —
+        // no separate customer-facing amount, since the parent line already
+        // reflects the full bundle price (Corrections/1).
+        $this->assertSame(0.0, (float) $componentDetail['amount']);
+        $this->assertSame($componentSaleDetail->id, $componentDetail['sale_detail_id']);
+    }
+
+    /** @test */
+    public function it_keeps_priced_component_commercial_amount_for_linked_component_targets(): void
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        [$transaction, $checkout] = $this->createTransactionWithCheckout();
+        $parentProduct = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'BND-SHARE-PARENT-' . uniqid(),
+            'product_name' => 'Preview Shared Bundle Parent',
+            'serial_number_required' => true,
+            'sale_price' => 6000,
+        ]);
+        $componentProduct = $this->createStockedProduct($this->secondSetting, $this->secondLocation, [
+            'product_code' => 'BND-SHARE-COMP-' . uniqid(),
+            'product_name' => 'Preview Shared Bundle Component',
+            'sale_price' => 0,
+        ]);
+        $returnedSerial = $this->createSerialNumber($parentProduct, $this->location, 'SN-BND-SHARE-' . uniqid());
+
+        [$parentSale, $parentDetail, $parentDispatchDetail] = $this->createSaleGraph(
+            $checkout,
+            $this->setting->id,
+            $this->location->id,
+            'BNDSHAREP',
+            $parentProduct,
+            ['quantity' => 2, 'sub_total' => 12000, 'unit_price' => 6000, 'price' => 6000]
+        );
+        $returnedSerial->update([
+            'dispatch_detail_id' => $parentDispatchDetail->id,
+            'status' => ProductSerialNumber::STATUS_SOLD,
+        ]);
+
+        SaleBundleItem::query()->create([
+            'sale_id' => $parentSale->id,
+            'sale_detail_id' => $parentDetail->id,
+            'bundle_id' => 9901,
+            'bundle_item_id' => 9911,
+            'product_id' => $componentProduct->id,
+            'name' => $componentProduct->product_name,
+            'quantity' => 2,
             'price' => 200,
             'sub_total' => 400,
             'tax_id' => null,
@@ -560,11 +663,14 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
 
         $componentDetail = $componentGroup['planned_details'][0];
         $this->assertSame('component', $componentDetail['row_type']);
-        $this->assertSame(2.0, (float) $componentDetail['quantity']);
+        // A serial-tracked return line is normalized to one unit, so with a
+        // captured ratio of 1 component per bundle the component quantity is 1.
+        $this->assertSame(1.0, (float) $componentDetail['quantity']);
         // Component allocations carry unit_price = 0 under the new model —
         // no separate customer-facing amount, since the parent line already
         // reflects the full bundle price (Corrections/1).
-        $this->assertSame(0.0, (float) $componentDetail['amount']);
+        // A priced SaleBundleItem keeps its own commercial amount (price * quantity).
+        $this->assertSame(200.0, (float) $componentDetail['amount']);
         $this->assertSame($componentSaleDetail->id, $componentDetail['sale_detail_id']);
     }
 
@@ -1372,7 +1478,8 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
             'bundle_item_id' => 2771,
             'product_id' => $componentProduct->id,
             'name' => $componentProduct->product_name,
-            'quantity' => 2,
+            // Total component composition for the original line (2 per bundle * 2).
+            'quantity' => 4,
             'price' => 0,
             'sub_total' => 0,
             'tax_id' => null,
@@ -1672,6 +1779,143 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
         $this->assertFalse($plan['is_blocked'], json_encode($plan));
         $this->assertSame(1500.0, (float) $detailPlan['amount'],
             'Non-bundled replacement preview should keep the POS return line amount');
+    }
+
+    /** @test */
+    public function it_keeps_component_replacement_amounts_out_of_cash_valuation(): void
+    {
+        foreach ([false, true] as $priced) {
+            $this->actingAsInSetting($this->user, $this->setting);
+            [$transaction, $checkout] = $this->createTransactionWithCheckout();
+
+            $product = $this->createStockedProduct($this->setting, $this->location, [
+                'product_code' => 'CMP-REPL-' . uniqid(),
+                'product_name' => 'Component Replacement Product',
+                'serial_number_required' => true,
+                'sale_price' => 700,
+            ]);
+            $returnedSerial = $this->createSerialNumber($product, $this->location, 'SN-CMP-RET-' . uniqid());
+            $replacementSerial = $this->createSerialNumber($product, $this->secondLocation, 'SN-CMP-REP-' . uniqid());
+            [$sale, $detail, $dispatchDetail] = $this->createSaleGraph($checkout, $this->setting->id, $this->location->id, 'CMPR' . (int) $priced, $product, [
+                'serial_number_ids' => [$returnedSerial->id],
+                'sub_total' => 700,
+                'unit_price' => 700,
+                'price' => 700,
+            ]);
+            $returnedSerial->update(['dispatch_detail_id' => $dispatchDetail->id, 'status' => ProductSerialNumber::STATUS_SOLD]);
+            $customer = \Modules\People\Entities\Customer::factory()->create(['setting_id' => $this->setting->id]);
+            $sale->update(['customer_id' => $customer->id, 'customer_name' => $customer->customer_name]);
+
+            $bundleItem = null;
+            if ($priced) {
+                $bundleItem = SaleBundleItem::query()->create([
+                    'sale_id' => $sale->id,
+                    'sale_detail_id' => $detail->id,
+                    'bundle_id' => 9301,
+                    'bundle_item_id' => 9302,
+                    'product_id' => $product->id,
+                    'name' => $product->product_name,
+                    'quantity' => 1,
+                    'price' => 400,
+                    'sub_total' => 400,
+                    'tax_id' => null,
+                    'tax_amount' => 0,
+                    'line_group_key' => 'cmp-repl-0-0',
+                ]);
+            }
+
+            $posReturn = $this->makePendingReturn($transaction->id, [[
+                'sale_detail_id' => $detail->id,
+                'returned_serial_id' => $returnedSerial->id,
+                'resolution' => PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+                'replacement_serial_id' => $replacementSerial->id,
+            ]]);
+
+            // Persisted component-replacement shape: zero expected cash, commercial value on line_total.
+            $posReturn->lines()->update([
+                'line_total' => 700,
+                'expected_cash_amount' => 0,
+                'bundle_parent_sale_detail_id' => $detail->id + 1000,
+                'bundle_group_key' => 'cmp-grp',
+                'component_quantity_per_bundle' => 1,
+                'line_meta' => $bundleItem ? ['sale_bundle_item_id' => $bundleItem->id] : null,
+            ]);
+
+            $plan = $this->planner->plan($posReturn->fresh());
+            $detailPlan = $plan['groups'][0]['planned_details'][0];
+
+            $this->assertSame('component', $detailPlan['row_type']);
+            $this->assertSame($priced ? 400.0 : 700.0, (float) $detailPlan['amount'],
+                $priced ? 'Priced component keeps its bundle-item allocation' : 'Unpriced component replacement keeps its commercial amount, not zero expected cash');
+            $this->assertSame(0.0, (float) $detailPlan['cash_return_amount']);
+        }
+    }
+
+    /** @test */
+    public function it_blocks_submission_when_primary_draft_valuation_fails(): void
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        [$transaction, $checkout] = $this->createTransactionWithCheckout();
+        [, $detail] = $this->createSaleGraph($checkout, $this->setting->id, $this->location->id, 'PRIMFAIL');
+
+        $failing = \Mockery::mock(\Modules\Pos\Services\PosReturnRoundingValuationService::class)->makePartial();
+        $failing->shouldReceive('calculateCumulativeValuation')->andThrow(new \RuntimeException('forced primary valuation failure'));
+        $this->app->instance(\Modules\Pos\Services\PosReturnRoundingValuationService::class, $failing);
+
+        $draft = app(\Modules\Pos\Services\PosReturnSubmissionService::class)->store([
+            'pos_transaction_id' => $transaction->id,
+            'source_snapshot_hash' => $this->snapshotService->build($transaction->id)['hash'],
+            'lines' => [[
+                'sale_detail_id' => $detail->id,
+                'quantity' => 1,
+                'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            ]],
+        ]);
+
+        $line = $draft->fresh()->lines->first();
+        $this->assertStringContainsString('forced primary valuation failure', (string) data_get($line->line_meta, 'valuation_error'));
+        $this->assertSame(0.0, (float) $line->expected_cash_amount, 'No quantity x unit price substitution.');
+
+        try {
+            app(\Modules\Pos\Services\PosReturnSubmissionService::class)->submitDraftForApproval($draft->fresh());
+            $this->fail('Submission must be blocked for an unavailable valuation.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('tidak dapat dihitung', $e->getMessage());
+        }
+        $this->assertSame(PosReturn::STATUS_DRAFT, $draft->fresh()->status);
+    }
+
+    /** @test */
+    public function it_keeps_a_legitimate_zero_price_return_valid_and_unflagged(): void
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        [$transaction, $checkout] = $this->createTransactionWithCheckout();
+        $product = $this->createStockedProduct($this->setting, $this->location, [
+            'product_code' => 'ZERO-PRICE-' . uniqid(),
+            'product_name' => 'Free Gift Product',
+            'sale_price' => 0,
+        ]);
+        [, $detail] = $this->createSaleGraph($checkout, $this->setting->id, $this->location->id, 'ZEROP', $product, [
+            'quantity' => 1,
+            'sub_total' => 0,
+            'unit_price' => 0,
+            'price' => 0,
+        ]);
+
+        // A genuinely free item is a valid zero valuation: no valuation error, and
+        // the draft can still be submitted (zero is not the "unavailable" marker).
+        $posReturn = $this->makePendingReturn($transaction->id, [[
+            'sale_detail_id' => $detail->id,
+            'quantity' => 1,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+        ]]);
+
+        $line = $posReturn->fresh()->lines->first();
+        $this->assertEmpty(data_get($line->line_meta, 'valuation_error'));
+        $this->assertSame(0.0, (float) $line->expected_cash_amount);
+        $this->assertSame(PosReturn::STATUS_PENDING_APPROVAL, $posReturn->fresh()->status);
     }
 
     protected function createTransactionWithCheckout(): array

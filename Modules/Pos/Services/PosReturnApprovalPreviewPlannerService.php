@@ -620,7 +620,18 @@ class PosReturnApprovalPreviewPlannerService
 
         $plannedCashAmount = $planningContext['planned_cash_amounts'][$line->id] ?? null;
 
-        if ($plannedCashAmount !== null) {
+        $isCashResolution = $line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN;
+
+        // Cash valuation overrides apply only to cash resolutions; replacement
+        // lines keep the canonical commercial amount resolved above.
+        if (! $isCashResolution) {
+            // Replacement (including component replacement): never take the cash
+            // valuation path or the zero expected cash. A priced component keeps its
+            // own bundle-item allocation; otherwise the resolved commercial amount stays.
+            if ($isComponentLine && $componentBundleItem && (float) ($componentBundleItem->price ?? 0) > 0) {
+                $detailAmount = round((float) $componentBundleItem->price * (float) $line->quantity, 2);
+            }
+        } elseif ($plannedCashAmount !== null) {
             $detailAmount = (float) $plannedCashAmount;
         } elseif ($isComponentLine && $componentBundleItem && (float) ($componentBundleItem->price ?? 0) > 0) {
             $detailAmount = round((float) $componentBundleItem->price * (float) $line->quantity, 2);

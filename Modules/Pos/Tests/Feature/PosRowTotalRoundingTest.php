@@ -1442,8 +1442,32 @@ class PosRowTotalRoundingTest extends TestCase
             'product_tax_amount' => 0,
         ]);
 
+        // Real dispatch evidence so the approved return can execute for real.
+        $dispatch = \Modules\Sale\Entities\Dispatch::create([
+            'sale_id' => $sale->id,
+            'dispatch_date' => now(),
+            'status' => \Modules\Sale\Entities\Dispatch::STATUS_APPROVED,
+        ]);
+        \Modules\Sale\Entities\DispatchDetail::create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $sale->id,
+            'product_id' => $this->product->id,
+            'dispatched_quantity' => 2,
+            'location_id' => $this->session->terminal->location_id ?? 1,
+            'tax_id' => null,
+        ]);
+
         $snapshotService = app(PosReturnSnapshotService::class);
         $submissionService = app(PosReturnSubmissionService::class);
+        $approveForReal = function (PosReturn $draft) use ($submissionService): PosReturn {
+            $pending = $submissionService->submitDraftForApproval($draft->fresh());
+            $plan = app(\Modules\Pos\Services\PosReturnApprovalPreviewPlannerService::class)->plan($pending->fresh());
+            $this->assertFalse($plan['is_blocked'] ?? true, json_encode($plan['blockers'] ?? []));
+            app(\Modules\Pos\Services\PosReturnApprovalPlanPersistenceService::class)->synchronize($pending->fresh(), $plan);
+            app(\Modules\Pos\Services\PosReturnLifecycleService::class)->executeApprovalFromPreview($pending->id);
+
+            return $pending->fresh();
+        };
 
         // 1. Build initial return snapshot
         $snapshot1 = $snapshotService->build($transaction->id);
@@ -1470,11 +1494,16 @@ class PosRowTotalRoundingTest extends TestCase
         $this->assertEquals(13000.00, (float) $return1->total_amount);
         $this->assertEquals(13000.00, (float) $return1->lines->first()->expected_cash_amount);
 
-        // Approve return 1 so it consumes return quantity
-        $return1->update([
-            'status' => PosReturn::STATUS_COMPLETED,
-            'approval_status' => PosReturn::APPROVAL_STATUS_APPROVED,
-        ]);
+        // Approve return 1 through real execution (not a simulated status flip).
+        $return1 = $approveForReal($return1);
+        $this->assertSame(PosReturn::STATUS_COMPLETED, $return1->status);
+
+        // Source sale detail was actually reduced: one unit and half of the rounded charge remain.
+        $saleDetail->refresh();
+        $this->assertEquals(1, (int) $saleDetail->quantity);
+        $this->assertEquals(13000.00, (float) $saleDetail->sub_total);
+        $sale->refresh();
+        $this->assertEquals(13000.00, (float) $sale->total_amount);
 
         // 2. Setting changes increment to 500 in the meantime
         $this->setting->update(['row_total_rounding_increment' => 500.00]);
@@ -1502,18 +1531,29 @@ class PosRowTotalRoundingTest extends TestCase
         $this->assertEquals(13000.00, (float) $return2->total_amount);
         $this->assertEquals(13000.00, (float) $return2->lines->first()->expected_cash_amount);
 
-        // Approve return 2
-        $return2->update([
-            'status' => PosReturn::STATUS_COMPLETED,
-            'approval_status' => PosReturn::APPROVAL_STATUS_APPROVED,
-        ]);
+        // Approve return 2 through real execution.
+        $return2 = $approveForReal($return2);
+        $this->assertSame(PosReturn::STATUS_COMPLETED, $return2->status);
+
+        // The remaining unit and the source residual are fully consumed.
+        $saleDetail->refresh();
+        $this->assertEquals(0, (int) $saleDetail->quantity);
+        $this->assertEquals(0.00, (float) $saleDetail->sub_total);
 
         // Sum of both partial returns equals exactly the original captured total (26,000.00)
         $this->assertEquals(26000.00, (float) ($return1->total_amount + $return2->total_amount));
 
         // Verify remaining returnable quantity is now 0
         $snapshotFinal = $snapshotService->build($transaction->id);
-        $this->assertEquals(0.0, $snapshotFinal['lines'][0]['returnable_quantity']);
+        $this->assertEquals(0.0, (float) collect($snapshotFinal['lines'])->sum('returnable_quantity'));
+
+        // The increment frozen by the first return survived the setting change (100, not 500),
+        // and the commitments account for the full captured baseline exactly once.
+        $context = $sale->fresh()->return_rounding_context;
+        $this->assertEquals(100.0, (float) $context['frozen_increment']);
+        $this->assertEquals(2.0, (float) $context['commercial_lines']['detail_' . $saleDetail->id]['committed_quantity']);
+        $this->assertEquals(26000.00, (float) $context['commercial_lines']['detail_' . $saleDetail->id]['committed_amount']);
+        $this->assertEquals(26000.00, (float) $context['commercial_lines']['detail_' . $saleDetail->id]['baseline_returnable_amount']);
     }
 }
 
