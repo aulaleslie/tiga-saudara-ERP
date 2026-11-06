@@ -1887,6 +1887,43 @@ class POSReturnApprovalPreviewPlannerTest extends PosTransactionFeatureTestCase
     }
 
     /** @test */
+    public function it_blocks_new_pos_claims_on_a_mixed_history_source_without_touching_history(): void
+    {
+        $this->actingAsInSetting($this->user, $this->setting);
+
+        [$transaction, $checkout] = $this->createTransactionWithCheckout();
+        [$sale, $detail] = $this->createSaleGraph($checkout, $this->setting->id, $this->location->id, 'MIXEDHIST');
+
+        // Historical standard (non-POS) return against the POS-origin sale => mixed history.
+        $customer = \Modules\People\Entities\Customer::factory()->create(['setting_id' => $this->setting->id]);
+        $standard = \Modules\SalesReturn\Entities\SaleReturn::query()->create([
+            'setting_id' => $this->setting->id, 'sale_id' => $sale->id, 'customer_id' => $customer->id,
+            'customer_name' => $customer->customer_name, 'date' => now()->toDateString(),
+            'reference' => 'SR-HIST-' . uniqid(), 'tax_percentage' => 0, 'tax_amount' => 0,
+            'discount_percentage' => 0, 'discount_amount' => 0, 'shipping_amount' => 0,
+            'total_amount' => 100, 'paid_amount' => 0, 'due_amount' => 100,
+            'status' => 'COMPLETED', 'approval_status' => 'APPROVED', 'payment_status' => 'UNPAID',
+            'payment_method' => 'CASH', 'return_type' => 'Cash Return',
+        ]);
+        $before = $standard->fresh()->toArray();
+        $returnsBefore = PosReturn::query()->count();
+
+        try {
+            $this->makePendingReturn($transaction->id, [[
+                'sale_detail_id' => $detail->id,
+                'quantity' => 1,
+                'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+            ]]);
+            $this->fail('A mixed-history source must reject new POS claims.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('riwayat retur campuran', $e->getMessage());
+        }
+
+        $this->assertSame($returnsBefore, PosReturn::query()->count());
+        $this->assertSame($before, $standard->fresh()->toArray());
+    }
+
+    /** @test */
     public function it_keeps_a_legitimate_zero_price_return_valid_and_unflagged(): void
     {
         $this->actingAsInSetting($this->user, $this->setting);

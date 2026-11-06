@@ -291,6 +291,13 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
             'status' => Dispatch::STATUS_APPROVED,
         ]);
         $this->assertSame(10, (int) $replacementProduct->fresh()->product_quantity);
+
+        // POS completion is independent of the standard workflow: linked headers are
+        // finalized directly, with no settlement rows to approve and no inspection step.
+        $this->assertSame(0, \Modules\SalesReturn\Entities\SaleReturnItemSettlement::query()
+            ->whereIn('sale_return_id', [$cashSaleReturn->id, $replacementSaleReturn->id])->count());
+        $this->assertNotNull($cashSaleReturn->fresh()->settled_at);
+        $this->assertNotNull($replacementSaleReturn->fresh()->settled_at);
     }
 
     /** @test */
@@ -938,6 +945,64 @@ class POSReturnAtomicLifecycleTest extends PosTransactionFeatureTestCase
     /**
      * @return array{0: PosReturn, 1: SaleReturn}
      */
+    /** @test */
+    public function it_refuses_every_entitlement_and_financial_path_for_an_already_pending_return_on_a_mixed_history_sale(): void
+    {
+        $this->actingAsInSetting($this->actor, $this->setting);
+
+        $scenarios = [
+            'approve' => fn () => $this->createPendingApprovalReturn(),
+            'execute' => fn () => $this->createPendingApprovalReturn(),
+            'receive' => fn () => $this->createPendingApprovalReturn(),
+            'settle' => fn () => $this->createAwaitingSettlementReturn(),
+            'dispatch' => fn () => $this->createAwaitingSettlementReturn(),
+        ];
+
+        foreach ($scenarios as $action => $build) {
+            [$posReturn, $saleReturn] = $build();
+
+            // Historical standard (non-POS) return on the same source sale => mixed history.
+            $historical = SaleReturn::query()->create([
+                'setting_id' => $this->setting->id, 'location_id' => $this->location->id,
+                'pos_return_id' => null, 'sale_id' => $saleReturn->sale_id,
+                'sale_reference' => $saleReturn->sale_reference, 'return_type' => 'Cash Return',
+                'customer_id' => null, 'customer_name' => 'Walk-in Customer', 'reference' => 'SR-HIST-' . uniqid(),
+                'tax_percentage' => 0, 'tax_amount' => 0, 'discount_percentage' => 0, 'discount_amount' => 0,
+                'shipping_amount' => 0, 'total_amount' => 50, 'paid_amount' => 0, 'due_amount' => 50,
+                'status' => 'COMPLETED', 'approval_status' => 'APPROVED', 'payment_status' => 'UNPAID',
+                'payment_method' => 'CASH', 'date' => now()->toDateString(),
+            ]);
+
+            $before = [
+                $posReturn->fresh()->toArray(),
+                $saleReturn->fresh()->toArray(),
+                $historical->fresh()->toArray(),
+                Sale::withArchived()->find($saleReturn->sale_id)->toArray(),
+            ];
+
+            $service = app(PosReturnLifecycleService::class);
+            try {
+                match ($action) {
+                    'approve' => $service->approve($posReturn->id),
+                    'execute' => $service->executeApprovalFromPreview($posReturn->id),
+                    'receive' => $service->receive($posReturn->id),
+                    'settle' => $service->settlePaymentReturn($posReturn->id),
+                    'dispatch' => $service->dispatchReplacement($posReturn->id),
+                };
+                $this->fail("{$action} must be refused for a mixed-history source.");
+            } catch (\RuntimeException $e) {
+                $this->assertStringContainsString('riwayat retur campuran', $e->getMessage(), $action);
+            }
+
+            $this->assertSame($before, [
+                $posReturn->fresh()->toArray(),
+                $saleReturn->fresh()->toArray(),
+                $historical->fresh()->toArray(),
+                Sale::withArchived()->find($saleReturn->sale_id)->toArray(),
+            ], "{$action}: history and source must be untouched");
+        }
+    }
+
     protected function createPendingApprovalReturn(): array
     {
         $sale = $this->createSale('PENDING APPROVAL');

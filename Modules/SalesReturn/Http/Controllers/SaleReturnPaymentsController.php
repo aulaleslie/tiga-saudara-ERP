@@ -4,6 +4,7 @@ namespace Modules\SalesReturn\Http\Controllers;
 
 use Modules\SalesReturn\DataTables\SaleReturnPaymentsDataTable;
 use Illuminate\Http\Request;
+use App\Support\SalesReturn\SalesReturnWorkflowResolver;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Gate;
 use Modules\SalesReturn\Entities\SaleReturn;
@@ -25,6 +26,7 @@ class SaleReturnPaymentsController extends Controller
         abort_if(Gate::denies('saleReturnPayments.create'), 403);
 
         $sale_return = SaleReturn::findOrFail($sale_return_id);
+        app(SalesReturnWorkflowResolver::class)->assertStandardMutable($sale_return);
 
         toast('Pembayaran retur kini dikelola melalui penyelesaian retur.', 'info');
 
@@ -36,6 +38,7 @@ class SaleReturnPaymentsController extends Controller
         abort_if(Gate::denies('saleReturnPayments.create'), 403);
 
         $sale_return = SaleReturn::findOrFail($request->sale_return_id);
+        app(SalesReturnWorkflowResolver::class)->assertStandardMutable($sale_return);
 
         toast('Gunakan penyelesaian retur untuk mencatat pembayaran.', 'info');
 
@@ -47,6 +50,7 @@ class SaleReturnPaymentsController extends Controller
         abort_if(Gate::denies('saleReturnPayments.edit'), 403);
 
         $sale_return = SaleReturn::findOrFail($sale_return_id);
+        app(SalesReturnWorkflowResolver::class)->assertStandardMutable($sale_return);
 
         toast('Pembayaran retur kini dikelola melalui penyelesaian retur.', 'info');
 
@@ -58,6 +62,7 @@ class SaleReturnPaymentsController extends Controller
         abort_if(Gate::denies('saleReturnPayments.edit'), 403);
 
         $sale_return = $saleReturnPayment->saleReturn;
+        app(SalesReturnWorkflowResolver::class)->assertStandardMutable($sale_return);
 
         toast('Gunakan penyelesaian retur untuk memperbarui pembayaran.', 'info');
 
@@ -69,6 +74,7 @@ class SaleReturnPaymentsController extends Controller
         abort_if(Gate::denies('saleReturnPayments.delete'), 403);
 
         $sale_return = $saleReturnPayment->saleReturn;
+        app(SalesReturnWorkflowResolver::class)->assertStandardMutable($sale_return);
 
         toast('Hapus atau ubah pembayaran melalui penyelesaian retur.', 'info');
 

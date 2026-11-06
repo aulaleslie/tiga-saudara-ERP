@@ -13,11 +13,11 @@
 
 ## 2. Isolate standard and POS return ownership
 
-- [ ] 2.1 Implement a shared workflow resolver recognizing direct legacy checkout links, split checkout-sale links, and linked POS return records; verify ordinary, legacy POS, split-owner POS, and ambiguous mixed-history fixtures resolve correctly.
-- [ ] 2.2 Filter standard sale lookup and reject POS-origin standard create/edit submissions server-side; verify UI lookup and direct Livewire payloads cannot create duplicate standard claims against POS sales and provide POS navigation guidance.
-- [ ] 2.3 Protect all standard header, settlement, inspection, dispatch, and legacy payment mutation adapters against linked POS records; verify direct endpoint and Livewire calls are rejected even for a user holding both permission sets, while authorized reads still work.
-- [ ] 2.4 Separate standard status/coverage services from shared POS completion/archive branches; verify POS final approval completes linked headers without standard settlement rows or inspection and preserves legacy lifecycle tests.
-- [ ] 2.5 Block unsafe new entitlement, financial, and archive actions on historical mixed-flow sources without rewriting them; verify existing records remain readable and unchanged, and document the workflow ownership boundary and operator guidance.
+- [x] 2.1 Implement a shared workflow resolver recognizing direct legacy checkout links, split checkout-sale links, and linked POS return records; verify ordinary, legacy POS, split-owner POS, and ambiguous mixed-history fixtures resolve correctly.
+- [x] 2.2 Filter standard sale lookup and reject POS-origin standard create/edit submissions server-side; verify UI lookup and direct Livewire payloads cannot create duplicate standard claims against POS sales and provide POS navigation guidance.
+- [x] 2.3 Protect all standard header, settlement, inspection, dispatch, and legacy payment mutation adapters against linked POS records; verify direct endpoint and Livewire calls are rejected even for a user holding both permission sets, while authorized reads still work.
+- [x] 2.4 Separate standard status/coverage services from shared POS completion/archive branches; verify POS final approval completes linked headers without standard settlement rows or inspection and preserves legacy lifecycle tests.
+- [x] 2.5 Block unsafe new entitlement, financial, and archive actions on historical mixed-flow sources without rewriting them; verify existing records remain readable and unchanged, and document the workflow ownership boundary and operator guidance.
 
 ## 3. Restore standard settlement surfaces and server guards
 

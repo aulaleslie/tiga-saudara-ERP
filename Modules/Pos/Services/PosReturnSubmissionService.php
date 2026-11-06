@@ -58,6 +58,8 @@ class PosReturnSubmissionService
                 throw new \Exception("Transaction has no completed checkout.");
             }
 
+            $this->assertNoMixedWorkflowHistory((int) $checkout->id);
+
             if (!empty($data['source_snapshot']) && !empty($data['source_snapshot_hash'])) {
                 if ($this->snapshotService->hash($data['source_snapshot']) !== $data['source_snapshot_hash']) {
                     throw new \Exception('Source snapshot is stale. Please refresh the page.');
@@ -498,6 +500,7 @@ class PosReturnSubmissionService
             $posReturn->lines()->delete();
             
             $transaction = $posReturn->posTransaction()->with(['customer', 'completedCheckout'])->firstOrFail();
+            $this->assertNoMixedWorkflowHistory((int) $posReturn->pos_checkout_id);
             $currentSnapshot = $this->snapshotService->build($transaction->id);
             $validatedLines = $this->validateDraftLines(
                 $data['lines'] ?? [],
@@ -880,6 +883,7 @@ class PosReturnSubmissionService
             }
 
             $transaction = $lockedReturn->posTransaction()->with(['customer', 'completedCheckout'])->firstOrFail();
+            $this->assertNoMixedWorkflowHistory((int) $lockedReturn->pos_checkout_id);
             $currentSnapshot = $this->snapshotService->build($transaction->id);
 
             $this->validateDraftLines(
@@ -938,6 +942,28 @@ class PosReturnSubmissionService
 
             return $lockedReturn->refresh();
         });
+    }
+
+    /**
+     * Historical mixed standard/POS claims use incompatible quantity models; new POS
+     * entitlement is blocked (never rewritten) until an administrator audits the history.
+     */
+    protected function assertNoMixedWorkflowHistory(int $checkoutId): void
+    {
+        if ($checkoutId <= 0) {
+            return;
+        }
+
+        $resolver = app(\App\Support\SalesReturn\SalesReturnWorkflowResolver::class);
+        $saleIds = PosCheckoutSale::where('pos_checkout_id', $checkoutId)->pluck('sale_id')
+            ->merge(\Modules\Pos\Entities\PosCheckout::where('id', $checkoutId)->pluck('sale_id'))
+            ->filter()->unique();
+
+        foreach ($saleIds as $saleId) {
+            if ($resolver->classifySale((int) $saleId) === \App\Support\SalesReturn\SalesReturnWorkflowResolver::MIXED) {
+                throw new \Exception('Penjualan sumber memiliki riwayat retur campuran (POS dan standar) sehingga klaim retur baru diblokir. Data lama tidak diubah; hubungi administrator untuk audit.');
+            }
+        }
     }
 
     /**

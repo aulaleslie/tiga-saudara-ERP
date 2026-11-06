@@ -12,8 +12,12 @@ use Modules\SalesReturn\Entities\SaleReturnDetail;
 class SaleReturnLifecycleSyncService
 {
     /**
-     * Sync source sale return status based on sales returns that have been received.
-     * Received returns are sale returns in AWAITING SETTLEMENT or COMPLETED status.
+     * Sync source sale return status. Workflow-explicit entry point:
+     *  - POS-corrected sales (any linked POS return) use active-quantity status, which
+     *    never depends on standard settlement rows, inspection or custody.
+     *  - Standard sales use received-return coverage.
+     *  - A POS-origin sale without POS corrections (legacy/mixed history) is never
+     *    changed by a standard return; evidence is left exactly as it is.
      */
     public function syncSourceSaleReturnStatusFromReceivedReturns(SaleReturn $saleReturn): void
     {
@@ -31,11 +35,25 @@ class SaleReturnLifecycleSyncService
             return;
         }
 
-        $saleHasPosCorrection = SaleReturn::withArchived()
-            ->where('sale_id', $sale->id)
-            ->whereNotNull('pos_return_id')
-            ->exists();
+        // Mixed history is checked BEFORE choosing either mutation branch: incompatible
+        // quantity models are never combined and historical evidence is never reinterpreted.
+        $classification = app(SalesReturnWorkflowResolver::class)->classifySale((int) $sale->id);
+        if ($classification === SalesReturnWorkflowResolver::MIXED) {
+            return;
+        }
 
+        if ($classification === SalesReturnWorkflowResolver::POS) {
+            $this->syncPosActiveQuantityStatus($sale);
+
+            return;
+        }
+
+        $this->syncStandardReceivedStatus($sale);
+    }
+
+    /** POS branch: status derives from remaining active quantities only. */
+    private function syncPosActiveQuantityStatus(Sale $sale): void
+    {
         $activeSaleQuantity = (float) SaleDetails::query()
             ->where('sale_id', $sale->id)
             ->sum('quantity');
@@ -48,23 +66,18 @@ class SaleReturnLifecycleSyncService
             ->where('sale_id', $sale->id)
             ->sum('quantity');
 
-        if ($saleHasPosCorrection) {
-            $isFullyReturned = $activeSaleQuantity <= 0 && $activeDispatchedQuantity <= 0 && $activeBundleItemQuantity <= 0;
-            if ($isFullyReturned) {
-                if ($sale->status !== Sale::STATUS_RETURNED) {
-                    $sale->status = Sale::STATUS_RETURNED;
-                    $sale->save();
-                }
-            } else {
-                if ($sale->status !== Sale::STATUS_RETURNED_PARTIALLY) {
-                    $sale->status = Sale::STATUS_RETURNED_PARTIALLY;
-                    $sale->save();
-                }
-            }
+        $isFullyReturned = $activeSaleQuantity <= 0 && $activeDispatchedQuantity <= 0 && $activeBundleItemQuantity <= 0;
+        $target = $isFullyReturned ? Sale::STATUS_RETURNED : Sale::STATUS_RETURNED_PARTIALLY;
 
-            return;
+        if ($sale->status !== $target) {
+            $sale->status = $target;
+            $sale->save();
         }
+    }
 
+    /** Standard branch: status derives from received standard return quantities. */
+    private function syncStandardReceivedStatus(Sale $sale): void
+    {
         $dispatchedQuantity = (int) DispatchDetail::query()
             ->where('sale_id', $sale->id)
             ->sum('dispatched_quantity');
@@ -97,6 +110,18 @@ class SaleReturnLifecycleSyncService
      */
     public function syncSaleReturnCompletionRollup(SaleReturn $saleReturn, int $actorId): void
     {
+        // POS returns complete through their own atomic approval; they never have (or need)
+        // standard settlement rows, so settlement rollup does not apply to them.
+        if ($this->isMixedHistory($saleReturn)) {
+            return;
+        }
+
+        if (! empty($saleReturn->pos_return_id)) {
+            $this->syncLinkedPosReturnCompletion($saleReturn, $actorId);
+
+            return;
+        }
+
         $saleReturn->load('settlementItems');
 
         $newStatus = $saleReturn->settlement_status === 'Settled'
@@ -202,6 +227,10 @@ class SaleReturnLifecycleSyncService
             return;
         }
 
+        if ($this->isMixedHistory($saleReturn)) {
+            return;
+        }
+
         $this->syncLinkedPosReturnCompletion($saleReturn, $actorId);
 
         $saleId = (int) ($saleReturn->sale_id ?? 0);
@@ -218,36 +247,11 @@ class SaleReturnLifecycleSyncService
             return;
         }
 
-        $activeSaleQuantity = (float) SaleDetails::query()
-            ->where('sale_id', $sale->id)
-            ->sum('quantity');
+        $fullyReturned = ! empty($saleReturn->pos_return_id)
+            ? $this->posArchivalSatisfied($sale)
+            : $this->standardArchivalSatisfied($sale);
 
-        $activeDispatchedQuantity = (float) DispatchDetail::query()
-            ->where('sale_id', $sale->id)
-            ->sum('dispatched_quantity');
-
-        $activeBundleItemQuantity = (float) SaleBundleItem::query()
-            ->where('sale_id', $sale->id)
-            ->sum('quantity');
-
-        $posCorrectedFullyReturned = $activeSaleQuantity <= 0 && $activeDispatchedQuantity <= 0 && $activeBundleItemQuantity <= 0;
-
-        // POS returns mutate sale-detail and dispatch quantities directly during receiving,
-        // so the standard-return effective-coverage fallback (which reasons over persisted
-        // dispatched quantities) only applies to sales that were never POS-corrected; it must
-        // never be combined with POS-mutated quantities to avoid double-counting.
-        $saleHasPosCorrection = SaleReturn::withArchived()
-            ->where('sale_id', $sale->id)
-            ->whereNotNull('pos_return_id')
-            ->exists();
-
-        $standardFullyCovered = false;
-        if (! $posCorrectedFullyReturned && ! $saleHasPosCorrection) {
-            $effectiveCoverage = $this->calculateEffectiveStandardReturnCoverage($sale->id);
-            $standardFullyCovered = $effectiveCoverage['fully_covered'];
-        }
-
-        if (! $posCorrectedFullyReturned && ! $standardFullyCovered) {
+        if (! $fullyReturned) {
             return;
         }
 
@@ -278,6 +282,41 @@ class SaleReturnLifecycleSyncService
         if (! empty($updates)) {
             $sale->update($updates);
         }
+    }
+
+    private function isMixedHistory(SaleReturn $saleReturn): bool
+    {
+        $saleId = (int) ($saleReturn->sale_id ?? 0);
+
+        return $saleId > 0
+            && app(SalesReturnWorkflowResolver::class)->classifySale($saleId) === SalesReturnWorkflowResolver::MIXED;
+    }
+
+    /** POS archival: all active quantities are zero. Independent of settlement/inspection. */
+    private function posArchivalSatisfied(Sale $sale): bool
+    {
+        $activeSaleQuantity = (float) SaleDetails::query()->where('sale_id', $sale->id)->sum('quantity');
+        $activeDispatchedQuantity = (float) DispatchDetail::query()->where('sale_id', $sale->id)->sum('dispatched_quantity');
+        $activeBundleItemQuantity = (float) SaleBundleItem::query()->where('sale_id', $sale->id)->sum('quantity');
+
+        return $activeSaleQuantity <= 0 && $activeDispatchedQuantity <= 0 && $activeBundleItemQuantity <= 0;
+    }
+
+    /**
+     * Standard archival: never on POS-origin or mixed-history sales (historical evidence
+     * is not reinterpreted), otherwise by effective coverage of every dispatch line.
+     */
+    private function standardArchivalSatisfied(Sale $sale): bool
+    {
+        if (app(SalesReturnWorkflowResolver::class)->classifySale((int) $sale->id) !== SalesReturnWorkflowResolver::STANDARD) {
+            return false;
+        }
+
+        if ($this->posArchivalSatisfied($sale)) {
+            return true;
+        }
+
+        return $this->calculateEffectiveStandardReturnCoverage((int) $sale->id)['fully_covered'];
     }
 
     private function syncLinkedPosReturnCompletion(SaleReturn $saleReturn, int $actorId): void

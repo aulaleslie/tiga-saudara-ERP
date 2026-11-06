@@ -24,6 +24,12 @@ use Throwable;
 
 class SalesReturnController extends Controller
 {
+    public function __construct()
+    {
+        // Resource routes cannot be annotated individually; edit/update/destroy are mutations.
+        $this->middleware('sales-return.standard')->only(['edit', 'update', 'destroy']);
+    }
+
 
     public function index(SaleReturnsDataTable $dataTable) {
         abort_if(Gate::denies('saleReturns.access'), 403);

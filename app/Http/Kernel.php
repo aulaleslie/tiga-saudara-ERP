@@ -65,6 +65,7 @@ class Kernel extends HttpKernel
         'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'role.setting' => \App\Http\Middleware\CheckUserRoleForSetting::class,
+        'sales-return.standard' => \App\Http\Middleware\EnsureStandardSalesReturn::class,
         'idempotency' => \App\Http\Middleware\IdempotencyMiddleware::class,
         'pos.enabled' => \Modules\Pos\Http\Middleware\PosEnabledMiddleware::class,
         'pos.transactions.enabled' => \Modules\Pos\Http\Middleware\PosTransactionsEnabledMiddleware::class,

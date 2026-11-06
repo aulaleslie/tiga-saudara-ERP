@@ -87,3 +87,79 @@ baseline*; they are covered by the gate run, where they pass.
   `it_keeps_component_replacement_amounts_out_of_cash_valuation` (priced and unpriced).
 - **Fixture decision resolved**: the shared-line-share planner fixture uses an unpriced
   component; priced components have their own test.
+
+## Phase 2: Workflow ownership boundary
+
+### Rule
+
+A sale belongs to exactly one return workflow. `App\Support\SalesReturn\SalesReturnWorkflowResolver`
+classifies every sale and return:
+
+| Class | Meaning | Standard Sales Return | POS Return |
+|---|---|---|---|
+| `standard` | No POS link anywhere | Allowed | n/a |
+| `pos` | POS checkout (legacy `pos_checkouts.sale_id`), split link (`pos_checkout_sales.sale_id`) or any linked POS return | **Blocked** (read only) | Allowed |
+| `mixed` | POS-origin sale that also has historical non-POS standard returns | **Blocked** | **New claims blocked** |
+
+A null `pos_return_id` alone never proves an ordinary sale: both checkout link shapes are
+checked. Historical rows are never rewritten by classification or by any blocked action.
+
+### Enforcement points (all server-side)
+
+- Lookup: `SaleReturnEligibilityService::isSaleEligible` excludes non-standard sales; the
+  search dropdown shows POS guidance when a search only matched POS sales.
+- Create/edit: `handleSaleSelected` (ignores client-supplied rows), create `submit`
+  (source sale locked first, ownership re-checked under the lock), edit `mount` and `submit`.
+- Routes: middleware `sales-return.standard` (`EnsureStandardSalesReturn`) on approve, reject,
+  receive, archive, settlement item approve/reject, dispatch form/request/approve/reject/item;
+  the same guard on the resource `edit/update/destroy` and the legacy payment adapters.
+  Rejections are HTTP 409 with guidance, even for a user holding both permission sets.
+- Settlement Livewire form: renders read-only for POS-owned returns; `submit`, `submitLine`,
+  `resetLine` and `updatedSettlementLines` re-check authoritative state.
+- Lifecycle sync (`SaleReturnLifecycleSyncService`): explicit branches. POS returns derive
+  status and archival from remaining active quantities and complete without settlement rows
+  or inspection. Standard branches are no-ops on non-standard sales.
+- POS: `PosReturnSubmissionService` rejects new POS claims (`store`, `update`,
+  `submitDraftForApproval`) when a source sale has mixed history.
+
+### Operator guidance
+
+- "Penjualan ini berasal dari POS" / "dikelola oleh Retur POS": use **POS > Retur** (`/pos/returns`).
+  Reading the return in Sales Returns still works.
+- "riwayat retur campuran": the sale has both POS and standard return records. Nothing was
+  changed. Ask an administrator to review the history; a read-only audit command arrives in a
+  later phase (group 8). No automatic repair exists or is planned.
+
+### Pre-existing defects noticed (not changed here)
+
+- `SaleReturnDetail::selectableSettlementMethods()` is missing, so the standard settlement view
+  fails to render (task 3.1).
+- The standard `show` page references an undefined `saleReturnGoods` relation on `SaleReturn`.
+- `PRAGMA foreign_keys = OFF` in older tests is a no-op inside `RefreshDatabase`; new tests use
+  `PRAGMA defer_foreign_keys = ON` (task 3.2 covers the older ones).
+
+### Verification (phase 2)
+
+| Check | Result |
+|---|---|
+| POS gate (same command as phase 1) | **495 passed, 0 failed** (493 + mixed-history store regression + pending-execution regression) |
+| Standard filter `--filter='SalesReturn\|SaleReturn\|SaleReturns'` | 19 failed / 57 passed; baseline was 19 failed / 34 passed, **identical failing set** (owned by group 3) |
+| `Modules/Pos/Tests/Feature` | 328 failed, unchanged vs end of phase 1 |
+| `tests/Feature/Livewire` | 64 failed, identical to pre-change baseline |
+
+### Review follow-ups (closed)
+
+- **Settlement form identity**: `saleReturn`, `saleReturnId` and `isReadOnly` are `#[Locked]`; the guard
+  compares the hydrated model with the authoritative row. `resetLine`/`submitLine` resolve every
+  settlement through its parent (`sale_return_id` = this return, row locked) and take status from
+  the database row, never from the hydrated line; a detail that does not belong to the return is
+  rejected. The edit form's `saleReturn` is locked too.
+- **Mixed history in sync**: `SaleReturnLifecycleSyncService` checks mixed classification before
+  choosing either mutation branch, in status sync, completion rollup and archival. A sale with both
+  standard and POS-linked returns no longer changes status (previously `DISPATCHED` -> `RETURNED`).
+- **Already-pending POS returns**: `PosReturnLifecycleService` revalidates mixed history under the
+  source-sale locks in `approve`, `executeApprovalFromPreview`, `receive`, `settlePaymentReturn` and
+  `dispatchReplacement`. `reject`/`cancel`/`archive` stay allowed (they release claims).
+  The regression was verified to fail with the guard disabled.
+- Note: the new classification tests defer foreign-key checks; they prove ownership rules, not
+  relational integrity.

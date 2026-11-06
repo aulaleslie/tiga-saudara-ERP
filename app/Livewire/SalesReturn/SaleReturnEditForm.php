@@ -3,7 +3,10 @@
 namespace App\Livewire\SalesReturn;
 
 use Carbon\Carbon;
+use App\Support\SalesReturn\SalesReturnWorkflowException;
+use App\Support\SalesReturn\SalesReturnWorkflowResolver;
 use Exception;
+use Livewire\Attributes\Locked;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -15,6 +18,7 @@ use Modules\SalesReturn\Entities\SaleReturnDetail;
 
 class SaleReturnEditForm extends SaleReturnCreateForm
 {
+    #[Locked]
     public SaleReturn $saleReturn;
 
     public function mount(?SaleReturn $saleReturn = null): void
@@ -32,6 +36,9 @@ class SaleReturnEditForm extends SaleReturnCreateForm
             'saleReturnDetails.dispatchDetail.product',
             'saleReturnDetails.dispatchDetail.location',
         ]);
+
+        // POS-owned (or mixed-history) returns are read-only through the standard edit surface.
+        app(SalesReturnWorkflowResolver::class)->assertStandardMutable($this->saleReturn);
 
         $this->formTitle = 'Ubah Retur Penjualan';
         $this->submitLabel = 'Simpan Perubahan';
@@ -149,6 +156,16 @@ class SaleReturnEditForm extends SaleReturnCreateForm
             $prepared = $this->validateAndPrepare();
 
             DB::transaction(function () use ($prepared) {
+                $resolver = app(SalesReturnWorkflowResolver::class);
+                // Source sale first, then the return; re-check ownership under the locks.
+                if ($this->sale_id) {
+                    Sale::withArchived()->whereKey($this->sale_id)->lockForUpdate()->first();
+                }
+                $resolver->assertStandardMutable($this->saleReturn->fresh());
+                if ($this->sale_id && (int) $this->sale_id !== (int) $this->saleReturn->sale_id) {
+                    $resolver->assertSaleAllowsStandardReturn((int) $this->sale_id);
+                }
+
                 $sale = $this->sale_id ? Sale::find($this->sale_id) : null;
                 $customerId = $sale ? $sale->customer_id : $this->saleReturn->customer_id;
                 $customerName = $sale ? ($sale->customer_name ?: optional($sale->customer)->customer_name) : $this->saleReturn->customer_name;
@@ -214,6 +231,8 @@ class SaleReturnEditForm extends SaleReturnCreateForm
             ]);
             $this->dispatch('updateTableErrors', $e->validator->errors()->getMessages());
             throw $e;
+        } catch (SalesReturnWorkflowException $e) {
+            session()->flash('error', $e->getMessage());
         } catch (Exception $e) {
             Log::error('Gagal memperbarui retur penjualan', [
                 'sale_return_id' => $this->saleReturn->id,

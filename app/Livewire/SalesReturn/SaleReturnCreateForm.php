@@ -4,6 +4,8 @@ namespace App\Livewire\SalesReturn;
 
 use App\Livewire\SalesReturn\Concerns\ValidatesSaleReturnForm;
 use App\Support\SalesReturn\SaleReturnEligibilityService;
+use App\Support\SalesReturn\SalesReturnWorkflowException;
+use App\Support\SalesReturn\SalesReturnWorkflowResolver;
 use Exception;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
@@ -73,6 +75,14 @@ class SaleReturnCreateForm extends Component
             $this->rows = [];
             $this->grand_total = 0;
             $this->dispatch('hydrateSaleReturnRows', $this->rows, $this->sale_id, null);
+            return;
+        }
+
+        // Server-side ownership check: client-supplied rows are never trusted.
+        try {
+            app(SalesReturnWorkflowResolver::class)->assertSaleAllowsStandardReturn((int) $saleId);
+        } catch (SalesReturnWorkflowException $e) {
+            session()->flash('error', $e->getMessage());
             return;
         }
 
@@ -158,6 +168,10 @@ class SaleReturnCreateForm extends Component
             }
 
             DB::transaction(function () use ($prepared, $sale) {
+                // Serialize new claims on the source sale, then re-check ownership under the lock.
+                Sale::withArchived()->whereKey($sale->id)->lockForUpdate()->first();
+                app(SalesReturnWorkflowResolver::class)->assertSaleAllowsStandardReturn((int) $sale->id);
+
                 $customerId = $sale->customer_id;
                 $customerName = $sale->customer_name ?: optional($sale->customer)->customer_name;
                 $settingId = $sale->setting_id ?: session('setting_id');
@@ -238,6 +252,8 @@ class SaleReturnCreateForm extends Component
             Log::warning('Validasi retur penjualan gagal', ['errors' => $e->validator->errors()->getMessages()]);
             $this->dispatch('updateTableErrors', $e->validator->errors()->getMessages());
             throw $e;
+        } catch (SalesReturnWorkflowException $e) {
+            session()->flash('error', $e->getMessage());
         } catch (Exception $e) {
             Log::error('Gagal menyimpan retur penjualan', ['message' => $e->getMessage()]);
             session()->flash('error', 'Terjadi kesalahan saat menyimpan retur penjualan.');

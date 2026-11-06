@@ -21,6 +21,9 @@
         @endif
     </div>
 
+    @if($open && $posNotice)
+        <div class="alert alert-warning mt-1 mb-0 py-1 small" data-testid="pos-notice">{{ $posNotice }}</div>
+    @endif
     @if($open && count($options) > 0)
         <div class="dropdown-menu show w-100 mt-1 shadow-sm fs-6" style="max-height: 300px; overflow-y: auto;">
             @foreach($options as $option)

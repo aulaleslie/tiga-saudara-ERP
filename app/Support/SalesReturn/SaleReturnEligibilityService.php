@@ -26,6 +26,10 @@ class SaleReturnEligibilityService
      */
     public function isSaleEligible(Sale $sale): bool
     {
+        if (app(SalesReturnWorkflowResolver::class)->classifySale((int) $sale->id) !== SalesReturnWorkflowResolver::STANDARD) {
+            return false;
+        }
+
         return in_array($sale->status, self::ELIGIBLE_STATUSES, true);
     }
 

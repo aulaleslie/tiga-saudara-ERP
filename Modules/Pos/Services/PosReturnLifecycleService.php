@@ -38,6 +38,7 @@ class PosReturnLifecycleService
                     ->firstOrFail();
 
                 $this->assertManualCorrectionIsNotRequired($posReturn);
+                $this->assertNoMixedWorkflowHistoryUnderLock($posReturn);
 
                 if ($posReturn->status !== \Modules\Pos\Entities\PosReturn::STATUS_PENDING_APPROVAL) {
                     throw new \RuntimeException('Only pending approval returns can be executed from approval preview.');
@@ -169,6 +170,7 @@ class PosReturnLifecycleService
                     ->firstOrFail();
 
                 $this->assertManualCorrectionIsNotRequired($posReturn);
+                $this->assertNoMixedWorkflowHistoryUnderLock($posReturn);
 
                 if ($posReturn->status !== \Modules\Pos\Entities\PosReturn::STATUS_PENDING_APPROVAL) {
                     throw new \Exception("Only pending approval returns can be approved.");
@@ -2112,6 +2114,7 @@ class PosReturnLifecycleService
             $posReturn = \Modules\Pos\Entities\PosReturn::with(['saleReturns.saleReturnDetails.posReturnLine', 'lines'])->findOrFail($posReturnId);
 
             $this->assertManualCorrectionIsNotRequired($posReturn);
+            $this->assertNoMixedWorkflowHistoryUnderLock($posReturn);
 
             if ($posReturn->status !== \Modules\Pos\Entities\PosReturn::STATUS_APPROVED) {
                 throw new \Exception("Only approved returns can be received.");
@@ -2338,6 +2341,7 @@ class PosReturnLifecycleService
                 ->firstOrFail();
 
             $this->assertManualCorrectionIsNotRequired($posReturn);
+            $this->assertNoMixedWorkflowHistoryUnderLock($posReturn);
 
             if ($posReturn->return_option !== \Modules\Pos\Entities\PosReturn::OPTION_CASH_RETURN) {
                 throw new \Exception('Hanya retur dengan opsi kembali uang yang dapat diproses sebagai pengembalian tunai.');
@@ -2430,6 +2434,7 @@ class PosReturnLifecycleService
                 ->firstOrFail();
 
             $this->assertManualCorrectionIsNotRequired($posReturn);
+            $this->assertNoMixedWorkflowHistoryUnderLock($posReturn);
 
             if ($posReturn->return_option !== \Modules\Pos\Entities\PosReturn::OPTION_PRODUCT_REPLACEMENT) {
                 throw new \Exception('Hanya retur dengan opsi ganti produk yang dapat diproses sebagai pengiriman pengganti.');
@@ -2777,6 +2782,32 @@ class PosReturnLifecycleService
                 'updated_by' => \Illuminate\Support\Facades\Auth::id(),
             ])->save();
         });
+    }
+
+    /**
+     * Pending/legacy returns can reach execution without being resubmitted, so mixed
+     * standard/POS history is revalidated here under the source-sale locks. Nothing is
+     * rewritten; the action is simply refused until an administrator audits the history.
+     */
+    protected function assertNoMixedWorkflowHistoryUnderLock(PosReturn $posReturn): void
+    {
+        $saleIds = \Modules\Pos\Entities\PosReturnLine::query()->where('pos_return_id', $posReturn->id)->pluck('sale_id')
+            ->merge(\Modules\SalesReturn\Entities\SaleReturn::withArchived()->where('pos_return_id', $posReturn->id)->pluck('sale_id'))
+            ->merge(\Modules\Pos\Entities\PosCheckoutSale::query()->where('pos_checkout_id', $posReturn->pos_checkout_id)->pluck('sale_id'))
+            ->filter()->map(fn ($id) => (int) $id)->unique()->sort()->values();
+
+        if ($saleIds->isEmpty()) {
+            return;
+        }
+
+        \Modules\Sale\Entities\Sale::withArchived()->whereIn('id', $saleIds)->orderBy('id')->lockForUpdate()->get();
+
+        $resolver = app(\App\Support\SalesReturn\SalesReturnWorkflowResolver::class);
+        foreach ($saleIds as $saleId) {
+            if ($resolver->classifySale($saleId) === \App\Support\SalesReturn\SalesReturnWorkflowResolver::MIXED) {
+                throw new \RuntimeException('Penjualan sumber memiliki riwayat retur campuran (POS dan standar) sehingga tindakan retur baru diblokir. Data lama tidak diubah; hubungi administrator untuk audit.');
+            }
+        }
     }
 
     protected function assertManualCorrectionIsNotRequired(PosReturn $posReturn): void

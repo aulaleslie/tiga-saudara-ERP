@@ -22,6 +22,9 @@ class SaleReferenceSearchDropdown extends Component
     
     public ?string $selectedLabel = null;
 
+    /** Shown when a search only matched POS-owned sales. */
+    public ?string $posNotice = null;
+
     protected SaleReturnEligibilityService $eligibilityService;
 
     public function boot(SaleReturnEligibilityService $eligibilityService): void
@@ -45,7 +48,8 @@ class SaleReferenceSearchDropdown extends Component
         }
 
         $this->open = true;
-        
+        $this->posNotice = null;
+
         $this->options = Sale::query()
             ->where('reference', 'like', '%' . $this->search . '%')
             ->whereIn('status', SaleReturnEligibilityService::ELIGIBLE_STATUSES)
@@ -63,6 +67,17 @@ class SaleReferenceSearchDropdown extends Component
             ])
             ->values()
             ->all();
+
+        if ($this->options === []) {
+            $resolver = app(\App\Support\SalesReturn\SalesReturnWorkflowResolver::class);
+            $matchesPos = Sale::query()
+                ->where('reference', 'like', '%' . $this->search . '%')
+                ->limit(10)->pluck('id')
+                ->contains(fn ($id) => $resolver->isPosOriginSale((int) $id));
+            if ($matchesPos) {
+                $this->posNotice = 'Penjualan POS tidak dapat diretur di sini. Gunakan menu Retur POS (/pos/returns).';
+            }
+        }
     }
 
     public function select(int $id): void
