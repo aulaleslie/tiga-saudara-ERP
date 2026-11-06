@@ -18,11 +18,11 @@ use Tests\TestCase;
 class SaleReturnLockingTest extends TestCase
 {
     use RefreshDatabase;
+    use \Tests\Feature\SalesReturn\SeedsReferenceData;
 
     protected function setUp(): void
     {
         parent::setUp();
-        \Illuminate\Support\Facades\DB::statement('PRAGMA foreign_keys = OFF');
         
         Setting::create([
             'id' => 1,
@@ -37,6 +37,7 @@ class SaleReturnLockingTest extends TestCase
         ]);
 
         session(['setting_id' => 1]);
+        $this->seedCustomer();
     }
 
     protected function createProduct(bool $withSerial = false): Product

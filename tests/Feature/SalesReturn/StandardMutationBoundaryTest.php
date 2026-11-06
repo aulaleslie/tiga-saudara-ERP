@@ -24,6 +24,15 @@ class StandardMutationBoundaryTest extends TestCase
         // Simulates a user holding BOTH the standard and POS permission sets.
         Gate::before(fn () => true);
         $this->actingAs(User::factory()->create());
+        $this->withSession(['setting_id' => 1]);
+        session(['setting_id' => 1]);
+    }
+
+    private function awaitingSettlementReturn(): SaleReturn
+    {
+        return $this->makeReturn($this->makeSale(), [
+            'status' => 'AWAITING SETTLEMENT', 'approval_status' => 'APPROVED', 'received_at' => now(),
+        ]);
     }
 
     private function posLinkedReturn(string $mode): SaleReturn
@@ -145,7 +154,7 @@ class StandardMutationBoundaryTest extends TestCase
     /** @test */
     public function reset_line_cannot_touch_a_settlement_of_another_return(): void
     {
-        $standard = $this->makeReturn($this->makeSale());
+        $standard = $this->awaitingSettlementReturn();
         $pos = $this->posLinkedReturn('link');
         $foreign = SaleReturnItemSettlement::query()->create([
             'sale_return_id' => $pos->id, 'sale_return_detail_id' => 1,
@@ -171,7 +180,7 @@ class StandardMutationBoundaryTest extends TestCase
     /** @test */
     public function reset_line_uses_authoritative_status_not_the_hydrated_line(): void
     {
-        $standard = $this->makeReturn($this->makeSale());
+        $standard = $this->awaitingSettlementReturn();
         $own = SaleReturnItemSettlement::query()->create([
             'sale_return_id' => $standard->id, 'sale_return_detail_id' => 1,
             'method' => 'cash_refund', 'nominal' => 100, 'status' => SaleReturnItemSettlement::STATUS_APPROVED,

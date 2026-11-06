@@ -16,12 +16,12 @@ use Tests\TestCase;
 class SaleReturnCreateFormTest extends TestCase
 {
     use RefreshDatabase;
+    use \Tests\Feature\SalesReturn\SeedsReferenceData;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->withoutExceptionHandling();
-        \Illuminate\Support\Facades\DB::statement('PRAGMA foreign_keys = OFF');
         
         Setting::create([
             'id' => 1,
@@ -36,6 +36,10 @@ class SaleReturnCreateFormTest extends TestCase
         ]);
 
         session(['setting_id' => 1]);
+        \Illuminate\Support\Facades\Gate::define('saleReturns.create', fn () => true);
+        $this->actingAs(\App\Models\User::factory()->create());
+        $this->seedCustomer();
+        $this->seedLocation();
     }
 
     protected function createProduct(string $name = 'Test Product', string $code = 'TP01'): Product
@@ -77,8 +81,22 @@ class SaleReturnCreateFormTest extends TestCase
         ]);
     }
 
-    protected function createDispatchDetail(int $dispatchId, int $saleId, int $productId): DispatchDetail
+    protected function createDispatchDetail(int $dispatchId, int $saleId, int $productId, float $unitPrice = 1000): DispatchDetail
     {
+        // The source sale line carries the authoritative price; the form never decides it.
+        \Modules\Sale\Entities\SaleDetails::create([
+            'sale_id' => $saleId,
+            'product_id' => $productId,
+            'product_name' => 'Test Product',
+            'product_code' => 'TP-' . $productId,
+            'quantity' => 5,
+            'price' => $unitPrice,
+            'unit_price' => $unitPrice,
+            'sub_total' => $unitPrice * 5,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
         return DispatchDetail::create([
             'dispatch_id' => $dispatchId,
             'sale_id' => $saleId,
@@ -162,7 +180,7 @@ class SaleReturnCreateFormTest extends TestCase
         $sale = $this->createSale();
         $dispatch = $this->createDispatch($sale->id);
         $dd1 = $this->createDispatchDetail($dispatch->id, $sale->id, $product1->id);
-        $dd2 = $this->createDispatchDetail($dispatch->id, $sale->id, $product2->id);
+        $dd2 = $this->createDispatchDetail($dispatch->id, $sale->id, $product2->id, 500);
 
         Livewire::test(SaleReturnCreateForm::class)
             ->call('handleSaleSelected', [

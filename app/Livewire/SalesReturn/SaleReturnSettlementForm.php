@@ -179,6 +179,9 @@ class SaleReturnSettlementForm extends Component
     /** Server-side ownership guard for every settlement mutation (authoritative state, not hydrated). */
     protected function guardStandardMutation(): void
     {
+        // Every settlement mutation (field edit, submit, reset) needs the settlement-submit permission.
+        abort_if(\Illuminate\Support\Facades\Gate::denies('saleReturnSettlements.submit'), 403);
+
         $fresh = SaleReturn::withArchived()->findOrFail($this->saleReturnId);
 
         // The hydrated model must still be the document this component was mounted for.
@@ -186,6 +189,7 @@ class SaleReturnSettlementForm extends Component
             throw new \App\Support\SalesReturn\SalesReturnWorkflowException('Identitas dokumen retur tidak valid.', (int) $fresh->sale_id);
         }
 
+        app(\App\Support\SalesReturn\StandardReturnGuard::class)->assertBusinessAccess($fresh);
         app(SalesReturnWorkflowResolver::class)->assertStandardMutable($fresh);
     }
 
@@ -261,7 +265,10 @@ class SaleReturnSettlementForm extends Component
     {
         $line = $this->settlementLines[$index];
         $maxNominal = $line['max_nominal'] ?? 0;
-        $rules = [];
+        $rules = [
+            // New submissions may only use the three current choices; historical methods stay readable.
+            "settlementLines.{$index}.method" => 'required|string|in:' . implode(',', array_keys(SaleReturnDetail::selectableSettlementMethods())),
+        ];
 
         // For cash refund, require nominal (amount) input only
         if ($line['method'] === SaleReturnDetail::METHOD_CASH_REFUND) {
@@ -287,58 +294,104 @@ class SaleReturnSettlementForm extends Component
 
         try {
             DB::transaction(function () use ($index) {
-                // Re-check ownership after the transaction begins, against authoritative state.
-                $this->guardStandardMutation();
+                // Source sale -> header locks, then every decision is made from persisted state.
+                $guard = app(\App\Support\SalesReturn\StandardReturnGuard::class);
+                $locked = $guard->lockForAction($this->saleReturn);
+                $guard->assertCanSettle($locked);
 
-                $line = $this->settlementLines[$index];
+                $line = $this->settlementLines[$index] ?? [];
 
-                if (! empty($line['id'])) {
-                    $this->settlementOfThisReturn((int) $line['id']);
-                }
-                $detailBelongs = SaleReturnDetail::query()
+                // Lineage: the detail must belong to this return; serial (if any) must be one of
+                // the serials claimed on that detail. Hydrated ids are only selectors.
+                $detail = SaleReturnDetail::query()
                     ->whereKey($line['detail_id'] ?? 0)
                     ->where('sale_return_id', $this->saleReturnId)
-                    ->exists();
-                if (! $detailBelongs) {
+                    ->lockForUpdate()
+                    ->first();
+                if (! $detail) {
                     throw new \App\Support\SalesReturn\SalesReturnWorkflowException('Rincian retur tidak termasuk dalam retur ini.', (int) $this->saleReturn->sale_id);
                 }
 
-                $settlement = SaleReturnItemSettlement::updateOrCreate(
-                    [
+                $serialId = ! empty($line['serial_number_id']) ? (int) $line['serial_number_id'] : null;
+                $claimedSerialIds = collect($detail->serial_number_ids ?? [])->map(fn ($id) => (int) $id)->all();
+                $requiresSerial = (bool) optional($detail->product)->serial_number_required;
+                if ($requiresSerial && ($serialId === null || ! in_array($serialId, $claimedSerialIds, true))) {
+                    throw new \App\Support\SalesReturn\SalesReturnWorkflowException('Nomor seri tidak termasuk dalam rincian retur ini.', (int) $this->saleReturn->sale_id);
+                }
+                if (! $requiresSerial && $serialId !== null) {
+                    throw new \App\Support\SalesReturn\SalesReturnWorkflowException('Produk tanpa nomor seri tidak boleh memiliki nomor seri.', (int) $this->saleReturn->sale_id);
+                }
+
+                // The persisted row for this (return, detail, serial) is the only authority on
+                // editability: approved/dispatched rows can never be resubmitted, even with a
+                // blank or forged hydrated id.
+                $existing = SaleReturnItemSettlement::query()
+                    ->where('sale_return_id', $this->saleReturnId)
+                    ->where('sale_return_detail_id', $detail->id)
+                    ->when($serialId, fn ($q) => $q->where('product_serial_number_id', $serialId), fn ($q) => $q->whereNull('product_serial_number_id'))
+                    ->lockForUpdate()
+                    ->first();
+                if (! empty($line['id']) && (! $existing || (int) $existing->id !== (int) $line['id'])) {
+                    throw new \App\Support\SalesReturn\SalesReturnWorkflowException('Baris penyelesaian tidak termasuk dalam retur ini.', (int) $this->saleReturn->sale_id);
+                }
+                if ($existing) {
+                    $guard->assertSettlementEditable($existing);
+                }
+
+                // Server-side value rules (authoritative amounts, never the hydrated max).
+                $method = strtoupper((string) ($line['method'] ?? ''));
+                if (! array_key_exists($method, SaleReturnDetail::selectableSettlementMethods())) {
+                    throw ValidationException::withMessages(["settlementLines.{$index}.method" => 'Metode penyelesaian tidak valid.']);
+                }
+                $maxNominal = $requiresSerial ? (float) $detail->unit_price : (float) $detail->sub_total;
+                $nominal = $method === SaleReturnDetail::METHOD_CASH_REFUND
+                    ? round((float) ($line['nominal'] ?? 0), 2)
+                    : $maxNominal;
+                if ($nominal < 0 || $nominal > $maxNominal + 0.001) {
+                    throw ValidationException::withMessages(["settlementLines.{$index}.nominal" => 'Nominal melebihi nilai dokumen retur.']);
+                }
+                if ($method === SaleReturnDetail::METHOD_UNPROCESSED && trim((string) ($line['notes'] ?? '')) === '') {
+                    throw ValidationException::withMessages(["settlementLines.{$index}.notes" => 'Alasan wajib diisi untuk Tidak dapat diproses.']);
+                }
+
+                $attributes = [
+                    'method' => $method,
+                    'nominal' => $nominal,
+                    'target_sale_id' => null,
+                    // location and new_serial_number are deferred to dispatch stage
+                    'location_id' => $line['location_id'] ?? null,
+                    'new_serial_number' => $line['new_serial_number'] ?? null,
+                    'notes' => $line['notes'] ?? null,
+                    'status' => SaleReturnItemSettlement::STATUS_SUBMITTED,
+                    'submitted_at' => now(),
+                    'submitted_by' => Auth::id(),
+                    'rejected_at' => null,
+                    'rejected_by' => null,
+                    'rejection_reason' => null,
+                ];
+
+                $settlement = $existing
+                    ? tap($existing)->update($attributes)
+                    : SaleReturnItemSettlement::create(array_merge($attributes, [
                         'sale_return_id' => $this->saleReturnId,
-                        'sale_return_detail_id' => $line['detail_id'],
-                        'product_serial_number_id' => $line['serial_number_id'],
-                    ],
-                    [
-                        'method' => $line['method'],
-                        'nominal' => $line['nominal'],
-                        'target_sale_id' => $line['target_sale_id'] ?? null,
-                        // location and new_serial_number are deferred to dispatch stage
-                        'location_id' => $line['location_id'] ?? null,
-                        'new_serial_number' => $line['new_serial_number'] ?? null,
-                        'notes' => $line['notes'] ?? null,
-                        'status' => SaleReturnItemSettlement::STATUS_SUBMITTED,
-                        'submitted_at' => now(),
-                        'submitted_by' => Auth::id(),
-                        'rejected_at' => null,
-                        'rejected_by' => null,
-                        'rejection_reason' => null,
-                    ]
-                );
+                        'sale_return_detail_id' => $detail->id,
+                        'product_serial_number_id' => $serialId,
+                    ]));
 
                 $this->settlementLines[$index]['id'] = $settlement->id;
                 $this->settlementLines[$index]['status'] = $settlement->status;
             });
 
+            // Committed action only: notifications are never emitted from inside the transaction.
             $this->saleReturn->refresh();
-            app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded($this->saleReturn, $this->saleReturn->reference ?? 'Penyelesaian Retur Penjualan', $this->saleReturn->setting_id, null, 'settlement');
+            \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded($this->saleReturn, $this->saleReturn->reference ?? 'Penyelesaian Retur Penjualan', $this->saleReturn->setting_id, null, 'settlement'));
 
             session()->flash('success', 'Baris penyelesaian dikirim untuk persetujuan.');
-        } catch (\App\Support\SalesReturn\SalesReturnWorkflowException $e) {
+        } catch (\App\Support\SalesReturn\SalesReturnWorkflowException|\App\Support\SalesReturn\SalesReturnStateException|\App\Support\SalesReturn\SalesReturnAccessException|ValidationException $e) {
             throw $e;
         } catch (Exception $e) {
             Log::error('Failed to submit sale return settlement line', [
-                'sale_return_id' => $this->saleReturn->id,
+                'sale_return_id' => $this->saleReturnId,
                 'index' => $index,
                 'message' => $e->getMessage(),
             ]);
@@ -356,7 +409,8 @@ class SaleReturnSettlementForm extends Component
 
         try {
             DB::transaction(function () use ($index, $line) {
-                $this->guardStandardMutation();
+                $guard = app(\App\Support\SalesReturn\StandardReturnGuard::class);
+                $guard->assertCanSettle($guard->lockForAction($this->saleReturn));
                 // Status and ownership come from the authoritative row, not hydrated state.
                 $settlement = $this->settlementOfThisReturn((int) $line['id']);
                 if ($settlement->status !== SaleReturnItemSettlement::STATUS_REJECTED) {
@@ -371,7 +425,7 @@ class SaleReturnSettlementForm extends Component
                 $this->settlementLines[$index]['status'] = SaleReturnItemSettlement::STATUS_DRAFT;
                 $this->settlementLines[$index]['rejection_reason'] = null;
             });
-        } catch (\App\Support\SalesReturn\SalesReturnWorkflowException $e) {
+        } catch (\App\Support\SalesReturn\SalesReturnWorkflowException|\App\Support\SalesReturn\SalesReturnStateException|\App\Support\SalesReturn\SalesReturnAccessException $e) {
             throw $e;
         } catch (Exception $e) {
             Log::error('Failed to reset sale return settlement line', [

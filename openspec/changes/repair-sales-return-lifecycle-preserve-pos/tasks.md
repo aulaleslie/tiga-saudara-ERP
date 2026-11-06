@@ -21,12 +21,12 @@
 
 ## 3. Restore standard settlement surfaces and server guards
 
-- [ ] 3.1 Restore `SaleReturnDetail::selectableSettlementMethods()` with repair/replacement, cash return, and cannot process while retaining historical method labels; verify settlement and detail pages render and new direct legacy/unknown methods are rejected.
-- [ ] 3.2 Repair customer, location, dispatch, authentication, and other required fixtures in standard create/locking/serial/settlement tests with foreign keys enabled; verify the fourteen setup failures reach their behavioral assertions rather than disabling SQLite constraints.
-- [ ] 3.3 Introduce focused standard lifecycle mutation services with business/action authorization and source-sale-first locking; verify direct cross-business requests, unapproved or unreceived settlement, stale claims, forged row lineage, and excess quantity/serial claims fail without writes.
-- [ ] 3.4 Guard settlement submit/reset against persisted noneditable states and unify bulk/item dispatch prerequisites; verify approved rows cannot be resubmitted, reasons are required for cannot process, and an invalid bulk item rolls back the whole request.
-- [ ] 3.5 Add database uniqueness and locked revalidation for repeatable effects and move notifications after commit; verify receiving/settlement replay and injected failures do not duplicate effects or emit committed-action notifications on rollback.
-- [ ] 3.6 Document the standard state transitions and permitted actions in the repair guide; verify every documented transition has a corresponding focused feature test.
+- [x] 3.1 Restore `SaleReturnDetail::selectableSettlementMethods()` with repair/replacement, cash return, and cannot process while retaining historical method labels; verify settlement and detail pages render and new direct legacy/unknown methods are rejected.
+- [x] 3.2 Repair customer, location, dispatch, authentication, and other required fixtures in standard create/locking/serial/settlement tests with foreign keys enabled; verify the fourteen setup failures reach their behavioral assertions rather than disabling SQLite constraints.
+- [x] 3.3 Introduce focused standard lifecycle mutation services with business/action authorization and source-sale-first locking; verify direct cross-business requests, unapproved or unreceived settlement, stale claims, forged row lineage, and excess quantity/serial claims fail without writes.
+- [x] 3.4 Guard settlement submit/reset against persisted noneditable states and unify bulk/item dispatch prerequisites; verify approved rows cannot be resubmitted, reasons are required for cannot process, and an invalid bulk item rolls back the whole request.
+- [x] 3.5 Add database uniqueness and locked revalidation for repeatable effects and move notifications after commit; verify receiving/settlement replay and injected failures do not duplicate effects or emit committed-action notifications on rollback.
+- [x] 3.6 Document the standard state transitions and permitted actions in the repair guide; verify every documented transition has a corresponding focused feature test.
 
 ## 4. Add held custody and permission-controlled inspection
 

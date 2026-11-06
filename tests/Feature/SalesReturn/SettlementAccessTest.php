@@ -12,11 +12,11 @@ use Tests\TestCase;
 class SettlementAccessTest extends TestCase
 {
     use RefreshDatabase;
+    use \Tests\Feature\SalesReturn\SeedsReferenceData;
 
     protected function setUp(): void
     {
         parent::setUp();
-        \Illuminate\Support\Facades\DB::statement('PRAGMA foreign_keys = OFF');
 
         Setting::create([
             'id' => 1,
@@ -31,6 +31,7 @@ class SettlementAccessTest extends TestCase
         ]);
 
         session(['setting_id' => 1]);
+        $this->seedCustomer();
         
         // Define gates for testing
         Gate::define('saleReturns.edit', fn() => true);

@@ -19,11 +19,11 @@ use Tests\TestCase;
 class SettlementOptionsTest extends TestCase
 {
     use RefreshDatabase;
+    use \Tests\Feature\SalesReturn\SeedsReferenceData;
 
     protected function setUp(): void
     {
         parent::setUp();
-        \Illuminate\Support\Facades\DB::statement('PRAGMA foreign_keys = OFF');
 
         Setting::create([
             'id' => 1,
@@ -56,7 +56,11 @@ class SettlementOptionsTest extends TestCase
         ]);
 
         session(['setting_id' => 1]);
+        $this->seedCustomer();
         Gate::define('saleReturns.edit', fn() => true);
+        Gate::define('saleReturnSettlements.submit', fn() => true);
+        $this->actingAs(\App\Models\User::factory()->create());
+
     }
 
     protected function createSaleReturn(): SaleReturn
@@ -74,6 +78,7 @@ class SettlementOptionsTest extends TestCase
             'payment_method' => 'Cash',
             'approval_status' => 'approved',
             'status' => 'Awaiting Settlement',
+            'received_at' => now(),
         ]);
 
         SaleReturnDetail::create([

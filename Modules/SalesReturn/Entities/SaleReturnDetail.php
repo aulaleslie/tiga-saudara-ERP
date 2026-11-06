@@ -94,6 +94,20 @@ class SaleReturnDetail extends BaseModel
         ];
     }
 
+    /**
+     * The only choices a user may pick for NEW settlement rows. Historical methods
+     * (modify sale, customer credit) stay in settlementMethods() so old records keep their
+     * labels, but are never offered or accepted for new submissions.
+     */
+    public static function selectableSettlementMethods(): array
+    {
+        return [
+            self::METHOD_PRODUCT_REPAIR => 'Perbaikan/Pergantian Produk',
+            self::METHOD_CASH_REFUND    => 'Pengembalian Tunai',
+            self::METHOD_UNPROCESSED    => 'Tidak dapat diproses',
+        ];
+    }
+
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'product_id', 'id');

@@ -3,6 +3,8 @@
 namespace Modules\SalesReturn\Http\Controllers;
 
 use App\Support\SalesReturn\SaleReturnLifecycleSyncService;
+use App\Support\SalesReturn\SalesReturnStateException;
+use App\Support\SalesReturn\StandardReturnGuard;
 use Illuminate\Routing\Controller;
 use Illuminate\Http\Request;
 use Modules\SalesReturn\Entities\SaleReturn;
@@ -23,14 +25,19 @@ class SalesReturnSettlementController extends Controller
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('saleReturnSettlements.approve'), 403);
 
-        $itemSettlement->load(['detail', 'serialNumber', 'saleReturn']);
-
-        if (!$itemSettlement->canApprove()) {
-            return back()->with('error', 'Item ini tidak dapat disetujui.');
-        }
-
         try {
             DB::transaction(function () use ($request, $itemSettlement) {
+                $guard = app(StandardReturnGuard::class);
+                // Source sale -> header -> settlement row, then re-read state under the locks:
+                // a replayed or concurrent approval finds the row no longer SUBMITTED.
+                $itemSettlement = $guard->lockSettlement($itemSettlement->id);
+                $itemSettlement->load(['detail', 'serialNumber', 'saleReturn']);
+                $guard->assertCanSettle($itemSettlement->saleReturn);
+
+                if (! $itemSettlement->canApprove()) {
+                    throw new SalesReturnStateException('Item ini tidak dapat disetujui.');
+                }
+
                 // Decide behavior based on method
                 $method = strtoupper($itemSettlement->method ?? '');
 
@@ -53,7 +60,7 @@ class SalesReturnSettlementController extends Controller
                     ]);
                 }
 
-                $saleReturn = $itemSettlement->saleReturn()->lockForUpdate()->firstOrFail();
+                $saleReturn = $itemSettlement->saleReturn;
                 $lifecycleSync = app(SaleReturnLifecycleSyncService::class);
                 $actorId = (int) Auth::id();
 
@@ -64,11 +71,13 @@ class SalesReturnSettlementController extends Controller
             $saleReturn = $itemSettlement->saleReturn->fresh(['settlementItems']);
             $hasSubmitted = $saleReturn->settlementItems->contains('status', \Modules\SalesReturn\Entities\SaleReturnItemSettlement::STATUS_SUBMITTED);
             if (!$hasSubmitted) {
-                app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($saleReturn, 'settlement');
-                app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($saleReturn, 'settlement');
+                \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($saleReturn, 'settlement'));
+                \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($saleReturn, 'settlement'));
             }
 
             return back()->with('success', 'Item penyelesaian berhasil disetujui.');
+        } catch (SalesReturnStateException $e) {
+            return back()->with('error', $e->getMessage());
         } catch (\Exception $e) {
             Log::error('Sales Return Item Approval failed: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             return back()->with('error', 'Gagal menyetujui item: ' . $e->getMessage());
@@ -82,43 +91,46 @@ class SalesReturnSettlementController extends Controller
     {
         abort_if(\Illuminate\Support\Facades\Gate::denies('saleReturnSettlements.approve'), 403);
 
-        if (!$itemSettlement->canApprove()) {
-            return back()->with('error', 'Item ini tidak dapat ditolak.');
-        }
-
         $request->validate([
             'rejection_reason' => 'required|string|max:255',
         ]);
 
         try {
             DB::transaction(function () use ($request, $itemSettlement) {
+                $guard = app(StandardReturnGuard::class);
+                $itemSettlement = $guard->lockSettlement($itemSettlement->id);
+                $itemSettlement->load('saleReturn');
+                $guard->assertCanSettle($itemSettlement->saleReturn);
+
+                if (! $itemSettlement->canApprove()) {
+                    throw new SalesReturnStateException('Item ini tidak dapat ditolak.');
+                }
+
                 $itemSettlement->update([
                     'status' => SaleReturnItemSettlement::STATUS_REJECTED,
                     'rejected_by' => Auth::id(),
                     'rejected_at' => now(),
                     'rejection_reason' => $request->rejection_reason,
                 ]);
-
-                // Roll up status (it might move back from Completed if it was somehow there)
-                $saleReturn = $itemSettlement->saleReturn->load('settlementItems');
-                $saleReturn->update(['status' => 'Awaiting Settlement']);
             });
 
             $saleReturn = $itemSettlement->saleReturn->fresh(['settlementItems']);
             $hasSubmitted = $saleReturn->settlementItems->contains('status', \Modules\SalesReturn\Entities\SaleReturnItemSettlement::STATUS_SUBMITTED);
             if (!$hasSubmitted) {
-                app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($saleReturn, 'settlement');
+                \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($saleReturn, 'settlement'));
             }
-            app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded(
+            \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded(
                 $saleReturn,
                 $saleReturn->reference ?? 'Penyelesaian Retur Penjualan',
                 $saleReturn->setting_id,
                 $request->rejection_reason,
                 null,
                 'settlement'
-            );
+            ));
 
             return back()->with('success', 'Item penyelesaian ditolak.');
+        } catch (SalesReturnStateException $e) {
+            return back()->with('error', $e->getMessage());
         } catch (\Exception $e) {
             Log::error('Sales Return Item Rejection failed: ' . $e->getMessage());
             return back()->with('error', 'Gagal menolak item.');
@@ -143,6 +155,8 @@ class SalesReturnSettlementController extends Controller
                     'reference' => 'SRPAY/' . $saleReturn->reference,
                     'payment_method' => 'Cash Refund',
                     'note' => 'Pengembalian tunai per baris',
+                    // Unique anchor: a replayed approval can never pay out the same row twice.
+                    'sale_return_item_settlement_id' => $item->id,
                 ]);
                 break;
 
@@ -152,6 +166,7 @@ class SalesReturnSettlementController extends Controller
                     'customer_id' => $saleReturn->customer_id,
                     'amount' => $nominal,
                     'status' => 'Available',
+                    'sale_return_item_settlement_id' => $item->id,
                 ]);
                 break;
 

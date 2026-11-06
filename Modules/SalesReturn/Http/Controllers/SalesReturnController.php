@@ -3,6 +3,8 @@
 namespace Modules\SalesReturn\Http\Controllers;
 
 use App\Support\SalesReturn\SaleReturnLifecycleSyncService;
+use App\Support\SalesReturn\SalesReturnStateException;
+use App\Support\SalesReturn\StandardReturnGuard;
 use App\Services\SerialNumberHistoryService;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -126,15 +128,26 @@ class SalesReturnController extends Controller
             abort(403, 'Tidak dapat mengarsipkan retur penjualan yang sudah diterima barangnya.');
         }
 
-        $sale_return->update([
-            'archived_at' => now(),
-            'archived_by' => auth()->id(),
-        ]);
+        try {
+            DB::transaction(function () use ($sale_return) {
+                $locked = app(StandardReturnGuard::class)->lockForAction($sale_return);
+                if (! is_null($locked->received_at)) {
+                    throw new SalesReturnStateException('Tidak dapat mengarsipkan retur penjualan yang sudah diterima barangnya.');
+                }
 
-        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return);
-        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return);
-        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return, 'dispatch');
-        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return, 'dispatch');
+                $locked->update([
+                    'archived_at' => now(),
+                    'archived_by' => auth()->id(),
+                ]);
+            });
+        } catch (SalesReturnStateException $e) {
+            abort(403, $e->getMessage());
+        }
+
+        \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return));
+        \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return));
+        \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return, 'dispatch'));
+        \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return, 'dispatch'));
 
         toast('Retur Penjualan Diarsipkan!', 'info');
 
@@ -157,12 +170,19 @@ class SalesReturnController extends Controller
             }
         }
 
-        $sale_return->delete();
+        DB::transaction(function () use ($sale_return) {
+            $locked = app(StandardReturnGuard::class)->lockForAction($sale_return);
+            if (! is_null($locked->received_at)) {
+                throw new SalesReturnStateException('Tidak dapat menghapus retur penjualan yang sudah diterima barangnya.');
+            }
 
-        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return);
-        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return);
-        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return, 'dispatch');
-        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return, 'dispatch');
+            $locked->delete();
+        });
+
+        \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return));
+        \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return));
+        \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return, 'dispatch'));
+        \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return, 'dispatch'));
 
         toast('Retur Penjualan Dihapus!', 'warning');
 
@@ -186,22 +206,35 @@ class SalesReturnController extends Controller
             return back();
         }
 
-        $sale_return->update([
-            'approval_status' => 'approved',
-            'status' => 'Awaiting Receiving',
-            'approved_by' => auth()->id(),
-            'approved_at' => now(),
-            'rejected_by' => null,
-            'rejected_at' => null,
-            'rejection_reason' => null,
-            'received_by' => null,
-            'received_at' => null,
-            'settled_at' => null,
-            'settled_by' => null,
-        ]);
+        try {
+            DB::transaction(function () use ($sale_return) {
+                $guard = app(StandardReturnGuard::class);
+                // Source sale -> header locks; state is re-read here, not trusted from the request.
+                $locked = $guard->lockForAction($sale_return);
+                $guard->assertCanApprove($locked);
 
-        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return);
-        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return);
+                $locked->update([
+                    'approval_status' => 'approved',
+                    'status' => 'Awaiting Receiving',
+                    'approved_by' => auth()->id(),
+                    'approved_at' => now(),
+                    'rejected_by' => null,
+                    'rejected_at' => null,
+                    'rejection_reason' => null,
+                    'received_by' => null,
+                    'received_at' => null,
+                    'settled_at' => null,
+                    'settled_by' => null,
+                ]);
+            });
+        } catch (SalesReturnStateException $e) {
+            toast($e->getMessage(), 'error');
+
+            return back();
+        }
+
+        \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return));
+        \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($sale_return));
 
         toast('Retur penjualan disetujui.', 'success');
 
@@ -224,22 +257,34 @@ class SalesReturnController extends Controller
             'reason' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $sale_return->update([
-            'approval_status' => 'rejected',
-            'status' => 'Rejected',
-            'rejected_by' => auth()->id(),
-            'rejected_at' => now(),
-            'rejection_reason' => $data['reason'] ?? null,
-            'approved_by' => null,
-            'approved_at' => null,
-            'received_by' => null,
-            'received_at' => null,
-            'settled_at' => null,
-            'settled_by' => null,
-        ]);
+        try {
+            DB::transaction(function () use ($sale_return, $data) {
+                $guard = app(StandardReturnGuard::class);
+                $locked = $guard->lockForAction($sale_return);
+                $guard->assertCanReject($locked);
 
-        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return);
-        app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded($sale_return, $sale_return->reference, $sale_return->setting_id, $data['reason'] ?? '');
+                $locked->update([
+                    'approval_status' => 'rejected',
+                    'status' => 'Rejected',
+                    'rejected_by' => auth()->id(),
+                    'rejected_at' => now(),
+                    'rejection_reason' => $data['reason'] ?? null,
+                    'approved_by' => null,
+                    'approved_at' => null,
+                    'received_by' => null,
+                    'received_at' => null,
+                    'settled_at' => null,
+                    'settled_by' => null,
+                ]);
+            });
+        } catch (SalesReturnStateException $e) {
+            toast($e->getMessage(), 'error');
+
+            return back();
+        }
+
+        \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($sale_return));
+        \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded($sale_return, $sale_return->reference, $sale_return->setting_id, $data['reason'] ?? ''));
 
         toast('Retur penjualan ditolak.', 'warning');
 
@@ -273,10 +318,11 @@ class SalesReturnController extends Controller
             DB::transaction(function () use ($sale_return) {
                 $receivedAt = now();
 
-                $lockedSaleReturn = SaleReturn::query()
-                    ->whereKey($sale_return->id)
-                    ->lockForUpdate()
-                    ->firstOrFail();
+                // Source sale -> header locks, then the authoritative state check: a replayed or
+                // concurrent receive finds the return no longer awaiting receiving and writes nothing.
+                $guard = app(StandardReturnGuard::class);
+                $lockedSaleReturn = $guard->lockForAction($sale_return);
+                $guard->assertCanReceive($lockedSaleReturn);
 
                 $details = SaleReturnDetail::query()
                     ->with('dispatchDetail')
@@ -437,6 +483,10 @@ class SalesReturnController extends Controller
                 app(SaleReturnLifecycleSyncService::class)
                     ->syncSourceSaleReturnStatusFromReceivedReturns($lockedSaleReturn);
             });
+        } catch (SalesReturnStateException $e) {
+            toast($e->getMessage(), 'info');
+
+            return back();
         } catch (Throwable $e) {
             Log::error('Gagal menerima retur penjualan', [
                 'sale_return_id' => $sale_return->id,

@@ -71,6 +71,7 @@ class SequenceReconciliationService
             $query = match ($docType) {
                 DocumentType::PURCHASE => Purchase::withArchived()->select(['id', 'setting_id', 'reference', 'date']),
                 DocumentType::SALE => Sale::withArchived()->select(['id', 'setting_id', 'reference', 'date']),
+                DocumentType::SALE_RETURN => \Modules\SalesReturn\Entities\SaleReturn::withArchived()->select(['id', 'setting_id', 'reference', 'date']),
             };
 
             $query->chunk(500, function ($records) use ($docType, &$namespaces, &$malformed, &$dateDrifts, &$prefixMap) {
@@ -187,6 +188,7 @@ class SequenceReconciliationService
                 $famPrefix = match ($docType) {
                     DocumentType::PURCHASE => trim((string) ($setting->purchase_prefix_document ?: 'PR')),
                     DocumentType::SALE => trim((string) ($setting->sale_prefix_document ?: 'SL')),
+                    DocumentType::SALE_RETURN => trim((string) ($setting->sale_return_prefix_document ?: 'SLRN')),
                 };
                 $expectedPrefix = $docPrefix !== '' ? "{$docPrefix}-{$famPrefix}" : $famPrefix;
             }

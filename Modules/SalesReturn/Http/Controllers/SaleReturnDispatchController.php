@@ -3,6 +3,9 @@
 namespace Modules\SalesReturn\Http\Controllers;
 
 use App\Support\SalesReturn\SaleReturnLifecycleSyncService;
+use App\Support\SalesReturn\SalesReturnStateException;
+use App\Support\SalesReturn\StandardDispatchRequestService;
+use App\Support\SalesReturn\StandardReturnGuard;
 use Illuminate\Routing\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -42,33 +45,43 @@ class SaleReturnDispatchController extends Controller
 
         try {
             DB::transaction(function () use ($data, $saleReturn) {
+                $guard = app(StandardReturnGuard::class);
+                $service = app(StandardDispatchRequestService::class);
+                // One lock sequence for the whole request: source sale -> header -> rows by id.
+                $guard->lockForAction($saleReturn);
+
+                $ids = collect($data['items'])->pluck('id')->map(fn ($id) => (int) $id);
+                if ($ids->unique()->count() !== $ids->count()) {
+                    throw new SalesReturnStateException('Permintaan pengiriman memuat baris ganda.');
+                }
+
                 foreach ($data['items'] as $it) {
-                    $item = SaleReturnItemSettlement::where('sale_return_id', $saleReturn->id)
-                        ->where('id', $it['id'])
-                        ->first();
+                    $item = $guard->lockSettlement((int) $it['id']);
 
-                    if (!$item) continue;
+                    // A row from another return is never silently skipped: the WHOLE request fails.
+                    if ((int) $item->sale_return_id !== (int) $saleReturn->id) {
+                        throw new SalesReturnStateException('Baris penyelesaian tidak termasuk dalam retur ini.');
+                    }
 
-                    $item->update([
-                        'dispatched_serial_number' => $it['dispatched_serial_number'] ?? null,
-                        'dispatch_requested_at' => now(),
-                        'dispatch_requested_by' => Auth::id(),
-                        'status' => SaleReturnItemSettlement::STATUS_DISPATCH_REQUESTED,
-                        // store chosen source location for non-serial items temporarily
-                        'location_id' => $it['source_location_id'] ?? $item->location_id,
-                    ]);
+                    $service->request(
+                        $item,
+                        $it['dispatched_serial_number'] ?? null,
+                        isset($it['source_location_id']) ? (int) $it['source_location_id'] : null,
+                    );
                 }
             });
 
-            app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded(
+            \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded(
                 $saleReturn,
                 'Pengiriman Retur Penjualan ' . $saleReturn->reference,
                 $saleReturn->setting_id,
                 null,
                 'dispatch'
-            );
+            ));
 
             return back()->with('success', 'Pengajuan pengiriman berhasil dikirim untuk persetujuan.');
+        } catch (SalesReturnStateException $e) {
+            return back()->with('error', $e->getMessage());
         } catch (\Exception $e) {
             Log::error('Failed to request dispatch for sale return', ['error' => $e->getMessage()]);
             return back()->with('error', 'Gagal mengajukan pengiriman.');
@@ -85,6 +98,13 @@ class SaleReturnDispatchController extends Controller
 
         try {
             DB::transaction(function () use ($request, $itemSettlement) {
+                // Source sale -> header -> row locks, then the status is re-read: a replayed or
+                // concurrent approval finds the row no longer DISPATCH_REQUESTED and moves no stock.
+                $itemSettlement = app(StandardReturnGuard::class)->lockSettlement($itemSettlement->id);
+                if ($itemSettlement->status !== SaleReturnItemSettlement::STATUS_DISPATCH_REQUESTED) {
+                    throw new SalesReturnStateException('Item tidak dalam status pengajuan pengiriman.');
+                }
+
                 $detail = $itemSettlement->detail;
                 $product = $detail->product;
 
@@ -278,10 +298,12 @@ class SaleReturnDispatchController extends Controller
                 $lifecycleSync->archiveSourceSaleIfFullyReturnedAndCompleted($saleReturn, $actorId);
             });
 
-            app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($itemSettlement->saleReturn, 'dispatch');
-            app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($itemSettlement->saleReturn, 'dispatch');
+            \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($itemSettlement->saleReturn, 'dispatch'));
+            \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($itemSettlement->saleReturn, 'dispatch'));
 
             return back()->with('success', 'Pengiriman disetujui.');
+        } catch (SalesReturnStateException $e) {
+            return back()->with('error', $e->getMessage());
         } catch (\Exception $e) {
             Log::error('Failed to approve dispatch', ['error' => $e->getMessage()]);
             return back()->with('error', 'Gagal menyetujui pengiriman.');
@@ -296,66 +318,35 @@ class SaleReturnDispatchController extends Controller
     {
         abort_if(Gate::denies('saleReturnSettlements.dispatch'), 403);
 
-        if ($itemSettlement->status !== SaleReturnItemSettlement::STATUS_APPROVED_AWAITING_DISPATCH) {
-            return back()->with('error', 'Item tidak dalam status menunggu pengiriman.');
-        }
-
         $request->validate([
             'dispatched_serial_number' => 'nullable|string|max:255',
             'dispatch_note' => 'nullable|string|max:500',
         ]);
 
-        // Validation for serial number if product requires it
-        $product = $itemSettlement->detail?->product;
-        if ($product && $product->serial_number_required) {
-            if (!$request->dispatched_serial_number) {
-                return back()->with('error', "Serial Number wajib diisi untuk produk ini.");
-            }
-
-            $sn = \Modules\Product\Entities\ProductSerialNumber::where('product_id', $product->id)
-                ->where('serial_number', $request->dispatched_serial_number)
-                ->first();
-
-            if (!$sn) {
-                return back()->with('error', "Serial Number {$request->dispatched_serial_number} tidak ditemukan untuk produk ini.");
-            }
-
-            // If same as returned serial => repair, allowed even if it's the one we received
-            $isSameSerial = $request->dispatched_serial_number === ($itemSettlement->serialNumber?->serial_number ?? null);
-
-            if (!$isSameSerial) {
-                if (strtolower($sn->status ?? 'active') !== 'active' || $sn->dispatch_detail_id !== null) {
-                    return back()->with('error', "Serial Number {$request->dispatched_serial_number} sudah digunakan atau tidak aktif.");
-                }
-
-                if (!$sn->location_id) {
-                    return back()->with('error', "Serial Number {$request->dispatched_serial_number} sedang tidak tersedia dalam stok.");
-                }
-            }
-        }
-
         try {
             DB::transaction(function () use ($request, $itemSettlement) {
-                // We no longer deduct stock here. 
-                // We just mark it as DISPATCH_REQUESTED and store the intended serial/note.
-                $itemSettlement->update([
-                    'status' => SaleReturnItemSettlement::STATUS_DISPATCH_REQUESTED,
-                    'dispatched_serial_number' => $request->dispatched_serial_number,
-                    'dispatch_requested_at' => now(),
-                    'dispatch_requested_by' => Auth::id(),
-                    'dispatch_note' => $request->dispatch_note,
-                ]);
+                // Same prerequisites and lock order as the bulk request: no stock is deducted here,
+                // the item only becomes DISPATCH_REQUESTED.
+                $locked = app(StandardReturnGuard::class)->lockSettlement($itemSettlement->id);
+                app(StandardDispatchRequestService::class)->request(
+                    $locked,
+                    $request->dispatched_serial_number,
+                    null,
+                    $request->dispatch_note,
+                );
             });
 
-            app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded(
+            \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded(
                 $itemSettlement->saleReturn,
                 'Pengiriman Retur Penjualan ' . $itemSettlement->saleReturn->reference,
                 $itemSettlement->saleReturn->setting_id,
                 null,
                 'dispatch'
-            );
+            ));
 
             return back()->with('success', 'Pengajuan pengiriman berhasil dikirim.');
+        } catch (SalesReturnStateException $e) {
+            return back()->with('error', $e->getMessage());
         } catch (\Exception $e) {
             Log::error('Failed to request dispatch for item', ['error' => $e->getMessage()]);
             return back()->with('error', 'Gagal mengajukan pengiriman: ' . $e->getMessage());
@@ -374,6 +365,11 @@ class SaleReturnDispatchController extends Controller
 
         try {
             DB::transaction(function () use ($request, $itemSettlement) {
+                $itemSettlement = app(StandardReturnGuard::class)->lockSettlement($itemSettlement->id);
+                if ($itemSettlement->status !== SaleReturnItemSettlement::STATUS_DISPATCH_REQUESTED) {
+                    throw new SalesReturnStateException('Item tidak dalam status pengajuan pengiriman.');
+                }
+
                 $itemSettlement->update([
                     'status' => SaleReturnItemSettlement::STATUS_APPROVED_AWAITING_DISPATCH,
                     'dispatch_rejected_at' => now(),
@@ -382,17 +378,19 @@ class SaleReturnDispatchController extends Controller
                 ]);
             });
 
-            app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($itemSettlement->saleReturn, 'dispatch');
-            app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded(
+            \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($itemSettlement->saleReturn, 'dispatch'));
+            \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->notifyRevisionNeeded(
                 $itemSettlement->saleReturn,
                 'Pengiriman Retur Penjualan ' . $itemSettlement->saleReturn->reference,
                 $itemSettlement->saleReturn->setting_id,
                 $request->rejection_reason,
                 null,
                 'dispatch'
-            );
+            ));
 
             return back()->with('success', 'Pengajuan pengiriman ditolak.');
+        } catch (SalesReturnStateException $e) {
+            return back()->with('error', $e->getMessage());
         } catch (\Exception $e) {
             Log::error('Failed to reject dispatch', ['error' => $e->getMessage()]);
             return back()->with('error', 'Gagal menolak pengiriman.');

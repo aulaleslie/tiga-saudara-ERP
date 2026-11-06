@@ -33,6 +33,7 @@ class DocumentSequenceAllocator
         $familyPrefix = match ($documentType) {
             DocumentType::PURCHASE => trim((string) ($settingModel->purchase_prefix_document ?: 'PR')),
             DocumentType::SALE => trim((string) ($settingModel->sale_prefix_document ?: 'SL')),
+            DocumentType::SALE_RETURN => trim((string) ($settingModel->sale_return_prefix_document ?: 'SLRN')),
         };
 
         if ($docPrefix !== '') {
@@ -575,6 +576,7 @@ class DocumentSequenceAllocator
         $query = match ($namespace->documentType) {
             DocumentType::PURCHASE => Purchase::withArchived()->where('setting_id', $namespace->settingId),
             DocumentType::SALE => Sale::withArchived()->where('setting_id', $namespace->settingId),
+            DocumentType::SALE_RETURN => \Modules\SalesReturn\Entities\SaleReturn::withArchived()->where('setting_id', $namespace->settingId),
         };
 
         // Pattern prefix for SQL LIKE search: "<prefix>-<YYYY>-<MM>-%"

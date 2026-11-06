@@ -156,6 +156,9 @@ class SaleReturnCreateForm extends Component
 
     public function submit()
     {
+        // Action permission is enforced INSIDE the mutation: UI visibility is not authorization.
+        abort_if(\Illuminate\Support\Facades\Gate::denies('saleReturns.create'), 403);
+
         $this->dispatch('sale-return:submit-start');
 
         try {
@@ -171,6 +174,14 @@ class SaleReturnCreateForm extends Component
                 // Serialize new claims on the source sale, then re-check ownership under the lock.
                 Sale::withArchived()->whereKey($sale->id)->lockForUpdate()->first();
                 app(SalesReturnWorkflowResolver::class)->assertSaleAllowsStandardReturn((int) $sale->id);
+
+                app(\App\Support\SalesReturn\StandardReturnGuard::class)->assertSettingScope((int) $sale->setting_id);
+
+                // Remaining entitlement, lineage, serials and prices are recomputed NOW, under the
+                // lock; submitted values only select which authoritative lines are claimed.
+                $claimed = app(\App\Support\SalesReturn\StandardReturnClaimService::class)
+                    ->authorize($sale, $prepared['rows']);
+                $prepared = ['rows' => $claimed['rows'], 'total' => $claimed['total']];
 
                 $customerId = $sale->customer_id;
                 $customerName = $sale->customer_name ?: optional($sale->customer)->customer_name;
@@ -239,11 +250,13 @@ class SaleReturnCreateForm extends Component
                 }
 
                 $saleReturn->refresh();
-                app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded(
+
+                // Runs only after the OUTERMOST transaction commits (an enclosing rollback drops it).
+                DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->notifyApprovalNeeded(
                     $saleReturn,
                     $saleReturn->reference ?? 'Retur Penjualan',
                     $saleReturn->setting_id
-                );
+                ));
             });
 
             session()->flash('success', 'Retur penjualan berhasil disimpan dan menunggu persetujuan.');
@@ -252,7 +265,7 @@ class SaleReturnCreateForm extends Component
             Log::warning('Validasi retur penjualan gagal', ['errors' => $e->validator->errors()->getMessages()]);
             $this->dispatch('updateTableErrors', $e->validator->errors()->getMessages());
             throw $e;
-        } catch (SalesReturnWorkflowException $e) {
+        } catch (SalesReturnWorkflowException|\App\Support\SalesReturn\SalesReturnAccessException $e) {
             session()->flash('error', $e->getMessage());
         } catch (Exception $e) {
             Log::error('Gagal menyimpan retur penjualan', ['message' => $e->getMessage()]);

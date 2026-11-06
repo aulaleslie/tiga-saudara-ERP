@@ -145,8 +145,19 @@ class SaleReturnEditForm extends SaleReturnCreateForm
         $this->dispatch('hydrateSaleReturnRows', $this->rows, $this->sale_id, $this->saleReturn->id);
     }
 
+    /**
+     * Protected properties are not persisted between Livewire requests; without this the
+     * validator counts this return's own claim as "already returned by another document".
+     */
+    public function hydrate(): void
+    {
+        $this->editingSaleReturnId = $this->saleReturn->id ?? null;
+    }
+
     public function submit()
     {
+        abort_if(\Illuminate\Support\Facades\Gate::denies('saleReturns.edit'), 403);
+
         if ($this->approvalLocked) {
             session()->flash('error', 'Retur yang telah disetujui tidak dapat diubah.');
             return null;
@@ -157,16 +168,27 @@ class SaleReturnEditForm extends SaleReturnCreateForm
 
             DB::transaction(function () use ($prepared) {
                 $resolver = app(SalesReturnWorkflowResolver::class);
-                // Source sale first, then the return; re-check ownership under the locks.
-                if ($this->sale_id) {
-                    Sale::withArchived()->whereKey($this->sale_id)->lockForUpdate()->first();
-                }
-                $resolver->assertStandardMutable($this->saleReturn->fresh());
+                $guard = app(\App\Support\SalesReturn\StandardReturnGuard::class);
+
+                // A different target sale is locked FIRST (source sale -> header), then the guard
+                // locks the current source sale and the header and re-reads authoritative state.
                 if ($this->sale_id && (int) $this->sale_id !== (int) $this->saleReturn->sale_id) {
+                    Sale::withArchived()->whereKey($this->sale_id)->lockForUpdate()->first();
                     $resolver->assertSaleAllowsStandardReturn((int) $this->sale_id);
                 }
+                $locked = $guard->lockForAction($this->saleReturn);
+                $guard->assertCanEdit($locked);
 
                 $sale = $this->sale_id ? Sale::find($this->sale_id) : null;
+                if ($sale) {
+                    $guard->assertSettingScope((int) $sale->setting_id);
+
+                    // Entitlement is recomputed under the lock, excluding this document's own claim.
+                    $claimed = app(\App\Support\SalesReturn\StandardReturnClaimService::class)
+                        ->authorize($sale, $prepared['rows'], (int) $locked->id);
+                    $prepared = ['rows' => $claimed['rows'], 'total' => $claimed['total']];
+                }
+
                 $customerId = $sale ? $sale->customer_id : $this->saleReturn->customer_id;
                 $customerName = $sale ? ($sale->customer_name ?: optional($sale->customer)->customer_name) : $this->saleReturn->customer_name;
                 $settingId = $sale ? ($sale->setting_id ?: session('setting_id')) : $this->saleReturn->setting_id;
@@ -231,7 +253,7 @@ class SaleReturnEditForm extends SaleReturnCreateForm
             ]);
             $this->dispatch('updateTableErrors', $e->validator->errors()->getMessages());
             throw $e;
-        } catch (SalesReturnWorkflowException $e) {
+        } catch (SalesReturnWorkflowException|\App\Support\SalesReturn\SalesReturnAccessException|\App\Support\SalesReturn\SalesReturnStateException $e) {
             session()->flash('error', $e->getMessage());
         } catch (Exception $e) {
             Log::error('Gagal memperbarui retur penjualan', [

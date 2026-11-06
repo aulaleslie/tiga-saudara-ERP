@@ -187,7 +187,10 @@ class SettlementWorkflowTest extends TestCase
              'total_amount' => 10000,
              'paid_amount' => 0,
              'due_amount' => 10000,
-             'status' => 'Pending',
+             // Settlement is only reachable for an approved AND received return.
+             'status' => 'Awaiting Settlement',
+             'approval_status' => 'approved',
+             'received_at' => now(),
              'payment_status' => 'Unpaid',
              'payment_method' => 'Cash',
              'note' => '',
@@ -277,7 +280,10 @@ class SettlementWorkflowTest extends TestCase
              'total_amount' => 10000,
              'paid_amount' => 0,
              'due_amount' => 10000,
-             'status' => 'Pending',
+             // Settlement is only reachable for an approved AND received return.
+             'status' => 'Awaiting Settlement',
+             'approval_status' => 'approved',
+             'received_at' => now(),
              'payment_status' => 'Unpaid',
              'payment_method' => 'Cash',
              'note' => '',

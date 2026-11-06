@@ -188,7 +188,7 @@ trait ValidatesSaleReturnForm
                 $query->where('sale_return_id', '!=', $this->editingSaleReturnId);
             })
             ->whereHas('saleReturn', function ($query) {
-                $query->whereNotIn('approval_status', ['rejected']);
+                $query->whereRaw('LOWER(approval_status) != ?', ['rejected']);
             })
             ->sum('quantity');
 
@@ -247,14 +247,12 @@ trait ValidatesSaleReturnForm
                 'dispatch_detail_id' => $serial->dispatch_detail_id,
             ])->all();
 
+        // Portable (no JSON operators): narrow by dispatch line in SQL, match serial ids in PHP.
+        $dispatchDetailIds = collect($assignments)->pluck('dispatch_detail_id')->filter()->unique()->values();
         $reservations = SaleReturnDetail::query()
-            ->where(function ($query) use ($serialIds) {
-                foreach ($serialIds as $serialId) {
-                    $query->orWhereJsonContains('serial_number_ids', $serialId);
-                }
-            })
+            ->whereIn('dispatch_detail_id', $dispatchDetailIds)
             ->whereHas('saleReturn', function ($query) {
-                $query->whereNotIn('approval_status', ['rejected']);
+                $query->whereRaw('LOWER(approval_status) != ?', ['rejected']);
             })
             ->get(['sale_return_id', 'serial_number_ids']);
 

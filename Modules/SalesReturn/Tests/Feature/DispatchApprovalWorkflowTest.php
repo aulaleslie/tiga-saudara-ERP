@@ -20,7 +20,6 @@ class DispatchApprovalWorkflowTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        \Illuminate\Support\Facades\DB::statement('PRAGMA foreign_keys = OFF');
 
         Setting::create([
             'id' => 1,
@@ -87,6 +86,7 @@ class DispatchApprovalWorkflowTest extends TestCase
             'payment_method' => 'Cash',
             'approval_status' => 'approved',
             'status' => 'Awaiting Settlement',
+            'received_at' => now(),   // dispatch only exists for goods that were actually received
         ]);
 
         $detail = SaleReturnDetail::create([

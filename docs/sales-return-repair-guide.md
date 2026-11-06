@@ -163,3 +163,82 @@ checked. Historical rows are never rewritten by classification or by any blocked
   The regression was verified to fail with the guard disabled.
 - Note: the new classification tests defer foreign-key checks; they prove ownership rules, not
   relational integrity.
+
+## Group 3: Standard settlement surfaces and server guards
+
+### What changed
+
+| Area | Change |
+|---|---|
+| Settlement choices (3.1) | `SaleReturnDetail::selectableSettlementMethods()` restored: repair/replacement (`REPAIR`), cash return (`CASH_REFUND`), cannot process (`UNPROCESSED`). `settlementMethods()` keeps every historical label (modify sale, customer credit). New submissions are validated against the selectable set only. |
+| Fixtures (3.2) | The fourteen setup failures were invalid fixtures (missing customer/location/settings, unreceived "Awaiting Settlement" returns, unpriced sale lines). They now create real related records with foreign keys **enabled**; no constraint is switched off. |
+| Services (3.3) | `StandardReturnGuard` (lock order **source sale -> header -> settlement row**, business scope, state transitions), `StandardReturnClaimService` (authoritative quantity/lineage/serial/price at claim time), `StandardDispatchRequestService` (one set of dispatch prerequisites). Controllers and Livewire forms are adapters. |
+| Resubmission and dispatch (3.4) | Submit/reset read the persisted row: only `DRAFT`/`REJECTED` are editable. Bulk and single-item dispatch share one service; the bulk request is all-or-nothing and never skips a row. |
+| Replay safety (3.5) | Locked re-read of header/row state before every effect; payout and credit rows carry a unique `sale_return_item_settlement_id` anchor; notifications run after commit. |
+
+### Defects found and fixed along the way
+
+- `SaleReturn` lost its `creating` hook in commit 90694353, so **standard returns could not be created** (`reference` is NOT NULL). Restored without overwriting an explicit reference (POS).
+- The same commit dropped `saleReturnGoods()` and `receivedBy()` (the show/settlement pages and a job use them) and omitted `archived_at/archived_by` from `$fillable`, so **archiving silently did nothing**.
+- The edit form lost `editingSaleReturnId` between Livewire requests, so a return counted its own claim as "already returned".
+- Entitlement used a client-supplied `original_quantity`; price/total came from the client. Both are now recomputed under lock.
+- Serial reservation lookups used JSON operators that do not exist on SQLite and compared `approval_status` case-sensitively (`REJECTED` is stored upper case), so rejected returns kept blocking serials. Both are now portable and case-insensitive.
+
+### Standard state transitions and permitted actions
+
+Business scope: the document's `setting_id` must equal the active `session('setting_id')`; otherwise HTTP 403. POS-owned and mixed-history returns are rejected before any of this (phase 2).
+
+**Header (`approval_status` / `status`)**
+
+| # | From | Action (permission) | To | Test |
+|---|---|---|---|---|
+| T1 | Pending / Rejected | edit (`saleReturns.edit`, form) | same | `StandardClaimGuardsTest::edit_recomputes_entitlement...`, `StandardStateTransitionsTest::approved_returns_cannot_be_edited` |
+| T2 | Pending Approval | approve (`saleReturns.approve`) | Awaiting Receiving | `pending_approval_to_awaiting_receiving_on_approve` |
+| T3 | Pending Approval | reject (`saleReturns.approve`) | Rejected (editable again) | `pending_approval_to_rejected_on_reject_and_rejected_returns_stay_editable` |
+| T4 | not received | archive / delete (`saleReturns.archive` / `.delete`) | archived / deleted | `archive_and_delete_are_allowed_only_before_receiving` |
+| T5 | Awaiting Receiving | receive (`saleReturns.receive`) | Awaiting Settlement | `awaiting_receiving_to_awaiting_settlement_on_receive`, `receive_is_refused_for_pending_returns` |
+| T6 | Awaiting Settlement | all rows `APPROVED`/`DISPATCHED` | Completed (rollup) | `submitted_cash_refund_row_becomes_approved_and_completes_the_return` |
+
+**Settlement row (`SaleReturnItemSettlement.status`)** (requires an approved **and received** header)
+
+| # | From | Action (permission) | To | Test |
+|---|---|---|---|---|
+| S1 | Draft / Rejected | submit (`saleReturnSettlements.submit`) | Submitted | `StandardSettlementGuardsTest::a_draft_or_rejected_row_can_be_submitted_and_reset...` |
+| S2 | Submitted | approve repair/cannot process (`.approve`) | Approved Awaiting Dispatch | `submitted_repair_row_becomes_approved_awaiting_dispatch` |
+| S3 | Submitted | approve cash refund (`.approve`) | Approved (+ one payout) | `submitted_cash_refund_row_becomes_approved_and_completes_the_return`, `approving_a_cash_refund_twice_pays_out_once` |
+| S4 | Submitted | reject (`.approve`) | Rejected | `submitted_row_can_be_rejected_and_then_reset_to_draft` |
+| S5 | Rejected | reset (`.submit`) | Draft | same test |
+| S6 | Approved Awaiting Dispatch | request dispatch (`.dispatchRequest`/`.dispatch`) | Dispatch Requested | `dispatch_request_can_be_rejected_back_to_awaiting_dispatch`, `a_valid_dispatch_request_moves_to_requested...` |
+| S6b | Dispatch Requested | reject dispatch (`.dispatchApproval`) | Approved Awaiting Dispatch | `dispatch_request_can_be_rejected_back_to_awaiting_dispatch` |
+| S7 | Dispatch Requested | approve dispatch (`.dispatchApproval`) | Dispatched | `approved_dispatch_of_the_same_serial_marks_the_row_dispatched` |
+| S8 | Approved / Dispatched | anything | terminal | `terminal_rows_accept_no_further_settlement_actions`, `approved_dispatching_or_dispatched_rows_cannot_be_resubmitted...` |
+
+Rejected by design (each has a test): unapproved or unreceived settlement; stale or excess claims; forged dispatch line, product, detail, serial; foreign serials; reserved serials; legacy or unknown methods; blank/whitespace "cannot process" reasons; nominal above the document value; another business's documents; replayed approvals; stale hydrated models.
+
+### Notes for operators and reviewers
+
+- Dispatch approval still moves stock the way it did; custody-based dispatch is group 5.
+- Receiving still adds good stock; held custody and inspection are group 4.
+- The new unique indexes are additive. The settlement-line index is only created when existing data has no duplicates; otherwise locked revalidation remains the guard and nothing is rewritten.
+
+### Verification (group 3)
+
+| Check | Result |
+|---|---|
+| POS gate (same command) | **495 passed, 0 failed** |
+| Standard filter + new classes | **124 passed, 0 failed** (baseline 19 failed / 34 passed) |
+| `Modules/SalesReturn` | 19 passed |
+| `Modules/Pos/Tests/Feature` | 328 failed, unchanged |
+| `tests/Feature/Livewire` | 56 failed (was 64; the 8 fixed are the sales-return ones, no new failures) |
+| Other areas that read sale returns (reports, archiving, status labels, 15 files) | all passed |
+| Negative controls | disabling the guard's state checks turns the suite red; disabling only the locked checks fails the stale-model tests |
+
+### Group 3 review follow-ups (closed)
+
+- **Aggregate claims**: `StandardReturnClaimService` now consumes entitlement across the whole request (two rows for one dispatch line share its remaining quantity) and allows a serial only once per request. Same service backs create and edit.
+- **Action permissions inside Livewire mutations**: create `submit` needs `saleReturns.create`, edit `submit` needs `saleReturns.edit`, and every settlement mutation (field edit, `submitLine`, `resetLine`, `submit`) needs `saleReturnSettlements.submit`. UI visibility is not authorization.
+- **Notifications**: all standard notifications are `DB::afterCommit` callbacks, so they fire after the **outermost** commit; an enclosing rollback drops them. (Under `RefreshDatabase` the commit signal never occurs, so the test sends it explicitly; production emits it at the real outermost commit.)
+- **Business scope fails closed**: a request with no active `setting_id` (or for another business) gets HTTP 403 from the guard, the route middleware, and the create/edit forms. The Livewire/HTTP tests that bypass `role.setting` now set the business explicitly.
+- **Reference numbering**: `SaleReturn` references come from the locked `document_sequences` row (new `sale_return` document type, same `SLRN-YYYY-MM-NNNNN` format), reconciled against history first, so returns of different source sales can no longer read the same "latest + 1". An explicit reference (POS) is untouched.
+
+Verification: POS gate 495 passed; standard classes 161 passed; `Modules/SalesReturn` 19 passed; `Modules/Pos/Tests/Feature` 328 failed (unchanged); `tests/Feature/Livewire` 56 failed (no new); sequence tests 8 failed, the same 8 as before this change (they need MySQL/multi-process).

@@ -13,7 +13,10 @@ use Modules\SalesReturn\Entities\SaleReturn;
  */
 class EnsureStandardSalesReturn
 {
-    public function __construct(private readonly SalesReturnWorkflowResolver $resolver)
+    public function __construct(
+        private readonly SalesReturnWorkflowResolver $resolver,
+        private readonly \App\Support\SalesReturn\StandardReturnGuard $guard,
+    )
     {
     }
 
@@ -41,6 +44,7 @@ class EnsureStandardSalesReturn
     private function check(?SaleReturn $saleReturn): void
     {
         if ($saleReturn) {
+            $this->guard->assertBusinessAccess($saleReturn);
             $this->resolver->assertStandardMutable($saleReturn);
         }
     }

@@ -21,6 +21,8 @@ class DocumentReferenceService
         $enabled = match ($documentType) {
             DocumentType::PURCHASE => (bool) config('app.sequence_purchase_enabled', env('SEQUENCE_PURCHASE_ENABLED', false)),
             DocumentType::SALE => (bool) config('app.sequence_sale_enabled', env('SEQUENCE_SALE_ENABLED', false)),
+            // Sale returns always allocate through the locked sequence row (no rollout flag).
+            DocumentType::SALE_RETURN => true,
         };
 
         if (!$enabled) {

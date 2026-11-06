@@ -16,12 +16,16 @@ use Tests\TestCase;
 class SaleSerialNumberLoaderTest extends TestCase
 {
     use RefreshDatabase;
+    use \Tests\Feature\SalesReturn\SeedsReferenceData;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->withoutExceptionHandling();
-        \Illuminate\Support\Facades\DB::statement('PRAGMA foreign_keys = OFF');
+        $this->seedSetting();
+        $this->seedCustomer();
+        $this->seedLocation();
+        session(['setting_id' => 1]);
     }
 
     protected function createProduct(string $name = 'Test Product', string $code = 'TP01'): Product

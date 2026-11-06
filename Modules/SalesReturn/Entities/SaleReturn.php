@@ -101,6 +101,9 @@ class SaleReturn extends BaseModel
         'settled_by',
         'received_at',
         'received_by',
+        // The archive action writes these; without them it silently archived nothing.
+        'archived_at',
+        'archived_by',
     ];
 
     protected $casts = [
@@ -117,6 +120,51 @@ class SaleReturn extends BaseModel
         'received_at'      => 'datetime',
         'archived_at'      => 'datetime',
     ];
+
+    /**
+     * Generate the document reference (SLRN-YYYY-MM-N) when none was supplied. An explicitly
+     * supplied reference (e.g. POS) is never overwritten.
+     *
+     * Numbering is serialized per business and month through the locked document-sequence row
+     * (the same allocator Sale and Purchase use), so concurrent returns of DIFFERENT source
+     * sales can never read the same "latest + 1". The counter is reconciled against historical
+     * references first, so the first allocation continues the existing numbering.
+     */
+    public static function boot(): void
+    {
+        parent::boot();
+
+        static::creating(function ($model) {
+            if (! empty($model->reference)) {
+                return;
+            }
+
+            $allocate = function () use ($model) {
+                $allocator = app(\App\Services\Sequence\DocumentSequenceAllocator::class);
+                $date = $model->date ? \Illuminate\Support\Carbon::parse($model->date) : now();
+                $namespace = $allocator->buildNamespace(\App\Services\Sequence\DocumentType::SALE_RETURN, (int) $model->setting_id, $date);
+
+                $allocator->reconcileCounter($namespace);
+
+                return $allocator->allocate($namespace)->reference;
+            };
+
+            // Normal path runs inside the caller's transaction (after the source-sale lock).
+            $model->reference = \Illuminate\Support\Facades\DB::transactionLevel() > 0
+                ? $allocate()
+                : \Illuminate\Support\Facades\DB::transaction($allocate);
+        });
+    }
+
+    public function saleReturnGoods(): HasMany
+    {
+        return $this->hasMany(SaleReturnGood::class, 'sale_return_id', 'id');
+    }
+
+    public function receivedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'received_by');
+    }
 
     public function posReturn(): BelongsTo
     {
