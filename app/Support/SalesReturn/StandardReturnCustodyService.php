@@ -218,13 +218,7 @@ class StandardReturnCustodyService
             return 'Custody sudah habis (sudah dilepas atau dikirim).';
         }
 
-        $settlement = SaleReturnItemSettlement::query()
-            ->where('sale_return_id', $custody->sale_return_id)
-            ->where('sale_return_detail_id', $custody->sale_return_detail_id)
-            ->when($custody->product_serial_number_id,
-                fn ($q) => $q->where('product_serial_number_id', $custody->product_serial_number_id),
-                fn ($q) => $q->whereNull('product_serial_number_id'))
-            ->first();
+        $settlement = $this->settlementForCustody($custody);
 
         if (! $settlement) {
             return 'Penyelesaian belum diputuskan: barang belum dapat dilepas ke stok toko.';
@@ -236,12 +230,15 @@ class StandardReturnCustodyService
             return null;
         }
 
-        if ($method === SaleReturnDetail::METHOD_PRODUCT_REPAIR && $settlement->status === SaleReturnItemSettlement::STATUS_DISPATCHED) {
-            $original = $custody->serialNumber?->serial_number;
-            $outgoing = $settlement->dispatched_serial_number;
-            if ($outgoing && $original && strtoupper((string) $outgoing) !== strtoupper((string) $original)) {
-                return null;   // a different unit went to the customer: the original is retained
-            }
+        // A different unit already went to the customer: the original is retained. Decided from the
+        // PERSISTED dispatch identity (kind), never from comparing serial strings, so non-serial
+        // replacements are covered too. ORIGINAL dispatch consumed the custody itself.
+        // Only a repair can be answered by a replacement; cannot-process goods are ORIGINAL-only, so a
+        // REPLACEMENT recorded against them is an invalid combination and never releases the original.
+        if ($method === SaleReturnDetail::METHOD_PRODUCT_REPAIR
+            && $settlement->status === SaleReturnItemSettlement::STATUS_DISPATCHED
+            && strtoupper((string) $settlement->dispatch_kind) === StandardDispatchCustodyService::REPLACEMENT) {
+            return null;
         }
 
         if (in_array($method, [SaleReturnDetail::METHOD_PRODUCT_REPAIR, SaleReturnDetail::METHOD_UNPROCESSED], true)) {
@@ -249,6 +246,38 @@ class StandardReturnCustodyService
         }
 
         return 'Status penyelesaian belum final: barang belum dapat dilepas ke stok toko.';
+    }
+
+    private function settlementForCustody(SaleReturnCustody $custody): ?SaleReturnItemSettlement
+    {
+        return SaleReturnItemSettlement::query()
+            ->where('sale_return_id', $custody->sale_return_id)
+            ->where('sale_return_detail_id', $custody->sale_return_detail_id)
+            ->when($custody->product_serial_number_id,
+                fn ($q) => $q->where('product_serial_number_id', $custody->product_serial_number_id),
+                fn ($q) => $q->whereNull('product_serial_number_id'))
+            ->first();
+    }
+
+    /** The custody row a settlement dispatches from (locked when $lock). */
+    public function custodyForSettlement(SaleReturnItemSettlement $settlement, bool $lock = false): SaleReturnCustody
+    {
+        $query = SaleReturnCustody::query()
+            ->where('sale_return_id', $settlement->sale_return_id)
+            ->where('sale_return_detail_id', $settlement->sale_return_detail_id)
+            ->when($settlement->product_serial_number_id,
+                fn ($q) => $q->where('product_serial_number_id', $settlement->product_serial_number_id),
+                fn ($q) => $q->whereNull('product_serial_number_id'));
+        if ($lock) {
+            $query->lockForUpdate();
+        }
+
+        $custody = $query->first();
+        if (! $custody) {
+            throw new SalesReturnStateException('Custody untuk item ini tidak ditemukan.');
+        }
+
+        return $custody;
     }
 
     // ------------------------------------------------------------------ inspection + release

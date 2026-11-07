@@ -40,10 +40,10 @@
 
 ## 5. Reconcile standard repair and replacement dispatch
 
-- [ ] 5.1 Dispatch original repaired or cannot-process goods directly from their held custody with outbound audit and serial lineage; verify same-serial and non-serial original dispatch consume custody once without phantom warehouse stock or unrelated good-stock deduction.
-- [ ] 5.2 (carried from group 4 review: re-derive release eligibility for NON-serial replacement from the custody/dispatch ledger instead of comparing serial strings) Dispatch different-unit replacements from available owner/location stock while preserving original custody; verify serial A/B lineage, standard physical non-serial replacement, required bucket sufficiency, and rollback on invalid replacement identity or stock shortage.
-- [ ] 5.3 Prevent inspection release and customer dispatch from consuming the same held goods; verify conflicting/repeated actions cannot overdraw custody and rejected dispatch returns the item to its permitted awaiting-dispatch state.
-- [ ] 5.4 Document original versus replacement movement examples and verify POS non-serial note-only replacement and owner-bucket regressions remain unchanged.
+- [x] 5.1 Dispatch original repaired or cannot-process goods directly from their held custody with outbound audit and serial lineage; verify same-serial and non-serial original dispatch consume custody once without phantom warehouse stock or unrelated good-stock deduction.
+- [x] 5.2 (carried from group 4 review: re-derive release eligibility for NON-serial replacement from the custody/dispatch ledger instead of comparing serial strings) Dispatch different-unit replacements from available owner/location stock while preserving original custody; verify serial A/B lineage, standard physical non-serial replacement, required bucket sufficiency, and rollback on invalid replacement identity or stock shortage.
+- [x] 5.3 Prevent inspection release and customer dispatch from consuming the same held goods; verify conflicting/repeated actions cannot overdraw custody and rejected dispatch returns the item to its permitted awaiting-dispatch state.
+- [x] 5.4 Document original versus replacement movement examples and verify POS non-serial note-only replacement and owner-bucket regressions remain unchanged.
 
 ## 6. Implement source-valued debt-first financial settlement
 

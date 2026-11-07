@@ -32,7 +32,11 @@
                                             {{-- For serial products, user enters dispatched serial (auto-select could be applied) --}}
                                             <input type="text" name="items[][dispatched_serial_number]" class="form-control form-control-sm" value="{{ $item->dispatched_serial_number ?? $item->serialNumber?->serial_number }}">
                                         @else
-                                            {{-- For non-serial products, let user choose source location --}}
+                                            {{-- Non-serial: original goods from custody, or a replacement from available stock --}}
+                                            <select name="items[][dispatch_mode]" class="form-select form-select-sm mb-1">
+                                                <option value="ORIGINAL">Kirim barang asli (dari custody)</option>
+                                                <option value="REPLACEMENT">Kirim pengganti (dari stok tersedia)</option>
+                                            </select>
                                             <select name="items[][source_location_id]" class="form-select form-select-sm">
                                                 <option value="">-- Pilih Lokasi Sumber --</option>
                                                 @foreach(\Modules\Setting\Entities\Location::all() as $loc)

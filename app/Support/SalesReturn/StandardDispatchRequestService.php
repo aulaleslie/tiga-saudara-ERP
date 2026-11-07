@@ -19,7 +19,7 @@ class StandardDispatchRequestService
     {
     }
 
-    public function request(SaleReturnItemSettlement $locked, ?string $serial, ?int $sourceLocationId, ?string $note = null): void
+    public function request(SaleReturnItemSettlement $locked, ?string $serial, ?int $sourceLocationId, ?string $note = null, ?string $mode = null): void
     {
         $locked->loadMissing(['detail.product', 'serialNumber', 'saleReturn']);
 
@@ -34,7 +34,13 @@ class StandardDispatchRequestService
         }
 
         $product = $locked->detail?->product;
-        if ($product && $product->serial_number_required) {
+        $identity = [];
+        if ($locked->saleReturn->usesHeldCustody()) {
+            // Held custody: persist WHAT is being dispatched (original vs different-unit replacement).
+            $identity = app(StandardDispatchCustodyService::class)->resolveIdentity(
+                $locked, $product, $serial, $mode, $sourceLocationId, app(StandardReturnCustodyService::class)
+            );
+        } elseif ($product && $product->serial_number_required) {
             $this->assertSerialDispatchable($locked, $product->id, $serial);
         }
 
@@ -45,7 +51,9 @@ class StandardDispatchRequestService
             'dispatch_requested_by' => Auth::id(),
             'dispatch_note' => $note,
             // chosen source location for non-serial items
-            'location_id' => $sourceLocationId ?? $locked->location_id,
+            'location_id' => $identity['location_id'] ?? $sourceLocationId ?? $locked->location_id,
+            'dispatch_kind' => $identity['dispatch_kind'] ?? null,
+            'dispatch_serial_number_id' => $identity['dispatch_serial_number_id'] ?? null,
         ]);
     }
 

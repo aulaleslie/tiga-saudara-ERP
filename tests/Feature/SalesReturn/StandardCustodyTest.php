@@ -558,12 +558,15 @@ class StandardCustodyTest extends TestCase
         $unprocessed->delete();
 
         // same serial sent back after repair: stays customer-bound
-        $same = $this->settle($return, 'REPAIR', Settlement::STATUS_DISPATCHED, $serial->id, ['dispatched_serial_number' => $serial->serial_number]);
+        $same = $this->settle($return, 'REPAIR', Settlement::STATUS_DISPATCHED, $serial->id, ['dispatched_serial_number' => $serial->serial_number, 'dispatch_kind' => 'ORIGINAL']);
         $this->assertNotNull($service->releaseBlocker($custody->fresh()));
         $same->delete();
 
         // a DIFFERENT unit was dispatched as replacement: the original is retained, yet stays held until inspected
-        $this->settle($return, 'REPAIR', Settlement::STATUS_DISPATCHED, $serial->id, ['dispatched_serial_number' => 'OTHER-UNIT-1']);
+        // a different serial STRING without persisted REPLACEMENT identity proves nothing
+        $string = $this->settle($return, 'REPAIR', Settlement::STATUS_DISPATCHED, $serial->id, ['dispatched_serial_number' => 'OTHER-UNIT-1']);
+        $this->assertNotNull($service->releaseBlocker($custody->fresh()));
+        $string->update(['dispatch_kind' => 'REPLACEMENT']);
         $this->assertNull($service->releaseBlocker($custody->fresh()));
         $this->assertEquals(1, $custody->fresh()->held_quantity, 'replacement dispatch alone does not release the original');
     }

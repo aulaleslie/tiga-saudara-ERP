@@ -41,6 +41,7 @@ class SaleReturnDispatchController extends Controller
             'items.*.id' => 'required|integer|exists:sale_return_item_settlements,id',
             'items.*.dispatched_serial_number' => 'nullable|string|max:255',
             'items.*.source_location_id' => 'nullable|integer|exists:locations,id',
+            'items.*.dispatch_mode' => 'nullable|in:ORIGINAL,REPLACEMENT',
         ]);
 
         try {
@@ -67,6 +68,8 @@ class SaleReturnDispatchController extends Controller
                         $item,
                         $it['dispatched_serial_number'] ?? null,
                         isset($it['source_location_id']) ? (int) $it['source_location_id'] : null,
+                        null,
+                        $it['dispatch_mode'] ?? null,
                     );
                 }
             });
@@ -98,11 +101,28 @@ class SaleReturnDispatchController extends Controller
 
         try {
             DB::transaction(function () use ($request, $itemSettlement) {
+              // ONE transaction: dispatch effects, completion roll-up and archival commit or roll back
+              // together. Notifications are deferred to the commit (afterCommit, below).
+              $applyDispatch = function () use ($request, $itemSettlement) {
                 // Source sale -> header -> row locks, then the status is re-read: a replayed or
                 // concurrent approval finds the row no longer DISPATCH_REQUESTED and moves no stock.
                 $itemSettlement = app(StandardReturnGuard::class)->lockSettlement($itemSettlement->id);
                 if ($itemSettlement->status !== SaleReturnItemSettlement::STATUS_DISPATCH_REQUESTED) {
                     throw new SalesReturnStateException('Item tidak dalam status pengajuan pengiriman.');
+                }
+
+                // Held custody: dispatch consumes custody (original) or replacement stock, exactly once,
+                // from the identity persisted at request time. Legacy returns keep the old path below.
+                if ($itemSettlement->saleReturn->usesHeldCustody()) {
+                    app(\App\Support\SalesReturn\StandardDispatchCustodyService::class)
+                        ->execute($itemSettlement, app(\App\Support\SalesReturn\StandardReturnCustodyService::class));
+                    $itemSettlement->update([
+                        'status' => SaleReturnItemSettlement::STATUS_DISPATCHED,
+                        'dispatch_approved_at' => now(),
+                        'dispatch_approved_by' => Auth::id(),
+                    ]);
+
+                    return;
                 }
 
                 $detail = $itemSettlement->detail;
@@ -279,23 +299,21 @@ class SaleReturnDispatchController extends Controller
                     'dispatch_approved_at' => now(),
                     'dispatch_approved_by' => Auth::id(),
                 ]);
-            });
+              };
+              $applyDispatch();
 
-            DB::transaction(function () use ($itemSettlement) {
-                $saleReturn = SaleReturn::query()
-                    ->whereKey($itemSettlement->sale_return_id)
-                    ->lockForUpdate()
-                    ->first();
+              $saleReturn = SaleReturn::query()
+                  ->whereKey($itemSettlement->sale_return_id)
+                  ->lockForUpdate()
+                  ->first();
 
-                if (! $saleReturn) {
-                    return;
-                }
+              if ($saleReturn) {
+                  $lifecycleSync = app(SaleReturnLifecycleSyncService::class);
+                  $actorId = (int) Auth::id();
 
-                $lifecycleSync = app(SaleReturnLifecycleSyncService::class);
-                $actorId = (int) Auth::id();
-
-                $lifecycleSync->syncSaleReturnCompletionRollup($saleReturn, $actorId);
-                $lifecycleSync->archiveSourceSaleIfFullyReturnedAndCompleted($saleReturn, $actorId);
+                  $lifecycleSync->syncSaleReturnCompletionRollup($saleReturn, $actorId);
+                  $lifecycleSync->archiveSourceSaleIfFullyReturnedAndCompleted($saleReturn, $actorId);
+              }
             });
 
             \Illuminate\Support\Facades\DB::afterCommit(fn () => app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($itemSettlement->saleReturn, 'dispatch'));
@@ -321,6 +339,7 @@ class SaleReturnDispatchController extends Controller
         $request->validate([
             'dispatched_serial_number' => 'nullable|string|max:255',
             'dispatch_note' => 'nullable|string|max:500',
+            'dispatch_mode' => 'nullable|in:ORIGINAL,REPLACEMENT',
         ]);
 
         try {
@@ -333,6 +352,7 @@ class SaleReturnDispatchController extends Controller
                     $request->dispatched_serial_number,
                     null,
                     $request->dispatch_note,
+                    $request->dispatch_mode,
                 );
             });
 
@@ -375,6 +395,9 @@ class SaleReturnDispatchController extends Controller
                     'dispatch_rejected_at' => now(),
                     'dispatch_rejected_by' => Auth::id(),
                     'dispatch_rejection_reason' => $request->rejection_reason,
+                    // Nothing was consumed; the identity is re-derived on the next request.
+                    'dispatch_kind' => null,
+                    'dispatch_serial_number_id' => null,
                 ]);
             });
 

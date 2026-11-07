@@ -366,6 +366,16 @@
                         </div>
                     @endif
 
+                    @if(! $isSerial)
+                        <div class="mb-3">
+                            <label class="form-label font-weight-bold">Jenis Pengiriman</label>
+                            <select name="dispatch_mode" class="form-control">
+                                <option value="ORIGINAL">Kirim barang asli (dari custody)</option>
+                                <option value="REPLACEMENT">Kirim pengganti (dari stok tersedia)</option>
+                            </select>
+                        </div>
+                    @endif
+
                     <div class="mb-3">
                         <label class="form-label">Catatan Pengiriman</label>
                         <textarea name="dispatch_note" class="form-control" rows="2" placeholder="Catatan pengiriman (opsional)..."></textarea>

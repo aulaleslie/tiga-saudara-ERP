@@ -326,3 +326,39 @@ The custody checks that need real row locking are **not proven by the SQLite sui
 **Carried into group 5 (explicit):** `releaseBlocker()` decides "a different replacement unit was dispatched" by comparing serial strings. For **non-serial** goods there is no such string, so replacement-based release eligibility must be re-derived from the dispatch/custody ledger (quantity dispatched vs. retained) when dispatch becomes custody-based. Until then non-serial repair-with-replacement custody is never releasable (fail-closed).
 
 Still outstanding: MySQL/MariaDB row-lock concurrency (the new `lockForUpdate` in the guard is likewise unproven on SQLite) and a MySQL migration dry run.
+
+## Group 5: customer dispatch from / alongside custody
+
+Applies only to returns **received under custody** (`custody_policy_version` set). Legacy returns keep the old dispatch behaviour untouched.
+
+### Persisted dispatch identity
+Migration `2026_11_09_000100` adds nullable `sale_return_item_settlements.dispatch_kind` (`ORIGINAL` | `REPLACEMENT`) and `dispatch_serial_number_id`. They are decided and validated at **request** time, re-validated under locks at **approval**, cleared on **rejection**. Release eligibility reads `dispatch_kind`, never serial strings, so serial and non-serial goods are treated alike. Non-serial requests choose the kind explicitly (`dispatch_mode`, default `ORIGINAL`, the safe custody-bound choice).
+
+### Movement examples (return of 1 unit, location L, non-tax)
+| Case | Custody (A) | Sellable stock at L | Transaction | Serial |
+|---|---|---|---|---|
+| ORIGINAL (repair / cannot process) | `dispatched` +1, held 0, `DISPATCHED` movement | unchanged | none (no phantom stock) | A: `RETURN_IN_PROCESS` -> `SOLD` (history entry) |
+| REPLACEMENT (serial B, non-serial qty) | unchanged, still held | B's / the original's tax bucket **-1**, `product_quantity` -1 | `DISPATCH_RETURN` -1 | B -> `SOLD`; A stays held |
+
+After a REPLACEMENT is dispatched the original custody becomes releasable by inspection (`saleReturns.inspect`), moving it into the bucket captured at receiving.
+
+### Validation (request and approval)
+Replacement serial: same product, `ACTIVE`, not broken / in return process / held, not the original, in a location owned by the return's business, with stock in its bucket. Non-serial replacement: location owned by the same business, required quantity available in the **original's tax bucket**. Any failure aborts the whole approval transaction (status, custody, stock, serial, transaction all roll back).
+
+### Conflicts and retries
+Release and dispatch both consume the same custody row under `lockForUpdate` with a `version` check and `held >= qty`; a pending ORIGINAL dispatch blocks release (customer-bound), a completed one exhausts custody, and a custody consumed elsewhere makes approval refuse without changes. Replayed approvals find the row no longer `DISPATCH_REQUESTED`; movements are unique per `disp:{settlement}:{custody}`. Rejection returns the row to `APPROVED_AWAITING_DISPATCH` with identity cleared and custody untouched.
+
+### Unchanged
+POS note-only replacements and POS owner/tax bucket behaviour (POS gate 495 passed).
+
+Rollback: the migration's `down()` refuses once any settlement has a recorded `dispatch_kind`. Still outstanding: MySQL/MariaDB row-lock contention for release-vs-dispatch and the migration dry run on MySQL.
+
+### Group 5 review follow-up (3 blockers closed)
+
+| Blocker | Fix |
+|---|---|
+| Cannot-process accepted a REPLACEMENT | `UNPROCESSED` is ORIGINAL-only: enforced at request **and** approval (a forged persisted `REPLACEMENT` is refused), and `releaseBlocker()` now exempts only a `REPAIR` + `REPLACEMENT` + `DISPATCHED`, so the invalid combination can never release the original. |
+| Replacement ignored active claims | A replacement serial must satisfy the model's own `isSellable()` (status, dispatch link, broken, return process, **active transfer custody**), must not be held in custody, must pass `PosReturnReplacementGuard` (POS draft/pending/approved/awaiting-dispatch replacement claims), and must not be claimed by another return's pending dispatch. Re-run at request and at approval. |
+| Dispatch and completion were two transactions | Dispatch effects, completion roll-up and source-sale archival now run in one transaction; an injected completion failure rolls everything back. Notifications stay `afterCommit`. |
+
+Notes: the POS-claim test proves the wiring with a stubbed guard (the claim rules themselves are the POS guard's existing, separately tested behaviour). Original sales-tracking `return_date` is kept as historical evidence. Lock order for release vs dispatch (sale -> header -> settlement -> custody -> serial -> product/stock) is the same in both paths; contention proof still needs the MySQL tests (6.6 / 9.2).
