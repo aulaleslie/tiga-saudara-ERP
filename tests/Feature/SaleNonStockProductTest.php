@@ -177,7 +177,7 @@ class SaleNonStockProductTest extends TestCase
             'is_tax_included' => false,
         ]);
 
-        $response->assertRedirect(route('sales.index'));
+        $response->assertRedirectContains('/sales/');
         $this->assertEquals(1, Sale::count());
 
         $sale = Sale::first();
@@ -297,7 +297,7 @@ class SaleNonStockProductTest extends TestCase
             'is_tax_included' => false,
         ]);
 
-        $response->assertRedirect(route('sales.index'));
+        $response->assertRedirectContains('/sales/');
         $sale = Sale::first();
         $saleDetail = $sale->saleDetails->first();
 
@@ -347,7 +347,7 @@ class SaleNonStockProductTest extends TestCase
             'is_tax_included' => false,
         ]);
 
-        $response->assertRedirect(route('sales.index'));
+        $response->assertRedirectContains('/sales/');
         $sale = Sale::first();
 
         // Attempt to dispatch with empty quantities
@@ -430,7 +430,7 @@ class SaleNonStockProductTest extends TestCase
             'is_tax_included' => false,
         ]);
 
-        $response->assertRedirect(route('sales.index'));
+        $response->assertRedirectContains('/sales/');
         $sale = Sale::first();
 
         // Mock location and stock for the physical product
@@ -549,7 +549,7 @@ class SaleNonStockProductTest extends TestCase
             'is_tax_included' => false,
         ]);
 
-        $response->assertRedirect(route('sales.index'));
+        $response->assertRedirectContains('/sales/');
         $sale = Sale::first();
         $this->assertEquals(\Modules\Sale\Entities\Sale::STATUS_DRAFTED, $sale->status);
 
@@ -719,7 +719,7 @@ class SaleNonStockProductTest extends TestCase
             'is_tax_included' => false,
         ]);
 
-        $response->assertRedirect(route('sales.index'));
+        $response->assertRedirectContains('/sales/');
         $this->assertEquals(1, Sale::count());
 
         $sale = Sale::first();
@@ -929,7 +929,7 @@ class SaleNonStockProductTest extends TestCase
             'is_tax_included' => false,
         ]);
 
-        $response->assertRedirect(route('sales.index'));
+        $response->assertRedirectContains('/sales/');
         $sale = Sale::first();
 
         // Try to dispatch with a forged tax/bundle composite key
@@ -1023,7 +1023,7 @@ class SaleNonStockProductTest extends TestCase
             'is_tax_included' => false,
         ]);
 
-        $response->assertRedirect(route('sales.index'));
+        $response->assertRedirectContains('/sales/');
         $sale = Sale::first();
 
         // Try to submit with non-stock key AND forged stock-managed key

@@ -856,4 +856,49 @@ class SaleMonetaryEditTest extends TestCase
             $this->assertStringContainsString($expectedFragment, $e->getMessage());
         }
     }
+
+    public function test_normal_monetary_only_save_lands_on_the_sale_detail_when_the_user_may_open_it(): void
+    {
+        \Spatie\Permission\Models\Permission::findOrCreate('sales.show', 'web');
+        $this->user->givePermissionTo('sales.show');
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+
+        $sale = $this->makeDispatchedSale([['product' => $this->productA, 'quantity' => 10, 'price' => 1000.0]], Sale::STATUS_DISPATCHED, true);
+
+        \Livewire\Livewire::actingAs($this->user)->test(\App\Livewire\Sale\EditForm::class, ['sale' => $sale])
+            ->set('shipping', 300)
+            ->call('update')
+            ->assertRedirect(route('sales.show', $sale->id));
+    }
+
+    public function test_monetary_only_save_without_detail_permission_falls_back_to_the_list_not_a_403(): void
+    {
+        $sale = $this->makeDispatchedSale([['product' => $this->productA, 'quantity' => 10, 'price' => 1000.0]], Sale::STATUS_DISPATCHED, true);
+
+        \Livewire\Livewire::actingAs($this->user)->test(\App\Livewire\Sale\EditForm::class, ['sale' => $sale])
+            ->set('shipping', 300)
+            ->call('update')
+            ->assertRedirect(route('sales.index'));
+
+        $this->assertSame(300.0, (float) $sale->fresh()->shipping_amount, 'the save itself still committed');
+    }
+
+    public function test_redirect_helper_never_targets_another_business_detail_without_global_access(): void
+    {
+        \Spatie\Permission\Models\Permission::findOrCreate('sales.show', 'web');
+        $this->user->givePermissionTo('sales.show');
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+
+        $sale = $this->makeDispatchedSale([['product' => $this->productA, 'quantity' => 1, 'price' => 1000.0]], Sale::STATUS_DISPATCHED, false);
+
+        $this->assertSame(route('sales.show', $sale->id), \App\Support\Sale\SaleDetailRedirect::url($sale));
+
+        session(['setting_id' => $this->setting->id + 99]);
+        $this->assertSame(route('sales.index'), \App\Support\Sale\SaleDetailRedirect::url($sale));
+
+        \Spatie\Permission\Models\Permission::findOrCreate('globalSalesSearch.access', 'web');
+        $this->user->givePermissionTo('globalSalesSearch.access');
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        $this->assertSame(route('sales.show', $sale->id), \App\Support\Sale\SaleDetailRedirect::url($sale->fresh()));
+    }
 }

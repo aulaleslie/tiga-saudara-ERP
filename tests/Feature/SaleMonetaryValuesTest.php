@@ -294,7 +294,7 @@ class SaleMonetaryValuesTest extends TestCase
             'is_tax_included' => false,
         ], ['X-Idempotency-Token' => uniqid('sale', true)]);
 
-        $response->assertRedirect(route('sales.index'));
+        $response->assertRedirectContains('/sales/');
 
         $sale = Sale::latest('id')->with('saleDetails')->first();
 
@@ -361,7 +361,7 @@ class SaleMonetaryValuesTest extends TestCase
             'is_tax_included' => false,
         ], ['X-Idempotency-Token' => uniqid('sale', true)]);
 
-        $response->assertRedirect(route('sales.index'));
+        $response->assertRedirectContains('/sales/');
 
         $sale = Sale::latest('id')->with('saleDetails.bundleItems')->first();
 
@@ -398,7 +398,7 @@ class SaleMonetaryValuesTest extends TestCase
             'is_tax_included' => false,
         ], ['X-Idempotency-Token' => uniqid('sale', true)]);
 
-        $response->assertRedirect(route('sales.index'));
+        $response->assertRedirectContains('/sales/');
 
         $sale = Sale::latest('id')->with('saleDetails.bundleItems')->first();
 
@@ -425,7 +425,7 @@ class SaleMonetaryValuesTest extends TestCase
             ->set('dueDate', '2024-04-11')
             ->set('paymentTermId', $this->paymentTerm->id)
             ->call('submit')
-            ->assertRedirect(route('sales.index'));
+            ->assertRedirect(route('sales.show', \Modules\Sale\Entities\Sale::latest('id')->value('id')));
 
         $bundleItem = SaleBundleItem::latest('id')->first();
 
@@ -490,7 +490,7 @@ class SaleMonetaryValuesTest extends TestCase
             'note' => 'Update decimals',
         ]);
 
-        $response->assertRedirect(route('sales.index'));
+        $response->assertRedirectContains('/sales/');
 
         $sale->refresh();
         $this->assertEquals(11.65, (float) $sale->shipping_amount);
@@ -620,7 +620,7 @@ class SaleMonetaryValuesTest extends TestCase
             'payment_term_id' => $this->paymentTerm->id,
             'note' => null,
             'is_tax_included' => false,
-        ], ['X-Idempotency-Token' => uniqid('sale', true)])->assertRedirect(route('sales.index'));
+        ], ['X-Idempotency-Token' => uniqid('sale', true)])->assertRedirectContains('/sales/');
 
         $sale = Sale::latest('id')->first();
         $this->assertNotNull($sale);

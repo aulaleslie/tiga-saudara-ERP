@@ -474,7 +474,7 @@ class CreateForm extends Component
             $targetBusinessName = $targetBusiness?->company_name ?? 'Unknown';
             session()->flash('success', "Penjualan '$sale->reference' untuk $targetBusinessName berhasil ditambahkan!");
             Log::info('Sale create completed', ['sale_id' => $sale->id, 'reference' => $sale->reference]);
-            return redirect()->route('sales.index');
+            return redirect()->to(\App\Support\Sale\SaleDetailRedirect::url($sale));
         } catch (\Illuminate\Validation\ValidationException $e) {
             if ($idempotencyClaimed && !$transactionCommitted) {
                 IdempotencyService::release($this->idempotencyToken, 'sales.store', auth()->id());

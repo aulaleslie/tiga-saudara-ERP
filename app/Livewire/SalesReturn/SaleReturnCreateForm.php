@@ -154,6 +154,21 @@ class SaleReturnCreateForm extends Component
         }), 2);
     }
 
+    /**
+     * Created return's detail page when the user may open it (saleReturns.show); otherwise the list, then the
+     * home page, so a successful save never ends on a 403.
+     */
+    private function postCreateUrl(int $saleReturnId): string
+    {
+        if (\Illuminate\Support\Facades\Gate::allows('saleReturns.show')) {
+            return route('sale-returns.show', $saleReturnId);
+        }
+
+        return \Illuminate\Support\Facades\Gate::allows('saleReturns.access')
+            ? route('sale-returns.index')
+            : route('home');
+    }
+
     public function submit()
     {
         // Action permission is enforced INSIDE the mutation: UI visibility is not authorization.
@@ -170,7 +185,7 @@ class SaleReturnCreateForm extends Component
                 throw new Exception('Penjualan tidak ditemukan.');
             }
 
-            DB::transaction(function () use ($prepared, $sale) {
+            $saleReturn = DB::transaction(function () use ($prepared, $sale) {
                 // Serialize new claims on the source sale, then re-check ownership under the lock.
                 Sale::withArchived()->whereKey($sale->id)->lockForUpdate()->first();
                 app(SalesReturnWorkflowResolver::class)->assertSaleAllowsStandardReturn((int) $sale->id);
@@ -257,10 +272,12 @@ class SaleReturnCreateForm extends Component
                     $saleReturn->reference ?? 'Retur Penjualan',
                     $saleReturn->setting_id
                 ));
+
+                return $saleReturn;
             });
 
             session()->flash('success', 'Retur penjualan berhasil disimpan dan menunggu persetujuan.');
-            return redirect()->route('sale-returns.index');
+            return redirect()->to($this->postCreateUrl($saleReturn->id));
         } catch (ValidationException $e) {
             Log::warning('Validasi retur penjualan gagal', ['errors' => $e->validator->errors()->getMessages()]);
             $this->dispatch('updateTableErrors', $e->validator->errors()->getMessages());

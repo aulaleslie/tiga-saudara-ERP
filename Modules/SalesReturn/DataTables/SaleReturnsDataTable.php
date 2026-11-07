@@ -40,6 +40,9 @@ class SaleReturnsDataTable extends DataTable
             ->editColumn('reference', function ($data) {
                 return '<a href="' . route('sale-returns.show', $data->id) . '">' . $data->reference . '</a>';
             })
+            ->editColumn('date', fn ($data) => $data->date ? \Carbon\Carbon::parse($data->date)->format('d-m-Y') : '-')
+            // Sort on the stored document date (never the formatted display string); equal dates fall back to id.
+            ->orderColumn('date', 'sale_returns.date $1, sale_returns.id $1')
             ->addColumn('total_amount', fn ($data) => format_currency($data->total_amount))
             ->addColumn('paid_amount', fn ($data) => format_currency($data->paid_amount))
             ->addColumn('due_amount', fn ($data) => format_currency($data->due_amount))
@@ -66,7 +69,7 @@ class SaleReturnsDataTable extends DataTable
             ->dom("<'row'<'col-md-3'l><'col-md-5 mb-2'B><'col-md-4'f>> .
                                 'tr' .
                                 <'row'<'col-md-5'i><'col-md-7 mt-2'p>>")
-            ->orderBy(10)
+            ->orderBy(1, 'desc')
             ->buttons(
                 Button::make('excel')
                     ->text('<i class="bi bi-file-earmark-excel-fill"></i> Excel'),
@@ -83,6 +86,10 @@ class SaleReturnsDataTable extends DataTable
         return [
             Column::make('reference')
                 ->title('Referensi')
+                ->className('text-center align-middle'),
+
+            Column::make('date')
+                ->title('Tanggal')
                 ->className('text-center align-middle'),
 
             Column::make('sale_reference')

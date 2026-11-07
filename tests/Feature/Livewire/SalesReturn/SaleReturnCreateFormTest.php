@@ -37,6 +37,7 @@ class SaleReturnCreateFormTest extends TestCase
 
         session(['setting_id' => 1]);
         \Illuminate\Support\Facades\Gate::define('saleReturns.create', fn () => true);
+        \Illuminate\Support\Facades\Gate::define('saleReturns.show', fn () => true);
         $this->actingAs(\App\Models\User::factory()->create());
         $this->seedCustomer();
         $this->seedLocation();
@@ -167,7 +168,7 @@ class SaleReturnCreateFormTest extends TestCase
             ])
             ->call('submit')
             ->assertHasNoErrors()
-            ->assertRedirect(route('sale-returns.index'));
+            ->assertRedirect(route('sale-returns.show', \Modules\SalesReturn\Entities\SaleReturn::latest('id')->value('id')));
         
         $this->assertEquals(1, SaleReturn::count());
     }
@@ -216,5 +217,50 @@ class SaleReturnCreateFormTest extends TestCase
         $this->assertEquals(1, SaleReturn::count());
         $this->assertEquals(1, \Modules\SalesReturn\Entities\SaleReturnDetail::count());
         $this->assertEquals($product2->id, \Modules\SalesReturn\Entities\SaleReturnDetail::first()->product_id);
+    }
+
+    private function submitValidReturn()
+    {
+        $product = $this->createProduct();
+        $sale = $this->createSale();
+        $dispatch = $this->createDispatch($sale->id);
+        $dispatchDetail = $this->createDispatchDetail($dispatch->id, $sale->id, $product->id);
+
+        return Livewire::test(SaleReturnCreateForm::class)
+            ->call('handleSaleSelected', [
+                'id' => $sale->id, 'reference' => $sale->reference, 'customer_name' => $sale->customer_name,
+                'rows' => [[
+                    'dispatch_detail_id' => $dispatchDetail->id, 'product_id' => $product->id, 'product_name' => $product->product_name,
+                    'product_code' => $product->product_code, 'quantity' => 1, 'unit_price' => 1000, 'total' => 1000, 'location_id' => 1,
+                ]],
+            ])
+            ->call('submit')
+            ->assertHasNoErrors();
+    }
+
+    /** @test */
+    public function without_detail_permission_a_saved_return_falls_back_to_the_list(): void
+    {
+        \Illuminate\Support\Facades\Gate::define('saleReturns.show', fn () => false);
+        \Illuminate\Support\Facades\Gate::define('saleReturns.access', fn () => true);
+
+        $this->submitValidReturn()->assertRedirect(route('sale-returns.index'));
+        $this->assertEquals(1, SaleReturn::count(), 'the save itself committed');
+    }
+
+    /** @test */
+    public function without_detail_or_list_permission_a_saved_return_falls_back_to_home(): void
+    {
+        \Illuminate\Support\Facades\Gate::define('saleReturns.show', fn () => false);
+        \Illuminate\Support\Facades\Gate::define('saleReturns.access', fn () => false);
+
+        $this->submitValidReturn()->assertRedirect(route('home'));
+        $this->assertEquals(1, SaleReturn::count());
+    }
+
+    /** @test */
+    public function with_detail_permission_the_created_return_detail_is_the_destination(): void
+    {
+        $this->submitValidReturn()->assertRedirect(route('sale-returns.show', SaleReturn::latest('id')->value('id')));
     }
 }

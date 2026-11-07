@@ -681,7 +681,7 @@ class EditForm extends Component
             $message .= " berhasil diperbarui!";
             session()->flash('success', $message);
             Log::info('Sale update completed', ['sale_id' => $this->sale->id, 'reference' => $this->reference]);
-            return redirect()->route('sales.index');
+            return redirect()->to(\App\Support\Sale\SaleDetailRedirect::url($updatedSale));
         } catch (\Illuminate\Validation\ValidationException $e) {
             Log::warning('Sale update validation failed', [
                 'failure_stage' => $failureStage,
@@ -793,7 +793,7 @@ class EditForm extends Component
             return redirect()->route('sales.global-payments.index');
         }
 
-        return redirect()->route('sales.index');
+        return redirect()->to(\App\Support\Sale\SaleDetailRedirect::url($this->sale));
     }
 
     public function render()

@@ -147,7 +147,7 @@ class SaleController extends Controller
             $data['due_amount'] = $request->total_amount;
             $data['payment_term_id'] = $data['payment_term_id'] ?: PaymentTerm::defaultCodTermId();
             
-            $this->saleService->createSale($data, Cart::instance('sale')->content());
+            $createdSale = $this->saleService->createSale($data, Cart::instance('sale')->content());
 
             Cart::instance('sale')->destroy();
             toast('Pembelian Ditambahkan!', 'success');
@@ -156,7 +156,7 @@ class SaleController extends Controller
                 session()->flash('hpp_warning', $this->saleService->lastMissingCostWarnings);
             }
 
-            return redirect()->route('sales.index');
+            return redirect()->to(\App\Support\Sale\SaleDetailRedirect::url($createdSale));
         } catch (Exception $e) {
             Log::error('Sale Creation Failed:', ['error' => $e->getMessage()]);
             return redirect()->back()->withErrors(['cart' => $e->getMessage()])->withInput();
@@ -352,7 +352,7 @@ class SaleController extends Controller
             $data['tax_amount'] = round((float) Cart::instance('sale')->tax(), 2);
             $data['discount_amount'] = round((float) Cart::instance('sale')->discount(), 2);
 
-            $this->saleService->updateSale($sale, $data, Cart::instance('sale')->content());
+            $updatedSale = $this->saleService->updateSale($sale, $data, Cart::instance('sale')->content());
 
             Cart::instance('sale')->destroy();
             toast('Penjualan Diperbaharui!', 'info');
@@ -361,7 +361,7 @@ class SaleController extends Controller
                 session()->flash('hpp_warning', $this->saleService->lastMissingCostWarnings);
             }
 
-            return redirect()->route('sales.index');
+            return redirect()->to(\App\Support\Sale\SaleDetailRedirect::url($updatedSale));
         } catch (Exception $e) {
             Log::error('Sale Update Failed:', ['error' => $e->getMessage()]);
             return redirect()->back()->withErrors(['cart' => $e->getMessage()])->withInput();

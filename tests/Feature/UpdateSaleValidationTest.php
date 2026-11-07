@@ -116,7 +116,7 @@ class UpdateSaleValidationTest extends TestCase
                 'note' => 'Update to 2000',
             ]);
 
-        $response->assertRedirect(route('sales.index'));
+        $response->assertRedirectContains('/sales/');
         $sale->refresh();
         $this->assertEquals(2000, (float) $sale->total_amount);
         $this->assertEquals(2000, (float) $sale->paid_amount);
