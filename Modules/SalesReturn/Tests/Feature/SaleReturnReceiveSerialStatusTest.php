@@ -75,6 +75,13 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
     /**
      * @return array{sale: Sale, saleReturn: SaleReturn, saleReturnDetail: SaleReturnDetail, product: Product, stock: ProductStock, serial: ProductSerialNumber, location: Location}
      */
+    /** Records the financial review the settlement form performs on submit (derived from the source sale). */
+    protected function recordFinancialReview(SaleReturnItemSettlement $item): void
+    {
+        $derived = app(\App\Support\SalesReturn\StandardFinancialService::class)->resolve($item->fresh());
+        $item->forceFill(['nominal' => $derived['value'], 'reviewed_value' => $derived['value'], 'reviewed_fingerprint' => $derived['fingerprint']])->save();
+    }
+
     protected function createSingleSerialSaleReturnFixture(): array
     {
         $paymentTerm = PaymentTerm::create(['name' => 'Net 30', 'longevity' => 30]);
@@ -132,7 +139,7 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
             'reference' => 'SO-RET-001',
         ]);
 
-        SaleDetails::create([
+        $saleDetailRow = SaleDetails::create([
             'sale_id' => $sale->id,
             'product_id' => $product->id,
             'product_name' => $product->product_name,
@@ -213,6 +220,7 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
             'product_discount_type' => 'fixed',
             'product_tax_amount' => 0,
             'dispatch_detail_id' => $dispatchDetail->id,
+            'sale_detail_id' => $saleDetailRow->id,
             'location_id' => $location->id,
             'tax_id' => null,
             'serial_number_ids' => [$serial->id],
@@ -321,6 +329,7 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
             'status' => SaleReturnItemSettlement::STATUS_SUBMITTED,
             'nominal' => 1500,
         ]);
+        $this->recordFinancialReview($settlementItem);
 
         $response = $this->post(route('sale-return-settlements.item.approve', $settlementItem), [
             'approval_note' => 'Cash refund finalized',
@@ -353,7 +362,9 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
         $this->assertEquals(1, \Modules\SalesReturn\Entities\SaleReturnCustody::query()->where('sale_return_id', $saleReturn->id)->sole()->held_quantity);
 
         $this->assertSame(0, Transaction::query()->count());
-        $this->assertTrue(SaleReturnPayment::query()->where('sale_return_id', $saleReturn->id)->exists());
+        // The source sale was unpaid: the return cancels debt first, so there is NO cash payout row.
+        $this->assertFalse(SaleReturnPayment::query()->where('sale_return_id', $saleReturn->id)->exists());
+        $this->assertEquals(1500, \Modules\SalesReturn\Entities\SaleReturnAdjustment::query()->where('sale_return_id', $saleReturn->id)->sole()->debt_reduction);
     }
 
     /** @test */
@@ -377,6 +388,7 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
             'status' => SaleReturnItemSettlement::STATUS_SUBMITTED,
             'nominal' => 1500,
         ]);
+        $this->recordFinancialReview($settlementItem);
 
         $this->post(route('sale-return-settlements.item.approve', $settlementItem), [
             'approval_note' => 'Cash refund finalized',
@@ -390,7 +402,8 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
         $archivedAtFirst = $sale->archived_at;
         $this->assertNotNull($archivedAtFirst);
         $this->assertSame(0, Transaction::query()->count());
-        $this->assertSame(1, SaleReturnPayment::query()->where('sale_return_id', $saleReturn->id)->count());
+        $this->assertSame(0, SaleReturnPayment::query()->where('sale_return_id', $saleReturn->id)->count(), 'debt-only: no cash payout');
+        $this->assertSame(1, \Modules\SalesReturn\Entities\SaleReturnAdjustment::query()->where('sale_return_id', $saleReturn->id)->count());
 
         // Retry the same approval action; the settlement item is no longer approvable.
         $retryResponse = $this->post(route('sale-return-settlements.item.approve', $settlementItem), [
@@ -409,7 +422,8 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
         $this->assertEquals(ProductSerialNumber::STATUS_RETURN_IN_PROCESS, $serial->status);
         $this->assertSame(0, Transaction::query()->count(), 'Retry must not create any inventory movement.');
         $this->assertSame(1, \Modules\SalesReturn\Entities\SaleReturnCustody::query()->where('sale_return_id', $saleReturn->id)->count());
-        $this->assertSame(1, SaleReturnPayment::query()->where('sale_return_id', $saleReturn->id)->count(), 'Retry must not duplicate refund payment.');
+        $this->assertSame(0, SaleReturnPayment::query()->where('sale_return_id', $saleReturn->id)->count(), 'Retry must not create a payout.');
+        $this->assertSame(1, \Modules\SalesReturn\Entities\SaleReturnAdjustment::query()->where('sale_return_id', $saleReturn->id)->count(), 'Retry must not duplicate the adjustment.');
     }
 
     /** @test */
@@ -459,7 +473,7 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
             'reference' => 'SO-PARTIAL-001',
         ]);
 
-        SaleDetails::create([
+        $saleDetailRow = SaleDetails::create([
             'sale_id' => $sale->id,
             'product_id' => $product->id,
             'product_name' => $product->product_name,
@@ -524,6 +538,7 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
             'product_discount_type' => 'fixed',
             'product_tax_amount' => 0,
             'dispatch_detail_id' => $dispatchDetail->id,
+            'sale_detail_id' => $saleDetailRow->id,
             'location_id' => $location->id,
             'tax_id' => null,
             'serial_number_ids' => [],
@@ -539,6 +554,7 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
             'status' => SaleReturnItemSettlement::STATUS_SUBMITTED,
             'nominal' => 1500,
         ]);
+        $this->recordFinancialReview($settlementItem);
 
         $this->post(route('sale-return-settlements.item.approve', $settlementItem), [
             'approval_note' => 'Partial cash refund finalized',

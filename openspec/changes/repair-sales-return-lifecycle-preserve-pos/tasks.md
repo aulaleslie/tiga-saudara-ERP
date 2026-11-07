@@ -47,12 +47,12 @@
 
 ## 6. Implement source-valued debt-first financial settlement
 
-- [ ] 6.1 Add immutable, uniquely settlement-keyed financial adjustment evidence with committed value, debt reduction, actual refund, reviewed source fingerprint, policy version, actor/time and payout link; verify migration preservation and no duplicated evidence on retries.
-- [ ] 6.2 Resolve standard attributable charge, discount/tax allocations, prior returns, active payments, shared-payment allocation, and prior refunds; verify single-serial caps, cumulative limits, stale monetary review, and actionable blocks for ambiguous evidence while receiving remains available.
-- [ ] 6.3 Implement locked debt-first settlement and positive-only cash payout, removing zero-to-full fallback; verify the Rp1,000,000/Rp400,000/Rp800,000 example yields Rp600,000 debt reduction plus Rp200,000 refund, and debt-only/zero-charge completion creates no cash-payment row.
-- [ ] 6.4 Apply the standard adjustment projection to source net header balances, payment status, return settled-versus-cash displays, affected financial/receivable projections, and global sale collection; verify conservation against original line evidence and no double deduction or collection of canceled debt.
-- [ ] 6.5 Preserve source financial values for repair/replacement and cannot process; verify their completion and dispatch make no commercial adjustment and leave POS payment invalidation/rounding behavior intact.
-- [ ] 6.6 Add concurrent payment/return approval and injected-failure regressions using the repository's isolated MySQL/MariaDB conventions; verify source locks prevent over-refund and partial debt/payout commits, and document evidence requirements and blocked-allocation recovery guidance.
+- [x] 6.1 Add immutable, uniquely settlement-keyed financial adjustment evidence with committed value, debt reduction, actual refund, reviewed source fingerprint, policy version, actor/time and payout link; verify migration preservation and no duplicated evidence on retries.
+- [x] 6.2 Resolve standard attributable charge, discount/tax allocations, prior returns, active payments, shared-payment allocation, and prior refunds; verify single-serial caps, cumulative limits, stale monetary review, and actionable blocks for ambiguous evidence while receiving remains available.
+- [x] 6.3 Implement locked debt-first settlement and positive-only cash payout, removing zero-to-full fallback; verify the Rp1,000,000/Rp400,000/Rp800,000 example yields Rp600,000 debt reduction plus Rp200,000 refund, and debt-only/zero-charge completion creates no cash-payment row.
+- [x] 6.4 Apply the standard adjustment projection to source net header balances, payment status, return settled-versus-cash displays, affected financial/receivable projections, and global sale collection; verify conservation against original line evidence and no double deduction or collection of canceled debt.
+- [x] 6.5 Preserve source financial values for repair/replacement and cannot process; verify their completion and dispatch make no commercial adjustment and leave POS payment invalidation/rounding behavior intact.
+- [x] 6.6 Add concurrent payment/return approval and injected-failure regressions using the repository's isolated MySQL/MariaDB conventions; verify source locks prevent over-refund and partial debt/payout commits, and document evidence requirements and blocked-allocation recovery guidance.
 
 ## 7. Enforce complete settlement coverage and correct archival
 

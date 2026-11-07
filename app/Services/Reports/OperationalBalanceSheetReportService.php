@@ -52,10 +52,10 @@ class OperationalBalanceSheetReportService
             ->whereDate('date', '<=', $asOfDate)
             ->sum('amount');
 
-        $saleReturnPayments = SaleReturnPayment::whereHas('saleReturn', function ($q) use ($settingIds) {
-                $q->whereIn('setting_id', $settingIds)
-                  ->whereIn('status', ['Completed', 'COMPLETED']);
-            })
+        // Legacy payouts of completed returns + payouts linked to committed standard adjustments, each by its own date.
+        $saleReturnPayoutQuery = SaleReturnPayment::query();
+        \App\Support\SalesReturn\SaleAdjustmentSql::applyReportablePayouts($saleReturnPayoutQuery, $settingIds);
+        $saleReturnPayments = $saleReturnPayoutQuery
             ->whereDate('date', '<=', $asOfDate)
             ->sum('amount');
 
@@ -75,7 +75,21 @@ class OperationalBalanceSheetReportService
         // Note: paid_amount on sale might include future payments, so we calculate paid up to asOfDate
         // As per new operational reporting rules, we do not subtract sale returns from Receivables here
         // to avoid double-reducing when the source sale document is already corrected to its final amount.
-        $netReceivableCalc = $salesTotal - ($salePayments - $saleReturnPayments);
+        // Standard cash returns keep the sale total gross and carry their value in sale_return_adjustments
+        // (committed by the date): subtract that value once, the refunded cash is already
+        // inside $saleReturnPayments.
+        // Only for the SAME sales that make up $salesTotal (setting, status, date, unarchived), recognized by the
+        // adjustment's own commit date and independent of the return header's completion: an archived or
+        // out-of-scope source can never cancel another sale's receivable.
+        $adjustedValue = (float) \Illuminate\Support\Facades\DB::table('sale_return_adjustments as a')
+            ->join('sales as s', 's.id', '=', 'a.sale_id')
+            ->whereIn('s.setting_id', $settingIds)
+            ->whereIn('s.status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED])
+            ->whereNull('s.archived_at')
+            ->whereDate('s.date', '<=', $asOfDate)
+            ->whereDate('a.committed_at', '<=', $asOfDate)
+            ->sum('a.committed_value');
+        $netReceivableCalc = $salesTotal - $adjustedValue - ($salePayments - $saleReturnPayments);
         $receivables = max(0, $netReceivableCalc);
         $customerRefundLiability = max(0, -$netReceivableCalc);
         

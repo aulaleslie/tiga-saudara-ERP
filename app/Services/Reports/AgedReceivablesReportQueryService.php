@@ -27,20 +27,21 @@ class AgedReceivablesReportQueryService
         $query = Sale::query()
             ->join('customers', 'sales.customer_id', '=', 'customers.id')
             ->leftJoinSub($paymentsSub, 'payments', 'payments.sale_id', '=', 'sales.id')
+            ->leftJoinSub(\App\Support\SalesReturn\SaleAdjustmentSql::subquery($filter->asOfDate), 'adj', 'adj.sale_id', '=', 'sales.id')
             ->select(
                 'sales.customer_id',
                 'customers.customer_name',
-                DB::raw('SUM(ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0), 2)) as total_balance')
+                DB::raw('SUM(ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0) - COALESCE(adj.adj_debt, 0), 2)) as total_balance')
             )
-            ->selectRaw("SUM(CASE WHEN {$diffSql} BETWEEN 0 AND 30 THEN ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0), 2) ELSE 0 END) as bucket_1", [$filter->asOfDate])
-            ->selectRaw("SUM(CASE WHEN {$diffSql} BETWEEN 31 AND 60 THEN ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0), 2) ELSE 0 END) as bucket_2", [$filter->asOfDate])
-            ->selectRaw("SUM(CASE WHEN {$diffSql} BETWEEN 61 AND 90 THEN ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0), 2) ELSE 0 END) as bucket_3", [$filter->asOfDate])
-            ->selectRaw("SUM(CASE WHEN {$diffSql} > 90 THEN ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0), 2) ELSE 0 END) as bucket_4", [$filter->asOfDate])
+            ->selectRaw("SUM(CASE WHEN {$diffSql} BETWEEN 0 AND 30 THEN ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0) - COALESCE(adj.adj_debt, 0), 2) ELSE 0 END) as bucket_1", [$filter->asOfDate])
+            ->selectRaw("SUM(CASE WHEN {$diffSql} BETWEEN 31 AND 60 THEN ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0) - COALESCE(adj.adj_debt, 0), 2) ELSE 0 END) as bucket_2", [$filter->asOfDate])
+            ->selectRaw("SUM(CASE WHEN {$diffSql} BETWEEN 61 AND 90 THEN ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0) - COALESCE(adj.adj_debt, 0), 2) ELSE 0 END) as bucket_3", [$filter->asOfDate])
+            ->selectRaw("SUM(CASE WHEN {$diffSql} > 90 THEN ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0) - COALESCE(adj.adj_debt, 0), 2) ELSE 0 END) as bucket_4", [$filter->asOfDate])
             ->where('sales.setting_id', $scopeSettingId)
             ->where('sales.date', '<=', $filter->asOfDate)
-            ->whereRaw('ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0), 2) > ?', [0])
+            ->whereRaw('ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0) - COALESCE(adj.adj_debt, 0), 2) > ?', [0])
             ->groupBy('sales.customer_id', 'customers.customer_name')
-            ->havingRaw('SUM(ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0), 2)) > ?', [0]);
+            ->havingRaw('SUM(ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0) - COALESCE(adj.adj_debt, 0), 2)) > ?', [0]);
 
         FulfilledTransactionEligibility::applyToSaleQuery($query, 'sales');
 
@@ -68,7 +69,7 @@ class AgedReceivablesReportQueryService
         $direction = strtolower($sortDirection) === 'asc' ? 'asc' : 'desc';
 
         if ($sortField === 'total_balance') {
-            $query->orderByRaw("SUM(ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0), 2)) $direction")
+            $query->orderByRaw("SUM(ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0) - COALESCE(adj.adj_debt, 0), 2)) $direction")
                   ->orderBy('customers.id', 'asc'); // Tie-breaker
         } else {
             // fallback

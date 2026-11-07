@@ -54,6 +54,13 @@ trait BuildsStandardFlow
             'total_amount' => 1000 * $quantity, 'paid_amount' => 1000 * $quantity, 'due_amount' => 0,
             'status' => Sale::STATUS_DISPATCHED, 'payment_status' => 'Paid',
         ]);
+        // Financial evidence must agree with the header (paid_amount is explained by an active payment).
+        if (1000 * $quantity > 0) {
+            \Modules\Sale\Entities\SalePayment::create([
+                'sale_id' => $sale->id, 'amount' => 1000 * $quantity, 'date' => now()->toDateString(),
+                'reference' => 'PAY-' . $sale->id, 'payment_method' => 'Cash',
+            ]);
+        }
         $saleDetail = SaleDetails::create([
             'sale_id' => $sale->id, 'product_id' => $product->id, 'product_name' => $product->product_name,
             'product_code' => $product->product_code, 'quantity' => $quantity, 'price' => 1000, 'unit_price' => 1000,
@@ -80,14 +87,14 @@ trait BuildsStandardFlow
     }
 
     /** @param array<string, mixed> $overrides */
-    protected function makeReturnFor(array $flow, int $quantity, array $overrides = [], array $serialIds = []): SaleReturn
+    protected function makeReturnFor(array $flow, int $quantity, array $overrides = [], array $serialIds = [], int|float $unitPrice = 1000): SaleReturn
     {
         $return = SaleReturn::create(array_merge([
             'date' => now(), 'sale_id' => $flow['sale']->id, 'sale_reference' => $flow['sale']->reference,
             'customer_id' => 1, 'customer_name' => 'Test Customer', 'setting_id' => $flow['sale']->setting_id,
             'location_id' => 1, 'tax_percentage' => 0, 'tax_amount' => 0, 'discount_percentage' => 0,
-            'discount_amount' => 0, 'shipping_amount' => 0, 'total_amount' => 1000 * $quantity,
-            'paid_amount' => 0, 'due_amount' => 1000 * $quantity, 'status' => 'Pending Approval',
+            'discount_amount' => 0, 'shipping_amount' => 0, 'total_amount' => $unitPrice * $quantity,
+            'paid_amount' => 0, 'due_amount' => $unitPrice * $quantity, 'status' => 'Pending Approval',
             'approval_status' => 'pending', 'payment_status' => 'Unpaid', 'payment_method' => 'Pending',
         ], $overrides));
 
@@ -96,7 +103,7 @@ trait BuildsStandardFlow
             'dispatch_detail_id' => $flow['dispatchDetail']->id, 'location_id' => 1,
             'product_id' => $flow['product']->id, 'product_name' => $flow['product']->product_name,
             'product_code' => $flow['product']->product_code, 'quantity' => $quantity,
-            'unit_price' => 1000, 'price' => 1000, 'sub_total' => 1000 * $quantity,
+            'unit_price' => $unitPrice, 'price' => $unitPrice, 'sub_total' => $unitPrice * $quantity,
             'product_discount_amount' => 0, 'product_tax_amount' => 0, 'serial_number_ids' => $serialIds,
         ]);
 
@@ -112,11 +119,22 @@ trait BuildsStandardFlow
 
     protected function settlementFor(SaleReturn $return, string $status, string $method = 'REPAIR', ?int $serialId = null): SaleReturnItemSettlement
     {
-        return SaleReturnItemSettlement::create([
+        $row = SaleReturnItemSettlement::create([
             'sale_return_id' => $return->id,
             'sale_return_detail_id' => $return->saleReturnDetails()->value('id'),
             'product_serial_number_id' => $serialId,
             'method' => $method, 'nominal' => 1000, 'status' => $status,
         ]);
+
+        // A submitted cash return carries the financial review the form would have recorded.
+        if ($method === 'CASH_REFUND' && $status === SaleReturnItemSettlement::STATUS_SUBMITTED) {
+            $fresh = $row->fresh();
+            $derived = app(\App\Support\SalesReturn\StandardFinancialService::class)->resolve($fresh);
+            $row->forceFill([
+                'nominal' => $derived['value'], 'reviewed_value' => $derived['value'], 'reviewed_fingerprint' => $derived['fingerprint'],
+            ])->save();
+        }
+
+        return $row;
     }
 }

@@ -41,7 +41,17 @@ class SalesReturnSettlementController extends Controller
                 // Decide behavior based on method
                 $method = strtoupper($itemSettlement->method ?? '');
 
-                if ($method === 'CASH_REFUND' || $method === 'CUSTOMER_CREDIT' || $method === 'MODIFY_SALE') {
+                if ($method === 'CASH_REFUND') {
+                    // Debt first, then a positive-only cash payout, with immutable adjustment evidence
+                    // and every projection updated in this one transaction (source sale already locked).
+                    app(\App\Support\SalesReturn\StandardFinancialService::class)->commit($itemSettlement);
+                    $itemSettlement->update([
+                        'status' => SaleReturnItemSettlement::STATUS_APPROVED,
+                        'approved_by' => Auth::id(),
+                        'approved_at' => now(),
+                        'approval_note' => $request->approval_note,
+                    ]);
+                } elseif ($method === 'CUSTOMER_CREDIT' || $method === 'MODIFY_SALE') {
                     // immediate effects on approval
                     $this->applySettlementEffect($itemSettlement, $request);
                     $itemSettlement->update([
@@ -147,19 +157,7 @@ class SalesReturnSettlementController extends Controller
         $saleReturn = $item->saleReturn;
 
         switch ($method) {
-            case 'CASH_REFUND':
-                SaleReturnPayment::create([
-                    'sale_return_id' => $saleReturn->id,
-                    'amount' => $nominal,
-                    'date' => now()->toDateString(),
-                    'reference' => 'SRPAY/' . $saleReturn->reference,
-                    'payment_method' => 'Cash Refund',
-                    'note' => 'Pengembalian tunai per baris',
-                    // Unique anchor: a replayed approval can never pay out the same row twice.
-                    'sale_return_item_settlement_id' => $item->id,
-                ]);
-                break;
-
+            // CASH_REFUND is handled by StandardFinancialService::commit() (debt first, positive-only payout).
             case 'CUSTOMER_CREDIT':
                 CustomerCredit::create([
                     'sale_return_id' => $saleReturn->id,

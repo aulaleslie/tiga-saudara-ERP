@@ -107,13 +107,12 @@ class SaleReturnItemSettlement extends BaseModel
     }
 
     /**
-     * Get the effective nominal for this settlement item.
-     * Falls back to detail sub_total if nominal is zero or null.
+     * The nominal recorded for this settlement item. A zero or missing nominal is NEVER replaced by
+     * the detail subtotal (that fallback turned "no money" into a full refund); for standard cash
+     * returns the committed value lives in the immutable sale_return_adjustments evidence.
      */
     public function getEffectiveNominal(): float
     {
-        return $this->nominal > 0
-            ? (float) $this->nominal
-            : (float) ($this->detail?->sub_total ?? 0);
+        return max(0.0, (float) $this->nominal);
     }
 }

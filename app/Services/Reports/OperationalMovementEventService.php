@@ -2,6 +2,7 @@
 
 namespace App\Services\Reports;
 
+use App\Support\SalesReturn\SaleAdjustmentSql;
 use App\Services\Reports\Concerns\FulfilledTransactionEligibility;
 use Illuminate\Support\Facades\DB;
 use Modules\Expense\Entities\Expense;
@@ -84,16 +85,29 @@ class OperationalMovementEventService
         // 3. Sale Returns (No GL impact as per Laba Rugi logic)
 
         // 4. Sale Return Payments
-        $saleReturnPayments = DB::table('sale_return_payments')
-            ->join('sale_returns', 'sale_returns.id', '=', 'sale_return_payments.sale_return_id')
-            ->whereIn('sale_returns.setting_id', $settingIds)
-            ->whereIn('sale_returns.status', ['Completed', 'COMPLETED'])
+        $saleReturnPayoutOpening = DB::table('sale_return_payments');
+        SaleAdjustmentSql::applyReportablePayouts($saleReturnPayoutOpening, $settingIds, true);
+        $saleReturnPayments = $saleReturnPayoutOpening
             ->whereDate('sale_return_payments.date', '<', $startDate)
             ->sum('sale_return_payments.amount');
 
         if ($saleReturnPayments > 0) {
             $add(OperationalGeneralLedgerBucketConfig::CASH_BANK, 0, (float)$saleReturnPayments);
             $add(OperationalGeneralLedgerBucketConfig::ACCOUNTS_RECEIVABLE, (float)$saleReturnPayments, 0);
+        }
+
+        // 4b. Committed standard cash-return adjustments (own commit date, eligible sources only): the returned value leaves receivables
+        // (debt reduction + refunded cash; the refund's cash leg is the sale return payment above).
+        $adjustedValue = DB::table('sale_return_adjustments')
+            ->join('sale_returns', 'sale_returns.id', '=', 'sale_return_adjustments.sale_return_id')
+            ->whereIn('sale_returns.setting_id', $settingIds)
+            ->whereIn('sale_return_adjustments.sale_id', SaleAdjustmentSql::eligibleSaleIds($settingIds))
+            ->whereDate('sale_return_adjustments.committed_at', '<', $startDate)
+            ->sum('sale_return_adjustments.committed_value');
+
+        if ($adjustedValue > 0) {
+            $add(OperationalGeneralLedgerBucketConfig::RETURNS_AND_ADJUSTMENTS, (float)$adjustedValue, 0);
+            $add(OperationalGeneralLedgerBucketConfig::ACCOUNTS_RECEIVABLE, 0, (float)$adjustedValue);
         }
 
         // 5. Purchases
@@ -232,10 +246,9 @@ class OperationalMovementEventService
         // 3. Sale Returns (Removed logic as per Laba Rugi)
 
         // 4. Sale Return Payments
-        $saleReturnPayments = SaleReturnPayment::whereHas('saleReturn', function ($q) use ($settingIds) {
-                $q->whereIn('setting_id', $settingIds)
-                  ->whereIn('status', ['Completed', 'COMPLETED']);
-            })
+        $saleReturnPayoutQuery = SaleReturnPayment::query();
+        SaleAdjustmentSql::applyReportablePayouts($saleReturnPayoutQuery, $settingIds, true);
+        $saleReturnPayments = $saleReturnPayoutQuery
             ->whereBetween('date', [$startDate, $endDateEndOfDay])
             ->with('saleReturn:id,customer_name')
             ->get(['date', 'reference', 'amount', 'sale_return_id', 'created_at', 'payment_method']);
@@ -250,6 +263,24 @@ class OperationalMovementEventService
 
             $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::CASH_BANK, $dt, 'Pengembalian Dana', $srp->reference, $desc, 0, $amount, $tag);
             $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::ACCOUNTS_RECEIVABLE, $dt, 'Pengembalian Dana', $srp->reference, 'Pengembalian Dana Retur', $amount, 0, $tag);
+        }
+
+        // 4b. Committed standard cash-return adjustments (eligible sources): value leaves receivables, shown as sales return.
+        $adjustments = DB::table('sale_return_adjustments as a')
+            ->join('sale_returns as r', 'r.id', '=', 'a.sale_return_id')
+            ->whereIn('r.setting_id', $settingIds)
+            ->whereIn('a.sale_id', SaleAdjustmentSql::eligibleSaleIds($settingIds))
+            ->whereBetween('a.committed_at', [$startDate, $endDateEndOfDay])
+            ->get(['a.committed_value', 'a.committed_at', 'r.reference', 'r.customer_name']);
+
+        foreach ($adjustments as $adj) {
+            $value = (float) $adj->committed_value;
+            if ($value <= 0) {
+                continue;
+            }
+            $dt = Carbon::parse($adj->committed_at)->format('Y-m-d H:i:s');
+            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::RETURNS_AND_ADJUSTMENTS, $dt, 'Retur Penjualan', (string) $adj->reference, 'Retur Penjualan (utang dibatalkan / dana dikembalikan)', $value, 0, $adj->customer_name);
+            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::ACCOUNTS_RECEIVABLE, $dt, 'Retur Penjualan', (string) $adj->reference, 'Retur Penjualan', 0, $value, $adj->customer_name);
         }
 
         // 5. Purchases

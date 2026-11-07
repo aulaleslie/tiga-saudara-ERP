@@ -181,6 +181,20 @@
                             </div>
                         </div>
 
+                        @php($financialTotals = app(\App\Support\SalesReturn\StandardFinancialService::class)->returnTotals($sale_return))
+                        @if($financialTotals['value'] > 0)
+                            <div class="card mt-3">
+                                <div class="card-body">
+                                    <h6 class="mb-2">Penyelesaian Keuangan</h6>
+                                    <div class="d-flex flex-wrap gap-4 small" data-testid="financial-totals">
+                                        <div><span class="text-muted">Nilai diselesaikan</span> <strong>{{ format_currency($financialTotals['value']) }}</strong></div>
+                                        <div><span class="text-muted">Mengurangi utang</span> <strong>{{ format_currency($financialTotals['debt']) }}</strong></div>
+                                        <div><span class="text-muted">Dibayar tunai</span> <strong>{{ format_currency($financialTotals['cash']) }}</strong></div>
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
+
                         @if($sale_return->usesHeldCustody())
                             @php($custodySummary = app(\App\Support\SalesReturn\StandardReturnCustodyService::class)->summary($sale_return))
                             <div class="card mt-3">

@@ -121,12 +121,13 @@ class SettlementOptionsTest extends TestCase
             ->set('settlementLines.0.method', SaleReturnDetail::METHOD_CASH_REFUND)
             ->set('settlementLines.0.proof_file', $file)
             ->call('submitLine', 0)
-            ->assertHasNoErrors();
+            // A cash return needs a verifiable source sale line: a return with no source evidence is
+            // blocked with guidance instead of inventing an amount (successful path: FinancialSettlementTest).
+            ->assertHasErrors(['settlementLines.0.nominal']);
 
-        $this->assertDatabaseHas('sale_return_item_settlements', [
+        $this->assertDatabaseMissing('sale_return_item_settlements', [
             'sale_return_id' => $saleReturn->id,
             'method' => SaleReturnDetail::METHOD_CASH_REFUND,
-            'status' => SaleReturnItemSettlement::STATUS_SUBMITTED,
         ]);
     }
 

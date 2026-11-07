@@ -139,10 +139,9 @@ class OperationalCashFlowReportService
     protected function getSaleReturnPayments(int|array $settingScope, ?string $startDate, ?string $endDate): float
     {
         $settingIds = is_array($settingScope) ? $settingScope : [$settingScope];
-        $query = SaleReturnPayment::whereHas('saleReturn', function ($q) use ($settingIds) {
-            $q->whereIn('setting_id', $settingIds)
-              ->whereIn('status', ['Completed', 'COMPLETED']);
-        });
+        // Legacy payouts of completed returns + payouts linked to committed standard adjustments (own date).
+        $query = SaleReturnPayment::query();
+        \App\Support\SalesReturn\SaleAdjustmentSql::applyReportablePayouts($query, $settingIds);
 
         return (float) $this->applyDateFilters($query, $startDate, $endDate)->sum('amount');
     }

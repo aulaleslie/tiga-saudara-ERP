@@ -82,6 +82,7 @@ class SaleReturnSettlementForm extends Component
                 
                 foreach ($snEntities as $snEntity) {
                     $existing = $existingSettlements->where('product_serial_number_id', $snEntity->id)->first();
+                    [$derived, $block] = $this->derivedValue($detail, $snEntity->id, $existing);
                     
                     $this->settlementLines[] = [
                         'id' => $existing->id ?? null,
@@ -92,8 +93,9 @@ class SaleReturnSettlementForm extends Component
                         'serial_number' => $snEntity->serial_number,
                         'serial_number_id' => $snEntity->id,
                         'method' => $existing->method ?? '',
-                        'nominal' => (float) ($existing->nominal ?? $detail->unit_price),
-                        'max_nominal' => (float) $detail->unit_price,
+                        'nominal' => (float) ($existing->nominal ?? $derived),
+                        'max_nominal' => (float) $derived,
+                        'financial_block' => $block,
                         'target_sale_id' => $existing->target_sale_id ?? null,
                         'status' => $existing->status ?? SaleReturnItemSettlement::STATUS_DRAFT,
                         'rejection_reason' => $existing->rejection_reason ?? null,
@@ -105,6 +107,7 @@ class SaleReturnSettlementForm extends Component
                 }
             } else {
                 $existing = $existingSettlements->whereNull('product_serial_number_id')->first();
+                [$derived, $block] = $this->derivedValue($detail, null, $existing);
                 
                 $this->settlementLines[] = [
                     'id' => $existing->id ?? null,
@@ -115,8 +118,9 @@ class SaleReturnSettlementForm extends Component
                     'serial_number' => null,
                     'serial_number_id' => null,
                     'method' => $existing->method ?? '',
-                    'nominal' => (float) ($existing->nominal ?? $detail->sub_total),
-                    'max_nominal' => (float) $detail->sub_total,
+                    'nominal' => (float) ($existing->nominal ?? $derived),
+                    'max_nominal' => (float) $derived,
+                    'financial_block' => $block,
                     'target_sale_id' => $existing->target_sale_id ?? null,
                     'status' => $existing->status ?? SaleReturnItemSettlement::STATUS_DRAFT,
                     'rejection_reason' => $existing->rejection_reason ?? null,
@@ -129,6 +133,33 @@ class SaleReturnSettlementForm extends Component
         }
 
         $this->loadUnpaidSales();
+    }
+
+    /**
+     * Attributable value from the persisted source sale (display/default only; the server re-derives
+     * it on submit and approval). A block message means financial approval is not possible yet.
+     *
+     * @return array{0: float, 1: ?string}
+     */
+    protected function derivedValue(SaleReturnDetail $detail, ?int $serialId, ?SaleReturnItemSettlement $existing): array
+    {
+        if ($existing && $existing->status === SaleReturnItemSettlement::STATUS_APPROVED) {
+            return [(float) $existing->nominal, null];   // already committed: shown from evidence
+        }
+
+        // A detached probe (no shared relation graph with the component's hydrated models).
+        $probe = new SaleReturnItemSettlement([
+            'sale_return_id' => $this->saleReturnId, 'sale_return_detail_id' => $detail->id,
+            'product_serial_number_id' => $serialId, 'method' => SaleReturnDetail::METHOD_CASH_REFUND,
+        ]);
+        $probe->setRelation('detail', $detail->withoutRelations());
+        $probe->setRelation('saleReturn', $this->saleReturn->withoutRelations());
+
+        try {
+            return [app(\App\Support\SalesReturn\StandardFinancialService::class)->resolve($probe)['value'], null];
+        } catch (\App\Support\SalesReturn\SalesReturnFinancialBlockedException $e) {
+            return [0.0, $e->getMessage()];
+        }
     }
 
     protected function loadUnpaidSales(): void
@@ -272,7 +303,7 @@ class SaleReturnSettlementForm extends Component
 
         // For cash refund, require nominal (amount) input only
         if ($line['method'] === SaleReturnDetail::METHOD_CASH_REFUND) {
-            $rules["settlementLines.{$index}.nominal"] = 'required|numeric|min:0|max:' . $maxNominal;
+            $rules["settlementLines.{$index}.nominal"] = 'required|numeric|min:0';
         }
 
         // For 'Tidak dapat diproses' require notes (reason)
@@ -344,11 +375,31 @@ class SaleReturnSettlementForm extends Component
                     throw ValidationException::withMessages(["settlementLines.{$index}.method" => 'Metode penyelesaian tidak valid.']);
                 }
                 $maxNominal = $requiresSerial ? (float) $detail->unit_price : (float) $detail->sub_total;
-                $nominal = $method === SaleReturnDetail::METHOD_CASH_REFUND
-                    ? round((float) ($line['nominal'] ?? 0), 2)
-                    : $maxNominal;
-                if ($nominal < 0 || $nominal > $maxNominal + 0.001) {
-                    throw ValidationException::withMessages(["settlementLines.{$index}.nominal" => 'Nominal melebihi nilai dokumen retur.']);
+                $reviewedValue = null;
+                $reviewedFingerprint = null;
+                if ($method === SaleReturnDetail::METHOD_CASH_REFUND) {
+                    // The attributable value comes from the persisted source sale (discount/tax/prior returns),
+                    // never from the form. Ambiguous or contradictory evidence blocks here with guidance.
+                    $probe = new SaleReturnItemSettlement([
+                        'sale_return_id' => $this->saleReturnId, 'sale_return_detail_id' => $detail->id,
+                        'product_serial_number_id' => $serialId, 'method' => $method,
+                    ]);
+                    $probe->setRelation('detail', $detail->withoutRelations());
+                    $probe->setRelation('saleReturn', $locked->withoutRelations());
+                    try {
+                        $review = app(\App\Support\SalesReturn\StandardFinancialService::class)
+                            ->review($probe, (float) ($line['nominal'] ?? 0));
+                    } catch (\App\Support\SalesReturn\SalesReturnFinancialBlockedException $e) {
+                        throw ValidationException::withMessages(["settlementLines.{$index}.nominal" => $e->getMessage()]);
+                    }
+                    $nominal = $review['committed'];
+                    $reviewedValue = $review['committed'];
+                    $reviewedFingerprint = $review['fingerprint'];
+                } else {
+                    $nominal = $maxNominal;
+                }
+                if ($nominal < 0) {
+                    throw ValidationException::withMessages(["settlementLines.{$index}.nominal" => 'Nominal tidak valid.']);
                 }
                 if ($method === SaleReturnDetail::METHOD_UNPROCESSED && trim((string) ($line['notes'] ?? '')) === '') {
                     throw ValidationException::withMessages(["settlementLines.{$index}.notes" => 'Alasan wajib diisi untuk Tidak dapat diproses.']);
@@ -357,6 +408,8 @@ class SaleReturnSettlementForm extends Component
                 $attributes = [
                     'method' => $method,
                     'nominal' => $nominal,
+                    'reviewed_value' => $reviewedValue,
+                    'reviewed_fingerprint' => $reviewedFingerprint,
                     'target_sale_id' => null,
                     // location and new_serial_number are deferred to dispatch stage
                     'location_id' => $line['location_id'] ?? null,

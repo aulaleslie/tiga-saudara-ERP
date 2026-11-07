@@ -23,6 +23,8 @@ class CustomerReceivablesReportQueryService
         $query = Sale::with(['customer', 'tags'])
             ->join('customers', 'sales.customer_id', '=', 'customers.id')
             ->leftJoinSub($paymentsSub, 'payments', 'payments.sale_id', '=', 'sales.id')
+            // Canceled debt (standard cash returns committed by the end date) is not receivable.
+            ->leftJoinSub(\App\Support\SalesReturn\SaleAdjustmentSql::subquery($filter->endDate), 'adj', 'adj.sale_id', '=', 'sales.id')
             ->select(
                 // sales.* already includes the denormalized sales.customer_name column.
                 // Do NOT also select customers.customer_name: when this query is wrapped
@@ -30,11 +32,11 @@ class CustomerReceivablesReportQueryService
                 // duplicate column name (SQLSTATE 42S21). Sorting references
                 // customers.customer_name directly in the ORDER BY clause instead.
                 'sales.*',
-                DB::raw('ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0), 2) as sisa_piutang')
+                DB::raw('ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0) - COALESCE(adj.adj_debt, 0), 2) as sisa_piutang')
             )
             ->where('sales.setting_id', $scopeSettingId)
             ->where('sales.date', '<=', $filter->endDate)
-            ->whereRaw('ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0), 2) > ?', [0]);
+            ->whereRaw('ROUND(sales.total_amount - COALESCE(payments.paid_to_date, 0) - COALESCE(adj.adj_debt, 0), 2) > ?', [0]);
 
         FulfilledTransactionEligibility::applyToSaleQuery($query, 'sales');
 

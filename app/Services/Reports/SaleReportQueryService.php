@@ -46,6 +46,7 @@ class SaleReportQueryService
             ->join('sales', 'sale_details.sale_id', '=', 'sales.id')
             ->leftJoin('customers', 'sales.customer_id', '=', 'customers.id')
             ->leftJoinSub($activePaymentSub, 'ap', 'ap.sale_id', '=', 'sales.id')
+            ->leftJoinSub(\App\Support\SalesReturn\SaleAdjustmentSql::subquery(), 'adj', 'adj.sale_id', '=', 'sales.id')
             ->leftJoinSub($gudangSub, 'gd', function ($join) {
                 $join->on('gd.sale_id', '=', 'sale_details.sale_id')
                      ->on('gd.product_id', '=', 'sale_details.product_id');
@@ -54,6 +55,7 @@ class SaleReportQueryService
                 'sale_details.*',
                 'gd.gudang',
                 DB::raw($effectivePaidExpression . ' as derived_active_paid'),
+                DB::raw('COALESCE(adj.adj_value, 0) as derived_adj_value'),
             );
 
         return $this->applyCommonFilters($query, $filter, $scopeSettingId, 'sale.tags');
@@ -70,9 +72,11 @@ class SaleReportQueryService
             ])
             ->leftJoin('customers', 'sales.customer_id', '=', 'customers.id')
             ->leftJoinSub($this->activePaymentSubquery(), 'ap', 'ap.sale_id', '=', 'sales.id')
+            ->leftJoinSub(\App\Support\SalesReturn\SaleAdjustmentSql::subquery(), 'adj', 'adj.sale_id', '=', 'sales.id')
             ->select(
                 'sales.*',
                 DB::raw($effectivePaidExpression . ' as derived_active_paid'),
+                DB::raw('COALESCE(adj.adj_value, 0) as derived_adj_value'),
             );
 
         return $this->applyCommonFilters($query, $filter, $scopeSettingId, 'tags');
@@ -92,14 +96,15 @@ class SaleReportQueryService
 
     private function effectivePaidExpression(): string
     {
+        // Net cash paid: standard cash returns give part of the payments back (adj_refund).
         return <<<'SQL'
-CASE
-    WHEN COALESCE(ap.payment_count, 0) > 0 THEN COALESCE(ap.active_paid, 0)
+(CASE
+    WHEN COALESCE(ap.payment_count, 0) > 0 THEN COALESCE(ap.active_paid, 0) - COALESCE(adj.adj_refund, 0)
     WHEN COALESCE(sales.paid_amount, 0) > 0 THEN COALESCE(sales.paid_amount, 0)
     WHEN COALESCE(sales.total_amount, 0) - COALESCE(sales.due_amount, 0) > 0
         THEN COALESCE(sales.total_amount, 0) - COALESCE(sales.due_amount, 0)
     ELSE 0
-END
+END)
 SQL;
     }
 
@@ -138,10 +143,10 @@ SQL;
                         }),
                         'PARTIAL' => $builder->orWhere(function ($subQuery) {
                             $subQuery->whereRaw('(' . $this->effectivePaidExpression() . ') > 0')
-                                ->whereRaw('(' . $this->effectivePaidExpression() . ') < sales.total_amount');
+                                ->whereRaw('(' . $this->effectivePaidExpression() . ') < (sales.total_amount - COALESCE(adj.adj_value, 0))');
                         }),
                         'PAID' => $builder->orWhere(function ($subQuery) {
-                            $subQuery->whereRaw('(' . $this->effectivePaidExpression() . ') >= sales.total_amount')
+                            $subQuery->whereRaw('(' . $this->effectivePaidExpression() . ') >= (sales.total_amount - COALESCE(adj.adj_value, 0))')
                                 ->whereRaw('sales.total_amount > 0');
                         }),
                         default => null,
@@ -165,7 +170,7 @@ SQL;
             'payment_status'           => $query->orderByRaw('
                 (CASE 
                     WHEN derived_active_paid <= 0 THEN 1 
-                    WHEN sales.total_amount > 0 AND derived_active_paid >= sales.total_amount THEN 3 
+                    WHEN sales.total_amount > 0 AND derived_active_paid >= (sales.total_amount - derived_adj_value) THEN 3 
                     ELSE 2 
                 END) ' . $direction
             ),
@@ -257,7 +262,7 @@ SQL;
         $tax = $detail->tax;
 
         $activePaid = (float) ($detail->derived_active_paid ?? 0);
-        $totalAmount = (float) ($sale?->total_amount ?? 0);
+        $totalAmount = (float) ($sale?->total_amount ?? 0) - (float) ($detail->derived_adj_value ?? 0);
 
         return [
             'Tanggal'                     => self::formatDate($sale?->effective_date),
@@ -299,7 +304,7 @@ SQL;
     {
         $customer = $sale->customer;
         $activePaid = (float) ($sale->derived_active_paid ?? 0);
-        $totalAmount = (float) ($sale->total_amount ?? 0);
+        $totalAmount = (float) ($sale->total_amount ?? 0) - (float) ($sale->derived_adj_value ?? 0);
 
         return [
             'Tanggal' => self::formatDate($sale->effective_date),

@@ -248,6 +248,9 @@ class Sale extends BaseModel implements HasMedia
             INNER JOIN sale_payments sp ON spca.sale_payment_id = sp.id
             WHERE sp.sale_id = sales.id
             AND sp.status = ?
+        ), 0) - COALESCE((
+            SELECT SUM(sra.debt_reduction) FROM sale_return_adjustments sra
+            WHERE sra.sale_id = sales.id
         ), 0)';
     }
 
@@ -393,7 +396,30 @@ class Sale extends BaseModel implements HasMedia
      */
     public function getLiveDueAmountAttribute(): float
     {
-        return max(0, round($this->total_amount - $this->getEffectivePaidAmount(), 2));
+        return max(0, round($this->total_amount - $this->getEffectivePaidAmount() - $this->getCommittedDebtReduction(), 2));
+    }
+
+    /**
+     * Standard cash-return debt reductions committed against this sale (sale_return_adjustments).
+     * Customer debt cancelled by a returned item; consumed exactly once by every live-due projection.
+     */
+    public function getCommittedDebtReduction(): float
+    {
+        return round((float) DB::table('sale_return_adjustments')->where('sale_id', $this->id)->sum('debt_reduction'), 2);
+    }
+
+    /** Cash actually refunded to the customer through standard cash-return adjustments. */
+    public function getCommittedCashRefund(): float
+    {
+        return round((float) DB::table('sale_return_adjustments')->where('sale_id', $this->id)->sum('cash_refund'), 2);
+    }
+
+    /** Net invoice total after committed standard returns (gross total_amount stays as source evidence). */
+    public function getNetTotalAmountAttribute(): float
+    {
+        $value = (float) DB::table('sale_return_adjustments')->where('sale_id', $this->id)->sum('committed_value');
+
+        return round((float) $this->total_amount - $value, 2);
     }
 
     /**
@@ -417,8 +443,9 @@ class Sale extends BaseModel implements HasMedia
      */
     public function reconcileFromActivePayments(): void
     {
-        $paidAmount = $this->getEffectivePaidAmount();
-        $dueAmount = round($this->total_amount - $paidAmount, 2);
+        // Net of standard cash returns: cash refunded leaves the paid side, cancelled debt leaves the due side.
+        $paidAmount = round($this->getEffectivePaidAmount() - $this->getCommittedCashRefund(), 2);
+        $dueAmount = round($this->total_amount - $this->getEffectivePaidAmount() - $this->getCommittedDebtReduction(), 2);
         $dueAmount = max(0, $dueAmount);
 
         $status = $dueAmount <= 0 ? 'PAID' : ($paidAmount > 0.01 ? 'PARTIAL' : 'UNPAID');

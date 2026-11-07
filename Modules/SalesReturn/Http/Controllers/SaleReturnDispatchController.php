@@ -311,6 +311,8 @@ class SaleReturnDispatchController extends Controller
                   $lifecycleSync = app(SaleReturnLifecycleSyncService::class);
                   $actorId = (int) Auth::id();
 
+                  // Dispatched goods settle their share of the return's value (cash paid stays separate).
+                  app(\App\Support\SalesReturn\StandardFinancialService::class)->refreshReturnHeader($saleReturn);
                   $lifecycleSync->syncSaleReturnCompletionRollup($saleReturn, $actorId);
                   $lifecycleSync->archiveSourceSaleIfFullyReturnedAndCompleted($saleReturn, $actorId);
               }

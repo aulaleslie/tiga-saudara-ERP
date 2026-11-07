@@ -25,6 +25,7 @@ class SalesOrderCompletionReportQueryService
             ])
             ->leftJoin('customers', 'sales.customer_id', '=', 'customers.id')
             ->leftJoinSub($activePaymentSub, 'ap', 'ap.sale_id', '=', 'sales.id')
+            ->leftJoinSub(\App\Support\SalesReturn\SaleAdjustmentSql::subquery(), 'adj', 'adj.sale_id', '=', 'sales.id')
             ->leftJoinSub($saleDeliveryAmountSub, 'da', 'da.sale_id', '=', 'sales.id')
             ->select(
                 'sales.*',
@@ -125,7 +126,7 @@ class SalesOrderCompletionReportQueryService
     {
         return <<<'SQL'
 CASE
-    WHEN COALESCE(ap.active_payment_count, 0) > 0 THEN COALESCE(ap.active_paid, 0)
+    WHEN COALESCE(ap.active_payment_count, 0) > 0 THEN COALESCE(ap.active_paid, 0) - COALESCE(adj.adj_refund, 0)
     WHEN COALESCE(sales.paid_amount, 0) > 0 THEN COALESCE(sales.paid_amount, 0)
     WHEN COALESCE(sales.total_amount, 0) - COALESCE(sales.due_amount, 0) > 0
         THEN COALESCE(sales.total_amount, 0) - COALESCE(sales.due_amount, 0)
@@ -139,7 +140,7 @@ SQL;
         return <<<'SQL'
 CASE
     WHEN sales.status IN ('WAITING_APPROVAL', 'DRAFTED') THEN 0
-    ELSE COALESCE(sales.total_amount, 0)
+    ELSE COALESCE(sales.total_amount, 0) - COALESCE(adj.adj_value, 0)
 END
 SQL;
     }

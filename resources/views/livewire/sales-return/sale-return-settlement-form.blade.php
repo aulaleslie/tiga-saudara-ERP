@@ -294,6 +294,9 @@
                                                     >
                                                 </div>
                                                 <div class="small text-muted">Maks: <span class="fw-semibold text-dark">{{ format_currency($line['max_nominal']) }}</span></div>
+                                                @if(! empty($line['financial_block']))
+                                                    <div class="small text-danger mt-1" data-testid="financial-block">{{ $line['financial_block'] }}</div>
+                                                @endif
                                                 @error('settlementLines.'.$index.'.nominal')
                                                     <div class="invalid-feedback d-block text-start">{{ $message }}</div>
                                                 @enderror
