@@ -550,12 +550,30 @@ class Sale extends BaseModel implements HasMedia
     }
 
     /**
+     * Drop every in-memory settlement shortcut (loaded payment/transfer relations and eager-loaded
+     * aggregate attributes) so the next getEffectivePaidAmount() reads authoritative database state.
+     * Read-only paths keep using those shortcuts; only a header write must not trust them.
+     */
+    public function discardSettlementReadCaches(): void
+    {
+        foreach (['salePayments', 'incomingOwnerPaymentTransfers', 'outgoingOwnerPaymentTransfers'] as $relation) {
+            $this->unsetRelation($relation);
+        }
+
+        foreach (['active_payments_sum', 'active_credits_sum', 'incoming_owner_transfers_sum', 'outgoing_owner_transfers_sum'] as $attribute) {
+            unset($this->attributes[$attribute]);
+        }
+    }
+
+    /**
      * Reconcile sale header from canonical settlement totals.
      * Updates paid_amount, due_amount, and payment_status from active payments and existing credits.
      * Used after payment allocation to ensure consistency.
      */
     public function reconcileFromActivePayments(): void
     {
+        $this->discardSettlementReadCaches();
+
         // Net of standard cash returns: cash refunded leaves the paid side, cancelled debt leaves the due side.
         $paidAmount = round($this->getEffectivePaidAmount() - $this->getCommittedCashRefund(), 2);
         $dueAmount = round($this->total_amount - $this->getEffectivePaidAmount() - $this->getCommittedDebtReduction(), 2);

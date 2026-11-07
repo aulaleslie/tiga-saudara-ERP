@@ -54,7 +54,7 @@ class StockOpnameApprovalService
 
         app(AdjustmentOwnershipGuard::class)->assertOwned($adjustment, $activeSettingId);
 
-        return DB::transaction(function () use ($adjustment, $actor, $activeSettingId) {
+        return \App\Support\SalesReturn\HeldSerialGuard::withBatchedChecks(fn () => DB::transaction(function () use ($adjustment, $actor, $activeSettingId) {
             /** @var Adjustment $locked */
             $locked = Adjustment::where('id', $adjustment->id)->lockForUpdate()->firstOrFail();
 
@@ -259,6 +259,9 @@ class StockOpnameApprovalService
 
             $candidateSerialIds = $lockedSerialsById->keys();
 
+            // One locking read of custody for every serial this approval may move (instead of one per write).
+            \App\Support\SalesReturn\HeldSerialGuard::prefetchClear($candidateSerialIds->all());
+
             $activeClaimSerialIds = collect();
             $allocatedSerialIds = collect();
             $activeTransferClaimSerialIds = collect();
@@ -436,7 +439,7 @@ class StockOpnameApprovalService
             app(DocumentNotificationService::class)->resolveRevision($locked);
 
             return $locked;
-        });
+        }));
     }
 
     private function discoverSerialLocations(

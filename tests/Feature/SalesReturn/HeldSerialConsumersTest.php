@@ -159,4 +159,52 @@ class HeldSerialConsumersTest extends TestCase
         $this->assertTrue($released->fresh()->isSellable());
         $this->assertFalse(HeldSerialGuard::isHeld($released));
     }
+
+    /** @test batched prefetch must never clear a held serial and must not outlive its scope or transaction */
+    public function batched_prefetch_keeps_held_serials_protected_and_does_not_persist(): void
+    {
+        $queries = function (callable $work): int {
+            \DB::enableQueryLog();
+            $work();
+            $n = count(array_filter(\DB::getQueryLog(), fn ($q) => str_contains($q['query'], 'sale_return_custodies')));
+            \DB::disableQueryLog();
+            \DB::flushQueryLog();
+
+            return $n;
+        };
+
+        // Free serial: one batched custody read, then writes issue no further custody query.
+        $n = $queries(fn () => HeldSerialGuard::withBatchedChecks(fn () => \DB::transaction(function () {
+            HeldSerialGuard::prefetchClear([$this->held->id, $this->free->id]);
+            $this->free->fresh()->update(['is_broken' => true]);
+            $this->free->fresh()->update(['is_broken' => false]);
+        })));
+        $this->assertSame(1, $n);
+
+        // Held serial: still refused inside the batch scope.
+        try {
+            HeldSerialGuard::withBatchedChecks(fn () => \DB::transaction(function () {
+                HeldSerialGuard::prefetchClear([$this->held->id, $this->free->id]);
+                $this->held->fresh()->update(['is_broken' => true]);
+            }));
+            $this->fail('A held serial must stay immutable inside a batch scope.');
+        } catch (HeldSerialException) {
+            $this->assertTrue(true);
+        }
+
+        // Outside the scope nothing is remembered: the per-serial authoritative check runs again.
+        $n = $queries(fn () => \DB::transaction(function () {
+            HeldSerialGuard::prefetchClear([$this->free->id]);   // no scope: ignored
+            $this->free->fresh()->update(['is_broken' => true]);
+        }));
+        $this->assertSame(1, $n);
+
+        // Custody created after the prefetch inside the same scope invalidates it.
+        HeldSerialGuard::withBatchedChecks(fn () => \DB::transaction(function () {
+            HeldSerialGuard::prefetchClear([$this->free->id]);
+            HeldSerialGuard::asCustodyService(fn () => null);
+            $this->free->fresh()->update(['is_broken' => false]);
+        }));
+        $this->assertTrue(true);
+    }
 }

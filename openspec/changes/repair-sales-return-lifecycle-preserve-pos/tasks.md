@@ -71,9 +71,9 @@
 
 ## 9. Verify integrated compatibility
 
-- [ ] 9.1 Run focused standard tests across module, root feature, and Livewire directories plus the stabilized POS Return, receipt, rounding, global payment, bundle, serial, owner-bucket, and HPP cases; verify all relevant tests pass and compare against phase 1's green baseline with no weakened assertions.
-- [ ] 9.2 Run `composer test:fresh-sqlite` and focused MySQL/MariaDB concurrency verification; record exact results and separately identify unrelated baseline failures, with no unresolved failures in the return compatibility gate.
-- [ ] 9.3 Verify end-to-end standard cash/debt-only/repair/replacement/cannot-process flows, partial inspection, retries, and direct POS bypass attempts using synthetic data; confirm custody conservation, financial reconciliation, source archival, and historical immutability together.
+- [x] 9.1 Run focused standard tests across module, root feature, and Livewire directories plus the stabilized POS Return, receipt, rounding, global payment, bundle, serial, owner-bucket, and HPP cases; verify all relevant tests pass and compare against phase 1's green baseline with no weakened assertions.
+- [x] 9.2 Run `composer test:fresh-sqlite` and focused MySQL/MariaDB concurrency verification; record exact results and separately identify unrelated baseline failures, with no unresolved failures in the return compatibility gate.
+- [x] 9.3 Verify end-to-end standard cash/debt-only/repair/replacement/cannot-process flows, partial inspection, retries, and direct POS bypass attempts using synthetic data; confirm custody conservation, financial reconciliation, source archival, and historical immutability together.
 
 ## Workflow follow-up
 

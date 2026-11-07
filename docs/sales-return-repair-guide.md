@@ -495,3 +495,50 @@ Before any receipt under the policy: set the flag false or roll the migrations b
 - **Refund grading uses historical payment authority** (standard sales only; POS/mixed sales are skipped): refunds above everything *ever* paid are **proven** (`REFUNDS_EXCEED_PAYMENTS`); refunds above only the payments active *today* are **ambiguous** (`REFUNDS_EXCEED_ACTIVE_PAYMENTS`), because a later legitimate payment invalidation can explain them.
 - **Aggregate claims**: per original dispatch line, the quantity claimed across all non-rejected returns must not exceed the quantity of an approved dispatch (`EXCESS_CLAIM_ON_DISPATCH_LINE`), and a serial claimed by more than one non-rejected return is flagged (`SERIAL_CLAIMED_BY_SEVERAL_RETURNS`). Both are *proven* and only evaluated for standard sales (POS-mutated histories use their own quantity model; mixed histories are reported as `MIXED_WORKFLOW_HISTORY`).
 - **Filters are validated, never widened**: `--setting`, `--sale`, `--return` must each be a positive integer, and a supplied sale/return must exist in the audited business; anything else exits with an error and prints no report (`--sale=abc` no longer silently audits everything).
+
+## Group 9: integrated compatibility verification
+
+Baseline = `af51c8f6` (last commit before the change), run in an isolated worktree with its own `vendor/` and `public/build`, per PHPUnit testsuite, JUnit-compared test by test against the current tree run the same way. (A single whole-repo run is order-polluted and not comparable; a baseline worktree without `public/build` aborts the POS suite on a missing Vite manifest.)
+
+| Suite | Baseline | Current |
+|---|---|---|
+| Unit | 15 F / 293 P | 15 F / 293 P (identical) |
+| Feature | 243 F / 1569 P | 220 F / 1781 P |
+| Pos | 356 F / 1422 P | 154 F / 1673 P |
+| Purchase | 33 F / 773 P | identical |
+| Sale | 18 F / 459 P | 18 F / 460 P |
+| SalesReturn | 19 P | 26 P |
+| Reports | 7 F / 372 P | identical |
+| Adjustment / Setting / Product | see JUnit | 4 F / 0 F / 75 F |
+
+JUnit comparison: no new test fails; 239 baseline failures now pass; 14 existing tests go pass -> fail (below).
+
+### Gates
+- POS Return gate (Phase 1 command): **506 passed, 0 failed (3040 assertions)**.
+- Standard return classes (`tests/Feature/SalesReturn`, `Modules/SalesReturn/Tests`, `SaleLiveBalanceProjectionTest`): **194 passed**; POS replacement/mixed-history/atomic/bundle lifecycle filter: **42 passed**.
+- `composer test:fresh-sqlite` (single-process whole repo): 1239 failed / 6051 passed / 12 skipped - dominated by the unrelated baseline failures and cross-suite pollution; not usable as an exact comparison, hence the per-suite method above.
+- MySQL 8.0.44 (`scripts/run-mysql-sequence-tests.sh`): sequence + settlement-concurrency + migration suites **OK (15 tests, 251 assertions)**, including the 8 sequence tests that fail on SQLite by design; `Modules/Pos/Tests/Feature/Concurrency` **OK (1 test, 20 assertions)**.
+
+### Regressions found against the baseline and their fixes
+1. **Stale payment evidence in `reconcileFromActivePayments()`** (2 `PosKasBonSettlementServiceTest` cases). `getEffectivePaidAmount()` prefers loaded `salePayments`, loaded owner-transfer relations and eager-loaded aggregate attributes; a header write from them was stale after a payment was added. Fix: `Sale::discardSettlementReadCaches()` (called first in `reconcileFromActivePayments()`) drops the `salePayments`, `incomingOwnerPaymentTransfers` and `outgoingOwnerPaymentTransfers` relations and the four `*_sum` aggregate attributes, so the header is written from authoritative rows. Read-only paths keep their eager-loaded shortcuts. Regression: `SaleLiveBalanceTest::reconcile_ignores_payments_and_aggregates_loaded_before_a_payment_was_added` (fails without the fix, passes with it).
+2. **Stock-opname approval query budget** (65 queries vs limit 60). Fix: `HeldSerialGuard::withBatchedChecks()` + `prefetchClear()`. Inside one batch scope and a transaction, `StockOpnameApprovalService::approve` reads the custody rows of all candidate serials in a single `FOR UPDATE` query; serials proven not held skip the per-write custody query. Held serials are never remembered and still hit the authoritative per-serial check. The set is discarded when the scope callback exits (return or exception; there are no transaction-event hooks) and whenever the custody service runs. Prerequisite: the transaction is opened inside the scope and the serial rows are already locked (the approval service locks them before prefetching); do not hold a scope open across transactions. The test limit is unchanged. Regression: `HeldSerialConsumersTest::batched_prefetch_keeps_held_serials_protected_and_does_not_persist`.
+3. **Order-dependent POS failures (kept separate, cause not established).** 11 POS cases (`POSHistoricalBundleCorrectionTest`, `POSReturnApprovalPreviewBundleLineageTest`, `POSReturnApprovalPreviewBundleScopeTest`) failed only in whole-suite POS runs. They did not fail in the final per-suite run (0 existing tests pass -> fail), but POS failure totals are not stable between identical runs (154, then 329 failed on the same code), so passing alone or in one run does not show the cause. They remain classified "unexplained order-dependent POS instability".
+
+### Re-verification after the fixes
+| Check | Result |
+|---|---|
+| `--filter=PosKasBon` (includes the 17 settlement cases) | 72 passed |
+| Held-serial / custody / serial filter | 57 passed |
+| `StockOpnameApprovalTest` incl. query-count case | passes (full `StockOpname` filter: 1 failure, `show route rejects document owned by another setting`, present on baseline) |
+| POS Return gate | **506 passed, 0 failed (3040 assertions)** |
+| `tests/Feature/SalesReturn` + `Modules/SalesReturn/Tests` | 195 passed, 4 skipped |
+| MySQL 8.0.44 sequence + settlement + migrations | OK (15 tests, 251 assertions) |
+| MySQL POS lifecycle-vs-repair | OK (1 test, 20 assertions) |
+| Per-suite JUnit vs baseline `af51c8f6` | 0 existing tests pass -> fail; 52 baseline failures now pass (a lower count than the first run because POS totals vary); 1 new test fails (`POSSerialIncrementalAssignmentTest` held-serial case: full-directory only, passes alone; recorded since group 4) |
+| Suite totals (F/P) | Unit 15/293, Feature 219/1783, Pos 329/1498 (variable), Purchase 33/773, Sale 18/461, SalesReturn 0/26, Reports 7/372, Adjustment 4/694, Setting 0/86, Product 75/606 |
+
+Tasks 9.1 and 9.2 are complete on this evidence. The whole repository is NOT green: the baseline failures above remain (e.g. Product 75, Feature 219, Pos variable 154-329, Purchase 33, Sale 18, Reports 7, Unit 15, Adjustment 4), shared-row lifecycle-versus-repair contention remains unverified, and the POS order-dependent instability remains unexplained.
+
+### Carried limitations
+- Lifecycle-versus-repair contention on the *same* shared row is still unverified; the MySQL test covers competing repairs next to an independent lifecycle. "No deadlock" means none escaped production retry handling.
+- Sale detail-mode coverage, full-directory POS instability and SQLite float-binding behaviour remain recorded limitations.

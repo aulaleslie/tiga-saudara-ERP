@@ -1325,4 +1325,34 @@ class SaleLiveBalanceTest extends TestCase
         $this->assertTrue($inPositiveScope, 'Accessor and scope should agree: sale should be in positive scope');
         $this->assertFalse($inZeroScope, 'Accessor and scope should agree: sale should not be in zero scope');
     }
+
+    /** @test */
+    public function reconcile_ignores_payments_and_aggregates_loaded_before_a_payment_was_added()
+    {
+        $sale = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SALE-STALE', 'customer_name' => 'Test Customer',
+            'setting_id' => $this->setting->id,
+            'customer_id' => $this->customer->id,
+            'tax_percentage' => 0, 'tax_amount' => 0, 'discount_percentage' => 0, 'discount_amount' => 0,
+            'shipping_amount' => 0, 'total_amount' => 100000, 'paid_amount' => 0, 'due_amount' => 100000,
+            'status' => 'Pending', 'payment_status' => 'UNPAID', 'payment_method' => 'Cash',
+        ]);
+        $sale->load('salePayments', 'incomingOwnerPaymentTransfers', 'outgoingOwnerPaymentTransfers');
+        $sale->setAttribute('active_payments_sum', 0);
+        $sale->setAttribute('active_credits_sum', 0);
+        $sale->setAttribute('incoming_owner_transfers_sum', 0);
+        $sale->setAttribute('outgoing_owner_transfers_sum', 0);
+
+        SalePayment::create([
+            'sale_id' => $sale->id, 'amount' => 40000, 'date' => now()->toDateString(), 'reference' => 'SP-STALE',
+            'payment_method' => 'Cash', 'status' => SalePayment::STATUS_ACTIVE,
+        ]);
+
+        $sale->reconcileFromActivePayments();
+
+        $this->assertEquals(40000, (float) $sale->fresh()->paid_amount);
+        $this->assertEquals(60000, (float) $sale->fresh()->due_amount);
+        $this->assertSame('PARTIAL', $sale->fresh()->payment_status);
+    }
 }
