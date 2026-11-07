@@ -34,10 +34,12 @@ use Modules\Setting\Entities\Setting;
 use Modules\Setting\Entities\Tax;
 use Modules\Setting\Entities\Unit;
 use Spatie\Permission\Models\Permission;
+use Modules\Pos\Tests\Feature\Support\BuildsSyntheticTransaction10717Fixture;
 
 class POSReceiptReturnProjectionTest extends PosLineageSchemaAndCheckoutTest
 {
     use RefreshDatabase;
+    use BuildsSyntheticTransaction10717Fixture;
 
     protected function setUp(): void
     {
@@ -3272,5 +3274,159 @@ class POSReceiptReturnProjectionTest extends PosLineageSchemaAndCheckoutTest
         $this->assertCount(2, $breakdown);
         $this->assertSame('1 Dus @ Rp. 45.000', $breakdown[0]);
         $this->assertSame('3 Pcs @ Rp. 5.000', $breakdown[1]);
+    }
+
+    /**
+     * Task 3.2: Verify corrected 10717 fixture across all ordinary print/reprint routes
+     * (checkout print, checkout reprint, transaction print, transaction reprint, global payment reprint)
+     * with PRINT/REPRINT audit verification, Rp2,600,000 total, paper Rp45,000, effective serial XE4Q318288,
+     * and XE4Q304308 -> XE4Q318288 return history.
+     */
+    public function test_corrected_10717_fixture_ordinary_print_and_reprint_routes_parity_and_audits(): void
+    {
+        Permission::findOrCreate('pos.transactions.view', 'web');
+        $fixture = $this->buildSyntheticTransaction10717Fixture('pending_approval');
+
+        $cashier = $fixture['cashier'];
+        $cashier->givePermissionTo(['pos.receipts.reprint', 'pos.transactions.view', 'posPayments.global.access']);
+
+        $settingA = $fixture['setting_a'];
+        $settingA->update([
+            'pos_transactions_enabled' => true,
+            'pos_receipt_show_return_history' => true,
+        ]);
+
+        $this->actingAs($cashier)->withSession(['setting_id' => $settingA->id]);
+        app(PosReturnLifecycleService::class)->executeApprovalFromPreview($fixture['pos_return']->id);
+
+        $checkout = $fixture['checkout']->fresh();
+        $transaction = $fixture['transaction']->fresh();
+
+        // 1. Checkout Print (PRINT audit)
+        $resCheckoutPrint = $this->actingAs($cashier)->withSession(['setting_id' => $settingA->id])
+            ->get(route('pos.sell.checkout.receipt', $checkout));
+        $resCheckoutPrint->assertStatus(200);
+        $dataCheckoutPrint = $resCheckoutPrint->viewData('receiptData');
+
+        // 2. Checkout Reprint (REPRINT audit)
+        $resCheckoutReprint = $this->actingAs($cashier)->withSession(['setting_id' => $settingA->id])
+            ->get(route('pos.sell.checkout.receipt.reprint', $checkout));
+        $resCheckoutReprint->assertStatus(200);
+        $dataCheckoutReprint = $resCheckoutReprint->viewData('receiptData');
+
+        // 3. Transaction Print (PRINT audit)
+        $resTxnPrint = $this->actingAs($cashier)->withSession(['setting_id' => $settingA->id])
+            ->get(route('pos.transactions.receipt', $transaction));
+        $resTxnPrint->assertStatus(200);
+        $dataTxnPrint = $resTxnPrint->viewData('receiptData');
+
+        // 4. Transaction Reprint (REPRINT audit)
+        $resTxnReprint = $this->actingAs($cashier)->withSession(['setting_id' => $settingA->id])
+            ->post(route('pos.transactions.receipt.reprint', $transaction));
+        $resTxnReprint->assertStatus(200);
+        $dataTxnReprint = $resTxnReprint->viewData('receiptData');
+
+        // 5. Global Payment Reprint (REPRINT audit)
+        $resGlobalReprint = $this->actingAs($cashier)->withSession(['setting_id' => $settingA->id])
+            ->post(route('pos.global-payments.receipt.reprint', ['transaction_id' => $transaction->id]));
+        $resGlobalReprint->assertStatus(200);
+        $dataGlobalReprint = $resGlobalReprint->viewData('receiptData');
+
+        foreach ([$dataCheckoutPrint, $dataCheckoutReprint, $dataTxnPrint, $dataTxnReprint, $dataGlobalReprint] as $receiptData) {
+            $this->assertEquals(2600000.0, (float) $receiptData['grand_total']);
+            $this->assertEquals(2600000.0, (float) $receiptData['amount_paid']);
+            $this->assertEquals(0.0, (float) $receiptData['outstanding_debt']);
+
+            $linesById = collect($receiptData['lines'])->keyBy('pos_transaction_line_id');
+            $this->assertEquals(2225000.0, (float) $linesById[$fixture['line_printer']->id]['sub_total']);
+            $this->assertEquals(45000.0, (float) $linesById[$fixture['line_paper']->id]['sub_total']);
+            $this->assertEquals(330000.0, (float) $linesById[$fixture['line_logitech']->id]['sub_total']);
+            $this->assertSame(['XE4Q318288'], $linesById[$fixture['line_printer']->id]['assigned_serials']);
+
+            $this->assertNotEmpty($receiptData['return_history']);
+            $historyJson = json_encode($receiptData['return_history']);
+            $this->assertStringContainsString('XE4Q304308', $historyJson);
+            $this->assertStringContainsString('XE4Q318288', $historyJson);
+        }
+
+        // Verify PRINT and REPRINT audit logs
+        $logs = PosReceiptPrintLog::query()->where('setting_id', $settingA->id)->get();
+        $this->assertSame(2, $logs->where('print_type', PosReceiptPrintLog::TYPE_PRINT)->count());
+        $this->assertSame(3, $logs->where('print_type', PosReceiptPrintLog::TYPE_REPRINT)->count());
+    }
+
+    /**
+     * Task 3.3: Verify legitimate later Sale price/header edits after a conserved cross-owner replacement,
+     * plus historical/draft receipt access when unrepaired duplicate-replacement projection refuses.
+     */
+    public function test_legitimate_later_sale_edits_after_conserved_replacement_and_historical_receipt_access(): void
+    {
+        Permission::findOrCreate('pos.transactions.view', 'web');
+        $fixture = $this->buildSyntheticTransaction10717Fixture('pending_approval');
+
+        $cashier = $fixture['cashier'];
+        $cashier->givePermissionTo(['pos.receipts.reprint', 'pos.transactions.view', 'posPayments.global.access']);
+        $settingA = $fixture['setting_a'];
+        $settingA->update([
+            'pos_transactions_enabled' => true,
+            'pos_receipt_show_return_history' => true,
+        ]);
+
+        $this->actingAs($cashier)->withSession(['setting_id' => $settingA->id]);
+        app(PosReturnLifecycleService::class)->executeApprovalFromPreview($fixture['pos_return']->id);
+
+        // Perform a legitimate later Sale price/header edit on the remaining paper line (Rp45,000 -> Rp50,000 + Rp5,000 shipping = Rp55,000)
+        $fixture['detail_paper']->forceFill([
+            'price' => 50000,
+            'unit_price' => 50000,
+            'sub_total' => 50000,
+        ])->save();
+
+        $fixture['source_sale']->forceFill([
+            'shipping_amount' => 5000,
+            'total_amount' => 55000,
+            'paid_amount' => 45000,
+            'due_amount' => 10000,
+            'payment_status' => 'Partial',
+        ])->save();
+
+        $receiptData = app(PosReceiptReprintProjectionService::class)->getCompletedReceiptData($fixture['checkout']->fresh());
+
+        // Rp2,225,000 (replacement printer) + Rp55,000 (edited paper + shipping) + Rp330,000 (Logitech) = Rp2,610,000 total, Rp10,000 due
+        $this->assertEquals(2610000.0, (float) $receiptData['grand_total']);
+        $this->assertEquals(2600000.0, (float) $receiptData['amount_paid']);
+        $this->assertEquals(10000.0, (float) $receiptData['outstanding_debt']);
+
+        $linesById = collect($receiptData['lines'])->keyBy('pos_transaction_line_id');
+        $this->assertEquals(2225000.0, (float) $linesById[$fixture['line_printer']->id]['sub_total']);
+        $this->assertEquals(55000.0, (float) $linesById[$fixture['line_paper']->id]['sub_total']);
+        $this->assertEquals(330000.0, (float) $linesById[$fixture['line_logitech']->id]['sub_total']);
+        $this->assertNotEmpty($linesById[$fixture['line_paper']->id]['price_adjustments']);
+
+        // Now verify stale duplicated fixture refuses ordinary routes with 422 and zero REPRINT logs, while historical routes succeed with 200
+        $staleFixture = $this->buildSyntheticTransaction10717Fixture('legacy_stale_duplicated');
+        $staleCashier = $staleFixture['cashier'];
+        $staleCashier->givePermissionTo(['pos.receipts.reprint', 'pos.transactions.view', 'posPayments.global.access']);
+        $staleSettingA = $staleFixture['setting_a'];
+        $staleSettingA->update(['pos_transactions_enabled' => true]);
+
+        $staleCheckout = $staleFixture['checkout'];
+        $staleTransaction = $staleFixture['transaction'];
+
+        $resRefused = $this->actingAs($staleCashier)->withSession(['setting_id' => $staleSettingA->id])
+            ->post(route('pos.transactions.receipt.reprint', $staleTransaction));
+        $resRefused->assertStatus(422);
+        $this->assertSame(0, PosReceiptPrintLog::query()->where('pos_transaction_id', $staleTransaction->id)->count());
+
+        // Historical checkout receipt remains accessible
+        $resHistoricalCheckout = $this->actingAs($staleCashier)->withSession(['setting_id' => $staleSettingA->id])
+            ->get(route('pos.sell.checkout.receipt', ['checkout' => $staleCheckout, 'historical' => 1]));
+        $resHistoricalCheckout->assertStatus(200);
+        $this->assertTrue($resHistoricalCheckout->viewData('receiptData')['is_historical_checkout']);
+
+        $resHistoricalGlobal = $this->actingAs($staleCashier)->withSession(['setting_id' => $staleSettingA->id])
+            ->get(route('pos.global-payments.receipt.historical', ['transaction_id' => $staleTransaction->id]));
+        $resHistoricalGlobal->assertStatus(200);
+        $this->assertTrue($resHistoricalGlobal->viewData('receiptData')['is_historical_checkout']);
     }
 }

@@ -136,6 +136,16 @@ class Sale extends BaseModel implements HasMedia
         return $this->hasMany(SalePayment::class, 'sale_id', 'id');
     }
 
+    public function outgoingOwnerPaymentTransfers(): HasMany
+    {
+        return $this->hasMany(\Modules\Pos\Entities\PosOwnerPaymentTransfer::class, 'source_sale_id', 'id');
+    }
+
+    public function incomingOwnerPaymentTransfers(): HasMany
+    {
+        return $this->hasMany(\Modules\Pos\Entities\PosOwnerPaymentTransfer::class, 'replacement_sale_id', 'id');
+    }
+
     public function saleDispatches(): HasMany
     {
         return $this->hasMany(Dispatch::class);
@@ -248,7 +258,29 @@ class Sale extends BaseModel implements HasMedia
             INNER JOIN sale_payments sp ON spca.sale_payment_id = sp.id
             WHERE sp.sale_id = sales.id
             AND sp.status = ?
+        ), 0) - COALESCE((
+            SELECT SUM(popt_in.amount) FROM pos_owner_payment_transfers popt_in
+            LEFT JOIN sale_payments sp_orig_in ON popt_in.original_sale_payment_id = sp_orig_in.id
+            WHERE popt_in.replacement_sale_id = sales.id
+            AND (popt_in.original_sale_payment_id IS NULL OR sp_orig_in.status = ?)
+        ), 0) + COALESCE((
+            SELECT SUM(popt_out.amount) FROM pos_owner_payment_transfers popt_out
+            LEFT JOIN sale_payments sp_orig_out ON popt_out.original_sale_payment_id = sp_orig_out.id
+            WHERE popt_out.source_sale_id = sales.id
+            AND (popt_out.original_sale_payment_id IS NULL OR sp_orig_out.status = ?)
         ), 0)';
+    }
+
+    /**
+     * Get the parameter bindings for a single evaluation of canonicalLiveDueFormula().
+     *
+     * @return array<int, string>
+     */
+    public static function canonicalLiveDueFormulaBindings(): array
+    {
+        $active = SalePayment::STATUS_ACTIVE;
+
+        return [$active, $active, $active, $active];
     }
 
     /**
@@ -267,41 +299,41 @@ class Sale extends BaseModel implements HasMedia
     public function scopeOrderByLiveDueAmount($query, string $direction = 'asc')
     {
         $direction = strtolower($direction) === 'desc' ? 'desc' : 'asc';
-        $active = SalePayment::STATUS_ACTIVE;
+        $bindings = self::canonicalLiveDueFormulaBindings();
 
         return $query->orderByRaw(
             self::canonicalClampedLiveDueFormula() . ' ' . $direction,
-            [$active, $active, $active, $active]
+            array_merge($bindings, $bindings)
         );
     }
 
     /**
      * Filter sales by live due amount using the canonical settlement calculation.
-     * Live due = total_amount - (active cash payments + active credit applications).
-     * Includes customer-credit applications to match getEffectivePaidAmount().
+     * Live due = total_amount - (active cash payments + active credit applications + incoming owner transfers - outgoing owner transfers).
+     * Includes customer-credit applications and POS cross-owner payment transfers to match getEffectivePaidAmount().
      *
-     * Excludes invalidated payments and their associated credits.
+     * Excludes invalidated payments and their associated credits or transfers.
      */
     public function scopeWhereLiveDueAmountGreaterThan($query, $amount = 0)
     {
         return $query->whereRaw(
             self::canonicalLiveDueFormula() . ' > ?',
-            [SalePayment::STATUS_ACTIVE, SalePayment::STATUS_ACTIVE, $amount]
+            array_merge(self::canonicalLiveDueFormulaBindings(), [$amount])
         );
     }
 
     /**
      * Filter sales by live due amount using the canonical settlement calculation.
-     * Live due = total_amount - (active cash payments + active credit applications).
-     * Includes customer-credit applications to match getEffectivePaidAmount().
+     * Live due = total_amount - (active cash payments + active credit applications + incoming owner transfers - outgoing owner transfers).
+     * Includes customer-credit applications and POS cross-owner payment transfers to match getEffectivePaidAmount().
      *
-     * Excludes invalidated payments and their associated credits.
+     * Excludes invalidated payments and their associated credits or transfers.
      */
     public function scopeWhereLiveDueAmountLessThanOrEqual($query, $amount = 0)
     {
         return $query->whereRaw(
             self::canonicalLiveDueFormula() . ' <= ?',
-            [SalePayment::STATUS_ACTIVE, SalePayment::STATUS_ACTIVE, $amount]
+            array_merge(self::canonicalLiveDueFormulaBindings(), [$amount])
         );
     }
 
@@ -330,7 +362,7 @@ class Sale extends BaseModel implements HasMedia
     }
 
     /**
-     * Eager load effective payment and credit aggregates for live balance calculations.
+     * Eager load effective payment, credit, and owner transfer aggregates for live balance calculations.
      */
     public function scopeWithLiveSettlementAggregates($query)
     {
@@ -344,14 +376,36 @@ class Sale extends BaseModel implements HasMedia
                     ->whereColumn('sp.sale_id', 'sales.id')
                     ->where('sp.status', SalePayment::STATUS_ACTIVE)
                     ->selectRaw('COALESCE(SUM(spca.amount), 0)');
-            }, 'active_credits_sum');
+            }, 'active_credits_sum')
+            ->selectSub(function ($sub) {
+                $sub->from('pos_owner_payment_transfers as popt_in')
+                    ->leftJoin('sale_payments as sp_orig_in', 'popt_in.original_sale_payment_id', '=', 'sp_orig_in.id')
+                    ->whereColumn('popt_in.replacement_sale_id', 'sales.id')
+                    ->where(function ($q) {
+                        $q->whereNull('popt_in.original_sale_payment_id')
+                            ->orWhere('sp_orig_in.status', SalePayment::STATUS_ACTIVE);
+                    })
+                    ->selectRaw('COALESCE(SUM(popt_in.amount), 0)');
+            }, 'incoming_owner_transfers_sum')
+            ->selectSub(function ($sub) {
+                $sub->from('pos_owner_payment_transfers as popt_out')
+                    ->leftJoin('sale_payments as sp_orig_out', 'popt_out.original_sale_payment_id', '=', 'sp_orig_out.id')
+                    ->whereColumn('popt_out.source_sale_id', 'sales.id')
+                    ->where(function ($q) {
+                        $q->whereNull('popt_out.original_sale_payment_id')
+                            ->orWhere('sp_orig_out.status', SalePayment::STATUS_ACTIVE);
+                    })
+                    ->selectRaw('COALESCE(SUM(popt_out.amount), 0)');
+            }, 'outgoing_owner_transfers_sum');
     }
 
     /**
-     * Calculate the canonical settlement total from active payments and credits.
+     * Calculate the canonical settlement total from active payments, credits, and POS cross-owner payment transfers.
      * This is the single source of truth for settlement calculations:
      *   - SUM(sale_payments.amount WHERE status = ACTIVE)
      *   + SUM(sale_payment_credit_applications.amount WHERE sale_payment.status = ACTIVE)
+     *   + SUM(pos_owner_payment_transfers.amount WHERE replacement_sale_id = sales.id AND original payment active/null)
+     *   - SUM(pos_owner_payment_transfers.amount WHERE source_sale_id = sales.id AND original payment active/null)
      *
      * Used consistently by:
      *   - getEffectivePaidAmount() (PHP accessor for individual sale)
@@ -360,12 +414,16 @@ class Sale extends BaseModel implements HasMedia
      *   - scopeWhereLiveDueAmountGreaterThan() (query-level filtering)
      *   - scopeWhereLiveDueAmountLessThanOrEqual() (query-level filtering)
      *
-     * Excludes invalidated payments and their associated credits.
+     * Excludes invalidated payments and their associated credits or owner transfers.
      */
     public function getEffectivePaidAmount(): float
     {
         if (array_key_exists('active_payments_sum', $this->attributes)) {
             $monetarySum = (float) ($this->attributes['active_payments_sum'] ?: 0);
+        } elseif ($this->relationLoaded('salePayments')) {
+            $monetarySum = (float) $this->salePayments
+                ->where('status', SalePayment::STATUS_ACTIVE)
+                ->sum('amount');
         } else {
             $monetarySum = (float) $this->salePayments()
                 ->where('status', SalePayment::STATUS_ACTIVE)
@@ -374,6 +432,15 @@ class Sale extends BaseModel implements HasMedia
 
         if (array_key_exists('active_credits_sum', $this->attributes)) {
             $creditSum = (float) ($this->attributes['active_credits_sum'] ?: 0);
+        } elseif (
+            $this->relationLoaded('salePayments')
+            && $this->salePayments
+                ->where('status', SalePayment::STATUS_ACTIVE)
+                ->every(fn ($payment) => $payment->relationLoaded('creditApplications'))
+        ) {
+            $creditSum = (float) $this->salePayments
+                ->where('status', SalePayment::STATUS_ACTIVE)
+                ->sum(fn ($payment) => $payment->creditApplications->sum('amount'));
         } else {
             // Get sum of credit applications attached to active payments
             $creditSum = (float) DB::table('sale_payment_credit_applications')
@@ -383,7 +450,53 @@ class Sale extends BaseModel implements HasMedia
                 ->sum('sale_payment_credit_applications.amount');
         }
 
-        return round($monetarySum + $creditSum, 2);
+        if (array_key_exists('incoming_owner_transfers_sum', $this->attributes)) {
+            $incomingTransfersSum = (float) ($this->attributes['incoming_owner_transfers_sum'] ?: 0);
+        } elseif (
+            $this->relationLoaded('incomingOwnerPaymentTransfers')
+            && $this->incomingOwnerPaymentTransfers->every(
+                fn ($transfer) => $transfer->original_sale_payment_id === null || $transfer->relationLoaded('originalSalePayment')
+            )
+        ) {
+            $incomingTransfersSum = (float) $this->incomingOwnerPaymentTransfers
+                ->filter(fn ($transfer) => $transfer->original_sale_payment_id === null
+                    || ($transfer->originalSalePayment && $transfer->originalSalePayment->status === SalePayment::STATUS_ACTIVE))
+                ->sum('amount');
+        } else {
+            $incomingTransfersSum = (float) DB::table('pos_owner_payment_transfers as popt_in')
+                ->leftJoin('sale_payments as sp_orig_in', 'popt_in.original_sale_payment_id', '=', 'sp_orig_in.id')
+                ->where('popt_in.replacement_sale_id', $this->id)
+                ->where(function ($q) {
+                    $q->whereNull('popt_in.original_sale_payment_id')
+                        ->orWhere('sp_orig_in.status', SalePayment::STATUS_ACTIVE);
+                })
+                ->sum('popt_in.amount');
+        }
+
+        if (array_key_exists('outgoing_owner_transfers_sum', $this->attributes)) {
+            $outgoingTransfersSum = (float) ($this->attributes['outgoing_owner_transfers_sum'] ?: 0);
+        } elseif (
+            $this->relationLoaded('outgoingOwnerPaymentTransfers')
+            && $this->outgoingOwnerPaymentTransfers->every(
+                fn ($transfer) => $transfer->original_sale_payment_id === null || $transfer->relationLoaded('originalSalePayment')
+            )
+        ) {
+            $outgoingTransfersSum = (float) $this->outgoingOwnerPaymentTransfers
+                ->filter(fn ($transfer) => $transfer->original_sale_payment_id === null
+                    || ($transfer->originalSalePayment && $transfer->originalSalePayment->status === SalePayment::STATUS_ACTIVE))
+                ->sum('amount');
+        } else {
+            $outgoingTransfersSum = (float) DB::table('pos_owner_payment_transfers as popt_out')
+                ->leftJoin('sale_payments as sp_orig_out', 'popt_out.original_sale_payment_id', '=', 'sp_orig_out.id')
+                ->where('popt_out.source_sale_id', $this->id)
+                ->where(function ($q) {
+                    $q->whereNull('popt_out.original_sale_payment_id')
+                        ->orWhere('sp_orig_out.status', SalePayment::STATUS_ACTIVE);
+                })
+                ->sum('popt_out.amount');
+        }
+
+        return max(0.0, round($monetarySum + $creditSum + $incomingTransfersSum - $outgoingTransfersSum, 2));
     }
 
     /**

@@ -67,18 +67,42 @@ class OperationalMovementEventService
             $add(OperationalGeneralLedgerBucketConfig::INVENTORY, 0, (float)$salesDppHpp->hpp);
         }
 
-        // 2. Sale Payments
+        // 2. Sale Payments (including cross-owner payment transfers)
         $salePaymentsQuery = DB::table('sale_payments')
             ->join('sales', 'sales.id', '=', 'sale_payments.sale_id')
             ->where('sale_payments.status', 'ACTIVE')
             ->whereIn('sales.setting_id', $settingIds)
             ->whereDate('sale_payments.date', '<', $startDate);
         FulfilledTransactionEligibility::applyToSaleQuery($salePaymentsQuery, 'sales');
-        $salePayments = $salePaymentsQuery->sum('sale_payments.amount');
+        $directSalePayments = (float) $salePaymentsQuery->sum('sale_payments.amount');
+
+        $incomingTransfersQuery = DB::table('pos_owner_payment_transfers as popt_in')
+            ->join('sales', 'sales.id', '=', 'popt_in.replacement_sale_id')
+            ->join('sale_payments as sp_orig_in', 'sp_orig_in.id', '=', 'popt_in.original_sale_payment_id')
+            ->where('sp_orig_in.status', 'ACTIVE')
+            ->whereIn('sales.setting_id', $settingIds)
+            ->whereDate('sp_orig_in.date', '<', $startDate);
+        FulfilledTransactionEligibility::applyToSaleQuery($incomingTransfersQuery, 'sales');
+        $incomingTransfers = (float) $incomingTransfersQuery->sum('popt_in.amount');
+
+        $outgoingTransfersQuery = DB::table('pos_owner_payment_transfers as popt_out')
+            ->join('sales', 'sales.id', '=', 'popt_out.source_sale_id')
+            ->join('sale_payments as sp_orig_out', 'sp_orig_out.id', '=', 'popt_out.original_sale_payment_id')
+            ->where('sp_orig_out.status', 'ACTIVE')
+            ->whereIn('sales.setting_id', $settingIds)
+            ->whereDate('sp_orig_out.date', '<', $startDate);
+        FulfilledTransactionEligibility::applyToSaleQuery($outgoingTransfersQuery, 'sales');
+        $outgoingTransfers = (float) $outgoingTransfersQuery->sum('popt_out.amount');
+
+        $salePayments = round($directSalePayments + $incomingTransfers - $outgoingTransfers, 2);
 
         if ($salePayments > 0) {
             $add(OperationalGeneralLedgerBucketConfig::CASH_BANK, (float)$salePayments, 0);
             $add(OperationalGeneralLedgerBucketConfig::ACCOUNTS_RECEIVABLE, 0, (float)$salePayments);
+        } elseif ($salePayments < 0) {
+            $absSalePayments = abs((float)$salePayments);
+            $add(OperationalGeneralLedgerBucketConfig::CASH_BANK, 0, $absSalePayments);
+            $add(OperationalGeneralLedgerBucketConfig::ACCOUNTS_RECEIVABLE, $absSalePayments, 0);
         }
 
         // 3. Sale Returns (No GL impact as per Laba Rugi logic)
@@ -227,6 +251,67 @@ class OperationalMovementEventService
 
             $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::CASH_BANK, $dt, 'Pembayaran Penjualan', $payment->reference, $desc, $amount, 0, $tag);
             $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::ACCOUNTS_RECEIVABLE, $dt, 'Pembayaran Penjualan', $payment->reference, 'Pembayaran Piutang', 0, $amount, $tag);
+        }
+
+        // 2b. POS Cross-Owner Payment Transfers
+        $incomingOwnerTransfers = \Modules\Pos\Entities\PosOwnerPaymentTransfer::query()
+            ->with([
+                'replacementSale:id,reference,customer_id,setting_id,status',
+                'replacementSale.customer:id,customer_name',
+                'originalSalePayment:id,date,reference,status',
+            ])
+            ->whereHas('originalSalePayment', function ($q) use ($startDate, $endDateEndOfDay) {
+                $q->where('status', SalePayment::STATUS_ACTIVE)
+                  ->whereBetween('date', [$startDate, $endDateEndOfDay]);
+            })
+            ->whereHas('replacementSale', function ($q) use ($settingIds) {
+                $q->whereIn('setting_id', $settingIds);
+                FulfilledTransactionEligibility::applyToSaleQuery($q, 'sales');
+            })
+            ->get();
+
+        foreach ($incomingOwnerTransfers as $transfer) {
+            $amount = (float) $transfer->amount;
+            $origPayment = $transfer->originalSalePayment;
+            $date = Carbon::parse($origPayment->getRawOriginal('date'))->format('Y-m-d');
+            $time = ($transfer->executed_at ?? $transfer->created_at ?? now())->format('H:i:s');
+            $dt = $date . ' ' . $time;
+            $tag = $transfer->replacementSale?->customer?->customer_name ?? null;
+            $ref = $origPayment->reference ?: ($transfer->replacementSale?->reference ?? '-');
+            $desc = 'Alokasi Pembayaran Penggantian Lintas Pemilik' . ($transfer->payment_method ? ' - ' . $transfer->payment_method : '');
+
+            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::CASH_BANK, $dt, 'Alokasi Pembayaran Penggantian', $ref, $desc, $amount, 0, $tag);
+            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::ACCOUNTS_RECEIVABLE, $dt, 'Alokasi Pembayaran Penggantian', $ref, 'Alokasi Pembayaran Piutang', 0, $amount, $tag);
+        }
+
+        $outgoingOwnerTransfers = \Modules\Pos\Entities\PosOwnerPaymentTransfer::query()
+            ->with([
+                'sourceSale:id,reference,customer_id,setting_id,status',
+                'sourceSale.customer:id,customer_name',
+                'originalSalePayment:id,date,reference,status',
+            ])
+            ->whereHas('originalSalePayment', function ($q) use ($startDate, $endDateEndOfDay) {
+                $q->where('status', SalePayment::STATUS_ACTIVE)
+                  ->whereBetween('date', [$startDate, $endDateEndOfDay]);
+            })
+            ->whereHas('sourceSale', function ($q) use ($settingIds) {
+                $q->whereIn('setting_id', $settingIds);
+                FulfilledTransactionEligibility::applyToSaleQuery($q, 'sales');
+            })
+            ->get();
+
+        foreach ($outgoingOwnerTransfers as $transfer) {
+            $amount = (float) $transfer->amount;
+            $origPayment = $transfer->originalSalePayment;
+            $date = Carbon::parse($origPayment->getRawOriginal('date'))->format('Y-m-d');
+            $time = ($transfer->executed_at ?? $transfer->created_at ?? now())->format('H:i:s');
+            $dt = $date . ' ' . $time;
+            $tag = $transfer->sourceSale?->customer?->customer_name ?? null;
+            $ref = $origPayment->reference ?: ($transfer->sourceSale?->reference ?? '-');
+            $desc = 'Pelepasan Pembayaran Penggantian Lintas Pemilik' . ($transfer->payment_method ? ' - ' . $transfer->payment_method : '');
+
+            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::CASH_BANK, $dt, 'Alokasi Pembayaran Penggantian', $ref, $desc, 0, $amount, $tag);
+            $events[] = $this->makeEvent(OperationalGeneralLedgerBucketConfig::ACCOUNTS_RECEIVABLE, $dt, 'Alokasi Pembayaran Penggantian', $ref, 'Pelepasan Pembayaran Piutang', $amount, 0, $tag);
         }
 
         // 3. Sale Returns (Removed logic as per Laba Rugi)

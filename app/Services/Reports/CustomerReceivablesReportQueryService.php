@@ -13,11 +13,32 @@ class CustomerReceivablesReportQueryService
     {
         $scopeSettingId = $filter->scopeSettingId ?: session('setting_id');
 
-        // Subquery for paid_to_date up to endDate
-        $paymentsSub = DB::table('sale_payments')
+        // Subquery for paid_to_date up to endDate (including cross-owner payment transfers)
+        $directPayments = DB::table('sale_payments')
             ->select('sale_id', DB::raw('SUM(amount) as paid_to_date'))
             ->where('status', 'ACTIVE')
             ->where('date', '<=', $filter->endDate)
+            ->groupBy('sale_id');
+
+        $incomingTransfers = DB::table('pos_owner_payment_transfers as popt_in')
+            ->join('sale_payments as sp_in', 'popt_in.original_sale_payment_id', '=', 'sp_in.id')
+            ->where('sp_in.status', 'ACTIVE')
+            ->where('sp_in.date', '<=', $filter->endDate)
+            ->select('popt_in.replacement_sale_id as sale_id', DB::raw('SUM(popt_in.amount) as paid_to_date'))
+            ->groupBy('popt_in.replacement_sale_id');
+
+        $outgoingTransfers = DB::table('pos_owner_payment_transfers as popt_out')
+            ->join('sale_payments as sp_out', 'popt_out.original_sale_payment_id', '=', 'sp_out.id')
+            ->where('sp_out.status', 'ACTIVE')
+            ->where('sp_out.date', '<=', $filter->endDate)
+            ->select('popt_out.source_sale_id as sale_id', DB::raw('-SUM(popt_out.amount) as paid_to_date'))
+            ->groupBy('popt_out.source_sale_id');
+
+        $paymentsUnion = $directPayments->unionAll($incomingTransfers)->unionAll($outgoingTransfers);
+
+        $paymentsSub = DB::query()
+            ->fromSub($paymentsUnion, 'payments_union')
+            ->select('sale_id', DB::raw('CASE WHEN SUM(paid_to_date) < 0 THEN 0 ELSE SUM(paid_to_date) END as paid_to_date'))
             ->groupBy('sale_id');
 
         $query = Sale::with(['customer', 'tags'])

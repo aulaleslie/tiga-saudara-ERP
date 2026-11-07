@@ -1,0 +1,206 @@
+{
+    "setting_id": 2,
+    "mode": "preview",
+    "results": [
+        {
+            "classification": "repairable",
+            "reason": null,
+            "block_reasons": [],
+            "setting_id": 2,
+            "transaction_id": 10717,
+            "transaction_code": "TPI-TXN-2026-11-0074",
+            "checkout_id": 10438,
+            "receipt_number": "TPI-RCP-2026-11-00076",
+            "group_transaction_ids": [
+                10717
+            ],
+            "evidence_fingerprint": "8889a0a8612e2f661e2d6ca312f4f8bab050fcb33443bd9d0d1faab7f9eeae57",
+            "source_sale_ids": [
+                214729
+            ],
+            "replacement_sale_ids": [
+                214745
+            ],
+            "original_payment_ids": [
+                208237
+            ],
+            "planned_invalidations": [
+                {
+                    "payment_id": 208251,
+                    "sale_id": 214745,
+                    "sale_reference": "POSREPL\/20261107\/0001",
+                    "reference": "CROSS-OWNER-REPL\/TPI-POSRT-2611-0003",
+                    "amount_minor": 222500000,
+                    "amount": 2225000,
+                    "payment_method": "TRANSFER",
+                    "pos_return_id": 160,
+                    "sale_return_detail_id": 215
+                }
+            ],
+            "planned_transfers": [
+                {
+                    "plan_key": "plan:215:208237:0",
+                    "execution_key": "srd:215:pay:208237:pred:0",
+                    "pos_transaction_id": 10717,
+                    "pos_checkout_id": 10438,
+                    "pos_return_id": 160,
+                    "pos_return_line_id": 238,
+                    "sale_return_id": 167,
+                    "sale_return_detail_id": 215,
+                    "source_sale_id": 214729,
+                    "source_sale_reference": "DC-JL-2026-11-00080",
+                    "replacement_sale_id": 214745,
+                    "replacement_sale_reference": "POSREPL\/20261107\/0001",
+                    "original_sale_payment_id": 208237,
+                    "predecessor_transfer_id": null,
+                    "invalidated_synthetic_payment_id": 208251,
+                    "payment_method_id": 3,
+                    "payment_method": "TRANSFER",
+                    "amount_minor": 222500000,
+                    "amount": 2225000,
+                    "charge_minor": 222500000,
+                    "paid_minor": 222500000,
+                    "due_minor": 0
+                }
+            ],
+            "sales": [
+                {
+                    "sale_id": 214728,
+                    "setting_id": 1,
+                    "setting_name": "CV TIGA NUSA COMPUTER",
+                    "reference": "TNC-JL-2026-11-00052",
+                    "has_drift": false,
+                    "current": {
+                        "total_amount": 330000,
+                        "paid_amount": 330000,
+                        "effective_paid_amount": 330000,
+                        "due_amount": 0,
+                        "payment_status": "PAID"
+                    },
+                    "proposed": {
+                        "total_amount": 330000,
+                        "paid_amount": 330000,
+                        "effective_paid_amount": 330000,
+                        "due_amount": 0,
+                        "payment_status": "Paid"
+                    }
+                },
+                {
+                    "sale_id": 214729,
+                    "setting_id": 5,
+                    "setting_name": "DUNIA COMPUTER",
+                    "reference": "DC-JL-2026-11-00080",
+                    "has_drift": true,
+                    "current": {
+                        "total_amount": 2270000,
+                        "paid_amount": 2270000,
+                        "effective_paid_amount": 2270000,
+                        "due_amount": 0,
+                        "payment_status": "PAID"
+                    },
+                    "proposed": {
+                        "total_amount": 45000,
+                        "paid_amount": 45000,
+                        "effective_paid_amount": 45000,
+                        "due_amount": 0,
+                        "payment_status": "Paid"
+                    }
+                },
+                {
+                    "sale_id": 214745,
+                    "setting_id": 2,
+                    "setting_name": "CV TOP IT INTERNUSA",
+                    "reference": "POSREPL\/20261107\/0001",
+                    "has_drift": false,
+                    "current": {
+                        "total_amount": 2225000,
+                        "paid_amount": 2225000,
+                        "effective_paid_amount": 2225000,
+                        "due_amount": 0,
+                        "payment_status": "PAID"
+                    },
+                    "proposed": {
+                        "total_amount": 2225000,
+                        "paid_amount": 2225000,
+                        "effective_paid_amount": 2225000,
+                        "due_amount": 0,
+                        "payment_status": "Paid"
+                    }
+                }
+            ],
+            "owner_summaries": [
+                {
+                    "setting_id": 1,
+                    "setting_name": "CV TIGA NUSA COMPUTER",
+                    "current_total": 330000,
+                    "proposed_total": 330000,
+                    "current_effective_paid": 330000,
+                    "proposed_effective_paid": 330000,
+                    "current_due": 0,
+                    "proposed_due": 0
+                },
+                {
+                    "setting_id": 5,
+                    "setting_name": "DUNIA COMPUTER",
+                    "current_total": 2270000,
+                    "proposed_total": 45000,
+                    "current_effective_paid": 2270000,
+                    "proposed_effective_paid": 45000,
+                    "current_due": 0,
+                    "proposed_due": 0
+                },
+                {
+                    "setting_id": 2,
+                    "setting_name": "CV TOP IT INTERNUSA",
+                    "current_total": 2225000,
+                    "proposed_total": 2225000,
+                    "current_effective_paid": 2225000,
+                    "proposed_effective_paid": 2225000,
+                    "current_due": 0,
+                    "proposed_due": 0
+                }
+            ],
+            "method_summaries": [
+                {
+                    "payment_method": "TRANSFER",
+                    "current_collection_total": 4825000,
+                    "proposed_collection_total": 2600000,
+                    "owner_transfer_allocation_total": 2225000
+                }
+            ],
+            "expected_receipt_lines": [
+                {
+                    "pos_transaction_line_id": 48887,
+                    "product_id": 4012,
+                    "product_name": "PRINTER EPSON L3211 PRINT, SCAN COPY",
+                    "qty": 1,
+                    "sub_total": 2225000
+                },
+                {
+                    "pos_transaction_line_id": 48888,
+                    "product_id": 261,
+                    "product_name": "SIDU A4 75 GSM",
+                    "qty": 1,
+                    "sub_total": 45000
+                },
+                {
+                    "pos_transaction_line_id": 48889,
+                    "product_id": 245,
+                    "product_name": "LOGITECH MK 220 (WIRELESS KEYBOARD MOUSE)",
+                    "qty": 1,
+                    "sub_total": 330000
+                }
+            ],
+            "summary": {
+                "current_grand_total": 4825000,
+                "proposed_grand_total": 2600000,
+                "duplicated_charge_amount": 2225000,
+                "current_effective_paid": 4825000,
+                "proposed_effective_paid": 2600000,
+                "duplicated_paid_amount": 2225000,
+                "current_due_total": 0,
+                "proposed_due_total": 0
+            }
+        }
+    ]
+}

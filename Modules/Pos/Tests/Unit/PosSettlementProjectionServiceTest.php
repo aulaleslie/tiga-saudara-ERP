@@ -1024,4 +1024,246 @@ class PosSettlementProjectionServiceTest extends TestCase
         $this->assertFalse($projection['is_valid']);
         $this->assertFalse($projection['is_payable'], 'Broken sale mapping must remain non-payable even with a returned-zero split.');
     }
+
+    public function test_cross_owner_payment_transfer_projects_identically_on_eager_and_fallback_paths_with_zero_extra_queries(): void
+    {
+        $sourceSale = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-XFER-SRC',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 45000,
+            'paid_amount' => 45000,
+            'due_amount' => 0,
+            'status' => Sale::STATUS_DISPATCHED,
+            'payment_status' => Sale::PAYMENT_STATUS_PAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        $originalPayment = SalePayment::create([
+            'sale_id' => $sourceSale->id,
+            'amount' => 2270000,
+            'date' => now()->toDateString(),
+            'reference' => 'SP-XFER-ORIG',
+            'payment_method_id' => $this->paymentMethod->id,
+            'payment_method' => 'Cash',
+            'status' => SalePayment::STATUS_ACTIVE,
+        ]);
+
+        $replacementSale = Sale::create([
+            'date' => now()->toDateString(),
+            'reference' => 'SL-XFER-REPL',
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'tax_percentage' => 0,
+            'tax_amount' => 0,
+            'discount_percentage' => 0,
+            'discount_amount' => 0,
+            'shipping_amount' => 0,
+            'total_amount' => 2225000,
+            'paid_amount' => 2225000,
+            'due_amount' => 0,
+            'status' => Sale::STATUS_DISPATCHED,
+            'payment_status' => Sale::PAYMENT_STATUS_PAID,
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting2->id,
+        ]);
+
+        $saleReturn = \Modules\SalesReturn\Entities\SaleReturn::create([
+            'date' => now()->toDateString(),
+            'reference' => 'RET-XFER-PROJ-01',
+            'setting_id' => $this->setting1->id,
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'total_amount' => 2225000,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'payment_status' => 'PAID',
+            'payment_method' => 'Cash',
+            'status' => 'APPROVED',
+        ]);
+
+        $product = \Modules\Product\Entities\Product::create([
+            'setting_id' => $this->setting1->id,
+            'product_name' => 'Printer Test',
+            'product_code' => 'PRN-TEST-01',
+            'product_quantity' => 10,
+            'product_cost' => 1500000,
+            'product_price' => 2225000,
+            'product_unit' => 'PCS',
+            'product_stock_alert' => 1,
+            'product_order_tax' => 0,
+            'product_tax_type' => 1,
+        ]);
+
+        $saleReturnDetail = \Modules\SalesReturn\Entities\SaleReturnDetail::create([
+            'sale_return_id' => $saleReturn->id,
+            'product_id' => $product->id,
+            'product_name' => 'Printer',
+            'product_code' => 'PRN-01',
+            'quantity' => 1,
+            'price' => 2225000,
+            'unit_price' => 2225000,
+            'sub_total' => 2225000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        \Modules\Pos\Entities\PosOwnerPaymentTransfer::create([
+            'execution_key' => 'test-xfer-projection-01',
+            'pos_return_id' => 1,
+            'sale_return_id' => $saleReturn->id,
+            'sale_return_detail_id' => $saleReturnDetail->id,
+            'source_sale_id' => $sourceSale->id,
+            'replacement_sale_id' => $replacementSale->id,
+            'original_sale_payment_id' => $originalPayment->id,
+            'payment_method_id' => $this->paymentMethod->id,
+            'payment_method' => 'Cash',
+            'amount' => 2225000,
+            'amount_minor' => 222500000,
+            'transfer_source' => \Modules\Pos\Entities\PosOwnerPaymentTransfer::SOURCE_LIVE_EXECUTION,
+        ]);
+
+        $trx = PosTransaction::create([
+            'setting_id' => $this->setting1->id,
+            'code' => 'TRX-XFER-01',
+            'status' => PosTransaction::STATUS_COMPLETED,
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => $this->session->id,
+            'customer_id' => $this->customer->id,
+        ]);
+
+        $checkout = PosCheckout::create([
+            'setting_id' => $this->setting1->id,
+            'pos_transaction_id' => $trx->id,
+            'pos_session_id' => $this->session->id,
+            'terminal_id' => $this->terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'customer_id' => $this->customer->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'idempotency_key' => uniqid(),
+            'payload_hash' => 'hash_xfer',
+            'subtotal' => 2270000,
+            'grand_total' => 2270000,
+            'paid_total' => 2270000,
+            'receipt_number' => 'RCP-XFER-01',
+        ]);
+        $trx->update(['completed_checkout_id' => $checkout->id]);
+
+        $checkoutSale = PosCheckoutSale::create([
+            'pos_checkout_id' => $checkout->id,
+            'split_key' => '1_10_notax',
+            'source_setting_id' => $this->setting1->id,
+            'source_location_id' => $this->location1->id,
+            'tax_bucket' => 'notax',
+            'sale_id' => $sourceSale->id,
+            'subtotal' => 2270000,
+            'grand_total' => 2270000,
+            'paid_total' => 2270000,
+        ]);
+
+        $posReturn = \Modules\Pos\Entities\PosReturn::create([
+            'setting_id' => $this->setting1->id,
+            'pos_transaction_id' => $trx->id,
+            'pos_checkout_id' => $checkout->id,
+            'transaction_code' => $trx->code,
+            'receipt_number' => $checkout->receipt_number,
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'reference' => 'PR-XFER-01',
+            'return_option' => \Modules\Pos\Entities\PosReturn::OPTION_PRODUCT_REPLACEMENT,
+            'status' => \Modules\Pos\Entities\PosReturn::STATUS_COMPLETED,
+            'approval_status' => \Modules\Pos\Entities\PosReturn::APPROVAL_STATUS_APPROVED,
+            'total_amount' => 2225000,
+            'source_snapshot' => ['lines' => []],
+            'source_snapshot_hash' => 'hash-xfer-01',
+            'is_reversed' => false,
+            'created_by' => $this->user->id,
+            'updated_by' => $this->user->id,
+        ]);
+
+        $sourceDetail = \Modules\Sale\Entities\SaleDetails::create([
+            'sale_id' => $sourceSale->id,
+            'product_id' => $product->id,
+            'product_name' => 'Printer',
+            'product_code' => 'PRN-01',
+            'quantity' => 0,
+            'price' => 2225000,
+            'unit_price' => 2225000,
+            'sub_total' => 0,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        $posReturnLine = \Modules\Pos\Entities\PosReturnLine::create([
+            'pos_return_id' => $posReturn->id,
+            'pos_checkout_sale_id' => $checkoutSale->id,
+            'sale_id' => $sourceSale->id,
+            'sale_detail_id' => $sourceDetail->id,
+            'source_setting_id' => $this->setting1->id,
+            'source_location_id' => $this->location1->id,
+            'product_id' => $product->id,
+            'product_name' => 'Printer',
+            'product_code' => 'PRN-01',
+            'quantity' => 1,
+            'unit_price' => 2225000,
+            'line_total' => 2225000,
+            'resolution' => \Modules\Pos\Entities\PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT,
+            'stock_behavior' => \Modules\Pos\Entities\PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+        ]);
+
+        $dispatch = \Modules\Sale\Entities\Dispatch::create([
+            'sale_id' => $replacementSale->id,
+            'dispatch_date' => now(),
+            'status' => \Modules\Sale\Entities\Dispatch::STATUS_APPROVED,
+        ]);
+
+        \Modules\Sale\Entities\DispatchDetail::create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $replacementSale->id,
+            'pos_return_line_id' => $posReturnLine->id,
+            'product_id' => $product->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $this->location2->id,
+            'is_inventory_managed' => true,
+        ]);
+
+        // Fallback path
+        $fallbackTrx = PosTransaction::findOrFail($trx->id);
+        $fallbackProjection = $this->service->project($fallbackTrx);
+
+        // Eager path
+        $eagerTrx = PosTransaction::query()
+            ->with(PosSettlementProjectionService::reachableSalesEagerLoad())
+            ->findOrFail($trx->id);
+        $context = $this->service->prepareReplacementSales([$eagerTrx]);
+
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+        \Illuminate\Support\Facades\DB::flushQueryLog();
+        $eagerProjection = $this->service->project($eagerTrx, $context);
+        $queryLog = \Illuminate\Support\Facades\DB::getQueryLog();
+        \Illuminate\Support\Facades\DB::disableQueryLog();
+
+        $this->assertTrue($fallbackProjection['is_valid']);
+        $this->assertEquals(2270000.0, $fallbackProjection['total_amount']);
+        $this->assertEquals(2270000.0, $fallbackProjection['effective_paid']);
+        $this->assertEquals(0.0, $fallbackProjection['live_due']);
+        $this->assertEquals(PosSettlementProjectionService::PAYMENT_STATUS_PAID, $fallbackProjection['payment_status']);
+
+        $this->assertEquals($fallbackProjection['total_amount'], $eagerProjection['total_amount']);
+        $this->assertEquals($fallbackProjection['effective_paid'], $eagerProjection['effective_paid']);
+        $this->assertEquals($fallbackProjection['live_due'], $eagerProjection['live_due']);
+        $this->assertEquals($fallbackProjection['payment_status'], $eagerProjection['payment_status']);
+        $this->assertCount(0, $queryLog, 'project() on eager-loaded cross-owner transfer must issue 0 extra queries.');
+    }
 }

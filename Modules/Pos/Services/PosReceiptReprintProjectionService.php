@@ -22,7 +22,8 @@ class PosReceiptReprintProjectionService
     public function __construct(
         protected PosReachableSalesResolver $salesResolver = new PosReachableSalesResolver(),
         protected PosSettlementProjectionService $settlementProjectionService = new PosSettlementProjectionService(),
-        protected PosReceiptService $receiptService = new PosReceiptService()
+        protected PosReceiptService $receiptService = new PosReceiptService(),
+        protected PosReplacementAccountingTransferService $transferService = new PosReplacementAccountingTransferService()
     ) {}
 
     /**
@@ -97,25 +98,11 @@ class PosReceiptReprintProjectionService
             'saleDetails.product.unit',
             'saleDetails.product.baseUnit',
             'salePayments.paymentMethod',
+            'incomingOwnerPaymentTransfers.originalSalePayment',
+            'outgoingOwnerPaymentTransfers',
         ]);
 
-        // 4. Group authoritative SaleDetails by PosTransactionLine
-        $lineDetailsMap = $this->mapSaleDetailsToTransactionLines($receiptLines, $sales);
-
-        // 5. For each Sale, reconcile header differences (discount, shipping, tax adjustments)
-        // across its mapped POS lines using minor-unit arithmetic
-        $assignedLineAmounts = $this->computeAssignedLineAmounts($sales, $lineDetailsMap);
-
-        // 6. Project current global POS settlement for Total and Sisa Utang
-        $settlement = $this->settlementProjectionService->project($transaction);
-        if (! $settlement['is_valid']) {
-            throw new PosReprintProjectionException('Proyeksi penyelesaian penjualan POS tidak valid.');
-        }
-
-        $currentTotal = round((float) $settlement['total_amount'], 2);
-        $currentLiveDue = round((float) $settlement['live_due'], 2);
-
-        // 7. Load completed returns for the checkout group
+        // 4. Load completed returns for the checkout group
         $transactionIds = $receiptTransactions->pluck('id')->filter()->all();
         $completedReturns = PosReturn::query()
             ->with([
@@ -140,6 +127,25 @@ class PosReceiptReprintProjectionService
             ->orderBy('approved_at', 'asc')
             ->orderBy('id', 'asc')
             ->get();
+
+        // 5. Guard against unrepaired historical cross-owner replacement duplication before allocating header amounts
+        $this->assertNoDuplicateCrossOwnerReplacementAccounting($sales, $completedReturns);
+
+        // 6. Group authoritative SaleDetails by PosTransactionLine
+        $lineDetailsMap = $this->mapSaleDetailsToTransactionLines($receiptLines, $sales);
+
+        // 7. For each Sale, reconcile header differences (discount, shipping, tax adjustments)
+        // across its mapped POS lines using minor-unit arithmetic
+        $assignedLineAmounts = $this->computeAssignedLineAmounts($sales, $lineDetailsMap);
+
+        // 8. Project current global POS settlement for Total and Sisa Utang
+        $settlement = $this->settlementProjectionService->project($transaction);
+        if (! $settlement['is_valid']) {
+            throw new PosReprintProjectionException('Proyeksi penyelesaian penjualan POS tidak valid.');
+        }
+
+        $currentTotal = round((float) $settlement['total_amount'], 2);
+        $currentLiveDue = round((float) $settlement['live_due'], 2);
 
         $hasCompletedReturns = $completedReturns->isNotEmpty();
         $allReturnLines = $completedReturns->flatMap(fn ($r) => $r->lines)->values();
@@ -1094,36 +1100,20 @@ class PosReceiptReprintProjectionService
             return [];
         }
 
-        $activePayments = collect($sales)->flatMap(fn ($s) => $s->salePayments ?? [])
-            ->filter(fn ($p) => $p instanceof SalePayment && $p->isActive());
+        $effectiveBreakdown = $this->transferService->resolveEffectivePaymentBreakdownForSales($sales);
 
-        if ($activePayments->isEmpty()) {
+        if (empty($effectiveBreakdown)) {
             throw new PosReprintProjectionException(
                 "Tidak ditemukan bukti pembayaran aktif untuk merekonsiliasi pembayaran yang dipertahankan sebesar {$retainedPaidAmount}."
             );
         }
 
         $paymentBreakdown = [];
-        $grouped = $activePayments->groupBy(function (SalePayment $payment) {
-            if ($payment->relationLoaded('paymentMethod') && $payment->paymentMethod) {
-                return $payment->paymentMethod->name;
-            }
-
-            if (! empty($payment->payment_method_id)) {
-                $method = PaymentMethod::find($payment->payment_method_id);
-                if ($method) {
-                    return $method->name;
-                }
-            }
-
-            return $payment->payment_method ?: 'Tunai';
-        });
-
-        foreach ($grouped as $methodName => $payments) {
-            $amount = round((float) $payments->sum(fn ($p) => (float) $p->amount), 2);
+        foreach ($effectiveBreakdown as $entry) {
+            $amount = round((float) ($entry['amount'] ?? 0), 2);
             if ($amount > 0) {
                 $paymentBreakdown[] = [
-                    'method_name' => $methodName,
+                    'method_name' => (string) $entry['method_name'],
                     'amount' => $amount,
                 ];
             }
@@ -1360,5 +1350,97 @@ class PosReceiptReprintProjectionService
         }
 
         return $adjustments;
+    }
+
+    /**
+     * Detect unrepaired historical cross-owner replacement accounting duplication before allocating Sale headers across POS lines.
+     *
+     * When a legacy cross-owner replacement created a replacement-owner Sale and/or synthetic `CROSS-OWNER-REPL/`
+     * payment while leaving the source Sale header unreduced by the transferred replacement value, allocating the
+     * stale source Sale header across remaining active detail rows would falsely inflate unrelated items (such as
+     * the Rp45,000 paper line in incident transaction 10717).
+     *
+     * Refuses normal receipt projection with an actionable message directing the operator to the historical
+     * checkout receipt or the replacement accounting repair command, while performing zero database writes.
+     *
+     * @param iterable<Sale> $sales
+     * @param Collection<int, PosReturn> $completedReturns
+     */
+    protected function assertNoDuplicateCrossOwnerReplacementAccounting(iterable $sales, Collection $completedReturns): void
+    {
+        if ($completedReturns->isEmpty()) {
+            return;
+        }
+
+        $salesById = collect($sales)->keyBy(fn (Sale $sale) => (int) $sale->id);
+
+        // 1. Check for active synthetic `CROSS-OWNER-REPL/` SalePayments on reachable sales
+        foreach ($salesById as $sale) {
+            $activePayments = $sale->relationLoaded('salePayments')
+                ? $sale->salePayments->filter(fn (SalePayment $p) => $p->isActive())
+                : $sale->salePayments()->active()->get();
+
+            foreach ($activePayments as $payment) {
+                $ref = (string) ($payment->reference ?? '');
+                if (str_starts_with($ref, 'CROSS-OWNER-REPL/')) {
+                    throw new PosReprintProjectionException(
+                        "Struk tidak dapat dicetak ulang dengan proyeksi harga terkini karena transaksi ini memiliki pembayaran pengganti lintas pemilik historis ({$ref}) yang menggandakan nilai pembayaran. Silakan gunakan tampilan struk historis checkout asli atau jalankan perbaikan akuntansi penggantian."
+                    );
+                }
+            }
+        }
+
+        // 2. Check completed cross-owner replacement details against source Sale header vs remaining active details
+        foreach ($completedReturns as $posReturn) {
+            foreach ($posReturn->saleReturns as $saleReturn) {
+                $sourceSale = $salesById->get((int) $saleReturn->sale_id);
+                if (! $sourceSale) {
+                    continue;
+                }
+
+                $crossOwnerDetails = $saleReturn->saleReturnDetails->filter(function ($detail) {
+                    return (string) data_get($detail->execution_context, 'execution_mode', '') === 'cross_owner_replacement';
+                });
+
+                if ($crossOwnerDetails->isEmpty()) {
+                    continue;
+                }
+
+                $transferredMinor = (int) $crossOwnerDetails->sum(function ($detail) {
+                    $effects = data_get($detail->execution_context, 'generated_replacement_sale_effects', []);
+                    $amt = (float) ($effects['payment_amount'] ?? $detail->sub_total ?? 0);
+
+                    return (int) round($amt * 100);
+                });
+
+                if ($transferredMinor <= 0) {
+                    continue;
+                }
+
+                $activeDetailsMinor = (int) $sourceSale->saleDetails
+                    ->filter(fn ($d) => (float) ($d->quantity ?? 0) > 0.0001)
+                    ->sum(fn ($d) => (int) round(((float) ($d->sub_total ?? 0)) * 100));
+
+                $shippingMinor = max(0, (int) round(((float) ($sourceSale->shipping_amount ?? 0)) * 100));
+                $taxMinor = max(0, (int) round(((float) ($sourceSale->tax_amount ?? 0)) * 100));
+                $rowTaxSumMinor = (int) $sourceSale->saleDetails
+                    ->filter(fn ($d) => (float) ($d->quantity ?? 0) > 0.0001)
+                    ->sum(fn ($d) => (int) round(((float) ($d->product_tax_amount ?? 0)) * 100));
+                $isTaxIncludedInRows = (bool) ($sourceSale->is_tax_included ?? false)
+                    || ($rowTaxSumMinor > 0 && abs($taxMinor - $rowTaxSumMinor) <= 5);
+                $extraHeaderTaxMinor = $isTaxIncludedInRows ? 0 : max(0, $taxMinor - $rowTaxSumMinor);
+                $discountMinor = max(0, (int) round(((float) ($sourceSale->discount_amount ?? 0)) * 100));
+                $headerTotalMinor = (int) round(((float) ($sourceSale->total_amount ?? 0)) * 100);
+
+                $expectedRemainingMaxMinor = max(0, $activeDetailsMinor - $discountMinor + $shippingMinor + $extraHeaderTaxMinor);
+
+                // If source Sale header still retains the transferred replacement charge on top of remaining active rows
+                if ($headerTotalMinor >= $expectedRemainingMaxMinor + $transferredMinor - 5) {
+                    throw new PosReprintProjectionException(
+                        "Struk tidak dapat dicetak ulang dengan proyeksi harga terkini karena total penjualan sumber ({$sourceSale->reference}) belum dikurangi nilai penggantian barang lintas pemilik dari retur {$posReturn->reference}, sehingga akan menggelembungkan harga barang tersisa. Silakan lihat struk historis checkout asli atau jalankan perbaikan akuntansi penggantian."
+                    );
+                }
+            }
+        }
     }
 }

@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+Define how completed POS returns execute replacement actions when the replacement item belongs to a different product owner than the returned item.
+
+## Requirements
 
 ### Requirement: Replacement-owner Sale preserves original calendar date
 The generated replacement-owner Sale and its payment SHALL preserve the original Sale's persisted calendar date while retaining their own creation and execution timestamps.

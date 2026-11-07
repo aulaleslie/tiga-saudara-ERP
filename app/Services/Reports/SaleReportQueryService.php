@@ -80,13 +80,44 @@ class SaleReportQueryService
 
     private function activePaymentSubquery()
     {
-        return DB::table('sale_payments')
+        $payments = DB::table('sale_payments')
             ->select('sale_id')
             ->selectRaw(
                 'SUM(CASE WHEN status = ? THEN amount ELSE 0 END) as active_paid',
                 [SalePayment::STATUS_ACTIVE]
             )
             ->selectRaw('COUNT(*) as payment_count')
+            ->groupBy('sale_id');
+
+        $incoming = DB::table('pos_owner_payment_transfers as popt_in')
+            ->leftJoin('sale_payments as sp_in', 'popt_in.original_sale_payment_id', '=', 'sp_in.id')
+            ->where(function ($q) {
+                $q->whereNull('popt_in.original_sale_payment_id')
+                  ->orWhere('sp_in.status', SalePayment::STATUS_ACTIVE);
+            })
+            ->select('popt_in.replacement_sale_id as sale_id')
+            ->selectRaw('SUM(popt_in.amount) as active_paid')
+            ->selectRaw('COUNT(*) as payment_count')
+            ->groupBy('popt_in.replacement_sale_id');
+
+        $outgoing = DB::table('pos_owner_payment_transfers as popt_out')
+            ->leftJoin('sale_payments as sp_out', 'popt_out.original_sale_payment_id', '=', 'sp_out.id')
+            ->where(function ($q) {
+                $q->whereNull('popt_out.original_sale_payment_id')
+                  ->orWhere('sp_out.status', SalePayment::STATUS_ACTIVE);
+            })
+            ->select('popt_out.source_sale_id as sale_id')
+            ->selectRaw('-SUM(popt_out.amount) as active_paid')
+            ->selectRaw('COUNT(*) as payment_count')
+            ->groupBy('popt_out.source_sale_id');
+
+        $union = $payments->unionAll($incoming)->unionAll($outgoing);
+
+        return DB::query()
+            ->fromSub($union, 'ap_union')
+            ->select('sale_id')
+            ->selectRaw('CASE WHEN SUM(active_paid) < 0 THEN 0 ELSE SUM(active_paid) END as active_paid')
+            ->selectRaw('SUM(payment_count) as payment_count')
             ->groupBy('sale_id');
     }
 
