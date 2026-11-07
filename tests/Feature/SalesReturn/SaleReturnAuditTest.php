@@ -295,6 +295,27 @@ class SaleReturnAuditTest extends TestCase
     }
 
     /** @test */
+    public function credit_applications_count_as_refund_evidence_like_the_financial_service(): void
+    {
+        $s = $this->sale([['qty' => 1, 'sub' => 1000]], paid: 1000, serial: true);
+        $return = $this->makeReturnFor($s['lines'][0], 1, ['approval_status' => 'approved', 'status' => 'Awaiting Settlement', 'received_at' => now()], [$s['lines'][0]['serials'][0]->id], 1000);
+        $paymentId = DB::table('sale_payments')->where('sale_id', $s['sale']->id)->value('id');
+        $creditId = DB::table('customer_credits')->insertGetId(['customer_id' => $s['sale']->customer_id, 'sale_return_id' => $return->id, 'amount' => 500, 'remaining_amount' => 0, 'status' => 'closed', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('sale_payment_credit_applications')->insert(['sale_payment_id' => $paymentId, 'customer_credit_id' => $creditId, 'amount' => 500, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('sale_return_payments')->insert(['sale_return_id' => $return->id, 'amount' => 1400, 'date' => '2026-01-02', 'reference' => 'RC', 'payment_method' => 'CASH', 'created_at' => now(), 'updated_at' => now()]);
+
+        // 1,000 cash + 500 credit were paid: a 1,400 refund is within the refundable value the service allows.
+        $codes = collect($this->audit()['findings'])->where('sale_id', $s['sale']->id)->pluck('code')->all();
+        $this->assertNotContains('REFUNDS_EXCEED_PAYMENTS', $codes);
+        $this->assertNotContains('REFUNDS_EXCEED_ACTIVE_PAYMENTS', $codes);
+
+        // beyond cash + credit it is still proven
+        DB::table('sale_return_payments')->insert(['sale_return_id' => $return->id, 'amount' => 200, 'date' => '2026-01-03', 'reference' => 'RC2', 'payment_method' => 'CASH', 'created_at' => now(), 'updated_at' => now()]);
+        $codes = collect($this->audit()['findings'])->where('sale_id', $s['sale']->id)->pluck('code')->all();
+        $this->assertContains('REFUNDS_EXCEED_PAYMENTS', $codes);
+    }
+
+    /** @test */
     public function refund_grading_uses_historical_payment_authority(): void
     {
         $s = $this->sale([['qty' => 1, 'sub' => 1000]], paid: 1000, serial: true);

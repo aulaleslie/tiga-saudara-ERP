@@ -300,8 +300,15 @@ class SaleReturnAuditService
         // Authority is HISTORICAL: a refund can only be proven excessive against everything ever paid. Exceeding only the
         // payments that are active today may just reflect a later, legitimate invalidation, so that is ambiguous.
         if ($class === SalesReturnWorkflowResolver::STANDARD) {
-            $everPaid = (float) DB::table('sale_payments')->where('sale_id', $sale->id)->sum('amount');
-            $activePaid = (float) DB::table('sale_payments')->where('sale_id', $sale->id)->where('status', 'ACTIVE')->sum('amount');
+            // Same evidence as the financial service's refundable value: payments PLUS the customer-credit
+            // applications attached to them, so a service-permitted credit-funded refund is not "proven" excessive.
+            $creditApplied = fn (bool $activeOnly) => (float) DB::table('sale_payment_credit_applications as spca')
+                ->join('sale_payments as sp', 'spca.sale_payment_id', '=', 'sp.id')
+                ->where('sp.sale_id', $sale->id)
+                ->when($activeOnly, fn ($q) => $q->where('sp.status', 'ACTIVE'))
+                ->sum('spca.amount');
+            $everPaid = (float) DB::table('sale_payments')->where('sale_id', $sale->id)->sum('amount') + $creditApplied(false);
+            $activePaid = (float) DB::table('sale_payments')->where('sale_id', $sale->id)->where('status', 'ACTIVE')->sum('amount') + $creditApplied(true);
             $refunded = (float) DB::table('sale_return_payments')->whereIn('sale_return_id', DB::table('sale_returns')->where('sale_id', $sale->id)->select('id'))->sum('amount');
             $evidence = ['ever_paid' => round($everPaid, 2), 'active_payments' => round($activePaid, 2), 'refunded' => round($refunded, 2)];
 

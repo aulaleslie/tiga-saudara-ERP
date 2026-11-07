@@ -161,7 +161,8 @@ class SaleReturnLifecycleSyncService
         }
 
         $lines = [];
-        $fullyCovered = $cash['pending'] === 0;
+        // Pending contributors AND unresolved (ambiguous) lineage veto full coverage, whichever return they come from.
+        $fullyCovered = $cash['pending'] === 0 && $cash['ambiguous'] <= 0.0004;
         foreach ($dispatchLines as $dispatchDetailId => $dispatchedQuantity) {
             $returned = (float) ($cash['lines'][$dispatchDetailId] ?? 0);
             $covered = $dispatchedQuantity > 0 && $returned >= $dispatchedQuantity;

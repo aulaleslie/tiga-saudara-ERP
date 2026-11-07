@@ -18,13 +18,20 @@ use Modules\SalesReturn\Entities\SaleReturnItemSettlement as Settlement;
  * (quantity == serial cardinality, no duplicate serial ids, serial required for serial products,
  * no settlement for an unclaimed occurrence); anything ambiguous BLOCKS rather than guesses.
  *
- * Finality depends on the method: cash-like methods are final when APPROVED; service methods
- * (repair / replacement, cannot process) only when DISPATCHED. Exactly ONE valid final settlement
+ * Finality depends on the method: recognized money methods are final when APPROVED; service methods
+ * (repair, cannot process) only when DISPATCHED; unknown/missing methods are never final. Exactly ONE valid final settlement
  * per occurrence, and no competing open one.
  */
 class StandardReturnCoverage
 {
     private const SERVICE_METHODS = [SaleReturnDetail::METHOD_PRODUCT_REPAIR, SaleReturnDetail::METHOD_UNPROCESSED];
+
+    /** Money/credit methods, final when APPROVED (modify-sale and customer-credit are historical only). */
+    private const MONEY_METHODS = [
+        SaleReturnDetail::METHOD_CASH_REFUND,
+        SaleReturnDetail::METHOD_CUSTOMER_CREDIT,
+        SaleReturnDetail::METHOD_MODIFY_SALE,
+    ];
 
     /** Approved and physically received (authoritative receiving evidence = received_at). */
     public static function isEffective(SaleReturn $return): bool
@@ -39,9 +46,13 @@ class StandardReturnCoverage
     {
         $method = strtoupper((string) $settlement->method);
 
-        return in_array($method, self::SERVICE_METHODS, true)
-            ? $settlement->status === Settlement::STATUS_DISPATCHED
-            : $settlement->status === Settlement::STATUS_APPROVED;
+        // Only RECOGNIZED methods can be final; unknown or missing methods are malformed evidence and
+        // stay unresolved (open) rather than counting as settled.
+        if (in_array($method, self::SERVICE_METHODS, true)) {
+            return $settlement->status === Settlement::STATUS_DISPATCHED;
+        }
+
+        return in_array($method, self::MONEY_METHODS, true) && $settlement->status === Settlement::STATUS_APPROVED;
     }
 
     public static function isOpen(Settlement $settlement): bool
@@ -149,14 +160,18 @@ class StandardReturnCoverage
         foreach ($returns as $return) {
             $details = SaleReturnDetail::query()->with('product:id,serial_number_required')
                 ->where('sale_return_id', $return->id)->where('quantity', '>', 0)->get();
-            $settlements = Settlement::query()->where('sale_return_id', $return->id)
-                ->where('method', SaleReturnDetail::METHOD_CASH_REFUND)->get();
+            // ALL methods: a competing repair/other row for the same occurrence must be seen, not filtered away.
+            $settlements = Settlement::query()->where('sale_return_id', $return->id)->get();
+
+            $knownKeys = [];
+            $inconsistentDetails = [];
 
             foreach ($details as $detail) {
                 $occurrences = self::occurrences($detail);
                 $detailRows = $settlements->filter(fn ($s) => (int) $s->sale_return_detail_id === (int) $detail->id);
 
                 if ($occurrences === null) {
+                    $inconsistentDetails[(int) $detail->id] = true;
                     // inconsistent quantities/serials: nothing from this detail can prove coverage
                     $ambiguous += $detailRows->contains(fn ($s) => self::isFinal($s)) ? (float) $detail->quantity : 0.0;
                     $pending += $detailRows->filter(fn ($s) => self::isOpen($s))->count();
@@ -164,6 +179,7 @@ class StandardReturnCoverage
                 }
 
                 foreach ($occurrences as $occurrence) {
+                    $knownKeys[$detail->id . ':' . ($occurrence['serial'] ?? 0)] = true;
                     $rows = $detailRows->filter(fn ($s) => $occurrence['serial'] === null
                         ? $s->product_serial_number_id === null
                         : (int) $s->product_serial_number_id === $occurrence['serial']);
@@ -176,12 +192,26 @@ class StandardReturnCoverage
                         continue;
                     }
                     if ($finals->count() === 1) {
+                        if (strtoupper((string) $finals->first()->method) !== SaleReturnDetail::METHOD_CASH_REFUND) {
+                            continue;   // a final non-cash settlement is not cash coverage (and counts nothing)
+                        }
                         if (! $detail->dispatch_detail_id) {
                             $ambiguous += $occurrence['units'];
                             continue;
                         }
                         $lines[(int) $detail->dispatch_detail_id] = ($lines[(int) $detail->dispatch_detail_id] ?? 0.0) + $occurrence['units'];
                     }
+                }
+            }
+
+            // A live settlement for an occurrence nobody received/claimed is contradictory evidence, exactly as in
+            // returnCompletion(): it is an unresolved contributor and must block full coverage.
+            foreach ($settlements as $row) {
+                if ($row->status === Settlement::STATUS_REJECTED || isset($inconsistentDetails[(int) $row->sale_return_detail_id])) {
+                    continue;
+                }
+                if (! isset($knownKeys[$row->sale_return_detail_id . ':' . ($row->product_serial_number_id ?? 0)])) {
+                    $pending++;
                 }
             }
         }
