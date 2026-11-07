@@ -282,4 +282,61 @@ class SaleReturn extends BaseModel
         // Settled only when every received detail quantity / serial occurrence has a final settlement.
         return \App\Support\SalesReturn\StandardReturnCoverage::returnCompletion($this)['complete'] ? 'Settled' : 'Pending';
     }
+
+    /** Indonesian labels used by the return summary, keyed by normalized method (lower case, spaces as underscores). */
+    private const SETTLEMENT_SUMMARY_LABELS = [
+        'cash_refund' => 'Pengembalian Tunai',
+        'cash' => 'Pengembalian Tunai',
+        'repair' => 'Perbaikan/Pergantian Produk',
+        'unprocessed' => 'Tidak Dapat Diproses',
+        'customer_credit' => 'Kredit Pelanggan',
+        'modify_sale' => 'Ubah Nota Penjualan',
+        'replacement' => 'Penggantian Produk',
+    ];
+
+    private static function summaryLabel(?string $method): ?string
+    {
+        return $method === null ? null : (self::SETTLEMENT_SUMMARY_LABELS[strtolower(str_replace(' ', '_', trim($method)))] ?? null);
+    }
+
+    /**
+     * Display-only summary of how this return is being settled, derived from the persisted per-item
+     * settlements (the header payment_method is a creation placeholder such as "Pending"). Rejected rows
+     * and rows without a method are abandoned choices and are ignored. Uses the loaded relation when present.
+     * Returns without any per-item settlement rows fall back to a recognized legacy header label.
+     */
+    public function settlementMethodSummary(): string
+    {
+        $items = $this->settlementItems;
+
+        if ($items->isEmpty()) {
+            foreach ([$this->return_type, $this->payment_method] as $legacy) {
+                if (($label = self::summaryLabel($legacy)) !== null) {
+                    return $label;
+                }
+            }
+
+            return 'Belum ditentukan';
+        }
+
+        $methods = $items
+            ->filter(fn ($item) => ! empty($item->method) && $item->status !== SaleReturnItemSettlement::STATUS_REJECTED)
+            ->pluck('method')
+            ->unique()
+            ->values();
+
+        if ($methods->isEmpty()) {
+            return 'Belum ditentukan';
+        }
+
+        if ($methods->count() > 1) {
+            return 'Campuran — lihat penyelesaian per item';
+        }
+
+        $method = $methods->first();
+
+        return self::summaryLabel($method)
+            ?? SaleReturnDetail::settlementMethods()[$method]
+            ?? 'Belum ditentukan';
+    }
 }

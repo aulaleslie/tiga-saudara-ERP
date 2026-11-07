@@ -46,12 +46,15 @@
                         </div>
                         <div class="ms-auto d-flex flex-wrap align-items-center">
                             <span class="me-2 mb-1">
+                                <span class="small text-muted me-1">Retur:</span>
                                 @include('salesreturn::partials.status', ['data' => $sale_return])
                             </span>
                             <span class="me-2 mb-1">
+                                <span class="small text-muted me-1">Persetujuan:</span>
                                 @include('salesreturn::partials.approval-status', ['data' => $sale_return])
                             </span>
                             <span class="me-2 mb-1">
+                                <span class="small text-muted me-1">Penyelesaian:</span>
                                 @include('salesreturn::partials.settlement-status', ['data' => $sale_return])
                             </span>
 
@@ -146,23 +149,7 @@
                                             <dt class="col-5 text-muted">Penyelesaian</dt>
                                             <dd class="col-7 fw-semibold">{{ $sale_return->settled_at->translatedFormat('d F Y H:i') }} oleh {{ optional($sale_return->settledBy)->name ?? '-' }}</dd>
                                             <dt class="col-5 text-muted">Metode</dt>
-                                            <dd class="col-7">
-                                                @php
-                                                    $methodMap = [
-                                                        'cash_refund' => 'Pengembalian Tunai',
-                                                        'repair' => 'Perbaikan',
-                                                        'unprocessed' => 'Tidak Dapat Diproses',
-                                                        'Cash Refund' => 'Pengembalian Tunai',
-                                                        'Repair' => 'Perbaikan',
-                                                        'Unprocessed' => 'Tidak Dapat Diproses',
-                                                        'Cash' => 'Pengembalian Tunai',
-                                                        'Replacement' => 'Penggantian Produk',
-                                                        'Customer Credit' => 'Kredit Pelanggan',
-                                                    ];
-                                                    $methodKey = $sale_return->return_type ?: $sale_return->payment_method;
-                                                    echo $methodMap[$methodKey] ?? $methodKey ?: '-';
-                                                @endphp
-                                            </dd>
+                                            <dd class="col-7">{{ $sale_return->settlementMethodSummary() }}</dd>
                                             @if($sale_return->customerCredit)
                                                 <dt class="col-5 text-muted">Kredit Pelanggan</dt>
                                                 <dd class="col-7">{{ format_currency($sale_return->customerCredit->remaining_amount) }} tersisa dari {{ format_currency($sale_return->customerCredit->amount) }}</dd>

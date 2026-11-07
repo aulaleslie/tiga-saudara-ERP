@@ -53,7 +53,7 @@ class SaleReturnsDataTable extends DataTable
 
     public function query(SaleReturn $model) {
         $query = $model->newQuery()
-            ->with(['sale', 'customer', 'saleReturnDetails']);
+            ->with(['sale', 'customer', 'saleReturnDetails', 'settlementItems']);
 
         return $query;
     }
