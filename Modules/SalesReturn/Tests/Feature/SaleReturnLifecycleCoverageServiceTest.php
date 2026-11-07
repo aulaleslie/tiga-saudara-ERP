@@ -159,7 +159,8 @@ class SaleReturnLifecycleCoverageServiceTest extends TestCase
     protected function createReceivedSaleReturn(
         Sale $sale,
         array $items,
-        string $status = 'AWAITING SETTLEMENT'
+        string $status = 'AWAITING SETTLEMENT',
+        string $settlementStatus = 'APPROVED'
     ): SaleReturn {
         $saleReturn = SaleReturn::create([
             'sale_id' => $sale->id,
@@ -180,10 +181,12 @@ class SaleReturnLifecycleCoverageServiceTest extends TestCase
             'payment_method' => 'Cash',
             'approval_status' => 'approved',
             'status' => $status,
+            // authoritative physical-receiving evidence exists only for received returns
+            'received_at' => in_array(strtoupper($status), ['AWAITING SETTLEMENT', 'COMPLETED'], true) ? now() : null,
         ]);
 
         foreach ($items as $item) {
-            SaleReturnDetail::create([
+            $detail = SaleReturnDetail::create([
                 'sale_return_id' => $saleReturn->id,
                 'product_id' => $item['product']->id,
                 'product_name' => $item['product']->product_name,
@@ -200,6 +203,17 @@ class SaleReturnLifecycleCoverageServiceTest extends TestCase
                 'tax_id' => null,
                 'serial_number_ids' => [],
             ]);
+
+            // Only RECEIVED returns carry settlements; a final (APPROVED) cash settlement is what proves coverage.
+            if (in_array(strtoupper($status), ['AWAITING SETTLEMENT', 'COMPLETED'], true)) {
+                \Modules\SalesReturn\Entities\SaleReturnItemSettlement::create([
+                    'sale_return_id' => $saleReturn->id,
+                    'sale_return_detail_id' => $detail->id,
+                    'method' => 'CASH_REFUND',
+                    'status' => $settlementStatus,
+                    'nominal' => 1500 * $item['quantity'],
+                ]);
+            }
         }
 
         return $saleReturn;
@@ -312,5 +326,139 @@ class SaleReturnLifecycleCoverageServiceTest extends TestCase
 
         $this->assertFalse($coverage['fully_covered'], 'Ambiguous legacy return lineage must not archive a Sale.');
         $this->assertSame(2.0, $coverage['ambiguous_quantity']);
+    }
+
+    /** @test */
+    public function a_pending_cash_contributor_blocks_full_coverage(): void
+    {
+        [$sale, $dispatchDetails] = $this->createSale([['product' => $this->productA, 'quantity' => 2]]);
+
+        // Final cash settlements already cover the whole line; one more contributing settlement is unresolved.
+        $this->createReceivedSaleReturn($sale, [['product' => $this->productA, 'quantity' => 2, 'dispatch_detail_id' => $dispatchDetails[0]->id]]);
+        $this->createReceivedSaleReturn($sale, [['product' => $this->productA, 'quantity' => 1, 'dispatch_detail_id' => $dispatchDetails[0]->id]], 'AWAITING SETTLEMENT', 'SUBMITTED');
+
+        $coverage = $this->service->calculateEffectiveStandardReturnCoverage($sale->id);
+
+        $this->assertTrue($coverage['dispatch_lines'][$dispatchDetails[0]->id]['covered']);
+        $this->assertSame(1, $coverage['pending_contributors']);
+        $this->assertFalse($coverage['fully_covered'], 'a pending contributor blocks archival even when the line is covered');
+    }
+
+    /** @test */
+    public function service_quantities_never_prove_cash_coverage(): void
+    {
+        [$sale, $dispatchDetails] = $this->createSale([['product' => $this->productA, 'quantity' => 2]]);
+        $return = $this->createReceivedSaleReturn($sale, [['product' => $this->productA, 'quantity' => 2, 'dispatch_detail_id' => $dispatchDetails[0]->id]], 'AWAITING SETTLEMENT', 'DISPATCHED');
+        \Modules\SalesReturn\Entities\SaleReturnItemSettlement::query()->where('sale_return_id', $return->id)->update(['method' => 'REPAIR']);
+
+        $this->assertFalse($this->service->calculateEffectiveStandardReturnCoverage($sale->id)['fully_covered']);
+    }
+
+    // ------------------------------------------------------------------ review follow-up
+
+    /** @test */
+    public function rejected_or_unreceived_parents_contribute_neither_finals_nor_pending(): void
+    {
+        [$sale, $dispatchDetails] = $this->createSale([['product' => $this->productA, 'quantity' => 2]]);
+        $line = ['product' => $this->productA, 'quantity' => 2, 'dispatch_detail_id' => $dispatchDetails[0]->id];
+
+        $rejected = $this->createReceivedSaleReturn($sale, [$line]);
+        $rejected->forceFill(['approval_status' => 'rejected'])->save();
+
+        $unreceived = $this->createReceivedSaleReturn($sale, [$line]);
+        $unreceived->forceFill(['received_at' => null])->save();
+
+        // an unresolved settlement on an invalid parent is not a pending contributor either
+        $invalidPending = $this->createReceivedSaleReturn($sale, [$line], 'AWAITING SETTLEMENT', 'SUBMITTED');
+        $invalidPending->forceFill(['approval_status' => 'rejected'])->save();
+
+        $coverage = $this->service->calculateEffectiveStandardReturnCoverage($sale->id);
+
+        $this->assertFalse($coverage['fully_covered'], 'a rejected or unreceived return cannot prove coverage');
+        $this->assertSame(0.0, $coverage['dispatch_lines'][$dispatchDetails[0]->id]['returned']);
+        $this->assertSame(0, $coverage['pending_contributors']);
+        $this->assertFalse(\App\Support\SalesReturn\StandardReturnCoverage::returnCompletion($rejected->fresh())['complete']);
+        $this->assertFalse(\App\Support\SalesReturn\StandardReturnCoverage::returnCompletion($unreceived->fresh())['complete']);
+    }
+
+    /** @test */
+    public function duplicate_final_settlements_never_count_a_unit_twice_and_block_completion(): void
+    {
+        [$sale, $dispatchDetails] = $this->createSale([['product' => $this->productA, 'quantity' => 2]]);
+        $return = $this->createReceivedSaleReturn($sale, [['product' => $this->productA, 'quantity' => 2, 'dispatch_detail_id' => $dispatchDetails[0]->id]]);
+        $detailId = SaleReturnDetail::query()->where('sale_return_id', $return->id)->value('id');
+        // a second final cash settlement for the very same (detail, no serial) occurrence
+        \Modules\SalesReturn\Entities\SaleReturnItemSettlement::create(['sale_return_id' => $return->id, 'sale_return_detail_id' => $detailId, 'method' => 'CASH_REFUND', 'status' => 'APPROVED', 'nominal' => 1]);
+
+        $coverage = $this->service->calculateEffectiveStandardReturnCoverage($sale->id);
+
+        $this->assertFalse($coverage['fully_covered']);
+        $this->assertSame(0.0, $coverage['dispatch_lines'][$dispatchDetails[0]->id]['returned'], 'neither duplicate counts');
+        $this->assertSame(2.0, $coverage['ambiguous_quantity']);
+        $this->assertFalse(\App\Support\SalesReturn\StandardReturnCoverage::returnCompletion($return->fresh())['complete']);
+    }
+
+    /** @test */
+    public function serial_cardinality_must_match_the_received_quantity(): void
+    {
+        [$sale, $dispatchDetails] = $this->createSale([['product' => $this->productA, 'quantity' => 3]]);
+        $return = $this->createReceivedSaleReturn($sale, [['product' => $this->productA, 'quantity' => 3, 'dispatch_detail_id' => $dispatchDetails[0]->id]]);
+        $detail = SaleReturnDetail::query()->where('sale_return_id', $return->id)->first();
+        \Modules\SalesReturn\Entities\SaleReturnItemSettlement::query()->where('sale_return_id', $return->id)->delete();
+
+        // quantity 3 but only two serial ids recorded; both serial-level cash settlements are final
+        $serialIds = [];
+        foreach ([1, 2] as $n) {
+            $serialIds[] = \Modules\Product\Entities\ProductSerialNumber::create([
+                'product_id' => $this->productA->id, 'dispatch_detail_id' => $dispatchDetails[0]->id,
+                'serial_number' => 'COV-SN-' . $n, 'location_id' => $this->location->id, 'status' => 'SOLD',
+            ])->id;
+        }
+        $detail->forceFill(['serial_number_ids' => $serialIds])->save();
+        foreach ($serialIds as $serialId) {
+            \Modules\SalesReturn\Entities\SaleReturnItemSettlement::create([
+                'sale_return_id' => $return->id, 'sale_return_detail_id' => $detail->id, 'product_serial_number_id' => $serialId,
+                'method' => 'CASH_REFUND', 'status' => 'APPROVED', 'nominal' => 1,
+            ]);
+        }
+
+        $completion = \App\Support\SalesReturn\StandardReturnCoverage::returnCompletion($return->fresh());
+        $this->assertFalse($completion['complete'], 'two serials cannot settle a quantity of three');
+        $this->assertNotEmpty($completion['missing']);
+        $this->assertFalse($this->service->calculateEffectiveStandardReturnCoverage($sale->id)['fully_covered']);
+    }
+
+    /** @test */
+    public function finality_depends_on_the_settlement_method(): void
+    {
+        [$sale, $dispatchDetails] = $this->createSale([['product' => $this->productA, 'quantity' => 1]]);
+        $line = ['product' => $this->productA, 'quantity' => 1, 'dispatch_detail_id' => $dispatchDetails[0]->id];
+
+        foreach ([['REPAIR', 'APPROVED', false], ['REPAIR', 'APPROVED_AWAITING_DISPATCH', false], ['REPAIR', 'DISPATCHED', true],
+                  ['UNPROCESSED', 'APPROVED', false], ['UNPROCESSED', 'DISPATCHED', true],
+                  ['CASH_REFUND', 'DISPATCHED', false], ['CASH_REFUND', 'APPROVED', true]] as [$method, $status, $expected]) {
+            $return = $this->createReceivedSaleReturn($sale, [$line], 'AWAITING SETTLEMENT', $status);
+            \Modules\SalesReturn\Entities\SaleReturnItemSettlement::query()->where('sale_return_id', $return->id)->update(['method' => $method]);
+
+            $this->assertSame($expected, \App\Support\SalesReturn\StandardReturnCoverage::returnCompletion($return->fresh())['complete'], "{$method} + {$status}");
+        }
+    }
+
+    /** @test */
+    public function a_pending_dispatch_is_not_part_of_the_archival_denominator(): void
+    {
+        [$sale, $dispatchDetails] = $this->createSale([['product' => $this->productA, 'quantity' => 2]]);
+        $this->createReceivedSaleReturn($sale, [['product' => $this->productA, 'quantity' => 2, 'dispatch_detail_id' => $dispatchDetails[0]->id]]);
+
+        // a later dispatch that is still pending approval (and a zero-quantity one) is not a delivered line
+        $pending = Dispatch::create(['sale_id' => $sale->id, 'dispatch_date' => now()->toDateString(), 'status' => Dispatch::STATUS_PENDING ?? 'PENDING']);
+        DispatchDetail::create(['dispatch_id' => $pending->id, 'sale_id' => $sale->id, 'product_id' => $this->productB->id, 'dispatched_quantity' => 5, 'location_id' => $this->location->id, 'tax_id' => null, 'serial_numbers' => json_encode([])]);
+        $zero = Dispatch::create(['sale_id' => $sale->id, 'dispatch_date' => now()->toDateString(), 'status' => Dispatch::STATUS_APPROVED]);
+        DispatchDetail::create(['dispatch_id' => $zero->id, 'sale_id' => $sale->id, 'product_id' => $this->productB->id, 'dispatched_quantity' => 0, 'location_id' => $this->location->id, 'tax_id' => null, 'serial_numbers' => json_encode([])]);
+
+        $coverage = $this->service->calculateEffectiveStandardReturnCoverage($sale->id);
+
+        $this->assertTrue($coverage['fully_covered'], 'only the approved, positive dispatched line is required');
+        $this->assertCount(1, $coverage['dispatch_lines']);
     }
 }

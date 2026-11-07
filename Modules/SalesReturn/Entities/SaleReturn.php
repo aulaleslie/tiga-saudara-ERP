@@ -279,15 +279,7 @@ class SaleReturn extends BaseModel
      */
     public function getSettlementStatusAttribute(): string
     {
-        $items = $this->settlementItems;
-        if ($items->isEmpty()) {
-            return 'Pending';
-        }
-
-        $allSettled = $items->every(function ($item) {
-            return in_array($item->status, SaleReturnItemSettlement::finalSettlementStatuses());
-        });
-
-        return $allSettled ? 'Settled' : 'Pending';
+        // Settled only when every received detail quantity / serial occurrence has a final settlement.
+        return \App\Support\SalesReturn\StandardReturnCoverage::returnCompletion($this)['complete'] ? 'Settled' : 'Pending';
     }
 }

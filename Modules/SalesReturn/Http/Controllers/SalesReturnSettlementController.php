@@ -74,8 +74,10 @@ class SalesReturnSettlementController extends Controller
                 $lifecycleSync = app(SaleReturnLifecycleSyncService::class);
                 $actorId = (int) Auth::id();
 
+                // Final cash coverage may now justify the partial state; then completion, then archival.
+                $lifecycleSync->syncSourceSaleReturnStatusFromReceivedReturns($saleReturn);
                 $lifecycleSync->syncSaleReturnCompletionRollup($saleReturn, $actorId);
-                $lifecycleSync->archiveSourceSaleIfFullyReturnedAndCompleted($saleReturn, $actorId);
+                $lifecycleSync->archiveSourceSaleIfFullyReturnedAndCompleted($saleReturn->fresh(), $actorId);
             });
 
             $saleReturn = $itemSettlement->saleReturn->fresh(['settlementItems']);

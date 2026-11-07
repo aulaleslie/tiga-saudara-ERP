@@ -56,18 +56,18 @@
 
 ## 7. Enforce complete settlement coverage and correct archival
 
-- [ ] 7.1 Compute expected settlement coverage from every received detail quantity and serial occurrence; verify missing detail, missing serial, rejected/draft/submitted item, and awaiting-dispatch cases prevent completion despite other approved items.
-- [ ] 7.2 Require final standard cash-return coverage per original dispatch line for source-sale RETURNED/archival, including debt-only returns; verify cumulative returns archive once, pending contributors block archival, and excess on one line cannot cover another shortage.
-- [ ] 7.3 Preserve active source-sale state and money for service-return completion, retaining independently valid prior partial cash-return state; verify repair/replacement and cannot process complete their document without full-return archival and held custody stays visible after financial completion.
-- [ ] 7.4 Add paired POS/standard completion regressions and update archival tests to the explicit spec changes; verify the POS active-quantity branch and linked-header completion retain their established semantics, and document the distinction in the repair guide.
+- [x] 7.1 Compute expected settlement coverage from every received detail quantity and serial occurrence; verify missing detail, missing serial, rejected/draft/submitted item, and awaiting-dispatch cases prevent completion despite other approved items.
+- [x] 7.2 Require final standard cash-return coverage per original dispatch line for source-sale RETURNED/archival, including debt-only returns; verify cumulative returns archive once, pending contributors block archival, and excess on one line cannot cover another shortage.
+- [x] 7.3 Preserve active source-sale state and money for service-return completion, retaining independently valid prior partial cash-return state; verify repair/replacement and cannot process complete their document without full-return archival and held custody stays visible after financial completion.
+- [x] 7.4 Add paired POS/standard completion regressions and update archival tests to the explicit spec changes; verify the POS active-quantity branch and linked-header completion retain their established semantics, and document the distinction in the repair guide.
 
 ## 8. Deliver historical audit and prospective deployment safeguards
 
-- [ ] 8.1 Implement a business-scoped read-only `sale-returns:audit` command with source/return filters and text/JSON evidence; verify findings cover suspected phantom stock, duplicate payouts, incomplete settlement, excess claims, and mixed histories with proven/suspected/ambiguous classifications.
-- [ ] 8.2 Keep existing completed records immutable and block custody-dependent mutations of already-received legacy records when evidence is insufficient; verify first receiving of an older unreceived standard return adopts new custody without backfilling other rows.
-- [ ] 8.3 Prove audit, migration, preview, and display cause zero domain writes using before/after snapshots and query assertions; verify archived records are included safely and no apply/repair mode is exposed.
-- [ ] 8.4 Document rollout, explicit inspection permission assignment, legacy action blocks, audit usage, and rollback after new-policy activity; verify documented commands against synthetic fixtures and confirm no production transaction is used for mutating validation.
-- [ ] 8.5 Normalize the existing main `openspec/specs/sale-return-completion-archival/spec.md` into Purpose/Requirements structure while preserving its three existing requirement blocks verbatim; verify main-spec validation recognizes all requirements and strict change validation no longer reports the malformed-target archive blocker, without applying this change's behavioral deltas early.
+- [x] 8.1 Implement a business-scoped read-only `sale-returns:audit` command with source/return filters and text/JSON evidence; verify findings cover suspected phantom stock, duplicate payouts, incomplete settlement, excess claims, and mixed histories with proven/suspected/ambiguous classifications.
+- [x] 8.2 Keep existing completed records immutable and block custody-dependent mutations of already-received legacy records when evidence is insufficient; verify first receiving of an older unreceived standard return adopts new custody without backfilling other rows.
+- [x] 8.3 Prove audit, migration, preview, and display cause zero domain writes using before/after snapshots and query assertions; verify archived records are included safely and no apply/repair mode is exposed.
+- [x] 8.4 Document rollout, explicit inspection permission assignment, legacy action blocks, audit usage, and rollback after new-policy activity; verify documented commands against synthetic fixtures and confirm no production transaction is used for mutating validation.
+- [x] 8.5 Normalize the existing main `openspec/specs/sale-return-completion-archival/spec.md` into Purpose/Requirements structure while preserving its three existing requirement blocks verbatim; verify main-spec validation recognizes all requirements and strict change validation no longer reports the malformed-target archive blocker, without applying this change's behavioral deltas early.
 
 ## 9. Verify integrated compatibility
 

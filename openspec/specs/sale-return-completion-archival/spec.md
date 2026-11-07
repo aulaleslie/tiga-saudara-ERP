@@ -1,4 +1,9 @@
-## ADDED Requirements
+# sale-return-completion-archival Specification
+
+## Purpose
+Define when a completed standard Sales Return marks and archives its source Sale as returned, without repeating inventory or payment effects and counting only effective, received return quantities.
+
+## Requirements
 
 ### Requirement: Fully completed standard Sales Return archives its source Sale
 When cumulative physically received standard Sales Return quantities fully cover the source Sale's dispatched quantities and final settlement is completed, the system SHALL mark the source Sale returned and archive it with actor, time, and Sales Return reference evidence. Archival MUST NOT require POS-only mutation of Sale detail or dispatch quantities.

@@ -271,7 +271,8 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
         $this->assertEquals(0, (int) $stock->quantity_non_tax);
         $this->assertEquals(0, (int) $product->product_quantity);
         $this->assertEquals('AWAITING SETTLEMENT', strtoupper((string) $saleReturn->status));
-        $this->assertEquals(Sale::STATUS_RETURNED, $sale->status);
+        // Receiving alone proves no cash-return coverage: the source sale keeps its active state until FINAL cash settlements exist.
+        $this->assertEquals(Sale::STATUS_DISPATCHED, $sale->status);
         $this->assertNull($sale->archived_at);
         $this->assertSame(1, (int) $saleReturn->custody_policy_version);
         $this->assertNotNull($saleReturn->custody_policy_applied_at);

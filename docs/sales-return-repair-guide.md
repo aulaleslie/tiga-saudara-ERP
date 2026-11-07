@@ -406,3 +406,92 @@ Verification extras: the collection test now builds a real payment method, asser
 | Discounted return kept phantom due | The return header total is on the list-price basis (quantity x unit price, before the sale's header discount). `refreshReturnHeader()` now measures settled cash value on that same basis (adjusted units x the return line's unit price), while the committed (net) value remains what money/debt moved. A Rp1,000 return discounted to Rp900 settles to due 0 / Paid with no header rewrite; test fixtures now build realistic list-price headers. |
 
 Notes: sale-report display stays net (Total/Pembayaran/Sisa); a separate gross-value column is optional and not added.
+
+## Group 7: completion and archival coverage
+
+### Return completion (document)
+`StandardReturnCoverage::returnCompletion()` replaces "every existing settlement item is final". The expected set is **every received detail quantity and serial occurrence** (one occurrence per claimed serial, one per non-serial detail). A return completes only when each occurrence has a **final** settlement: `APPROVED` (cash) or `DISPATCHED` (repair / replacement / cannot-process). Missing, draft, submitted, rejected, approved-awaiting-dispatch and dispatch-requested occurrences keep the return in *Awaiting Settlement*, however many other items are approved. Consequence: a multi-line return stays processable after the first approval (before, one approved item completed the whole document and blocked the rest). `SaleReturn::settlement_status` ("Settled"/"Pending") uses the same rule.
+
+### Source-sale state and archival
+- **Cash coverage per original dispatch line** (`calculateEffectiveStandardReturnCoverage`): only `APPROVED` `CASH_REFUND` settlements count - debt-only included - mapped to their dispatch line (serial = 1 unit, non-serial = detail quantity), summed across returns. Every line must reach its dispatched quantity on its own (an excess on one line cannot conceal another's shortage). A draft/submitted cash settlement anywhere on the sale is a *pending contributor* and blocks archival; settlements with no dispatch line are reported as ambiguous and never prove coverage. Repair / replacement / cannot-process, unreceived, rejected quantities never count.
+- **Sale status**: `RETURNED_PARTIALLY` appears once final cash coverage exists (never downgraded, never set by receiving or by service returns); `RETURNED` + `archived_at/by` + audit note only when coverage is full and the completing return is `Completed`. Archival is idempotent (cumulative returns archive once).
+- **Explicit spec changes to old behaviour**: receiving no longer moves the sale to RETURNED (old: received quantity >= dispatched); the standard branch no longer archives from POS-style zero active quantities.
+- **Service returns** (repair/replacement, cannot process) complete their document without archiving the source sale or changing its amounts; custody stays visible after completion (held cash-return goods remain held until an authorized inspection).
+
+### POS vs standard (unchanged for POS)
+POS-corrected sales still use active-quantity status and archival (`posArchivalSatisfied`), linked POS return headers still complete when all linked returns are completed, and POS never needs settlement rows or inspection. Mixed histories still change nothing. Paired regressions: `WorkflowSyncBranchesTest` (POS completes from active quantities without settlements; the same received quantities without final settlements never complete/archive a standard return).
+
+### Reports around completion
+Committed adjustments and linked payouts are recognized by their own dates, so completing the header (or dispatching the remaining repair item) leaves earlier report snapshots unchanged; `MultiLineCompletionTest` asserts this end to end (cash lines, pending repair, final dispatch).
+
+### Verification
+See the group 7 results in the stop report. MySQL contention and migration checks from groups 4-6 still apply; this group adds no schema.
+
+### Group 7 review follow-up (4 coverage gaps closed)
+
+| Gap | Fix |
+|---|---|
+| Invalid parents counted | `StandardReturnCoverage::isEffective()` - a return contributes only when **approved** and **physically received** (`status` awaiting settlement/completed **and** `received_at`). Rejected or unreceived parents contribute neither final settlements nor pending contributors, for both return completion and sale-level cash coverage. |
+| Unreliable occurrences | Per detail: quantity must equal the serial cardinality, no duplicate serial ids, a serial product must carry its serials; otherwise the detail is ambiguous and blocks. Each occurrence needs **exactly one** valid final settlement and no competing open one (duplicate finals count nothing and are reported as ambiguous). A live settlement for an occurrence nobody received also blocks. |
+| Finality ignored the method | `isFinal()`: cash-like methods (cash refund, customer credit, modify sale) are final only when `APPROVED`; service methods (repair/replacement, cannot process) only when `DISPATCHED`. `REPAIR`+`APPROVED`, `REPAIR`+awaiting dispatch and `CASH_REFUND`+`DISPATCHED` are not final. |
+| Denominator included pending dispatches | Archival requires coverage of dispatch lines from **APPROVED** dispatches with **positive** dispatched quantity only, the same eligibility the return form uses; pending/rejected/zero lines are not part of the denominator. |
+
+## Group 8: audit, legacy safeguards and rollout
+
+### `sale-returns:audit` (read-only)
+```bash
+php artisan sale-returns:audit --setting=<business id>            # human readable
+php artisan sale-returns:audit --setting=1 --sale=42 --json        # one source sale, machine readable
+php artisan sale-returns:audit --setting=1 --return=7              # one return (plus its source sale checks)
+```
+- `--setting` is **required** (the audit is always one business). There is **no apply / fix / repair option** and none can be added by flag: the command only reads, takes no locks and writes nothing. Archived sales and returns are included. Use it on a production database freely; it is also safe to run repeatedly.
+- Every finding carries `classification`, `record_policy` (`new-policy` received under custody, `legacy` received before it, `n/a`), the return/sale, a message and structured `evidence`.
+  - **proven**: the recorded evidence contradicts itself or a hard rule (e.g. `RECEIVED_WITHOUT_RECEIVED_AT`, `NEW_POLICY_WITHOUT_CUSTODY`, `NEW_POLICY_RECEIVING_CREDITED_STOCK`, `DUPLICATE_FINAL_SETTLEMENTS`, `SERIAL_CARDINALITY_MISMATCH`, `UNMATCHED_SETTLEMENT_OCCURRENCE`, `METHOD_STATUS_MISMATCH`, `CASH_APPROVED_WITHOUT_ADJUSTMENT` on a new-policy return, `PAYOUT_EVIDENCE_CONTRADICTION`, `ADJUSTMENT_ARITHMETIC_CONTRADICTION`, `DUPLICATE_PAYOUT_FOR_SETTLEMENT`, `PAYOUTS_EXCEED_RETURN_TOTAL`, `REFUNDS_EXCEED_PAYMENTS`, `RELEASE_STOCK_MISMATCH`, custody/serial contradictions, `PREMATURE_COMPLETION` / `PREMATURE_ARCHIVAL` for new-policy returns, `MIXED_WORKFLOW_HISTORY`).
+  - **suspected**: a problem is indicated but older rules or missing history could explain it (`LEGACY_RECEIVED_WITHOUT_STOCK_TRANSACTION`, `POSSIBLE_DUPLICATE_PAYOUT`, `SERIAL_HELD_WITHOUT_CUSTODY`, premature completion/archival of legacy records).
+  - **ambiguous**: the evidence cannot decide (legacy received returns without custody, legacy approvals without an adjustment ledger).
+- It never concludes a historical stock correction from current balances: stock findings cite recorded transactions and custody rows only. Corrective repair is a separate, reviewed change; the audit is the evidence for it.
+
+Example (synthetic fixture):
+```
+Sales Return audit - business 1 (read-only; no data was changed)
+Returns audited: 2   proven: 1   suspected: 4   ambiguous: 2
+
+PROVEN (1)
+  [RECEIVED_WITHOUT_RECEIVED_AT] return #1 SLRN-2026-11-00001 (legacy): Status says the goods were received but there is no received_at: the receiving evidence is missing.
+      evidence: {"status":"AWAITING SETTLEMENT"}
+
+SUSPECTED (4)
+  [LEGACY_RECEIVED_WITHOUT_STOCK_TRANSACTION] return #1 SLRN-2026-11-00001 (legacy): A legacy received return has no recorded receiving stock transaction (it may predate transaction logging). Current stock is deliberately not used to decide.
+  [LEGACY_RECEIVED_WITHOUT_STOCK_TRANSACTION] return #2 SLRN-2026-11-00002 (legacy): A legacy received return has no recorded receiving stock transaction (it may predate transaction logging). Current stock is deliberately not used to decide.
+  [PREMATURE_COMPLETION] return #2 SLRN-2026-11-00002 (legacy): Completed although not every received occurrence has exactly one valid final settlement under the current rules.
+      evidence: {"missing":["detail 2 serial 2"]}
+  [PREMATURE_ARCHIVAL] sale #1 SL-6AEEC29EB1882 (n/a): The sale is archived/returned but final cash-return coverage of its original dispatch lines is not full. It was archived under earlier rules, so this may have been valid then.
+      evidence: {"lines":{"1":{"dispatched":2,"returned":0,"covered":false}},"pending_contributors":0,"ambiguous_quantity":0}
+
+AMBIGUOUS (2)
+  [LEGACY_RECEIVED_WITHOUT_CUSTODY] return #1 SLRN-2026-11-00001 (legacy): Received before the custody policy: stock and serial handling at receiving cannot be reconstructed from custody. Custody-dependent actions are blocked; investigate manually.
+  [LEGACY_RECEIVED_WITHOUT_CUSTODY] return #2 SLRN-2026-11-00002 (legacy): Received before the custody policy: stock and serial handling at receiving cannot be reconstructed from custody. Custody-dependent actions are blocked; investigate manually.
+```
+
+### Legacy safeguards
+- Records completed or received before the policy are **never rewritten** (no backfill: policy markers stay NULL). Custody-dependent actions on a legacy received return (inspection release, custody display) are blocked with guidance to run the audit; settlement/dispatch of a completed return is refused (`assertCanSettle`). Only the **first receiving** of a return that was still unreceived at deployment adopts the policy (stamps `custody_policy_version`, creates custody for that return only).
+- Tests: `LegacySafeguardsTest` (legacy blocks + no changes, adoption touches no other record, completed immutability) and `SaleReturnAuditTest` (zero-write: statement listener asserts no INSERT/UPDATE/DELETE/DDL and no `FOR UPDATE`, plus a byte-for-byte table snapshot, around the audit, the return/inspection pages, the financial preview, the coverage rules and a re-run of the additive migrations on populated data).
+
+### Rollout checklist
+1. Back up (`php artisan db:backup` / your normal backup). Deploy code; run migrations (additive; permission `saleReturns.inspect` is registered but **granted to no one**).
+2. Assign `saleReturns.inspect` explicitly to the people who will inspect/release goods (role management). Do this **before** enabling receiving; otherwise held goods have nobody who can release them.
+3. Keep `SALES_RETURN_CUSTODY_ENABLED=true` (default). `false` blocks NEW standard receiving only; existing custody and inspection keep working.
+4. Run `sale-returns:audit --setting=<id>` per business and triage proven findings first; legacy ambiguous findings need manual investigation, not automated repair.
+5. Validate with isolated synthetic fixtures (the test suites above; MySQL checks via `scripts/run-mysql-sequence-tests.sh`). **Never** use production transactions as mutating validation fixtures.
+
+### Rollback after new-policy activity
+Before any receipt under the policy: set the flag false or roll the migrations back. Once custody, adjustments or dispatch identity exist the down-migrations refuse (by design): disable new standard mutations (flag off, no inspection grants), keep the evidence, do not deploy old receiving code (it would make held goods sellable) and fix forward under a separately reviewed change using the audit output.
+
+### Main spec normalization
+`openspec/specs/sale-return-completion-archival/spec.md` was restructured to `# ... Specification` / `## Purpose` / `## Requirements` with its three requirement blocks byte-for-byte unchanged (no behavioural deltas applied early). Before: strict change validation reported the archive blocker (the main spec started with the delta header `## ADDED Requirements`, hiding all requirements); after: `openspec validate sale-return-completion-archival --type spec --strict` is valid and `openspec list --specs` shows 3 requirements.
+
+### Group 8 review follow-up (audit hardening)
+- **Business-scoped, exact stock evidence**: receiving transactions must match the return's business (`setting_id`), the return's products and the exact reason (`PENERIMAAN RETUR PENJUALAN: <reference>`, upper-cased) - no suffix/wildcard matching, so another business's or a lookalike document's transaction is never evidence. Release transactions are matched exactly against the custody owner's business(es), because a release credits the owner, which can differ from the return's business.
+- **Refund grading uses historical payment authority** (standard sales only; POS/mixed sales are skipped): refunds above everything *ever* paid are **proven** (`REFUNDS_EXCEED_PAYMENTS`); refunds above only the payments active *today* are **ambiguous** (`REFUNDS_EXCEED_ACTIVE_PAYMENTS`), because a later legitimate payment invalidation can explain them.
+- **Aggregate claims**: per original dispatch line, the quantity claimed across all non-rejected returns must not exceed the quantity of an approved dispatch (`EXCESS_CLAIM_ON_DISPATCH_LINE`), and a serial claimed by more than one non-rejected return is flagged (`SERIAL_CLAIMED_BY_SEVERAL_RETURNS`). Both are *proven* and only evaluated for standard sales (POS-mutated histories use their own quantity model; mixed histories are reported as `MIXED_WORKFLOW_HISTORY`).
+- **Filters are validated, never widened**: `--setting`, `--sale`, `--return` must each be a positive integer, and a supplied sale/return must exist in the audited business; anything else exits with an error and prints no report (`--sale=abc` no longer silently audits everything).

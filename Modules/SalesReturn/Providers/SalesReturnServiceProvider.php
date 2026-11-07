@@ -24,6 +24,9 @@ class SalesReturnServiceProvider extends ServiceProvider
      */
     public function boot()
     {
+        $this->commands([
+            \Modules\SalesReturn\Console\SaleReturnsAuditCommand::class,
+        ]);
         $this->registerTranslations();
         $this->registerConfig();
         $this->registerViews();

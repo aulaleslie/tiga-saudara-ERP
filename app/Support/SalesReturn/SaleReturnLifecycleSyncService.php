@@ -75,31 +75,18 @@ class SaleReturnLifecycleSyncService
         }
     }
 
-    /** Standard branch: status derives from received standard return quantities. */
+    /**
+     * Standard branch: the sale becomes RETURNED_PARTIALLY once FINAL cash-return coverage exists.
+     * Receiving, repair/replacement and cannot-process never change the source sale's state, and an
+     * independently valid prior partial state is never downgraded. RETURNED comes only from archival
+     * (full final cash coverage), never from received quantities.
+     */
     private function syncStandardReceivedStatus(Sale $sale): void
     {
-        $dispatchedQuantity = (int) DispatchDetail::query()
-            ->where('sale_id', $sale->id)
-            ->sum('dispatched_quantity');
+        $cash = StandardReturnCoverage::saleCashUnits((int) $sale->id);
 
-        $returnedReceivedQuantity = (int) SaleReturnDetail::query()
-            ->whereHas('saleReturn', function ($query) use ($sale) {
-                $query->withArchived()
-                    ->where('sale_id', $sale->id)
-                    ->whereIn('status', ['AWAITING SETTLEMENT', 'COMPLETED']);
-            })
-            ->sum('quantity');
-
-        if ($dispatchedQuantity > 0 && $returnedReceivedQuantity >= $dispatchedQuantity) {
-            if ($sale->status !== Sale::STATUS_RETURNED) {
-                $sale->status = Sale::STATUS_RETURNED;
-                $sale->save();
-            }
-
-            return;
-        }
-
-        if ($returnedReceivedQuantity > 0 && $sale->status !== Sale::STATUS_RETURNED_PARTIALLY) {
+        if (array_sum($cash['lines']) > 0
+            && ! in_array($sale->status, [Sale::STATUS_RETURNED, Sale::STATUS_RETURNED_PARTIALLY], true)) {
             $sale->status = Sale::STATUS_RETURNED_PARTIALLY;
             $sale->save();
         }
@@ -122,9 +109,10 @@ class SaleReturnLifecycleSyncService
             return;
         }
 
-        $saleReturn->load('settlementItems');
-
-        $newStatus = $saleReturn->settlement_status === 'Settled'
+        // A return completes only when EVERY received detail quantity / serial occurrence has a final
+        // settlement; one approved item among unresolved or missing ones proves nothing.
+        $isReceived = in_array(strtoupper((string) $saleReturn->status), ['AWAITING SETTLEMENT', 'COMPLETED'], true);
+        $newStatus = $isReceived && StandardReturnCoverage::returnCompletion($saleReturn)['complete']
             ? 'Completed'
             : $saleReturn->status;
 
@@ -142,78 +130,48 @@ class SaleReturnLifecycleSyncService
     }
 
     /**
-     * Determine whether cumulative effective (received, AWAITING SETTLEMENT or COMPLETED)
-     * Sales Return quantities fully cover every dispatched line for the given sale.
+     * Whether FINAL standard cash-return settlements cover every original dispatch line of the sale.
      *
-     * Coverage is evaluated per dispatch_detail_id so an over-return on one line cannot
-     * mask an under-return on another. Sale Return details without a dispatch_detail_id
-     * (legacy/ambiguous lineage) are excluded from proving coverage and are reported
-     * separately so archival never guesses.
+     * Coverage is per dispatch_detail_id (an excess on one line cannot conceal a shortage on another).
+     * Only APPROVED CASH_REFUND settlements count (debt-only included); repair/replacement,
+     * cannot-process, draft, submitted, rejected and unreceived quantities never do. A pending cash
+     * contributor blocks full coverage, and settlements without a dispatch line (ambiguous lineage)
+     * are reported separately and never prove coverage.
      *
-     * @return array{fully_covered: bool, ambiguous_quantity: float, dispatch_lines: array<int, array{dispatched: float, returned: float, covered: bool}>}
+     * @return array{fully_covered: bool, ambiguous_quantity: float, pending_contributors: int, dispatch_lines: array<int, array{dispatched: float, returned: float, covered: bool}>}
      */
     public function calculateEffectiveStandardReturnCoverage(int $saleId): array
     {
+        // Denominator: APPROVED dispatches only, positive quantities (the same eligibility the return form
+        // uses); a pending or rejected dispatch is not a delivered line and cannot require coverage.
         $dispatchLines = DispatchDetail::query()
             ->where('sale_id', $saleId)
+            ->where('dispatched_quantity', '>', 0)
+            ->whereHas('dispatch', fn ($q) => $q->whereRaw('UPPER(status) = ?', [\Modules\Sale\Entities\Dispatch::STATUS_APPROVED]))
             ->selectRaw('id, SUM(dispatched_quantity) as dispatched_quantity')
             ->groupBy('id')
             ->pluck('dispatched_quantity', 'id')
             ->map(fn ($quantity) => (float) $quantity)
             ->all();
 
-        $returnedByDispatchDetail = SaleReturnDetail::query()
-            ->whereNotNull('dispatch_detail_id')
-            ->whereHas('saleReturn', function ($query) use ($saleId) {
-                $query->withArchived()
-                    ->where('sale_id', $saleId)
-                    ->whereIn('status', ['AWAITING SETTLEMENT', 'COMPLETED']);
-            })
-            ->selectRaw('dispatch_detail_id, SUM(quantity) as returned_quantity')
-            ->groupBy('dispatch_detail_id')
-            ->pluck('returned_quantity', 'dispatch_detail_id')
-            ->map(fn ($quantity) => (float) $quantity)
-            ->all();
-
-        $ambiguousQuantity = (float) SaleReturnDetail::query()
-            ->whereNull('dispatch_detail_id')
-            ->whereHas('saleReturn', function ($query) use ($saleId) {
-                $query->withArchived()
-                    ->where('sale_id', $saleId)
-                    ->whereIn('status', ['AWAITING SETTLEMENT', 'COMPLETED']);
-            })
-            ->sum('quantity');
+        $cash = StandardReturnCoverage::saleCashUnits($saleId);
 
         if (empty($dispatchLines)) {
-            return [
-                'fully_covered' => false,
-                'ambiguous_quantity' => $ambiguousQuantity,
-                'dispatch_lines' => [],
-            ];
+            return ['fully_covered' => false, 'ambiguous_quantity' => $cash['ambiguous'], 'pending_contributors' => $cash['pending'], 'dispatch_lines' => []];
         }
 
         $lines = [];
-        $fullyCovered = true;
+        $fullyCovered = $cash['pending'] === 0;
         foreach ($dispatchLines as $dispatchDetailId => $dispatchedQuantity) {
-            $returnedQuantity = (float) ($returnedByDispatchDetail[$dispatchDetailId] ?? 0);
-            $covered = $dispatchedQuantity > 0 && $returnedQuantity >= $dispatchedQuantity;
-
-            $lines[$dispatchDetailId] = [
-                'dispatched' => $dispatchedQuantity,
-                'returned' => $returnedQuantity,
-                'covered' => $covered,
-            ];
-
+            $returned = (float) ($cash['lines'][$dispatchDetailId] ?? 0);
+            $covered = $dispatchedQuantity > 0 && $returned >= $dispatchedQuantity;
+            $lines[$dispatchDetailId] = ['dispatched' => $dispatchedQuantity, 'returned' => $returned, 'covered' => $covered];
             if (! $covered) {
                 $fullyCovered = false;
             }
         }
 
-        return [
-            'fully_covered' => $fullyCovered,
-            'ambiguous_quantity' => $ambiguousQuantity,
-            'dispatch_lines' => $lines,
-        ];
+        return ['fully_covered' => $fullyCovered, 'ambiguous_quantity' => $cash['ambiguous'], 'pending_contributors' => $cash['pending'], 'dispatch_lines' => $lines];
     }
 
     /**
@@ -312,10 +270,7 @@ class SaleReturnLifecycleSyncService
             return false;
         }
 
-        if ($this->posArchivalSatisfied($sale)) {
-            return true;
-        }
-
+        // Standard archival never relies on POS-style quantity mutation: final cash coverage only.
         return $this->calculateEffectiveStandardReturnCoverage((int) $sale->id)['fully_covered'];
     }
 
