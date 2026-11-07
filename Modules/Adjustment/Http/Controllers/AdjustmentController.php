@@ -203,6 +203,10 @@ class AdjustmentController extends Controller
                     throw new Exception("Beberapa serial number tidak valid atau telah dikirim (product index: {$index}).");
                 }
 
+                if (\App\Support\SalesReturn\HeldSerialGuard::anyHeld($serialIds)) {
+                    throw new Exception("Serial number sedang ditahan dalam custody retur penjualan dan tidak dapat disesuaikan sebelum inspeksi melepasnya (product index: {$index}).");
+                }
+
                 $product = Product::findOrFail($productId);
 
                 // Use provided quantities
@@ -868,6 +872,10 @@ class AdjustmentController extends Controller
 
                 if (count($validSerials) !== count($serialIds)) {
                     throw new Exception("Beberapa serial number tidak valid atau telah dikirim (product index: {$index}).");
+                }
+
+                if (\App\Support\SalesReturn\HeldSerialGuard::anyHeld($serialIds)) {
+                    throw new Exception("Serial number sedang ditahan dalam custody retur penjualan dan tidak dapat disesuaikan sebelum inspeksi melepasnya (product index: {$index}).");
                 }
 
                 $product = Product::findOrFail($productId);

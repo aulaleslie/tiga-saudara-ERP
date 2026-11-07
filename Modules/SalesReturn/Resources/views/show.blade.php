@@ -181,6 +181,25 @@
                             </div>
                         </div>
 
+                        @if($sale_return->usesHeldCustody())
+                            @php($custodySummary = app(\App\Support\SalesReturn\StandardReturnCustodyService::class)->summary($sale_return))
+                            <div class="card mt-3">
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <h6 class="mb-0">Custody Barang Retur</h6>
+                                        @can('saleReturns.inspect')
+                                            @if($custodySummary['held'] > 0)
+                                                <a class="btn btn-outline-primary btn-sm" href="{{ route('sale-returns.inspect', $sale_return) }}">
+                                                    <i class="bi bi-search"></i> Inspeksi &amp; Lepas
+                                                </a>
+                                            @endif
+                                        @endcan
+                                    </div>
+                                    @include('salesreturn::partials.custody-summary', ['custody' => $custodySummary])
+                                </div>
+                            </div>
+                        @endif
+
                         @include('salesreturn::partials.settlement-items-table')
 
                         <div class="table-responsive-sm mt-4">

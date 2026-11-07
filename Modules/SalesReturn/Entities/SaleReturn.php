@@ -104,6 +104,9 @@ class SaleReturn extends BaseModel
         // The archive action writes these; without them it silently archived nothing.
         'archived_at',
         'archived_by',
+        // Custody policy markers: NULL = legacy/unknown, set on FIRST receiving after deployment.
+        'custody_policy_version',
+        'custody_policy_applied_at',
     ];
 
     protected $casts = [
@@ -118,6 +121,7 @@ class SaleReturn extends BaseModel
         'rejected_at'      => 'datetime',
         'settled_at'       => 'datetime',
         'received_at'      => 'datetime',
+        'custody_policy_applied_at' => 'datetime',
         'archived_at'      => 'datetime',
     ];
 
@@ -154,6 +158,21 @@ class SaleReturn extends BaseModel
                 ? $allocate()
                 : \Illuminate\Support\Facades\DB::transaction($allocate);
         });
+    }
+
+    public function custodies(): HasMany
+    {
+        return $this->hasMany(SaleReturnCustody::class, 'sale_return_id');
+    }
+
+    public function inspections(): HasMany
+    {
+        return $this->hasMany(SaleReturnInspection::class, 'sale_return_id');
+    }
+
+    public function usesHeldCustody(): bool
+    {
+        return ! is_null($this->custody_policy_version);
     }
 
     public function saleReturnGoods(): HasMany

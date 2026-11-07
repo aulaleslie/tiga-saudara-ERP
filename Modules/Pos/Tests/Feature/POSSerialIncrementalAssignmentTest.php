@@ -93,6 +93,50 @@ class POSSerialIncrementalAssignmentTest extends TestCase
             ->assertJsonPath('cart_snapshot.lines.0.assigned_serials', ['SN-APPEND-1', 'SN-APPEND-2']);
     }
 
+    public function test_held_sale_return_serial_cannot_be_assigned_but_normal_selection_stays_valid(): void
+    {
+        $context = $this->createCheckoutContext('POS SERIAL HELD');
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-HELD', 100000, true);
+
+        $normal = $this->createSerialNumber($product, $context['location'], 'SN-FREE-1');
+        $held = $this->createSerialNumber($product, $context['location'], 'SN-HELD-1');
+
+        // The exact state standard-return custody gives a received serial: parked as a return,
+        // dispatch lineage retained, never ACTIVE/available.
+        $dispatchId = Dispatch::create(['sale_id' => $this->createSoldSaleFor($context, $product), 'dispatch_date' => now(), 'status' => Dispatch::STATUS_APPROVED])->id;
+        $detailId = DispatchDetail::create(['dispatch_id' => $dispatchId, 'sale_id' => Dispatch::find($dispatchId)->sale_id, 'product_id' => $product->id, 'dispatched_quantity' => 1, 'location_id' => $context['location']->id])->id;
+        \App\Support\SalesReturn\HeldSerialGuard::asCustodyService(function () use ($held, $detailId) {
+            $held->forceFill([
+                'status' => ProductSerialNumber::STATUS_RETURN_IN_PROCESS,
+                'is_in_return_process' => true,
+                'dispatch_detail_id' => $detailId,
+            ])->save();
+        });
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $lineId = $this->cartSnapshot($context['cashier'], $context['setting'])['lines'][0]['line_id'];
+
+        $rejected = $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.store', ['lineId' => $lineId]), ['serial_numbers' => ['SN-HELD-1']]);
+        $this->assertGreaterThanOrEqual(400, $rejected->getStatusCode(), 'a held serial must not be assignable to a POS sale');
+
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.store', ['lineId' => $lineId]), ['serial_numbers' => ['SN-FREE-1']])
+            ->assertOk()
+            ->assertJsonPath('cart_snapshot.lines.0.assigned_serials', ['SN-FREE-1']);
+    }
+
+    private function createSoldSaleFor(array $context, Product $product): int
+    {
+        return Sale::create([
+            'setting_id' => $context['setting']->id, 'date' => now(), 'reference' => 'SL-HELD-' . uniqid(),
+            'customer_name' => 'Walk-in', 'payment_method' => 'Cash', 'total_amount' => 100000, 'paid_amount' => 100000,
+            'due_amount' => 0, 'status' => Sale::STATUS_DISPATCHED, 'payment_status' => 'Paid',
+        ])->id;
+    }
+
     public function test_can_remove_assigned_serials(): void
     {
         $context = $this->createCheckoutContext('POS SERIAL REMOVE');

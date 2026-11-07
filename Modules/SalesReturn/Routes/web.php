@@ -68,6 +68,14 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
         ->name('item.dispatch.reject');
     });
 
+    // Inspection / release of held custody (dedicated permission: saleReturns.inspect)
+    Route::get('sale-returns/{sale_return}/inspect', 'SaleReturnInspectionController@show')
+        ->middleware('sales-return.standard')
+        ->name('sale-returns.inspect');
+    Route::post('sale-returns/{sale_return}/inspect', 'SaleReturnInspectionController@store')
+        ->middleware('sales-return.standard')
+        ->name('sale-returns.inspect.store');
+
     // Dispatch request & form (two-step: submit -> approve)
     Route::get('sale-returns/{sale_return}/dispatch', 'SaleReturnDispatchController@showDispatchForm')
         ->middleware('sales-return.standard')

@@ -258,22 +258,30 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
         $saleReturn->refresh();
         $sale->refresh();
 
-        $this->assertEquals(1, (int) $stock->quantity);
-        $this->assertEquals(1, (int) $stock->quantity_non_tax);
-        $this->assertEquals(1, (int) $product->product_quantity);
+        // Custody policy: received goods are HELD, never added to sellable stock.
+        $this->assertEquals(0, (int) $stock->quantity);
+        $this->assertEquals(0, (int) $stock->quantity_non_tax);
+        $this->assertEquals(0, (int) $product->product_quantity);
         $this->assertEquals('AWAITING SETTLEMENT', strtoupper((string) $saleReturn->status));
         $this->assertEquals(Sale::STATUS_RETURNED, $sale->status);
         $this->assertNull($sale->archived_at);
+        $this->assertSame(1, (int) $saleReturn->custody_policy_version);
+        $this->assertNotNull($saleReturn->custody_policy_applied_at);
 
-        $this->assertNull($serial->dispatch_detail_id);
-        $this->assertEquals(ProductSerialNumber::STATUS_ACTIVE, $serial->status);
+        // The serial stays out of sellable use: parked as a return, dispatch lineage kept.
+        $this->assertNotNull($serial->dispatch_detail_id);
+        $this->assertTrue((bool) $serial->is_in_return_process);
+        $this->assertEquals(ProductSerialNumber::STATUS_RETURN_IN_PROCESS, $serial->status);
         $this->assertEquals($location->id, $serial->location_id);
+        $this->assertFalse($serial->isSellable());
 
-        $transaction = Transaction::query()->where('product_id', $product->id)->latest('id')->first();
-        $this->assertNotNull($transaction);
-        $this->assertEquals('SALE_RETURN_GOOD_NON_TAX', $transaction->type);
-        $this->assertEquals(1, (int) $transaction->quantity);
-        $this->assertStringContainsString((string) $saleReturn->reference, (string) $transaction->reason);
+        $custody = \Modules\SalesReturn\Entities\SaleReturnCustody::query()->where('sale_return_id', $saleReturn->id)->sole();
+        $this->assertEquals(1, $custody->held_quantity);
+        $this->assertSame($serial->id, (int) $custody->product_serial_number_id);
+        $this->assertSame(0, Transaction::query()->count(), 'no good-stock movement at receiving');
+        $this->assertDatabaseHas('sale_return_custody_movements', [
+            'sale_return_custody_id' => $custody->id, 'type' => 'RECEIVED', 'quantity' => 1, 'actor_id' => $this->user->id,
+        ]);
 
         $tracking = SalesOrderSerialTracking::query()
             ->where('sale_id', $sale->id)
@@ -336,13 +344,15 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
         $this->assertEquals($this->user->id, (int) $sale->archived_by);
         $this->assertStringContainsString((string) $saleReturn->reference, (string) $sale->note);
 
-        // Receiving restores stock; cash refund completion must not deduct stock a second time.
-        $this->assertEquals(1, (int) $stock->quantity);
-        $this->assertEquals(1, (int) $stock->quantity_non_tax);
-        $this->assertEquals(1, (int) $product->product_quantity);
-        $this->assertEquals(ProductSerialNumber::STATUS_ACTIVE, $serial->status);
+        // Financial completion NEVER releases goods: stock is untouched and the serial is still held
+        // until an authorized inspection releases it.
+        $this->assertEquals(0, (int) $stock->quantity);
+        $this->assertEquals(0, (int) $stock->quantity_non_tax);
+        $this->assertEquals(0, (int) $product->product_quantity);
+        $this->assertEquals(ProductSerialNumber::STATUS_RETURN_IN_PROCESS, $serial->status);
+        $this->assertEquals(1, \Modules\SalesReturn\Entities\SaleReturnCustody::query()->where('sale_return_id', $saleReturn->id)->sole()->held_quantity);
 
-        $this->assertSame(1, Transaction::query()->count());
+        $this->assertSame(0, Transaction::query()->count());
         $this->assertTrue(SaleReturnPayment::query()->where('sale_return_id', $saleReturn->id)->exists());
     }
 
@@ -379,7 +389,7 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
 
         $archivedAtFirst = $sale->archived_at;
         $this->assertNotNull($archivedAtFirst);
-        $this->assertSame(1, Transaction::query()->count());
+        $this->assertSame(0, Transaction::query()->count());
         $this->assertSame(1, SaleReturnPayment::query()->where('sale_return_id', $saleReturn->id)->count());
 
         // Retry the same approval action; the settlement item is no longer approvable.
@@ -394,10 +404,11 @@ class SaleReturnReceiveSerialStatusTest extends TestCase
         $serial->refresh();
 
         $this->assertEquals($archivedAtFirst, $sale->archived_at, 'Archival timestamp must remain stable on retry.');
-        $this->assertEquals(1, (int) $stock->quantity);
-        $this->assertEquals(1, (int) $product->product_quantity);
-        $this->assertEquals(ProductSerialNumber::STATUS_ACTIVE, $serial->status);
-        $this->assertSame(1, Transaction::query()->count(), 'Retry must not duplicate inventory movement.');
+        $this->assertEquals(0, (int) $stock->quantity);
+        $this->assertEquals(0, (int) $product->product_quantity);
+        $this->assertEquals(ProductSerialNumber::STATUS_RETURN_IN_PROCESS, $serial->status);
+        $this->assertSame(0, Transaction::query()->count(), 'Retry must not create any inventory movement.');
+        $this->assertSame(1, \Modules\SalesReturn\Entities\SaleReturnCustody::query()->where('sale_return_id', $saleReturn->id)->count());
         $this->assertSame(1, SaleReturnPayment::query()->where('sale_return_id', $saleReturn->id)->count(), 'Retry must not duplicate refund payment.');
     }
 

@@ -183,7 +183,9 @@ class SaleReturnSerialHistoryTest extends TestCase
 
         // 5. Verify Serial Number updated
         $sn1->refresh();
-        $this->assertNull($sn1->dispatch_detail_id);
+        // Held in custody: dispatch lineage kept, parked as a return, never sellable.
+        $this->assertNotNull($sn1->dispatch_detail_id);
+        $this->assertEquals(\Modules\Product\Entities\ProductSerialNumber::STATUS_RETURN_IN_PROCESS, $sn1->status);
         $this->assertEquals($this->location->id, $sn1->location_id);
 
         // 6. Verify History Recorded

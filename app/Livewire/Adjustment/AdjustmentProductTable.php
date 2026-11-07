@@ -1063,6 +1063,11 @@ class AdjustmentProductTable extends Component
             ->with('location')
             ->first();
 
+        if ($sourceSerial && \App\Support\SalesReturn\HeldSerialGuard::isHeld($sourceSerial)) {
+            $this->rowSerialError = "Nomor seri '{$normalizedText}' sedang ditahan dalam custody retur penjualan.";
+            return;
+        }
+
         $entry = [
             'serial_number' => $normalizedText,
             'condition' => $this->rowSerialCondition,
@@ -1214,6 +1219,12 @@ class AdjustmentProductTable extends Component
 
         $serial = ProductSerialNumber::find($serialNumber['id']);
         if (!$serial) {
+            return;
+        }
+
+        // The id comes from the client: held sale-return custody can never be adjusted.
+        if (\App\Support\SalesReturn\HeldSerialGuard::isHeld($serial)) {
+            $this->serialNumberErrors[$index] = "Serial number '{$serial->serial_number}' sedang ditahan dalam custody retur penjualan.";
             return;
         }
 

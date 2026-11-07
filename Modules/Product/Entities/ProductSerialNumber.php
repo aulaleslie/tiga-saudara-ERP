@@ -30,6 +30,21 @@ class ProductSerialNumber extends BaseModel
         'purchase_return_id',
     ];
 
+    protected static function booted(): void
+    {
+        // Held sale-return custody backstop (see HeldSerialGuard): refuses changes to a held serial
+        // from any Eloquent path that bypasses the common availability scopes.
+        static::updating(function (self $serial) {
+            \App\Support\SalesReturn\HeldSerialGuard::assertMutable($serial, [
+                'status', 'location_id', 'tax_id', 'dispatch_detail_id', 'is_broken', 'is_in_return_process', 'serial_number', 'purchase_return_id', 'product_id',
+            ]);
+        });
+
+        static::deleting(function (self $serial) {
+            \App\Support\SalesReturn\HeldSerialGuard::assertMutable($serial);
+        });
+    }
+
     // Status Constants
     const STATUS_ACTIVE = 'ACTIVE';
     const STATUS_SOLD = 'SOLD';

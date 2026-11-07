@@ -398,9 +398,12 @@ class StandardSettlementGuardsTest extends TestCase
         $this->http()->post(route('sale-returns.receive', $return))->assertRedirect();
         $this->http()->post(route('sale-returns.receive', $return))->assertRedirect();   // replay
 
-        $this->assertSame(1, Transaction::query()->where('product_id', $flow['product']->id)->where('type', 'like', 'SALE_RETURN_GOOD%')->count());
-        $this->assertSame(2, (int) $flow['product']->fresh()->product_quantity);
-        $this->assertSame(2, (int) ProductStock::query()->where('product_id', $flow['product']->id)->value('quantity'));
+        // Held custody: received once, never added to sellable stock.
+        $this->assertSame(0, Transaction::query()->where('product_id', $flow['product']->id)->count());
+        $this->assertSame(0, (int) $flow['product']->fresh()->product_quantity);
+        $this->assertSame(0, (int) ProductStock::query()->where('product_id', $flow['product']->id)->sum('quantity'));
+        $this->assertSame(1, \Modules\SalesReturn\Entities\SaleReturnCustody::query()->where('sale_return_id', $return->id)->count());
+        $this->assertSame(2, (int) \Modules\SalesReturn\Entities\SaleReturnCustody::query()->where('sale_return_id', $return->id)->sum('quantity_received'));
         $this->assertSame('AWAITING SETTLEMENT', strtoupper((string) $return->fresh()->status));
 
         $foreign = $this->makeDispatchedSale(5, false, 2);

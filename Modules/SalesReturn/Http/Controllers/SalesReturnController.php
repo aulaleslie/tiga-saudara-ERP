@@ -324,153 +324,18 @@ class SalesReturnController extends Controller
                 $lockedSaleReturn = $guard->lockForAction($sale_return);
                 $guard->assertCanReceive($lockedSaleReturn);
 
-                $details = SaleReturnDetail::query()
-                    ->with('dispatchDetail')
-                    ->where('sale_return_id', $lockedSaleReturn->id)
-                    ->lockForUpdate()
-                    ->get();
-
-                $dispatchDetails = DispatchDetail::query()
-                    ->whereIn('id', $details->pluck('dispatch_detail_id')->filter()->unique()->all())
-                    ->lockForUpdate()
-                    ->get()
-                    ->keyBy('id');
-
-                foreach ($details as $detail) {
-                    $quantity = (int) ($detail->quantity ?? 0);
-                    if ($quantity <= 0) {
-                        continue;
-                    }
-
-                    $dispatchDetail = $dispatchDetails->get($detail->dispatch_detail_id);
-                    if (! $dispatchDetail) {
-                        throw new \RuntimeException('Detail pengiriman tidak ditemukan untuk retur penjualan.');
-                    }
-
-                    $locationId = $detail->location_id
-                        ?? $lockedSaleReturn->location_id
-                        ?? $dispatchDetail->location_id;
-
-                    if (! $locationId) {
-                        throw new \RuntimeException('Lokasi penerimaan retur tidak dapat ditentukan.');
-                    }
-
-                    $product = Product::query()
-                        ->where('id', $detail->product_id)
-                        ->lockForUpdate()
-                        ->firstOrFail();
-
-                    $productStock = ProductStock::query()
-                        ->where('product_id', $detail->product_id)
-                        ->where('location_id', $locationId)
-                        ->lockForUpdate()
-                        ->first();
-
-                    if (! $productStock) {
-                        $productStock = ProductStock::create([
-                            'product_id' => $detail->product_id,
-                            'location_id' => $locationId,
-                            'quantity' => 0,
-                            'quantity_tax' => 0,
-                            'quantity_non_tax' => 0,
-                            'broken_quantity_non_tax' => 0,
-                            'broken_quantity_tax' => 0,
-                            'broken_quantity' => 0,
-                            'tax_id' => $dispatchDetail->tax_id,
-                        ]);
-                    }
-
-                    $previousProductQuantity = (int) ($product->product_quantity ?? 0);
-                    $previousQuantityAtLocation = (int) ($productStock->quantity ?? 0);
-                    $taxId = $dispatchDetail->tax_id;
-
-                    if ($taxId) {
-                        $productStock->quantity_tax = (int) ($productStock->quantity_tax ?? 0) + $quantity;
-                    } else {
-                        $productStock->quantity_non_tax = (int) ($productStock->quantity_non_tax ?? 0) + $quantity;
-                    }
-
-                    $productStock->quantity = (int) ($productStock->quantity_non_tax ?? 0)
-                        + (int) ($productStock->quantity_tax ?? 0)
-                        + (int) ($productStock->broken_quantity_non_tax ?? 0)
-                        + (int) ($productStock->broken_quantity_tax ?? 0);
-                    $productStock->broken_quantity = (int) ($productStock->broken_quantity_non_tax ?? 0)
-                        + (int) ($productStock->broken_quantity_tax ?? 0);
-                    $productStock->tax_id = $taxId;
-                    $productStock->save();
-
-                    $product->product_quantity = (int) $product->product_quantity + $quantity;
-                    $product->save();
-
-                    Transaction::create([
-                        'product_id' => $product->id,
-                        'setting_id' => (int) ($lockedSaleReturn->setting_id ?? session('setting_id')),
-                        'type' => $taxId ? 'SALE_RETURN_GOOD_TAX' : 'SALE_RETURN_GOOD_NON_TAX',
-                        'quantity' => $quantity,
-                        'current_quantity' => (int) $product->product_quantity,
-                        'broken_quantity' => (int) ($productStock->broken_quantity ?? 0),
-                        'location_id' => $locationId,
-                        'user_id' => auth()->id(),
-                        'reason' => 'PENERIMAAN RETUR PENJUALAN: ' . $lockedSaleReturn->reference,
-                        'previous_quantity' => $previousProductQuantity,
-                        'after_quantity' => (int) $product->product_quantity,
-                        'previous_quantity_at_location' => $previousQuantityAtLocation,
-                        'after_quantity_at_location' => (int) ($productStock->quantity ?? 0),
-                        'quantity_tax' => $taxId ? $quantity : 0,
-                        'quantity_non_tax' => $taxId ? 0 : $quantity,
-                        'broken_quantity_tax' => 0,
-                        'broken_quantity_non_tax' => 0,
-                    ]);
-
-                    $serialIds = collect($detail->serial_number_ids ?? [])
-                        ->map(fn ($id) => (int) $id)
-                        ->filter()
-                        ->values()
-                        ->all();
-
-                    if (! empty($serialIds)) {
-                        $serials = ProductSerialNumber::query()
-                            ->whereIn('id', $serialIds)
-                            ->lockForUpdate()
-                            ->get();
-
-                        if ($serials->count() !== count($serialIds)) {
-                            throw new \RuntimeException('Sebagian nomor seri tidak ditemukan.');
-                        }
-
-                        foreach ($serials as $serial) {
-                            if ((int) $serial->dispatch_detail_id !== (int) $dispatchDetail->id) {
-                                throw new \RuntimeException('Nomor seri tidak berasal dari pengiriman penjualan ini.');
-                            }
-                        }
-
-                        ProductSerialNumber::query()
-                            ->whereIn('id', $serialIds)
-                            ->update([
-                                'dispatch_detail_id' => null,
-                                'location_id' => $locationId,
-                                'tax_id' => $taxId,
-                                'status' => ProductSerialNumber::STATUS_ACTIVE,
-                            ]);
-
-                        SalesOrderSerialTracking::query()
-                            ->where('sale_id', $lockedSaleReturn->sale_id)
-                            ->whereIn('product_serial_number_id', $serialIds)
-                            ->update([
-                                'return_date' => $receivedAt,
-                                'updated_at' => $receivedAt,
-                            ]);
-
-                        foreach ($serials as $serial) {
-                            SerialNumberHistoryService::record(
-                                $serial->id,
-                                SerialNumberHistory::EVENT_SALE_RETURNED,
-                                $locationId,
-                                $detail
-                            );
-                        }
-                    }
+                // Standard receiving ALWAYS goes through held custody: goods are HELD, not sellable, and no
+                // ProductStock / product_quantity / good-stock Transaction is touched here. An authorized
+                // inspection release is the only way into sellable stock. Disabling the flag blocks NEW
+                // receiving (it must never turn receipts into immediately sellable stock).
+                if (! \App\Support\SalesReturn\StandardReturnCustodyService::enabled()) {
+                    throw new SalesReturnStateException(
+                        'Penerimaan retur penjualan dinonaktifkan sementara (custody retur belum diaktifkan). Custody yang sudah ada dan inspeksi tetap dapat diakses.'
+                    );
                 }
+
+                app(\App\Support\SalesReturn\StandardReturnCustodyService::class)
+                    ->receive($lockedSaleReturn, $receivedAt, (int) auth()->id());
 
                 $lockedSaleReturn->forceFill([
                     'status' => 'Awaiting Settlement',
@@ -478,6 +343,9 @@ class SalesReturnController extends Controller
                     'received_at' => $receivedAt,
                     'settled_at' => null,
                     'settled_by' => null,
+                    // Policy is stamped on FIRST receiving only.
+                    'custody_policy_version' => \App\Support\SalesReturn\StandardReturnCustodyService::policyVersion(),
+                    'custody_policy_applied_at' => $receivedAt,
                 ])->save();
 
                 app(SaleReturnLifecycleSyncService::class)

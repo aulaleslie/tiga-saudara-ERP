@@ -242,3 +242,87 @@ Rejected by design (each has a test): unapproved or unreceived settlement; stale
 - **Reference numbering**: `SaleReturn` references come from the locked `document_sequences` row (new `sale_return` document type, same `SLRN-YYYY-MM-NNNNN` format), reconciled against history first, so returns of different source sales can no longer read the same "latest + 1". An explicit reference (POS) is untouched.
 
 Verification: POS gate 495 passed; standard classes 161 passed; `Modules/SalesReturn` 19 passed; `Modules/Pos/Tests/Feature` 328 failed (unchanged); `tests/Feature/Livewire` 56 failed (no new); sequence tests 8 failed, the same 8 as before this change (they need MySQL/multi-process).
+
+## Group 4: Held custody and permission-controlled inspection
+
+### What the counters mean
+
+Held custody is a **separate physical balance**. It is never inside `ProductStock` or `Product::product_quantity`.
+
+| Counter | Meaning |
+|---|---|
+| `quantity_received` | Units received for one physical occurrence (`sale_return_custodies` row). A tracked serial is its own row (quantity 1); untracked units share one row per return detail. |
+| `quantity_released` | Units an authorized inspection moved into sellable stock. |
+| `quantity_dispatched` | Units that left custody with the customer (original-goods dispatch, written by group 5). Always 0 until then. |
+| held | `received - released - dispatched`, never negative (checked under row locks, plus a `CHECK` on MySQL 8.0.16+/MariaDB 10.2+). |
+
+Warehouse physical quantity = sellable stock + held custody. Held units are shown on the return page (`Custody Barang Retur`) next to settlement, independently of the return's status, and stay visible after financial completion or source-sale archival.
+
+Every change is an append-only row in `sale_return_custody_movements` (`RECEIVED`, `RELEASED`, `DISPATCHED`), with actor, time, notes and, for releases, the destination owner/location/tax. Movements cannot be updated or deleted. Quantities are whole units because the stock tables are integer based, so no truncation can happen.
+
+### Flow
+
+1. **Receive (first receiving only).** The return is stamped `custody_policy_version = 1`. Custody and a `RECEIVED` movement are created once per occurrence (`occurrence_key` is unique). No stock, `product_quantity` or good-stock `Transaction` is touched. A received serial becomes `RETURN_IN_PROCESS` with `is_in_return_process = true`, keeps its `dispatch_detail_id` (lineage), and gets a `SALE_RETURNED` history entry.
+2. **Settle.** Cash refund / repair / cannot process are decided as before. **Settlement and completion never release goods.**
+3. **Inspect and release** (`GET/POST /sale-returns/{id}/inspect`, permission `saleReturns.inspect`). The inspector picks serials or a quantity and **must write notes**. Release credits the bucket captured at receiving (location, tax or non-tax), updates `product_quantity` once, activates released serials (`ACTIVE`, dispatch link cleared), records an inspection (actor, time, notes, quantity) and `RELEASED` movements. Repeats of a submission (`request_key`) and exhausted custody are rejected without changes.
+
+Release eligibility (`StandardReturnCustodyService::releaseBlocker`):
+
+| Settlement of the unit | Release |
+|---|---|
+| none yet / not final | blocked |
+| `CASH_REFUND`, approved | allowed |
+| `REPAIR` dispatched with a **different** unit (replacement), original retained | allowed, but only by explicit inspection |
+| `REPAIR` / `UNPROCESSED` awaiting or in dispatch, or same serial sent back | blocked (customer-bound) |
+
+### Consumers of serials
+
+Held serials are excluded by `available()`, `sellable()`, `availableBroken()` and `isSellable()`, by the replacement guard, purchase receiving validation, breakage policy and the adjustment store validation (dispatch link kept). Two real gaps were found and closed: stock-adjustment forms accepted any client-supplied serial id (UI and `AdjustmentController` create/update now refuse held serials), and a backstop in `ProductSerialNumber` (`HeldSerialGuard`) refuses Eloquent updates or deletes of a held serial from any code except the custody service. Raw query-builder bulk updates bypass model events by nature; no such path touches held serials today. Test: `HeldSerialConsumersTest`, plus the POS cart check in `POSSerialIncrementalAssignmentTest`.
+
+### Permission assignment
+
+`saleReturns.inspect` ("Inspeksi & Lepas Barang Retur") is defined in `app/Config/Permissions.php` and registered by migration `2026_11_08_000200_...`, which only **registers** it: no role (not even Admin) and no user receives it automatically. Grant it explicitly to the people who will release goods (role management UI). It is checked inside the service and the controller. **Assign it before accepting new standard receipts**, otherwise received goods stay held with nobody able to release them.
+
+### Legacy receiving policy
+
+- Records received **before** deployment keep `custody_policy_version = NULL`, have no custody rows and are never backfilled. Their stock was already counted. Inspecting them is refused with audit guidance; the audit command arrives in group 8.
+- Records **not yet received** at deployment adopt the policy on their first receiving.
+- `SALES_RETURN_CUSTODY_ENABLED=false` (`config/sales_return.php`) **blocks new standard receiving** (a clear message, return stays receivable); goods never become sellable on receipt. Existing custody, its display and inspection/release stay available. It is the switch for staged rollout and for an emergency stop; it never changes existing custody.
+- POS receiving is untouched.
+
+### Migration and rollback notes
+
+- `2026_11_08_000100_create_sale_return_custody_tables`: adds `sale_returns.custody_policy_version` / `custody_policy_applied_at` (nullable) and creates `sale_return_inspections`, `sale_return_custodies`, `sale_return_custody_movements`. Additive: no existing row changes. It uses only portable schema builder calls; the held-balance `CHECK` is added only on MySQL/MariaDB, in a try/catch (older engines ignore CHECK, the locked service check remains authoritative). It ran on SQLite in the test suite; **it has not been run against MySQL/MariaDB**.
+- `2026_11_08_000200_register_sale_return_inspect_permission`: creates the permission, gives it to Admin.
+- **Rollback before any receipt under the policy:** set `SALES_RETURN_CUSTODY_ENABLED=false` (no schema change needed), or `migrate:rollback` both migrations. The custody `down()` now **refuses** (RuntimeException) if any custody, movement or inspection row exists, so the documented boundary is enforced, not just written.
+- **Rollback after custody exists:** do **not** roll the schema back or deploy old receiving code. That would drop real held goods and, with old code, re-activate them. Set the flag to `false` to stop new custody, keep the tables and ledger, release held goods through inspection (or a separately reviewed reconciliation), and fix forward.
+
+### Outstanding verification (explicitly not done)
+
+The custody checks that need real row locking are **not proven by the SQLite suite**: concurrent inspections of the same custody row, concurrent release vs. receiving replay, and the MySQL `CHECK`/unique behaviour. The sequential tests prove idempotency and conservation, not contention safety. These stay open as tasks **6.6** and **9.2** (isolated MySQL/MariaDB concurrency run), and the migration still needs one dry run on a MySQL/MariaDB copy.
+
+### Group 4 verification
+
+| Check | Result |
+|---|---|
+| POS gate (same command) | **495 passed, 0 failed** |
+| Standard + custody classes | **190 passed, 0 failed** (adds `StandardCustodyTest` 23, `HeldSerialConsumersTest` 7) |
+| `Modules/SalesReturn` | 19 passed |
+| Product / Purchase / PurchasesReturn / Sale / Adjustment suites | failing sets identical to the untouched baseline (75 / 33 / 42 / 18 / 4 + 1) |
+| `tests/Feature/Livewire` | 56 failed, none new |
+| `Modules/Pos/Tests/Feature` | 329 failed vs 328: the extra one is the new held-serial POS test, which fails only in the full-directory run like its five siblings in that class (all fail on the baseline too) and passes alone and with its class (11/11) |
+| Sequence tests | 8 failed, the same 8 as the baseline |
+
+### Group 4 review follow-up (4 gaps closed)
+
+| Gap | Fix |
+|---|---|
+| Release truncated stock to integers (10.5 + 1 = 11) | Release math, `product_quantity`, buckets and `Transaction` evidence keep `decimal(15,3)`; custody/movement/inspection quantity columns are now `decimal(15,3)`. Note: `SaleReturnDetail.quantity` is itself integer-cast, so returns cannot yet *produce* fractions; the fix protects the existing fractional balances the release is added to (regression: 10.5 + 1 + 1 = 12.5). |
+| Stale serial model bypassed the guard | `HeldSerialGuard::assertMutable` no longer trusts the instance's loaded state: it reads authoritative custody (FOR UPDATE inside a transaction) for any guarded dirty column; `product_id` is now guarded. |
+| Disabling the flag made receipts sellable | The legacy stock branch is removed. Flag off = new receiving is blocked; existing custody and inspection stay usable. |
+| Permission auto-granted to Admin | Migration registers only; nothing is granted. |
+| Unconditional `down()` | Refuses when custody, movements or inspections exist. |
+
+**Carried into group 5 (explicit):** `releaseBlocker()` decides "a different replacement unit was dispatched" by comparing serial strings. For **non-serial** goods there is no such string, so replacement-based release eligibility must be re-derived from the dispatch/custody ledger (quantity dispatched vs. retained) when dispatch becomes custody-based. Until then non-serial repair-with-replacement custody is never releasable (fail-closed).
+
+Still outstanding: MySQL/MariaDB row-lock concurrency (the new `lockForUpdate` in the guard is likewise unproven on SQLite) and a MySQL migration dry run.

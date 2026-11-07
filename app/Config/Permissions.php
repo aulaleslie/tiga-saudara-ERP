@@ -305,6 +305,7 @@ return [
         'saleReturns.approve' => 'Setujui',
         'saleReturns.receive' => 'Terima',
         'saleReturns.archive' => 'Arsipkan',
+        'saleReturns.inspect' => 'Inspeksi & Lepas Barang Retur',
     ],
 
     'Penyelesaian Retur Penjualan' => [
