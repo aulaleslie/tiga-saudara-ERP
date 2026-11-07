@@ -128,7 +128,7 @@ class PosSessionSummaryService
 
                     if ($paymentMethods === '') {
                         $paymentMethods = $checkout->paymentMethod?->name
-                            ?? (($checkout->metadata['is_debt'] ?? false) ? 'Kas Bon' : 'Unknown');
+                            ?? (($checkout->metadata['is_debt'] ?? false) ? 'KAS BON' : 'Unknown');
                     }
 
                     return [
