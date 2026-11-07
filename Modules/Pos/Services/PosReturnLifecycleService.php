@@ -18,6 +18,24 @@ use Modules\Pos\Entities\PosTransactionLine;
 use Modules\Pos\Exceptions\PosReturnManualCorrectionRequiredException;
 use Modules\Purchase\Entities\PaymentTerm;
 
+/**
+ * Orchestrates POS return lifecycle execution (`executeApprovalFromPreview`, `approve`, `receive`,
+ * `settlePaymentReturn`, `dispatchReplacement`, `reject`, `cancel`, `archive`).
+ *
+ * Cross-Owner Replacement Accounting Conservation Contract:
+ * - Before mutating `SaleDetails`, `SaleBundleItem`, or `Sale` headers, `executeResolvedLineEffects()`
+ *   captures the pre-execution source `Sale` state under row locks (`lockApprovalExecutionDependencies()`).
+ * - `PosReplacementAccountingTransferService::planSourceSaleTransfers()` plans minor-unit commercial charge
+ *   and payment allocation transfers from that single pre-execution state, accounting for any cash-return
+ *   reductions in the same `SaleReturn`.
+ * - `recalculateCrossOwnerCorrectedSourceSale()` reduces the source `Sale` header (`total_amount`, `paid_amount`,
+ *   `due_amount`, `discount_amount`, `tax_amount`, `payment_status`) once.
+ * - `executeCrossOwnerReplacementForDetail()` creates the replacement-owner `Sale` and `PosOwnerPaymentTransfer`
+ *   allocations (never an unbacked `SalePayment` row when backed by payment/transfer evidence), conserving
+ *   aggregate commercial charge, effective paid amount, and live due across the checkout group.
+ * - All lifecycle mutations execute inside a single `DB::transaction()` so any failure after source correction
+ *   or replacement creation rolls back accounting, audit, stock, serial, and cost effects atomically.
+ */
 class PosReturnLifecycleService
 {
     protected const SALE_PAYMENT_INVALIDATION_SOURCE = 'POS_RETURN_CASH_CORRECTION';
@@ -297,6 +315,15 @@ class PosReturnLifecycleService
                 ->orderBy('id')
                 ->lockForUpdate()
                 ->get();
+
+            \Modules\Pos\Entities\PosOwnerPaymentTransfer::query()
+                ->where(function ($q) use ($saleIds) {
+                    $q->whereIn('source_sale_id', $saleIds)
+                        ->orWhereIn('replacement_sale_id', $saleIds);
+                })
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
         }
 
         $saleDetailIds = $posReturn->lines
@@ -436,6 +463,8 @@ class PosReturnLifecycleService
 
         $this->commitRoundingContextAllocations($posReturn, $actorId);
 
+        $transferService = app(PosReplacementAccountingTransferService::class);
+
         foreach ($posReturn->saleReturns as $saleReturn) {
             $details = $saleReturn->saleReturnDetails;
 
@@ -447,10 +476,68 @@ class PosReturnLifecycleService
                 ->reject(fn ($detail) => $this->shouldSkipCommercialCashCorrection($detail))
                 ->values();
 
+            $replacementDetails = $details
+                ->filter(fn ($detail) => $this->resolveDetailResolution($detail) === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT)
+                ->reject(fn ($detail) => $this->isReplacementInformationalBundleComponentDetail($detail))
+                ->reject(fn ($detail) => $this->isNoteOnlyReplacementDetail($detail))
+                ->values();
+
+            $sameOwnerReplacementDetails = $replacementDetails
+                ->reject(fn ($detail) => $this->isCrossOwnerReplacementDetail($detail))
+                ->values();
+
+            $crossOwnerReplacementDetails = $replacementDetails
+                ->filter(fn ($detail) => $this->isCrossOwnerReplacementDetail($detail))
+                ->values();
+
+            // Capture pre-execution source Sale state and plan cross-owner transfers before any detail or header mutations
+            $sourceSale = null;
+            $preExecutionSaleState = null;
+            $crossOwnerTransferPlan = null;
+
+            if ($crossOwnerReplacementDetails->isNotEmpty() && (int) ($saleReturn->sale_id ?? 0) > 0) {
+                $sourceSale = \Modules\Sale\Entities\Sale::query()
+                    ->with([
+                        'saleDetails',
+                        'bundleItems.saleDetail',
+                        'salePayments.creditApplications',
+                        'salePayments.paymentMethod',
+                        'incomingOwnerPaymentTransfers.originalSalePayment',
+                        'outgoingOwnerPaymentTransfers.originalSalePayment',
+                    ])
+                    ->whereKey((int) $saleReturn->sale_id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $sourceSale) {
+                    throw new \RuntimeException('Source Sale untuk penggantian lintas pemilik tidak ditemukan.');
+                }
+
+                $preExecutionSaleState = $transferService->capturePreExecutionSaleState($sourceSale);
+
+                // For legacy synthetic fixtures where paid_amount > 0 but no SalePayment row was seeded,
+                // only enforce strict payment-slot planning when active payments/incoming transfers exist or when linked to a real PosCheckout
+                $hasPersistedCheckout = $posReturn->pos_checkout_id
+                    && \Modules\Pos\Entities\PosCheckout::query()->whereKey((int) $posReturn->pos_checkout_id)->exists();
+
+                if (
+                    $preExecutionSaleState['available_paid_minor'] > 0
+                    || $preExecutionSaleState['paid_minor'] === 0
+                    || $hasPersistedCheckout
+                ) {
+                    $crossOwnerTransferPlan = $transferService->planSourceSaleTransfers(
+                        $sourceSale,
+                        $preExecutionSaleState,
+                        $crossOwnerReplacementDetails,
+                        $commercialCashReturnDetails
+                    );
+                }
+            }
+
             $correction = null;
             if ($commercialCashReturnDetails->isNotEmpty()) {
                 $this->applyCashReturnSaleDetailCorrections($commercialCashReturnDetails);
-                $correction = $this->recalculateCashCorrectedSourceSale($saleReturn);
+                $correction = $this->recalculateCashCorrectedSourceSale($saleReturn, $crossOwnerTransferPlan);
             }
 
             $saleReturnTotal = max(0.0, (float) ($saleReturn->total_amount ?? 0));
@@ -470,30 +557,51 @@ class PosReturnLifecycleService
                 $this->applyZeroRefundSettlementForSaleReturn($saleReturn, $executedAt, $actorId, $debtReduction);
             }
 
-            $replacementDetails = $details
-                ->filter(fn ($detail) => $this->resolveDetailResolution($detail) === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT)
-                ->reject(fn ($detail) => $this->isReplacementInformationalBundleComponentDetail($detail))
-                ->reject(fn ($detail) => $this->isNoteOnlyReplacementDetail($detail))
-                ->values();
-
-            $sameOwnerReplacementDetails = $replacementDetails
-                ->reject(fn ($detail) => $this->isCrossOwnerReplacementDetail($detail))
-                ->values();
-
-            $crossOwnerReplacementDetails = $replacementDetails
-                ->filter(fn ($detail) => $this->isCrossOwnerReplacementDetail($detail))
-                ->values();
-
             if ($sameOwnerReplacementDetails->isNotEmpty()) {
                 $this->dispatchReplacementForSaleReturnDetails($saleReturn, $sameOwnerReplacementDetails, $actorId, $executedAt);
             }
 
             if ($crossOwnerReplacementDetails->isNotEmpty()) {
                 $this->applyCrossOwnerReplacementCashCorrections($crossOwnerReplacementDetails);
-                $this->recalculateCashCorrectedSourceSale($saleReturn);
+
+                // Re-plan payment slots if a cash return on the same SaleReturn invalidated/split payments
+                if ($crossOwnerTransferPlan !== null && $commercialCashReturnDetails->isNotEmpty() && $sourceSale) {
+                    $sourceSale->unsetRelation('salePayments');
+                    $sourceSale->unsetRelation('incomingOwnerPaymentTransfers');
+                    $sourceSale->unsetRelation('outgoingOwnerPaymentTransfers');
+                    $freshPreSlotsState = $transferService->capturePreExecutionSaleState($sourceSale);
+
+                    $reconciledPreState = $preExecutionSaleState;
+                    $reconciledPreState['payment_slots'] = $freshPreSlotsState['payment_slots'];
+                    $reconciledPreState['available_paid_minor'] = $freshPreSlotsState['available_paid_minor'];
+                    $reconciledPreState['effective_paid_minor'] = $freshPreSlotsState['effective_paid_minor'];
+                    $reconciledPreState['total_minor'] = max(0, (int) $preExecutionSaleState['total_minor'] - (int) ($crossOwnerTransferPlan['cash_return_minor'] ?? 0));
+                    $reconciledPreState['paid_minor'] = $freshPreSlotsState['effective_paid_minor'];
+
+                    $crossOwnerTransferPlan = $transferService->planSourceSaleTransfers(
+                        $sourceSale,
+                        $reconciledPreState,
+                        $crossOwnerReplacementDetails,
+                        collect()
+                    );
+                }
+
+                $this->recalculateCrossOwnerCorrectedSourceSale(
+                    $saleReturn,
+                    $crossOwnerReplacementDetails,
+                    $crossOwnerTransferPlan
+                );
 
                 foreach ($crossOwnerReplacementDetails as $detail) {
-                    $this->executeCrossOwnerReplacementForDetail($posReturn, $saleReturn, $detail, $actorId, $executedAt);
+                    $detailPlan = $crossOwnerTransferPlan['detail_plans'][(int) $detail->id] ?? null;
+                    $this->executeCrossOwnerReplacementForDetail(
+                        $posReturn,
+                        $saleReturn,
+                        $detail,
+                        $actorId,
+                        $executedAt,
+                        $detailPlan
+                    );
                 }
             }
         }
@@ -1285,8 +1393,10 @@ class PosReturnLifecycleService
         return round(max(0, $currentAmount - $reductionAmount), 2);
     }
 
-    protected function recalculateCashCorrectedSourceSale(\Modules\SalesReturn\Entities\SaleReturn $saleReturn): array
-    {
+    protected function recalculateCashCorrectedSourceSale(
+        \Modules\SalesReturn\Entities\SaleReturn $saleReturn,
+        ?array $crossOwnerTransferPlan = null
+    ): array {
         $saleId = (int) ($saleReturn->sale_id ?? 0);
         if ($saleId <= 0) {
             return [
@@ -1298,7 +1408,13 @@ class PosReturnLifecycleService
         }
 
         $sale = \Modules\Sale\Entities\Sale::query()
-            ->with(['saleDetails', 'salePayments', 'bundleItems.saleDetail'])
+            ->with([
+                'saleDetails',
+                'salePayments',
+                'bundleItems.saleDetail',
+                'incomingOwnerPaymentTransfers.originalSalePayment',
+                'outgoingOwnerPaymentTransfers.originalSalePayment',
+            ])
             ->whereKey($saleId)
             ->lockForUpdate()
             ->first();
@@ -1351,7 +1467,12 @@ class PosReturnLifecycleService
 
         $shippingAmount = max(0.0, (float) ($sale->shipping_amount ?? 0));
 
-        if ($totalSubTotal <= 0.0001) {
+        if ($crossOwnerTransferPlan !== null) {
+            $totalAmount = round((float) ($crossOwnerTransferPlan['source_total_after_cash_minor'] ?? 0) / 100, 2);
+            $totalTaxAmount = $totalAmount <= 0.0001 ? 0.0 : ($isPkp ? $detailTaxAmount : 0.0);
+            $discountAmount = $totalAmount <= 0.0001 ? 0.0 : round(max(0, $totalSubTotal - ($totalAmount - $shippingAmount)), 2);
+            $discountPercentage = $totalAmount <= 0.0001 ? 0.0 : (float) ($sale->discount_percentage ?? 0);
+        } elseif ($totalSubTotal <= 0.0001) {
             $discountAmount = 0.0;
             $discountPercentage = 0.0;
             $computedDiscountAmount = 0.0;
@@ -1383,30 +1504,108 @@ class PosReturnLifecycleService
         $activePayments = $sale->salePayments
             ->filter(fn (SalePayment $payment) => $payment->isActive());
 
-        $activePaidAmount = round((float) $activePayments
+        $directActivePaidAmount = round((float) $activePayments
             ->sum(fn (SalePayment $payment) => (float) $payment->amount), 2);
 
-        if ($activePaidAmount <= 0 && $activePayments->isEmpty()) {
-            $activePaidAmount = round((float) ($sale->paid_amount ?? 0), 2);
+        $incomingTransferAmount = round((float) $sale->incomingOwnerPaymentTransfers
+            ->filter(fn ($t) => $t->original_sale_payment_id === null || ($t->originalSalePayment && $t->originalSalePayment->isActive()))
+            ->sum(fn ($t) => (float) $t->amount), 2);
+
+        $outgoingTransferAmount = round((float) $sale->outgoingOwnerPaymentTransfers
+            ->filter(fn ($t) => $t->original_sale_payment_id === null || ($t->originalSalePayment && $t->originalSalePayment->isActive()))
+            ->sum(fn ($t) => (float) $t->amount), 2);
+
+        $effectiveActivePaidAmount = round(max(
+            0.0,
+            $directActivePaidAmount + $incomingTransferAmount - $outgoingTransferAmount
+        ), 2);
+
+        if ($effectiveActivePaidAmount <= 0 && $activePayments->isEmpty() && $sale->incomingOwnerPaymentTransfers->isEmpty()) {
+            $effectiveActivePaidAmount = round((float) ($sale->paid_amount ?? 0), 2);
         }
 
-        $correctedPaidAmount = round(min($activePaidAmount, (float) $header['total_amount']), 2);
+        $correctedPaidAmount = round(min($effectiveActivePaidAmount, (float) $header['total_amount']), 2);
 
         if ($activePayments->isNotEmpty()) {
-            $correctedPaidAmount = SalePayment::reconcileActivePaymentsForSale(
+            $targetDirectPaymentsAmount = round(max(
+                0.0,
+                $correctedPaidAmount + $outgoingTransferAmount - $incomingTransferAmount
+            ), 2);
+
+            $reconciledDirectAmount = SalePayment::reconcileActivePaymentsForSale(
                 (int) $sale->id,
-                $correctedPaidAmount,
+                $targetDirectPaymentsAmount,
                 self::SALE_PAYMENT_INVALIDATION_SOURCE,
                 (int) $saleReturn->id,
             );
+
+            $correctedPaidAmount = round(max(
+                0.0,
+                $reconciledDirectAmount + $incomingTransferAmount - $outgoingTransferAmount
+            ), 2);
+        }
+
+        if ($sale->incomingOwnerPaymentTransfers->isNotEmpty() && $effectiveActivePaidAmount > (float) $header['total_amount'] + 0.005) {
+            $excessMinor = (int) round(($effectiveActivePaidAmount - (float) $header['total_amount']) * 100);
+            $directPaymentsAbsorbedMinor = 0;
+            if ($activePayments->isNotEmpty()) {
+                $targetDirectPaymentsAmount = round(max(
+                    0.0,
+                    $correctedPaidAmount + $outgoingTransferAmount - $incomingTransferAmount
+                ), 2);
+                $directPaymentsAbsorbedMinor = (int) round(max(0.0, $directActivePaidAmount - $targetDirectPaymentsAmount) * 100);
+            }
+            $excessTransferMinor = max(0, $excessMinor - $directPaymentsAbsorbedMinor);
+
+            $incomingRows = $sale->incomingOwnerPaymentTransfers
+                ->filter(fn ($t) => $t->original_sale_payment_id === null || ($t->originalSalePayment && $t->originalSalePayment->isActive()))
+                ->sortByDesc('id');
+            foreach ($incomingRows as $incomingRow) {
+                if ($excessTransferMinor <= 0) {
+                    break;
+                }
+                $usedDownstreamMinor = (int) $sale->outgoingOwnerPaymentTransfers
+                    ->where('predecessor_transfer_id', (int) $incomingRow->id)
+                    ->sum('amount_minor');
+                $reducibleMinor = max(0, (int) $incomingRow->amount_minor - $usedDownstreamMinor);
+                if ($reducibleMinor <= 0) {
+                    continue;
+                }
+                $cutMinor = min($excessTransferMinor, $reducibleMinor);
+
+                $this->reduceTransferChain($incomingRow, $cutMinor, $saleReturn);
+
+                $excessTransferMinor -= $cutMinor;
+            }
+
+            // Recompute correctedPaidAmount after transfer deletion/reduction
+            $freshIncomingTransferAmount = round((float) $sale->incomingOwnerPaymentTransfers()
+                ->where(function ($q) {
+                    $q->whereNull('original_sale_payment_id')
+                        ->orWhereHas('originalSalePayment', fn ($sub) => $sub->where('status', SalePayment::STATUS_ACTIVE));
+                })
+                ->sum('amount'), 2);
+
+            $freshDirectPaidAmount = round((float) $sale->salePayments()->active()->sum('amount'), 2);
+            $freshOutgoingTransferAmount = round((float) $sale->outgoingOwnerPaymentTransfers()
+                ->where(function ($q) {
+                    $q->whereNull('original_sale_payment_id')
+                        ->orWhereHas('originalSalePayment', fn ($sub) => $sub->where('status', SalePayment::STATUS_ACTIVE));
+                })
+                ->sum('amount'), 2);
+
+            $correctedPaidAmount = round(max(0.0, min(
+                (float) $header['total_amount'],
+                $freshDirectPaidAmount + $freshIncomingTransferAmount - $freshOutgoingTransferAmount
+            )), 2);
         }
 
         $correctedDueAmount = round(max((float) $header['total_amount'] - $correctedPaidAmount, 0), 2);
         $previousDue = round(max(
             (float) ($sale->due_amount ?? 0),
-            (float) ($sale->total_amount ?? 0) - $activePaidAmount
+            (float) ($sale->total_amount ?? 0) - $effectiveActivePaidAmount
         ), 2);
-        $actualRefund = round(max(0, $activePaidAmount - (float) $header['total_amount']), 2);
+        $actualRefund = round(max(0, $effectiveActivePaidAmount - (float) $header['total_amount']), 2);
         $debtReduction = round(max(0, $previousDue - $correctedDueAmount), 2);
 
         $sale->update([
@@ -1432,6 +1631,75 @@ class PosReturnLifecycleService
             'corrected_paid' => $correctedPaidAmount,
             'corrected_due' => $correctedDueAmount,
         ];
+    }
+
+    /**
+     * Reduce an incoming owner payment transfer and every predecessor hop up to the root payment by the same amount,
+     * so that A -> B -> C chains stay conserved. Reductions are recorded as append-only reversal evidence; a transfer
+     * reduced to zero is removed only after its snapshot has been preserved.
+     */
+    protected function reduceTransferChain(\Modules\Pos\Entities\PosOwnerPaymentTransfer $transfer, int $cutMinor, \Modules\SalesReturn\Entities\SaleReturn $saleReturn): void
+    {
+        // Lock order must match PosReplacementAccountingRepairService (sale_payments before transfers) to avoid deadlocks.
+        if ($transfer->original_sale_payment_id) {
+            SalePayment::query()->whereKey((int) $transfer->original_sale_payment_id)->lockForUpdate()->first();
+        }
+
+        $transfer = \Modules\Pos\Entities\PosOwnerPaymentTransfer::query()->lockForUpdate()->find((int) $transfer->id);
+        if (! $transfer || $cutMinor <= 0) {
+            return;
+        }
+
+        $cutMinor = min($cutMinor, (int) $transfer->amount_minor);
+        $beforeMinor = (int) $transfer->amount_minor;
+        $afterMinor = $beforeMinor - $cutMinor;
+        $snapshot = $transfer->toArray();
+        $predecessorId = $transfer->predecessor_transfer_id ? (int) $transfer->predecessor_transfer_id : null;
+        $originalPaymentId = $transfer->original_sale_payment_id ? (int) $transfer->original_sale_payment_id : null;
+
+        \Modules\Pos\Entities\PosOwnerPaymentTransferReversal::query()->create([
+            'transfer_id' => (int) $transfer->id,
+            'sale_return_id' => (int) $saleReturn->id,
+            'actor_id' => \Illuminate\Support\Facades\Auth::id(),
+            'reduced_minor' => $cutMinor,
+            'amount_minor_before' => $beforeMinor,
+            'amount_minor_after' => $afterMinor,
+            'transfer_deleted' => $afterMinor <= 0,
+            'reason' => 'REFUND_OF_OVERPAID_REPLACEMENT',
+            'transfer_snapshot' => $snapshot,
+        ]);
+
+        if ($afterMinor <= 0) {
+            $transfer->delete();
+        } else {
+            $transfer->forceFill([
+                'amount_minor' => $afterMinor,
+                'amount' => round($afterMinor / 100, 2),
+            ])->save();
+        }
+
+        if ($predecessorId !== null) {
+            $this->reduceTransferChain(
+                \Modules\Pos\Entities\PosOwnerPaymentTransfer::query()->findOrFail($predecessorId),
+                $cutMinor,
+                $saleReturn
+            );
+
+            return;
+        }
+
+        // Root of the chain: reduce the backing payment on the originating sale.
+        if ($originalPaymentId) {
+            $origPay = SalePayment::query()->lockForUpdate()->find($originalPaymentId);
+            if ($origPay && $origPay->isActive()) {
+                SalePayment::reduceSpecificActivePayment(
+                    (int) $origPay->id,
+                    $cutMinor / 100,
+                    self::SALE_PAYMENT_INVALIDATION_SOURCE,
+                    (int) $saleReturn->id
+                );
+            }
+        }
     }
 
     protected function resolveSalePaymentStatus(float $totalAmount, float $dueAmount, string $existingStatus = ''): string
@@ -1671,13 +1939,150 @@ class PosReturnLifecycleService
         $this->applyCashReturnSaleDetailCorrections($crossOwnerDetails);
     }
 
+    protected function recalculateCrossOwnerCorrectedSourceSale(
+        \Modules\SalesReturn\Entities\SaleReturn $saleReturn,
+        \Illuminate\Support\Collection $crossOwnerDetails,
+        ?array $crossOwnerTransferPlan = null
+    ): void {
+        $saleId = (int) ($saleReturn->sale_id ?? 0);
+        if ($saleId <= 0 || $crossOwnerDetails->isEmpty()) {
+            return;
+        }
+
+        $sale = \Modules\Sale\Entities\Sale::query()
+            ->with([
+                'saleDetails',
+                'salePayments',
+                'bundleItems.saleDetail',
+                'incomingOwnerPaymentTransfers.originalSalePayment',
+                'outgoingOwnerPaymentTransfers.originalSalePayment',
+            ])
+            ->whereKey($saleId)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $sale) {
+            throw new \RuntimeException('Cross-owner replacement source sale could not be found.');
+        }
+
+        $isPkp = (bool) (\Modules\Setting\Entities\Setting::query()
+            ->whereKey((int) $sale->setting_id)
+            ->value('is_pkp') ?? false);
+
+        $activeDetails = $sale->saleDetails
+            ->filter(fn ($d) => (float) ($d->quantity ?? 0) > 0.0001);
+
+        $supplementalBundleItems = $sale->bundleItems
+            ->filter(function ($bundleItem) {
+                $saleDetail = $bundleItem->saleDetail;
+
+                return (! $saleDetail || (float) ($saleDetail->quantity ?? 0) <= 0)
+                    && ((float) ($bundleItem->quantity ?? 0) > 0 || (float) ($bundleItem->sub_total ?? 0) > 0);
+            });
+
+        $totalSubTotal = round(
+            (float) $activeDetails->sum(fn ($d) => (float) ($d->sub_total ?? 0))
+            + (float) $supplementalBundleItems->sum(fn ($b) => (float) ($b->sub_total ?? 0)),
+            2
+        );
+
+        $detailTaxAmount = round(
+            (float) $activeDetails->sum(fn ($d) => (float) ($d->product_tax_amount ?? 0))
+            + (float) $supplementalBundleItems->sum(fn ($b) => (float) ($b->tax_amount ?? 0)),
+            2
+        );
+
+        $taxRate = (float) ($sale->tax_percentage ?? 0);
+        if ($isPkp && ! empty($sale->tax_id) && $taxRate <= 0) {
+            $taxRate = (float) (\Modules\Setting\Entities\Tax::query()->whereKey((int) $sale->tax_id)->value('value')
+                ?? \Modules\Setting\Entities\Tax::query()->whereKey((int) $sale->tax_id)->value('percentage')
+                ?? 0);
+        }
+
+        $shippingAmount = max(0.0, (float) ($sale->shipping_amount ?? 0));
+
+        if ($crossOwnerTransferPlan !== null) {
+            $totalAmount = round((float) ($crossOwnerTransferPlan['source_total_after_amount'] ?? 0.0), 2);
+            $correctedPaidAmount = round((float) ($crossOwnerTransferPlan['source_paid_after_amount'] ?? 0.0), 2);
+            $correctedDueAmount = round((float) ($crossOwnerTransferPlan['source_due_after_amount'] ?? 0.0), 2);
+        } else {
+            $transferredCharge = round((float) $crossOwnerDetails->sum(function ($detail) {
+                $generatedEffects = data_get($detail->execution_context, 'generated_replacement_sale_effects', []);
+                $paymentAmount = (float) ($generatedEffects['payment_amount'] ?? 0);
+
+                return $paymentAmount > 0 ? $paymentAmount : (float) ($detail->sub_total ?? 0);
+            }), 2);
+
+            $totalAmount = $totalSubTotal <= 0.0001
+                ? 0.0
+                : round(max(0.0, (float) ($sale->total_amount ?? 0) - $transferredCharge), 2);
+
+            $currentPaid = (float) ($sale->paid_amount ?? 0);
+            $correctedPaidAmount = round(max(0.0, min($totalAmount, $currentPaid - $transferredCharge)), 2);
+            $correctedDueAmount = round(max(0.0, $totalAmount - $correctedPaidAmount), 2);
+        }
+
+        if ($totalSubTotal <= 0.0001 && $totalAmount <= 0.0001) {
+            $discountAmount = 0.0;
+            $discountPercentage = 0.0;
+            $totalTaxAmount = 0.0;
+            $shippingAmount = 0.0;
+        } else {
+            $totalTaxAmount = $isPkp ? $detailTaxAmount : 0.0;
+            $discountAmount = round(max(0.0, $totalSubTotal - ($totalAmount - $shippingAmount)), 2);
+            $discountPercentage = (float) ($sale->discount_percentage ?? 0);
+        }
+
+        $sale->update([
+            'tax_id' => $sale->tax_id,
+            'tax_percentage' => $taxRate,
+            'tax_amount' => $totalTaxAmount,
+            'discount_percentage' => $discountPercentage,
+            'discount_amount' => $discountAmount,
+            'shipping_amount' => $shippingAmount,
+            'total_amount' => $totalAmount,
+            'paid_amount' => $correctedPaidAmount,
+            'due_amount' => $correctedDueAmount,
+            'payment_status' => $this->resolveSalePaymentStatus(
+                $totalAmount,
+                $correctedDueAmount,
+                (string) ($sale->payment_status ?? '')
+            ),
+        ]);
+    }
+
     protected function executeCrossOwnerReplacementForDetail(
         \Modules\Pos\Entities\PosReturn $posReturn,
         \Modules\SalesReturn\Entities\SaleReturn $saleReturn,
         \Modules\SalesReturn\Entities\SaleReturnDetail $detail,
         ?int $actorId,
-        \Illuminate\Support\Carbon $executedAt
+        \Illuminate\Support\Carbon $executedAt,
+        ?array $detailPlan = null
     ): void {
+        $existingDispatchDetail = DispatchDetail::query()
+            ->where('pos_return_line_id', (int) $detail->pos_return_line_id)
+            ->first();
+
+        $originalSale = \Modules\Sale\Entities\Sale::query()->find((int) $saleReturn->sale_id);
+
+        if ($existingDispatchDetail && $existingDispatchDetail->sale_id) {
+            $existingReplacementSale = Sale::query()->find((int) $existingDispatchDetail->sale_id);
+            if ($existingReplacementSale && $originalSale && $detailPlan !== null) {
+                app(PosReplacementAccountingTransferService::class)->persistPlannedTransfersForDetail(
+                    $posReturn,
+                    $detail,
+                    $originalSale,
+                    $existingReplacementSale,
+                    $detailPlan,
+                    $actorId,
+                    $executedAt,
+                    \Modules\Pos\Entities\PosOwnerPaymentTransfer::SOURCE_LIVE_EXECUTION
+                );
+            }
+
+            return;
+        }
+
         $this->assertReturnedSerialNotInFlightUnderLock($detail);
 
         $executionContext = $this->detailExecutionContext($detail);
@@ -1713,38 +2118,57 @@ class PosReturnLifecycleService
             throw new \RuntimeException('Serial pengganti harus memiliki product_id yang sama dengan barang yang diretur (cross-owner).');
         }
 
-        $paymentAmount = round((float) ($generatedEffects['payment_amount'] ?? 0), 2);
-        $dispatchQuantity = (int) round((float) ($generatedEffects['dispatch_quantity'] ?? $detail->quantity ?? 1));
+        $chargeAmount = $detailPlan !== null
+            ? round((float) ($detailPlan['charge_amount'] ?? 0), 2)
+            : round((float) ($generatedEffects['payment_amount'] ?? 0), 2);
+        $paidAmount = $detailPlan !== null
+            ? round((float) ($detailPlan['paid_amount'] ?? 0), 2)
+            : $chargeAmount;
+        $dueAmount = $detailPlan !== null
+            ? round((float) ($detailPlan['due_amount'] ?? max(0.0, $chargeAmount - $paidAmount)), 2)
+            : 0.0;
+        $taxAmount = $detailPlan !== null
+            ? round((float) ($detailPlan['tax_amount'] ?? 0), 2)
+            : 0.0;
+        $discountAmount = $detailPlan !== null
+            ? round((float) ($detailPlan['discount_amount'] ?? 0), 2)
+            : 0.0;
+        $grossSubtotalAmount = $detailPlan !== null
+            ? round((float) ($detailPlan['gross_subtotal_amount'] ?? $chargeAmount), 2)
+            : $chargeAmount;
 
-        $originalSale = \Modules\Sale\Entities\Sale::query()->find((int) $saleReturn->sale_id);
+        $dispatchQuantity = (int) round((float) ($generatedEffects['dispatch_quantity'] ?? $detail->quantity ?? 1));
 
         $replacementOwnerSaleReference = $this->generateCrossOwnerReplacementSaleReference($replacementSettingId);
 
         $customerRecord = \Modules\People\Entities\Customer::query()->find($customerId);
         $customerName = $customerRecord?->customer_name ?? ($originalSale?->customer_name ?? '');
 
+        $primaryAllocationMethod = $detailPlan['payment_allocations'][0]['payment_method']
+            ?? ($originalSale?->payment_method ?? 'CASH');
+
         $replacementSale = Sale::query()->create([
             'date' => $originalSale?->date ?? $executedAt->toDateString(),
             'due_date' => $originalSale?->due_date ?? $executedAt->toDateString(),
             'customer_id' => $customerId,
             'customer_name' => $customerName,
-            'tax_id' => null,
-            'tax_percentage' => 0,
-            'tax_amount' => 0,
+            'tax_id' => $taxAmount > 0 ? $originalSale?->tax_id : null,
+            'tax_percentage' => $taxAmount > 0 ? (float) ($originalSale?->tax_percentage ?? 0) : 0,
+            'tax_amount' => $taxAmount,
             'discount_percentage' => 0,
-            'discount_amount' => 0,
+            'discount_amount' => $discountAmount,
             'shipping_amount' => 0,
-            'total_amount' => $paymentAmount,
-            'paid_amount' => $paymentAmount,
-            'due_amount' => 0,
+            'total_amount' => $chargeAmount,
+            'paid_amount' => $paidAmount,
+            'due_amount' => $dueAmount,
             'status' => Sale::STATUS_DISPATCHED,
-            'payment_status' => 'Paid',
+            'payment_status' => $this->resolveSalePaymentStatus($chargeAmount, $dueAmount, (string) ($originalSale?->payment_status ?? 'Paid')),
             'payment_term_id' => PaymentTerm::defaultCodTermId(),
             'note' => 'Generated from POS Return ' . $posReturn->reference . ' cross-owner replacement. Original Sale: ' . ($originalSale?->reference ?? ''),
             'setting_id' => $replacementSettingId,
             'reference' => $replacementOwnerSaleReference,
-            'is_tax_included' => false,
-            'payment_method' => $originalSale?->payment_method ?? 'CASH',
+            'is_tax_included' => (bool) ($originalSale?->is_tax_included ?? false),
+            'payment_method' => $primaryAllocationMethod,
         ]);
 
         $product = \Modules\Product\Entities\Product::query()->find((int) $detail->product_id);
@@ -1756,6 +2180,13 @@ class PosReturnLifecycleService
                 ->value('pos_transaction_line_id');
         }
 
+        $detailUnitPrice = $dispatchQuantity > 0
+            ? round($chargeAmount / $dispatchQuantity, 2)
+            : 0;
+        $detailGrossPrice = $dispatchQuantity > 0
+            ? round(($grossSubtotalAmount > 0 ? $grossSubtotalAmount : $chargeAmount) / $dispatchQuantity, 2)
+            : 0;
+
         $replacementSaleDetail = SaleDetails::query()->create([
             'sale_id' => $replacementSale->id,
             'pos_transaction_line_id' => $replacementLineId,
@@ -1763,13 +2194,13 @@ class PosReturnLifecycleService
             'product_name' => $product?->product_name ?? $detail->product_name ?? '',
             'product_code' => $product?->product_code ?? $detail->product_code ?? '',
             'quantity' => $dispatchQuantity,
-            'price' => $dispatchQuantity > 0 ? round($paymentAmount / $dispatchQuantity, 2) : 0,
-            'unit_price' => $dispatchQuantity > 0 ? round($paymentAmount / $dispatchQuantity, 2) : 0,
-            'sub_total' => $paymentAmount,
+            'price' => $detailGrossPrice,
+            'unit_price' => $detailUnitPrice,
+            'sub_total' => $chargeAmount,
             'product_discount_amount' => 0,
             'product_discount_type' => 'fixed',
-            'product_tax_amount' => 0,
-            'tax_id' => null,
+            'product_tax_amount' => $taxAmount,
+            'tax_id' => $taxAmount > 0 ? ($detail->tax_id ?? $originalSale?->tax_id) : null,
         ]);
 
         // Outgoing replacement HPP is snapshotted independently from the replacement
@@ -1781,10 +2212,21 @@ class PosReturnLifecycleService
         );
         $replacementSaleDetail->save();
 
-        if ($paymentAmount > 0) {
+        if ($detailPlan !== null && $originalSale) {
+            app(PosReplacementAccountingTransferService::class)->persistPlannedTransfersForDetail(
+                $posReturn,
+                $detail,
+                $originalSale,
+                $replacementSale,
+                $detailPlan,
+                $actorId,
+                $executedAt,
+                \Modules\Pos\Entities\PosOwnerPaymentTransfer::SOURCE_LIVE_EXECUTION
+            );
+        } elseif ($paidAmount > 0) {
             SalePayment::query()->create([
                 'sale_id' => $replacementSale->id,
-                'amount' => $paymentAmount,
+                'amount' => $paidAmount,
                 'date' => $originalSale?->date ?? $executedAt->toDateString(),
                 'reference' => 'CROSS-OWNER-REPL/' . $posReturn->reference,
                 'payment_method' => $originalSale?->payment_method ?? 'CASH',

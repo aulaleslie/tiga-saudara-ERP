@@ -346,7 +346,13 @@ class PosReachableSalesResolver
         $allReplacementSaleIds = $dispatchDetails->pluck('sale_id')->unique()->values()->all();
 
         $salesById = Sale::withoutGlobalScope(ArchivingScope::class)
-            ->with(['tenantSetting', 'salePayments.creditApplications', 'salePayments.paymentMethod'])
+            ->with([
+                'tenantSetting',
+                'salePayments.creditApplications',
+                'salePayments.paymentMethod',
+                'incomingOwnerPaymentTransfers.originalSalePayment',
+                'outgoingOwnerPaymentTransfers.originalSalePayment',
+            ])
             ->whereIn('id', $allReplacementSaleIds)
             ->get()
             ->keyBy('id');
@@ -514,7 +520,13 @@ class PosReachableSalesResolver
         }
 
         $replacementSales = Sale::withoutGlobalScope(ArchivingScope::class)
-            ->with(['tenantSetting', 'salePayments.creditApplications', 'salePayments.paymentMethod'])
+            ->with([
+                'tenantSetting',
+                'salePayments.creditApplications',
+                'salePayments.paymentMethod',
+                'incomingOwnerPaymentTransfers.originalSalePayment',
+                'outgoingOwnerPaymentTransfers.originalSalePayment',
+            ])
             ->whereIn('id', $newReplacementSaleIds)
             ->get();
 

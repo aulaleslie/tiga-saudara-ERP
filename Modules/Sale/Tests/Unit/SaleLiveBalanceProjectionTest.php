@@ -334,4 +334,107 @@ class SaleLiveBalanceProjectionTest extends TestCase
 
         $this->assertEquals([$saleA->id, $saleB->id, $saleC->id], $descIds);
     }
+
+    /** @test */
+    public function it_integrates_pos_owner_payment_transfers_in_live_balance_without_modifying_original_payments(): void
+    {
+        $sourceSale = $this->createSale([
+            'reference' => 'SO-SRC-TRANS',
+            'total_amount' => 45000,
+            'paid_amount' => 45000,
+            'due_amount' => 0,
+        ]);
+
+        $replacementSale = $this->createSale([
+            'reference' => 'SO-REPL-TRANS',
+            'total_amount' => 2225000,
+            'paid_amount' => 2225000,
+            'due_amount' => 0,
+        ]);
+
+        $originalPayment = SalePayment::create([
+            'sale_id' => $sourceSale->id,
+            'amount' => 2270000,
+            'date' => now()->toDateString(),
+            'reference' => 'PAY-ORIG-10717',
+            'payment_method' => 'Cash',
+            'status' => SalePayment::STATUS_ACTIVE,
+        ]);
+
+        $saleReturn = SaleReturn::create([
+            'date' => now()->toDateString(),
+            'reference' => 'RET-XFER-' . uniqid(),
+            'setting_id' => 1,
+            'customer_id' => $this->customer->id,
+            'customer_name' => 'Test Customer',
+            'total_amount' => 2225000,
+            'paid_amount' => 0,
+            'due_amount' => 0,
+            'payment_status' => 'PAID',
+            'payment_method' => 'Cash',
+            'status' => 'APPROVED',
+        ]);
+
+        $saleReturnDetail = \Modules\SalesReturn\Entities\SaleReturnDetail::create([
+            'sale_return_id' => $saleReturn->id,
+            'product_id' => null,
+            'product_name' => 'Printer',
+            'product_code' => 'PRN-01',
+            'quantity' => 1,
+            'price' => 2225000,
+            'unit_price' => 2225000,
+            'sub_total' => 2225000,
+            'product_discount_amount' => 0,
+            'product_discount_type' => 'fixed',
+            'product_tax_amount' => 0,
+        ]);
+
+        \Modules\Pos\Entities\PosOwnerPaymentTransfer::create([
+            'execution_key' => 'test-live-transfer-1',
+            'pos_return_id' => 1,
+            'sale_return_id' => $saleReturn->id,
+            'sale_return_detail_id' => $saleReturnDetail->id,
+            'source_sale_id' => $sourceSale->id,
+            'replacement_sale_id' => $replacementSale->id,
+            'original_sale_payment_id' => $originalPayment->id,
+            'payment_method' => 'Cash',
+            'amount' => 2225000,
+            'amount_minor' => 222500000,
+            'transfer_source' => \Modules\Pos\Entities\PosOwnerPaymentTransfer::SOURCE_LIVE_EXECUTION,
+        ]);
+
+        // Standalone query path
+        $freshSource = Sale::findOrFail($sourceSale->id);
+        $freshRepl = Sale::findOrFail($replacementSale->id);
+
+        $this->assertEquals(45000.0, $freshSource->getEffectivePaidAmount());
+        $this->assertEquals(0.0, $freshSource->live_due_amount);
+        $this->assertEquals(2225000.0, $freshRepl->getEffectivePaidAmount());
+        $this->assertEquals(0.0, $freshRepl->live_due_amount);
+
+        // Original payment row remains untouched
+        $this->assertEquals(2270000.0, (float) $originalPayment->fresh()->amount);
+
+        // Preloaded scopeWithLiveSettlementAggregates path
+        $preloadedSource = Sale::withLiveSettlementAggregates()->findOrFail($sourceSale->id);
+        $preloadedRepl = Sale::withLiveSettlementAggregates()->findOrFail($replacementSale->id);
+
+        $this->assertEquals(45000.0, $preloadedSource->getEffectivePaidAmount());
+        $this->assertEquals(0.0, $preloadedSource->live_due_amount);
+        $this->assertEquals(2225000.0, $preloadedRepl->getEffectivePaidAmount());
+        $this->assertEquals(0.0, $preloadedRepl->live_due_amount);
+
+        // SQL predicates
+        $this->assertTrue(Sale::whereLiveDueAmountLessThanOrEqual(0)->where('id', $sourceSale->id)->exists());
+        $this->assertTrue(Sale::whereLiveDueAmountLessThanOrEqual(0)->where('id', $replacementSale->id)->exists());
+
+        // When original payment is invalidated, both source and replacement effective paid drop to 0
+        $originalPayment->update(['status' => SalePayment::STATUS_INVALIDATED]);
+
+        $this->assertEquals(0.0, Sale::findOrFail($sourceSale->id)->getEffectivePaidAmount());
+        $this->assertEquals(0.0, Sale::findOrFail($replacementSale->id)->getEffectivePaidAmount());
+        $this->assertEquals(0.0, Sale::withLiveSettlementAggregates()->findOrFail($sourceSale->id)->getEffectivePaidAmount());
+        $this->assertEquals(0.0, Sale::withLiveSettlementAggregates()->findOrFail($replacementSale->id)->getEffectivePaidAmount());
+        $this->assertTrue(Sale::whereLiveDueAmountGreaterThan(0)->where('id', $replacementSale->id)->exists());
+    }
 }

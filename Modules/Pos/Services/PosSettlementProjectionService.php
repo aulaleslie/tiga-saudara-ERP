@@ -57,7 +57,12 @@ class PosSettlementProjectionService
     public static function reachableSalesEagerLoad(): array
     {
         $saleConstraint = function ($query) {
-            $query->withArchived()->with(['salePayments.creditApplications', 'tenantSetting']);
+            $query->withArchived()->with([
+                'salePayments.creditApplications',
+                'incomingOwnerPaymentTransfers.originalSalePayment',
+                'outgoingOwnerPaymentTransfers.originalSalePayment',
+                'tenantSetting',
+            ]);
         };
 
         return [
@@ -172,10 +177,27 @@ class PosSettlementProjectionService
 
             $saleTotal = (float) $sale->total_amount;
 
-            if ($paymentsRelationLoaded && $creditApplicationsLoadable) {
+            $incomingTransfersLoaded = $sale->relationLoaded('incomingOwnerPaymentTransfers')
+                && $sale->incomingOwnerPaymentTransfers->every(
+                    fn ($transfer) => $transfer->original_sale_payment_id === null || $transfer->relationLoaded('originalSalePayment')
+                );
+            $outgoingTransfersLoaded = $sale->relationLoaded('outgoingOwnerPaymentTransfers')
+                && $sale->outgoingOwnerPaymentTransfers->every(
+                    fn ($transfer) => $transfer->original_sale_payment_id === null || $transfer->relationLoaded('originalSalePayment')
+                );
+
+            if ($paymentsRelationLoaded && $creditApplicationsLoadable && $incomingTransfersLoaded && $outgoingTransfersLoaded) {
                 $monetarySum = (float) $activePayments->sum('amount');
                 $creditSum = (float) $activePayments->sum(fn ($payment) => $payment->creditApplications->sum('amount'));
-                $salePaid = round($monetarySum + $creditSum, 2);
+                $incomingSum = (float) $sale->incomingOwnerPaymentTransfers
+                    ->filter(fn ($transfer) => $transfer->original_sale_payment_id === null
+                        || ($transfer->originalSalePayment && $transfer->originalSalePayment->status === SalePayment::STATUS_ACTIVE))
+                    ->sum('amount');
+                $outgoingSum = (float) $sale->outgoingOwnerPaymentTransfers
+                    ->filter(fn ($transfer) => $transfer->original_sale_payment_id === null
+                        || ($transfer->originalSalePayment && $transfer->originalSalePayment->status === SalePayment::STATUS_ACTIVE))
+                    ->sum('amount');
+                $salePaid = max(0.0, round($monetarySum + $creditSum + $incomingSum - $outgoingSum, 2));
             } else {
                 $salePaid = (float) $sale->getEffectivePaidAmount();
             }
@@ -201,19 +223,37 @@ class PosSettlementProjectionService
                 }
             }
 
-            // Check recent 30-day active payments on child sale
-            if ($activePayments !== null) {
+            // Check recent 30-day active payments on child sale (or incoming owner payment transfers backed by recent active payments)
+            if ($activePayments !== null && $incomingTransfersLoaded) {
                 $recentActivePayment = $activePayments->contains(function ($payment) use ($thirtyDaysAgo, $today) {
                     $paymentDate = $payment->getRawOriginal('date') ?? $payment->date;
                     $paymentDate = Carbon::parse($paymentDate)->toDateString();
                     return $paymentDate >= $thirtyDaysAgo && $paymentDate <= $today;
+                }) || $sale->incomingOwnerPaymentTransfers->contains(function ($transfer) use ($thirtyDaysAgo, $today) {
+                    if ($transfer->original_sale_payment_id !== null) {
+                        $orig = $transfer->originalSalePayment;
+                        if (! $orig || $orig->status !== SalePayment::STATUS_ACTIVE) {
+                            return false;
+                        }
+                        $paymentDate = $orig->getRawOriginal('date') ?? $orig->date;
+                        $paymentDate = Carbon::parse($paymentDate)->toDateString();
+                        return $paymentDate >= $thirtyDaysAgo && $paymentDate <= $today;
+                    }
+                    return false;
                 });
             } else {
                 $recentActivePayment = SalePayment::where('sale_id', $sale->id)
                     ->where('status', SalePayment::STATUS_ACTIVE)
                     ->whereDate('date', '>=', $thirtyDaysAgo)
                     ->whereDate('date', '<=', $today)
-                    ->exists();
+                    ->exists()
+                    || DB::table('pos_owner_payment_transfers as popt_in')
+                        ->join('sale_payments as sp_orig_in', 'popt_in.original_sale_payment_id', '=', 'sp_orig_in.id')
+                        ->where('popt_in.replacement_sale_id', $sale->id)
+                        ->where('sp_orig_in.status', SalePayment::STATUS_ACTIVE)
+                        ->whereDate('sp_orig_in.date', '>=', $thirtyDaysAgo)
+                        ->whereDate('sp_orig_in.date', '<=', $today)
+                        ->exists();
             }
 
             if ($recentActivePayment) {

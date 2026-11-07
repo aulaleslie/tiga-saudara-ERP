@@ -2,6 +2,7 @@
 
 namespace App\Support\SalesReturn;
 
+use Illuminate\Support\Facades\DB;
 use Modules\Pos\Entities\PosCheckout;
 use Modules\Pos\Entities\PosCheckoutSale;
 use Modules\Sale\Entities\Sale;
@@ -28,7 +29,21 @@ class SalesReturnWorkflowResolver
     {
         return PosCheckout::query()->where('sale_id', $saleId)->exists()
             || PosCheckoutSale::query()->where('sale_id', $saleId)->exists()
-            || SaleReturn::withArchived()->where('sale_id', $saleId)->whereNotNull('pos_return_id')->exists();
+            || SaleReturn::withArchived()->where('sale_id', $saleId)->whereNotNull('pos_return_id')->exists()
+            || $this->hasPosReplacementLineage($saleId);
+    }
+
+    /**
+     * Cross-owner replacement sales carry no checkout link; their only persisted POS lineage is a
+     * dispatch detail pointing at a POS return line. Raw table reads keep archived evidence visible.
+     * Never inferred from references or note text.
+     */
+    private function hasPosReplacementLineage(int $saleId): bool
+    {
+        return DB::table('dispatch_details as dd')
+            ->join('pos_return_lines as prl', 'prl.id', '=', 'dd.pos_return_line_id')
+            ->where('dd.sale_id', $saleId)
+            ->exists();
     }
 
     public function classifySale(int $saleId): string

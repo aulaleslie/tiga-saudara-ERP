@@ -348,7 +348,7 @@ class POSReturnCrossOwnerReplacementTest extends PosTransactionFeatureTestCase
     {
         $this->actingAsInSetting($this->actor, $this->settingA);
 
-        [$posReturn] = $this->createPendingApprovalCrossOwnerReplacement();
+        [$posReturn, $originalSale] = $this->createPendingApprovalCrossOwnerReplacement();
 
         $this->service->executeApprovalFromPreview($posReturn->id);
 
@@ -360,12 +360,21 @@ class POSReturnCrossOwnerReplacementTest extends PosTransactionFeatureTestCase
 
         $this->assertNotNull($newSale);
 
-        $payment = \Modules\Sale\Entities\SalePayment::query()
+        $syntheticPayment = \Modules\Sale\Entities\SalePayment::query()
             ->where('sale_id', $newSale->id)
             ->first();
 
-        $this->assertNotNull($payment, 'A SalePayment should exist on the replacement-owner Sale.');
-        $this->assertGreaterThan(0, (float) $payment->amount);
+        $this->assertNull($syntheticPayment, 'Cross-owner replacement must not create an unbacked duplicate SalePayment row.');
+
+        $transfer = \Modules\Pos\Entities\PosOwnerPaymentTransfer::query()
+            ->where('source_sale_id', $originalSale->id)
+            ->where('replacement_sale_id', $newSale->id)
+            ->first();
+
+        $this->assertNotNull($transfer, 'A PosOwnerPaymentTransfer allocation should link the source Sale payment to the replacement-owner Sale.');
+        $this->assertEquals(1500.0, (float) $transfer->amount);
+        $this->assertEquals(1500.0, $newSale->fresh()->getEffectivePaidAmount());
+        $this->assertEquals(1500.0, $originalSale->fresh()->getEffectivePaidAmount());
     }
 
     /** @test */
@@ -687,6 +696,15 @@ class POSReturnCrossOwnerReplacementTest extends PosTransactionFeatureTestCase
             'payment_status' => 'Paid',
             'payment_method' => 'CASH',
             'date' => now()->toDateString(),
+        ]);
+
+        \Modules\Sale\Entities\SalePayment::query()->create([
+            'sale_id' => $sale->id,
+            'amount' => 3000,
+            'date' => now()->toDateString(),
+            'reference' => 'PAY-CROSS-' . uniqid(),
+            'payment_method' => 'CASH',
+            'status' => \Modules\Sale\Entities\SalePayment::STATUS_ACTIVE,
         ]);
 
         $originalSaleDetail = SaleDetails::query()->create([

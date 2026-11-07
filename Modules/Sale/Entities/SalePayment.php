@@ -148,7 +148,12 @@ class SalePayment extends BaseModel implements HasMedia
             static::invalidateActivePayment($payment, $source, $sourceId);
 
             if ($retainedAmount > 0.01) {
-                static::createReplacementActivePayment($payment, $retainedAmount, $source, $sourceId);
+                $replacementPayment = static::createReplacementActivePayment($payment, $retainedAmount, $source, $sourceId);
+
+                \Modules\Pos\Entities\PosOwnerPaymentTransfer::query()
+                    ->where('original_sale_payment_id', (int) $payment->id)
+                    ->update(['original_sale_payment_id' => (int) $replacementPayment->id]);
+
                 $surplusAmount = 0.0;
 
                 break;
@@ -161,6 +166,35 @@ class SalePayment extends BaseModel implements HasMedia
             ->where('sale_id', $saleId)
             ->active()
             ->sum('amount'), 2);
+    }
+
+    /**
+     * Reduce one specific active payment by $cutAmount without touching sibling payments on the same sale.
+     * The payment is invalidated and, when a remainder is left, replaced by a new active payment; transfers
+     * backed by the old payment are re-pointed to the replacement.
+     */
+    public static function reduceSpecificActivePayment(int $paymentId, float $cutAmount, string $source, ?int $sourceId = null): float
+    {
+        /** @var self|null $payment */
+        $payment = static::query()->whereKey($paymentId)->active()->lockForUpdate()->first();
+        if (! $payment || $cutAmount <= 0.0) {
+            return 0.0;
+        }
+
+        $paymentAmount = round((float) $payment->amount, 2);
+        $cut = round(min($cutAmount, $paymentAmount), 2);
+        $retained = round($paymentAmount - $cut, 2);
+
+        static::invalidateActivePayment($payment, $source, $sourceId);
+
+        if ($retained > 0.01) {
+            $replacement = static::createReplacementActivePayment($payment, $retained, $source, $sourceId);
+            \Modules\Pos\Entities\PosOwnerPaymentTransfer::query()
+                ->where('original_sale_payment_id', $paymentId)
+                ->update(['original_sale_payment_id' => (int) $replacement->id]);
+        }
+
+        return $cut;
     }
 
     protected static function invalidateActivePayment(self $payment, string $source, ?int $sourceId = null): void
@@ -227,6 +261,11 @@ class SalePayment extends BaseModel implements HasMedia
     public function globalPosPaymentAllocation(): \Illuminate\Database\Eloquent\Relations\HasOne
     {
         return $this->hasOne(\Modules\Pos\Entities\GlobalPosPaymentAllocation::class, 'sale_payment_id');
+    }
+
+    public function ownerPaymentTransfers(): HasMany
+    {
+        return $this->hasMany(\Modules\Pos\Entities\PosOwnerPaymentTransfer::class, 'original_sale_payment_id', 'id');
     }
 
     /**

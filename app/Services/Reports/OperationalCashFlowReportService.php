@@ -115,13 +115,43 @@ class OperationalCashFlowReportService
     protected function getSalePayments(int|array $settingScope, ?string $startDate, ?string $endDate): float
     {
         $settingIds = is_array($settingScope) ? $settingScope : [$settingScope];
+        $eligibleStatuses = [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED];
+
         $query = SalePayment::active()
-            ->whereHas('sale', function ($q) use ($settingIds) {
+            ->whereHas('sale', function ($q) use ($settingIds, $eligibleStatuses) {
                 $q->whereIn('setting_id', $settingIds)
-                  ->whereIn('status', [Sale::STATUS_DISPATCHED, Sale::STATUS_RETURNED_PARTIALLY, Sale::STATUS_RETURNED]);
+                  ->whereIn('status', $eligibleStatuses);
             });
-            
-        return (float) $this->applyDateFilters($query, $startDate, $endDate)->sum('amount');
+
+        $directPaid = (float) $this->applyDateFilters($query, $startDate, $endDate)->sum('amount');
+
+        $incomingQuery = \Illuminate\Support\Facades\DB::table('pos_owner_payment_transfers as popt_in')
+            ->join('sales as repl_sale', 'popt_in.replacement_sale_id', '=', 'repl_sale.id')
+            ->join('sale_payments as sp_orig_in', 'popt_in.original_sale_payment_id', '=', 'sp_orig_in.id')
+            ->where('sp_orig_in.status', SalePayment::STATUS_ACTIVE)
+            ->whereIn('repl_sale.setting_id', $settingIds)
+            ->whereIn('repl_sale.status', $eligibleStatuses);
+        if ($startDate !== null && $endDate !== null) {
+            $incomingQuery->whereDate('sp_orig_in.date', '>=', $startDate)->whereDate('sp_orig_in.date', '<=', $endDate);
+        } elseif ($startDate === null && $endDate !== null) {
+            $incomingQuery->whereDate('sp_orig_in.date', '<', $endDate);
+        }
+        $incomingTransfers = (float) $incomingQuery->sum('popt_in.amount');
+
+        $outgoingQuery = \Illuminate\Support\Facades\DB::table('pos_owner_payment_transfers as popt_out')
+            ->join('sales as src_sale', 'popt_out.source_sale_id', '=', 'src_sale.id')
+            ->join('sale_payments as sp_orig_out', 'popt_out.original_sale_payment_id', '=', 'sp_orig_out.id')
+            ->where('sp_orig_out.status', SalePayment::STATUS_ACTIVE)
+            ->whereIn('src_sale.setting_id', $settingIds)
+            ->whereIn('src_sale.status', $eligibleStatuses);
+        if ($startDate !== null && $endDate !== null) {
+            $outgoingQuery->whereDate('sp_orig_out.date', '>=', $startDate)->whereDate('sp_orig_out.date', '<=', $endDate);
+        } elseif ($startDate === null && $endDate !== null) {
+            $outgoingQuery->whereDate('sp_orig_out.date', '<', $endDate);
+        }
+        $outgoingTransfers = (float) $outgoingQuery->sum('popt_out.amount');
+
+        return round($directPaid + $incomingTransfers - $outgoingTransfers, 2);
     }
 
     protected function getPurchasePayments(int|array $settingScope, ?string $startDate, ?string $endDate): float
