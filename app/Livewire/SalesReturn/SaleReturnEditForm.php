@@ -124,7 +124,12 @@ class SaleReturnEditForm extends SaleReturnCreateForm
                 ->values()
                 ->all();
 
-            $row['serial_numbers'] = $serialNumbers;
+            $pendingEntries = \Modules\SalesReturn\Entities\ReturnSerialRegistration::query()
+                ->where('workflow', 'standard')->where('sale_return_detail_id', $detail->id)
+                ->whereNull('registered_serial_id')->orderBy('id')->get()
+                ->map(fn ($claim) => ['id' => null, 'serial_number' => $claim->proposed_serial, 'pending' => true])
+                ->all();
+            $row['serial_numbers'] = array_merge($serialNumbers, $pendingEntries);
             $row['quantity'] = (int) $detail->quantity;
             $row['original_quantity'] = (int) $detail->quantity;
             $row['unit_price'] = (float) ($detail->unit_price ?? $row['unit_price'] ?? 0);
@@ -215,6 +220,11 @@ class SaleReturnEditForm extends SaleReturnCreateForm
                     'note' => $this->note,
                 ]);
 
+                // Keep claim identity stable across edits (read server-side; never taken from the client).
+                $claimUuids = \Modules\SalesReturn\Entities\ReturnSerialRegistration::query()
+                    ->where('workflow', 'standard')->where('sale_return_id', $this->saleReturn->id)
+                    ->whereNull('registered_serial_id')->pluck('claim_uuid', 'proposed_serial')->all();
+
                 $this->saleReturn->saleReturnDetails()->delete();
 
                 foreach ($prepared['rows'] as $row) {
@@ -224,7 +234,7 @@ class SaleReturnEditForm extends SaleReturnCreateForm
                         ->values()
                         ->all();
 
-                    SaleReturnDetail::create([
+                    $createdDetail = SaleReturnDetail::create([
                         'sale_return_id' => $this->saleReturn->id,
                         'sale_detail_id' => $row['sale_detail_id'] ?? null,
                         'dispatch_detail_id' => $row['dispatch_detail_id'],
@@ -241,6 +251,9 @@ class SaleReturnEditForm extends SaleReturnCreateForm
                         'product_tax_amount' => 0,
                         'serial_number_ids' => $serialIds,
                     ]);
+
+                    app(\App\Support\SalesReturn\SerialRegistration\ReturnSerialRegistrationService::class)
+                        ->saveStandardProposals($createdDetail, $row + ['claim_uuids' => $claimUuids]);
                 }
             });
 

@@ -113,6 +113,10 @@ trait ValidatesSaleReturnForm
                 );
             }
 
+            // Proposed unknown serials (pending) are validated by StandardReturnClaimService against persisted
+            // fulfillment evidence; only registered serials go through lookup/lineage checks here.
+            $serialNumbers = $serialNumbers->reject(fn ($serial) => empty($serial['id']) && $this->isPendingEntry($row, $serial))->values();
+
             if ($serialNumbers->isNotEmpty()) {
                 $selectedIds = $serialNumbers
                     ->map(fn ($serial) => $serial['id'] ?? null)
@@ -178,23 +182,33 @@ trait ValidatesSaleReturnForm
         }
     }
 
+    /** A text-only entry the form flagged as a proposed (unregistered) serial. */
+    protected function isPendingEntry(array $row, array $serial): bool
+    {
+        $text = ProductSerialNumber::normalize((string) ($serial['serial_number'] ?? ''));
+
+        return $text !== '' && collect($row['serial_numbers'] ?? [])->contains(
+            fn ($entry) => is_array($entry) && empty($entry['id']) && ! empty($entry['pending'])
+                && ProductSerialNumber::normalize((string) ($entry['serial_number'] ?? '')) === $text
+        );
+    }
+
     protected function resolveAvailableQuantity(int $dispatchDetailId, array $row, int $dispatchedQuantity): int
     {
         $existingQuantity = (int) ($row['original_quantity'] ?? 0);
 
-        $returned = SaleReturnDetail::query()
-            ->where('dispatch_detail_id', $dispatchDetailId)
-            ->when($this->editingSaleReturnId, function ($query) {
-                $query->where('sale_return_id', '!=', $this->editingSaleReturnId);
-            })
-            ->whereHas('saleReturn', function ($query) {
-                $query->whereRaw('LOWER(approval_status) != ?', ['rejected']);
-            })
-            ->sum('quantity');
+        $returned = \App\Support\SalesReturn\SerialRegistration\RegisteredOccurrences::consumedUnits($dispatchDetailId, $this->editingSaleReturnId);
 
         $available = max($dispatchedQuantity - $returned, 0);
 
-        return $available + $existingQuantity;
+        // Re-returned return-registered units re-use their already attributed unit: no extra entitlement is needed.
+        $repeats = collect($row['serial_numbers'] ?? [])
+            ->map(fn ($serial) => is_array($serial) ? (int) ($serial['id'] ?? 0) : 0)
+            ->filter()
+            ->filter(fn ($id) => \App\Support\SalesReturn\SerialRegistration\RegisteredOccurrences::isReReturnable($id, $this->editingSaleReturnId))
+            ->count();
+
+        return $available + $existingQuantity + $repeats;
     }
 
     protected function collectDispatchDetails(): array
@@ -244,7 +258,9 @@ trait ValidatesSaleReturnForm
             ->get()
             ->keyBy('id')
             ->map(fn ($serial) => [
-                'dispatch_detail_id' => $serial->dispatch_detail_id,
+                // A replacement standing in for a return-registered unit belongs to that unit's source line.
+                'dispatch_detail_id' => $serial->dispatch_detail_id
+                    ?: \App\Support\SalesReturn\SerialRegistration\RegisteredOccurrences::sourceDispatchDetailId((int) $serial->id),
             ])->all();
 
         // Portable (no JSON operators): narrow by dispatch line in SQL, match serial ids in PHP.
@@ -266,6 +282,9 @@ trait ValidatesSaleReturnForm
                     continue;
                 }
 
+                if (\App\Support\SalesReturn\SerialRegistration\RegisteredOccurrences::isReReturnable((int) $id, $this->editingSaleReturnId)) {
+                    continue;   // customer-held again after repair/replacement: its earlier return is complete
+                }
                 $assignments[$id]['reserved'] = $reservation->sale_return_id;
             }
         }

@@ -93,6 +93,18 @@ class PosReturnLifecycleService
                 $this->applyApprovalAuditToPosReturn($posReturn, $actorId, $approvedAt, $returnOption);
                 $this->syncApprovedSaleReturns($posReturn, $actorId, $approvedAt);
                 $this->receiveLinkedSaleReturns($posReturn);
+
+                // Receiving may have registered serials (resolving returned_serial_id / detail serial ids): downstream
+                // effects (replacement dispatch, chain lineage) must see the resolved identities, not stale relations.
+                if (\Modules\SalesReturn\Entities\ReturnSerialRegistration::query()
+                    ->where('workflow', 'pos')->where('pos_return_id', $posReturn->id)->whereNotNull('registered_serial_id')->exists()) {
+                    $posReturn->load([
+                        'lines',
+                        'saleReturns.saleReturnDetails.saleReturn',
+                        'saleReturns.saleReturnDetails.posReturnLine',
+                    ]);
+                }
+
                 $this->applyReceivedDispatchQuantityAdjustments($posReturn);
                 $this->executeResolvedLineEffects($posReturn, $actorId, $approvedAt);
                 $this->finalizeApprovalExecution($posReturn, $actorId, $approvedAt);
@@ -2593,6 +2605,29 @@ class PosReturnLifecycleService
             ->filter(fn ($detail) => (int) ($detail->dispatch_detail_id ?? 0) > 0)
             ->groupBy(fn ($detail) => (int) $detail->dispatch_detail_id);
 
+        // A refunded customer-held unit that originates from return registration stays one unit of its ORIGINAL
+        // quantity-based source line, even though its serial now sits on a replacement dispatch row: that source line
+        // must shrink too, or the unit could be claimed again.
+        $originAdjustments = $posReturn->saleReturns
+            ->flatMap(fn ($saleReturn) => $saleReturn->saleReturnDetails)
+            ->filter(fn ($detail) => $this->resolveDetailResolution($detail) === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN)
+            ->filter(function ($detail) use ($posReturn) {
+                $line = $detail->posReturnLine;
+                $serialId = (int) ($line?->returned_serial_id ?? 0);
+                $originId = (int) ($line?->dispatch_detail_id ?? 0);
+
+                return $serialId > 0 && $originId > 0 && $originId !== (int) ($detail->dispatch_detail_id ?? 0)
+                    && app(\Modules\Pos\Services\PosReturnSubmissionService::class)->isRegisteredChainOccurrence($serialId, $originId, $posReturn->pos_checkout_id);
+            })
+            ->groupBy(fn ($detail) => (int) $detail->posReturnLine->dispatch_detail_id);
+
+        foreach ($originAdjustments as $originId => $group) {
+            $origin = \Modules\Sale\Entities\DispatchDetail::query()->whereKey((int) $originId)->lockForUpdate()->first();
+            if ($origin) {
+                $origin->update(['dispatched_quantity' => max(0, (int) ($origin->dispatched_quantity ?? 0) - (int) round((float) $group->sum(fn ($d) => (float) $d->quantity)))]);
+            }
+        }
+
         foreach ($dispatchAdjustments as $dispatchDetailId => $detailGroup) {
             $dispatchDetail = \Modules\Sale\Entities\DispatchDetail::query()
                 ->whereKey((int) $dispatchDetailId)
@@ -2652,6 +2687,9 @@ class PosReturnLifecycleService
 
             // Skip inventory mutation if stockless
             if ($detail->stock_behavior === \Modules\Pos\Entities\PosReturnLine::STOCK_BEHAVIOR_STOCKLESS) {
+                if ($this->pendingClaimsForDetail($detail)->isNotEmpty()) {
+                    throw new \RuntimeException('Nomor seri baru tidak dapat didaftarkan untuk produk tanpa stok.');
+                }
                 continue;
             }
 
@@ -2669,6 +2707,9 @@ class PosReturnLifecycleService
             }
 
             $product = \Modules\Product\Entities\Product::findOrFail($detail->product_id);
+
+            // Unknown-serial registration commits with physical receiving, in this same transaction.
+            $this->registerPendingSerialsAtReceiving($detail, $dispatchDetail, (int) $locationId, $actorId, $receivedAt, $saleReturn);
 
             $productStock = \Modules\Product\Entities\ProductStock::where('product_id', $detail->product_id)
                 ->where('location_id', $locationId)
@@ -2764,6 +2805,76 @@ class PosReturnLifecycleService
 
         app(\App\Support\SalesReturn\SaleReturnLifecycleSyncService::class)
             ->syncSourceSaleReturnStatusFromReceivedReturns($saleReturn);
+    }
+
+    protected function pendingClaimsForDetail(\Modules\SalesReturn\Entities\SaleReturnDetail $detail): \Illuminate\Support\Collection
+    {
+        if (! $detail->pos_return_line_id) {
+            return collect();
+        }
+
+        return \Modules\SalesReturn\Entities\ReturnSerialRegistration::query()
+            ->where('workflow', \Modules\SalesReturn\Entities\ReturnSerialRegistration::WORKFLOW_POS)
+            ->where('pos_return_line_id', $detail->pos_return_line_id)
+            ->whereNull('registered_serial_id')
+            ->orderBy('id')
+            ->get();
+    }
+
+    /**
+     * Registers the proposed serial of a received POS line inside the receiving transaction. Source eligibility is
+     * re-derived NOW; a changed source stops receiving for review. A serial registered meanwhile by anyone else is a
+     * collision that rolls back the whole receiving (SerialRegistrationCollisionException).
+     */
+    protected function registerPendingSerialsAtReceiving(
+        \Modules\SalesReturn\Entities\SaleReturnDetail $detail,
+        \Modules\Sale\Entities\DispatchDetail $dispatchDetail,
+        int $locationId,
+        ?int $actorId,
+        \Illuminate\Support\Carbon $receivedAt,
+        \Modules\SalesReturn\Entities\SaleReturn $saleReturn
+    ): void {
+        $claims = $this->pendingClaimsForDetail($detail);
+        if ($claims->isEmpty()) {
+            return;
+        }
+
+        $class = app(\App\Support\SalesReturn\SerialRegistration\HistoricalFulfillmentClassifier::class)->forDispatchDetail($dispatchDetail);
+        $tracked = (bool) \Modules\Product\Entities\Product::query()->whereKey($detail->product_id)->value('serial_number_required');
+        if (! $tracked || ! $class->allowsUnknownSerialRegistration()
+            || $claims->contains(fn ($claim) => $claim->source_fingerprint !== $class->fingerprint || (int) $claim->product_id !== (int) $detail->product_id)) {
+            throw new \RuntimeException('Sumber penjualan berubah atau tidak lagi mengizinkan pendaftaran nomor seri baru. Muat ulang dan tinjau retur.');
+        }
+        if ($claims->count() !== (int) $detail->quantity) {
+            throw new \RuntimeException('Jumlah nomor seri tidak sama dengan kuantitas retur.');
+        }
+
+        // Tax identity follows the receiving owner's stock bucket (the same rule that places the returned stock).
+        $taxBucket = app(\Modules\Pos\Services\PosReturnReplacementStockMutator::class)->resolveBucketForLocation($locationId)
+            === \Modules\Pos\Services\PosReturnReplacementStockMutator::BUCKET_TAX;
+        $serialTaxId = $taxBucket
+            ? ($dispatchDetail->tax_id ?? $detail->tax_id ?? $detail->posReturnLine?->tax_id
+                ?? \Modules\Product\Entities\ProductStock::query()->where('product_id', $detail->product_id)->where('location_id', $locationId)->value('tax_id'))
+            : null;
+
+        $registered = app(\App\Support\SalesReturn\SerialRegistration\ReturnSerialRegistrationService::class)->register($claims, [
+            'location_id' => $locationId,
+            'tax_id' => $serialTaxId,
+            'dispatch_detail_id' => null,
+            'status' => \Modules\Product\Entities\ProductSerialNumber::STATUS_ACTIVE,
+            'is_in_return_process' => false,
+            'actor_id' => $actorId,
+            'at' => $receivedAt,
+            'reference' => $detail,
+        ]);
+
+        $ids = $registered->pluck('id')->map(fn ($id) => (int) $id)->values()->all();
+        $detail->forceFill(['serial_number_ids' => $ids])->save();
+
+        // Resolved concrete identity for downstream replacement / lookup; the execution mode was fixed at submission.
+        if ($detail->posReturnLine) {
+            $detail->posReturnLine->forceFill(['returned_serial_id' => $ids[0]])->save();
+        }
     }
 
     /**

@@ -30,6 +30,56 @@
                 </div>
             </div>
 
+            @if(!empty($component['registration_eligible']))
+                @php
+                    $registrationKey = ($component['sale_detail_id'] ?? 0) . ':' . ($component['product_id'] ?? 0);
+                    $registrationSerials = $componentPendingSerials[$registrationKey] ?? [];
+                @endphp
+                <div class="mt-2" data-component-pending="{{ $registrationKey }}">
+                    <div class="small font-weight-bold text-muted mb-1">
+                        Nomor seri unit komponen (retur seluruh paket)
+                        <span class="badge badge-warning">belum terdaftar &ndash; didaftarkan saat barang diterima</span>
+                    </div>
+                    <div class="input-group input-group-sm mb-1">
+                        <input type="text" class="form-control" wire:model="componentPendingInput.{{ $registrationKey }}"
+                               wire:keydown.enter.prevent="addComponentPendingSerial('{{ $registrationKey }}')" placeholder="Scan/ketik nomor seri komponen...">
+                        <div class="input-group-append">
+                            <button type="button" class="btn btn-outline-primary" wire:click="addComponentPendingSerial('{{ $registrationKey }}')">Tambah</button>
+                        </div>
+                    </div>
+                    @error("componentPendingInput.{$registrationKey}") <div class="text-danger small">{{ $message }}</div> @enderror
+                    @php $replacementMode = $this->isComponentReplacementMode($registrationKey); @endphp
+                    @foreach($registrationSerials as $cIndex => $cSerial)
+                        @if($replacementMode)
+                            @php $pairing = $componentReplacementSerials[$registrationKey][$cIndex] ?? null; @endphp
+                            <div class="d-flex align-items-center mb-1" wire:key="component-replacement-{{ $registrationKey }}-{{ $cIndex }}" data-component-replacement="{{ $registrationKey }}.{{ $cIndex }}">
+                                <span class="badge badge-light border mr-2">{{ $cSerial }}
+                                    <a href="#" class="text-danger ml-1" wire:click.prevent="removeComponentPendingSerial('{{ $registrationKey }}', {{ $cIndex }})">&times;</a></span>
+                                <i class="fas fa-exchange-alt text-info mr-2"></i>
+                                @if($pairing)
+                                    <span class="badge badge-info p-2 mr-1">{{ $pairing['label'] }}</span>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" wire:click="clearComponentReplacementSerial('{{ $registrationKey }}', {{ $cIndex }})" title="Hapus serial pengganti"><i class="fas fa-times"></i></button>
+                                @else
+                                    <div class="input-group input-group-sm" style="max-width: 320px;">
+                                        <input type="text" class="form-control @error('componentReplacementInput.'.$registrationKey.'.'.$cIndex) is-invalid @enderror"
+                                               wire:model.defer="componentReplacementInput.{{ $registrationKey }}.{{ $cIndex }}"
+                                               wire:keydown.enter.prevent="scanComponentReplacementSerial('{{ $registrationKey }}', {{ $cIndex }})"
+                                               placeholder="Scan SN pengganti komponen...">
+                                        <div class="input-group-append">
+                                            <button type="button" class="btn btn-info" wire:click="scanComponentReplacementSerial('{{ $registrationKey }}', {{ $cIndex }})"><i class="fas fa-barcode"></i></button>
+                                        </div>
+                                    </div>
+                                @endif
+                            </div>
+                            @error("componentReplacementInput.{$registrationKey}.{$cIndex}") <div class="text-danger small mb-1">{{ $message }}</div> @enderror
+                        @else
+                            <span class="badge badge-light border mr-1">{{ $cSerial }}
+                                <a href="#" class="text-danger ml-1" wire:click.prevent="removeComponentPendingSerial('{{ $registrationKey }}', {{ $cIndex }})">&times;</a></span>
+                        @endif
+                    @endforeach
+                </div>
+            @endif
+
             @if($componentIsSerial)
                 <table class="table table-sm mb-0">
                     <thead class="thead-light">

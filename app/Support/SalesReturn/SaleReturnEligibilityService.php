@@ -2,7 +2,9 @@
 
 namespace App\Support\SalesReturn;
 
+use App\Support\SalesReturn\SerialRegistration\HistoricalFulfillmentClassifier;
 use Illuminate\Support\Collection;
+use Modules\SalesReturn\Entities\ReturnSerialRegistration;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Sale\Entities\DispatchDetail;
 use Modules\Sale\Entities\Dispatch;
@@ -77,21 +79,27 @@ class SaleReturnEligibilityService
             return $status !== 'rejected';
         });
 
+        // A return-registered unit is consumed once, however many returns it later appears in.
         $returnedQuantities = $validReturnDetails
             ->groupBy('dispatch_detail_id')
-            ->map(fn ($group) => (int) $group->sum('quantity'));
+            ->map(fn ($group) => \App\Support\SalesReturn\SerialRegistration\RegisteredOccurrences::consumedFromDetails($group));
 
         $serialsReturned = $validReturnDetails
             ->groupBy('dispatch_detail_id')
             ->map(fn ($group) => $group->sum(function (SaleReturnDetail $detail) {
                 return collect($detail->serial_number_ids ?? [])->count();
             }));
+        $detailsByLine = $validReturnDetails->groupBy('dispatch_detail_id');
 
+        // Serials created by return registration are return-time lineage, not original fulfillment.
+        $registeredSerialIds = ReturnSerialRegistration::query()->whereNotNull('registered_serial_id')->pluck('registered_serial_id');
         $serialCounts = ProductSerialNumber::query()
             ->selectRaw('dispatch_detail_id, COUNT(*) as serial_count')
             ->whereIn('dispatch_detail_id', $dispatchIds)
+            ->when($registeredSerialIds->isNotEmpty(), fn ($q) => $q->whereNotIn('id', $registeredSerialIds->all()))
             ->groupBy('dispatch_detail_id')
             ->pluck('serial_count', 'dispatch_detail_id');
+        $classifier = app(HistoricalFulfillmentClassifier::class);
 
         $saleDetailsByProduct = $sale->saleDetails->groupBy('product_id');
 
@@ -129,12 +137,14 @@ class SaleReturnEligibilityService
             ->groupBy('product_id');
 
         return $dispatchDetails
-            ->map(function (DispatchDetail $detail) use ($saleDetailsByProduct, $returnedQuantities, $serialCounts, $serialsReturned, $bundleItems) {
+            ->map(function (DispatchDetail $detail) use ($saleDetailsByProduct, $returnedQuantities, $serialCounts, $serialsReturned, $bundleItems, $classifier, $detailsByLine, $excludeSaleReturnId) {
                 $dispatched = (int) ($detail->dispatched_quantity ?? 0);
                 $returned = (int) ($returnedQuantities->get($detail->id) ?? 0);
                 $available = max($dispatched - $returned, 0);
 
-                if ($available <= 0) {
+                // A fully-consumed line stays offered while a return-registered unit (repaired / replaced and back
+                // with the customer) can still be returned; it re-uses its attributed unit, not new entitlement.
+                if ($available <= 0 && ! \App\Support\SalesReturn\SerialRegistration\RegisteredOccurrences::hasReReturnableUnit($detailsByLine->get($detail->id, collect()), $excludeSaleReturnId)) {
                     return null;
                 }
 
@@ -165,7 +175,13 @@ class SaleReturnEligibilityService
                     ->values()
                     ->all();
 
+                $classification = $classifier->forDispatchDetail($detail);
+                $requiresSerial = (bool) (optional($detail->product)->serial_number_required ?? false);
+
                 return [
+                    'source_classification' => $classification->type,
+                    'source_fingerprint' => $classification->fingerprint,
+                    'registration_eligible' => $requiresSerial && $classification->allowsUnknownSerialRegistration(),
                     'dispatch_detail_id' => $detail->id,
                     'sale_detail_id' => $saleDetail->id ?? null,
                     'product_id' => $detail->product_id,

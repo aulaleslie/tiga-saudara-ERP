@@ -11,6 +11,8 @@ use Modules\Pos\Services\PosReturnReplacementGuard;
 
 class PosReturnEditForm extends Component
 {
+    use Concerns\ManagesPendingSerials;
+
     public PosReturn $return;
     public $snapshot = null;
     public $error = null;
@@ -46,9 +48,20 @@ class PosReturnEditForm extends Component
 
         $snapshotService = app(PosReturnSnapshotService::class);
         $this->snapshot = $snapshotService->build($return->pos_transaction_id);
+        $pendingBySaleDetail = $this->loadPendingClaimsBySaleDetail($lines);
+        $this->componentPendingSerials = $this->loadComponentPendingSerials($lines);
+        $this->componentReplacementSerials = $this->loadComponentReplacementSerials($lines);
 
         // Build a lookup of existing lines keyed by (sale_detail_id/pos_transaction_line_id, returned_serial_id)
-        $existingLines = $lines->keyBy(function ($line) {
+        // Component lines that carry a proposed (unregistered) original are state of componentPendingSerials /
+        // componentReplacementSerials, not independent component selections: hydrating them would re-emit them as raw
+        // carrier-row lines on save.
+        $registeredComponentLineIds = \Modules\SalesReturn\Entities\ReturnSerialRegistration::query()
+            ->where('workflow', 'pos')->where('pos_return_id', $return->id)->whereNull('registered_serial_id')
+            ->pluck('pos_return_line_id')->all();
+        $existingLines = $lines->reject(fn ($line) => $line->bundle_parent_sale_detail_id
+            && (int) $line->bundle_parent_sale_detail_id !== (int) $line->sale_detail_id
+            && in_array($line->id, $registeredComponentLineIds, true))->keyBy(function ($line) {
             if ($line->returned_serial_id) {
                 $prefix = $line->pos_transaction_line_id ?? $line->sale_detail_id;
                 return $prefix . '-' . $line->returned_serial_id;
@@ -59,6 +72,7 @@ class PosReturnEditForm extends Component
         // Initialize source-line-keyed selections from snapshot + existing lines
         foreach ($this->snapshot['lines'] as $line) {
             $this->initializeLineSelectionFromExisting($line, $existingLines);
+            $this->hydratePendingSelection($line, $pendingBySaleDetail);
 
             // Corrections/2: also initialize independent selections for each
             // bundle component row, hydrated from any existing persisted
@@ -86,7 +100,7 @@ class PosReturnEditForm extends Component
         $existing = $existingLines->get($key);
         $isBundle = !empty($line['is_bundle']);
         $defaultScope = $isBundle ? PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE : null;
-        $scope = $existing ? $existing->bundle_return_scope : $defaultScope;
+        $scope = ($existing ? $existing->bundle_return_scope : null) ?: $defaultScope;
 
         if (($line['is_tracked'] ?? false) && !empty($line['serial_number_ids'])) {
             $replacementLabel = '';
@@ -111,6 +125,89 @@ class PosReturnEditForm extends Component
                 'bundle_return_scope' => $scope,
             ];
         }
+    }
+
+    /** @return array<int,array<int,array<string,mixed>>> sale_detail_id => pending unit rows (draft state) */
+    protected function loadPendingClaimsBySaleDetail($lines): array
+    {
+        $claims = \Modules\SalesReturn\Entities\ReturnSerialRegistration::query()
+            ->where('workflow', 'pos')->where('pos_return_id', $this->return->id)->whereNull('registered_serial_id')
+            ->get()->keyBy('pos_return_line_id');
+
+        $result = [];
+        foreach ($lines as $line) {
+            $claim = $claims->get($line->id);
+            if (! $claim || ($line->bundle_parent_sale_detail_id && (int) $line->bundle_parent_sale_detail_id !== (int) $line->sale_detail_id)) {
+                continue;
+            }
+            $replacement = $line->replacement_serial_id ? \Modules\Product\Entities\ProductSerialNumber::find($line->replacement_serial_id) : null;
+            $result[(int) $line->sale_detail_id]['resolution'] = $line->resolution;
+            $result[(int) $line->sale_detail_id]['replacement_reason'] = (string) data_get($line->line_meta, 'replacement_reason', '');
+            $result[(int) $line->sale_detail_id]['units'][] = [
+                'serial_number' => $claim->proposed_serial,
+                'replacement_serial_id' => $line->replacement_serial_id,
+                'replacement_serial_input' => '',
+                'replacement_serial_label' => $replacement?->serial_number ?? '',
+            ];
+        }
+
+        return $result;
+    }
+
+    /** @return array<string,list<string>> */
+    protected function loadComponentPendingSerials($lines): array
+    {
+        $claims = \Modules\SalesReturn\Entities\ReturnSerialRegistration::query()
+            ->where('workflow', 'pos')->where('pos_return_id', $this->return->id)->whereNull('registered_serial_id')
+            ->get()->keyBy('pos_return_line_id');
+
+        $result = [];
+        foreach ($lines as $line) {
+            $isComponent = $line->bundle_parent_sale_detail_id && (int) $line->bundle_parent_sale_detail_id !== (int) $line->sale_detail_id;
+            if ($isComponent && $claims->has($line->id)) {
+                $result[$line->sale_detail_id . ':' . $line->product_id][] = $claims->get($line->id)->proposed_serial;
+            }
+        }
+
+        return $result;
+    }
+
+    /** @return array<string,array<int,array{id:int,label:string}>> persisted component replacement pairing, by unit position */
+    protected function loadComponentReplacementSerials($lines): array
+    {
+        $claims = \Modules\SalesReturn\Entities\ReturnSerialRegistration::query()
+            ->where('workflow', 'pos')->where('pos_return_id', $this->return->id)->whereNull('registered_serial_id')
+            ->get()->keyBy('pos_return_line_id');
+
+        $result = [];
+        $positions = [];
+        foreach ($lines as $line) {
+            $isComponent = $line->bundle_parent_sale_detail_id && (int) $line->bundle_parent_sale_detail_id !== (int) $line->sale_detail_id;
+            if (! $isComponent || ! $claims->has($line->id)) {
+                continue;
+            }
+            $key = $line->sale_detail_id . ':' . $line->product_id;
+            $position = $positions[$key] = ($positions[$key] ?? -1) + 1;
+            if ($line->resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT && $line->replacement_serial_id) {
+                $serial = \Modules\Product\Entities\ProductSerialNumber::find($line->replacement_serial_id);
+                $result[$key][$position] = ['id' => (int) $line->replacement_serial_id, 'label' => $serial?->serial_number ?? ''];
+            }
+        }
+
+        return $result;
+    }
+
+    protected function hydratePendingSelection(array $line, array $pendingBySaleDetail): void
+    {
+        $key = PosReturnCreateForm::buildLineKey($line);
+        $pending = $pendingBySaleDetail[(int) ($line['sale_detail_id'] ?? 0)] ?? null;
+        if (! $pending || empty($line['registration_eligible']) || ! isset($this->lineSelections[$key])) {
+            return;
+        }
+        $this->lineSelections[$key]['pending_serials'] = $pending['units'];
+        $this->lineSelections[$key]['quantity'] = count($pending['units']);
+        $this->lineSelections[$key]['resolution'] = $pending['resolution'];
+        $this->lineSelections[$key]['replacement_reason'] = $pending['replacement_reason'];
     }
 
     protected function buildSerialQuantityKey(int $saleDetailId, int $returnedSerialId): string
@@ -357,7 +454,17 @@ class PosReturnEditForm extends Component
         foreach ($this->snapshot['lines'] as $line) {
             $key = PosReturnCreateForm::buildLineKey($line);
             $selection = $this->lineSelections[$key] ?? null;
-            if ($selection) {
+            if ($selection && !empty($line['registration_eligible'])) {
+                // Unknown-serial path: one line per proposed unit; an empty list is still sent when a resolution is
+                // chosen so the server (not the form) rejects the missing serials.
+                $pendingLines = $this->buildPendingSubmissionLines($line, $selection);
+                if ($pendingLines === [] && ($selection['resolution'] ?? 'none') !== PosReturnLine::RESOLUTION_NONE) {
+                    $lines[] = ['sale_detail_id' => $line['sale_detail_id'], 'sale_id' => $line['sale_id'] ?? null, 'pos_transaction_line_id' => $line['pos_transaction_line_id'] ?? null,
+                        'returned_serial_id' => null, 'resolution' => $selection['resolution'], 'quantity' => 1, 'replacement_serial_id' => null,
+                        'replacement_reason' => $selection['replacement_reason'] ?? null, 'bundle_return_scope' => $selection['bundle_return_scope'] ?? null];
+                }
+                array_push($lines, ...$pendingLines);
+            } elseif ($selection) {
                 $built = $this->buildSubmissionLineFor($line, $selection);
                 if ($built) $lines[] = $built;
             }
@@ -421,6 +528,15 @@ class PosReturnEditForm extends Component
 
                 $isSerial = ($candidateLine['is_tracked'] ?? false) && !empty($candidateLine['serial_number_ids']);
 
+                if (!empty($candidateLine['registration_eligible'])) {
+                    foreach ($selection['pending_serials'] ?? [] as $i => $pending) {
+                        if (empty($pending['replacement_serial_id'])) {
+                            return [$key . '.pending_serials.' . $i . '.replacement_serial_input', 'Serial pengganti harus diisi untuk setiap nomor seri baru.'];
+                        }
+                    }
+                    continue;
+                }
+
                 if ($isSerial && empty($selection['replacement_serial_id'])) {
                     return [$key . '.replacement_serial_input', 'Serial pengganti harus diisi untuk penggantian produk.'];
                 }
@@ -464,12 +580,20 @@ class PosReturnEditForm extends Component
             return;
         }
 
+        if ($componentError = $this->validateComponentReplacements()) {
+            [$field, $message] = $componentError;
+            $this->addError($field, $message);
+            return;
+        }
+
         try {
             $submissionService = app(PosReturnSubmissionService::class);
             $submissionService->update($this->return, [
                 'source_snapshot_hash' => $this->snapshot['hash'],
                 'lines' => $lines,
                 'line_selections' => $this->lineSelections,
+                'component_pending_serials' => $this->componentPendingSerials,
+                'component_replacement_serials' => $this->componentReplacementPayload(),
             ]);
 
             toast('Retur POS berhasil diperbarui.', 'success');

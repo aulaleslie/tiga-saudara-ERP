@@ -5,7 +5,10 @@ namespace App\Livewire\SalesReturn;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
+use App\Support\SalesReturn\SerialRegistration\HistoricalFulfillmentClassifier;
+use App\Support\SalesReturn\SerialRegistration\PendingSerialValidator;
 use Livewire\Component;
+use Modules\Sale\Entities\DispatchDetail;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\SalesReturn\Entities\SaleReturnDetail;
 
@@ -58,11 +61,12 @@ class SaleSerialNumberLoader extends Component
             ->first();
 
         if (! $serial) {
-            $this->error_message = 'Nomor seri tidak ditemukan.';
+            $this->proposeUnknownSerial($query);
             return;
         }
 
-        if ($this->dispatch_detail_id && $serial->dispatch_detail_id != $this->dispatch_detail_id) {
+        if ($this->dispatch_detail_id && $serial->dispatch_detail_id != $this->dispatch_detail_id
+            && \App\Support\SalesReturn\SerialRegistration\RegisteredOccurrences::sourceDispatchDetailId((int) $serial->id) !== (int) $this->dispatch_detail_id) {
             $this->error_message = 'Nomor seri ini tidak berasal dari pengiriman ini.';
             return;
         }
@@ -74,7 +78,8 @@ class SaleSerialNumberLoader extends Component
         }
 
         $reserved = $this->reservedSerialIds();
-        if (in_array($serial->id, $reserved)) {
+        if (in_array($serial->id, $reserved)
+            && ! \App\Support\SalesReturn\SerialRegistration\RegisteredOccurrences::isReReturnable((int) $serial->id, $this->sale_return_id)) {
             $this->error_message = 'Nomor seri ini sedang dalam proses retur lain.';
             return;
         }
@@ -88,6 +93,49 @@ class SaleSerialNumberLoader extends Component
         $this->reset('query');
         $this->dispatch('clear-input', ['index' => $this->index]);
     }
+    /**
+     * A not-found serial becomes a PROPOSED value only when persisted fulfillment evidence says the selected
+     * source recorded no serials and the product now requires tracking. Nothing is created here.
+     */
+    protected function proposeUnknownSerial(string $query): void
+    {
+        $detail = $this->dispatch_detail_id ? DispatchDetail::query()->with('product:id,serial_number_required')->find($this->dispatch_detail_id) : null;
+
+        $eligible = $detail
+            && (int) $detail->product_id === (int) $this->product_id
+            && (bool) $detail->product?->serial_number_required
+            && app(HistoricalFulfillmentClassifier::class)->forDispatchDetail($detail)->allowsUnknownSerialRegistration();
+
+        if (! $eligible) {
+            $this->error_message = 'Nomor seri tidak ditemukan.';
+            return;
+        }
+
+        $validator = app(PendingSerialValidator::class);
+        $normalized = $validator->normalize($query);
+        $alreadyListed = collect($this->existingSerials)->contains(
+            fn ($entry) => $validator->normalize((string) ($entry['serial_number'] ?? '')) === $normalized
+        );
+        if ($alreadyListed) {
+            $this->error_message = 'Nomor seri ini sudah ditambahkan.';
+            return;
+        }
+
+        if ($validator->validate([['product_id' => $this->product_id, 'serial' => $query]]) !== []) {
+            $this->error_message = 'Nomor seri tidak valid.';
+            return;
+        }
+
+        $this->dispatch('serialNumberSelected', $this->index, [
+            'id' => null,
+            'serial_number' => $normalized,
+            'pending' => true,
+        ]);
+
+        $this->reset('query');
+        $this->dispatch('clear-input', ['index' => $this->index]);
+    }
+
     // no autocomplete methods: simplified for scanner input
 
     public function selectSerial(int $serialId): void

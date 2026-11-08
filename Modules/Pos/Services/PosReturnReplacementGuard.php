@@ -31,6 +31,10 @@ class PosReturnReplacementGuard
             ]);
         }
 
+        // Serialize competing reservations of the same replacement serial. The availability check below is
+        // check-then-act: without this row lock two requests can both pass it before either commits.
+        ProductSerialNumber::query()->whereKey($replacementSerialId)->lockForUpdate()->first();
+
         $resolvedContext = $this->resolveReplacementSerialContext($replacementSerialId);
         /** @var ProductSerialNumber|null $serial */
         $serial = $resolvedContext['serial'];
@@ -80,7 +84,8 @@ class PosReturnReplacementGuard
             $draftLockQuery->where('pos_return_id', '!=', $ignorePosReturnId);
         }
 
-        if ($draftLockQuery->exists()) {
+        // Locking read: under REPEATABLE READ a plain read here would keep seeing the snapshot taken before the lock wait.
+        if ($draftLockQuery->lockForUpdate()->limit(1)->get(['id'])->isNotEmpty()) {
             throw ValidationException::withMessages([
                 'replacement_serial' => 'Serial pengganti sedang digunakan oleh retur draft lain.'
             ]);

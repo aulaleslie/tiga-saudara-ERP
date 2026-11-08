@@ -226,7 +226,10 @@
                             @endif
                         </div>
                         <div class="col-sm-3 text-center">
-                            @if($nsIsReturnable && $nsResolution !== 'none')
+                            @if($nsIsReturnable && $nsResolution !== 'none' && !empty($nsLine['registration_eligible']))
+                                <span class="font-weight-bold">{{ count($nsSelection['pending_serials'] ?? []) }} unit</span>
+                                <div class="small text-muted">sesuai jumlah nomor seri</div>
+                            @elseif($nsIsReturnable && $nsResolution !== 'none')
                                 <input type="number"
                                        wire:model.live="lineSelections.{{ $nsKey }}.quantity"
                                        class="form-control form-control-sm text-center font-weight-bold"
@@ -249,6 +252,43 @@
                             @endif
                         </div>
                     </div>
+
+                    @if($nsIsReturnable && $nsResolution !== 'none' && !empty($nsLine['registration_eligible']))
+                        <div class="mt-3 pt-2 border-top" data-pending-serials="{{ $nsKey }}">
+                            <div class="small font-weight-bold text-muted mb-1">
+                                Nomor seri unit yang diretur
+                                <span class="badge badge-warning">belum terdaftar &ndash; didaftarkan saat barang diterima</span>
+                            </div>
+                            <div class="input-group input-group-sm mb-2">
+                                <input type="text" class="form-control"
+                                       wire:model="lineSelections.{{ $nsKey }}.pending_input"
+                                       wire:keydown.enter.prevent="addPendingSerial('{{ $nsKey }}')"
+                                       placeholder="Scan/ketik nomor seri...">
+                                <div class="input-group-append">
+                                    <button type="button" class="btn btn-outline-primary" wire:click="addPendingSerial('{{ $nsKey }}')">Tambah</button>
+                                </div>
+                            </div>
+                            @error("lineSelections.{$nsKey}.pending_input") <div class="text-danger small mb-1">{{ $message }}</div> @enderror
+                            @foreach(($nsSelection['pending_serials'] ?? []) as $pIndex => $pending)
+                                <div class="d-flex align-items-center mb-1">
+                                    <span class="mr-2"><strong>{{ $pending['serial_number'] }}</strong></span>
+                                    @if($nsResolution === 'product_replacement')
+                                        @if(!empty($pending['replacement_serial_id']))
+                                            <span class="badge badge-info mr-2">Pengganti: {{ $pending['replacement_serial_label'] }}</span>
+                                        @else
+                                            <input type="text" class="form-control form-control-sm w-auto mr-1"
+                                                   wire:model="lineSelections.{{ $nsKey }}.pending_serials.{{ $pIndex }}.replacement_serial_input"
+                                                   wire:keydown.enter.prevent="scanPendingReplacementSerial('{{ $nsKey }}', {{ $pIndex }})"
+                                                   placeholder="Serial pengganti">
+                                            <button type="button" class="btn btn-sm btn-outline-info mr-2" wire:click="scanPendingReplacementSerial('{{ $nsKey }}', {{ $pIndex }})">Pilih</button>
+                                        @endif
+                                    @endif
+                                    <button type="button" class="btn btn-sm btn-outline-danger" wire:click="removePendingSerial('{{ $nsKey }}', {{ $pIndex }})">&times;</button>
+                                </div>
+                                @error("lineSelections.{$nsKey}.pending_serials.{$pIndex}.replacement_serial_input") <div class="text-danger small">{{ $message }}</div> @enderror
+                            @endforeach
+                        </div>
+                    @endif
 
                     @if($group['is_bundle'] && $nsResolution === 'cash_return')
                         @php

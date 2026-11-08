@@ -245,7 +245,7 @@ class SaleReturnCreateForm extends Component
                         throw new Exception('Product ID tidak valid untuk salah satu item.');
                     }
 
-                    SaleReturnDetail::create([
+                    $createdDetail = SaleReturnDetail::create([
                         'sale_return_id' => $saleReturn->id,
                         'sale_detail_id' => $row['sale_detail_id'] ?? null,
                         'dispatch_detail_id' => $row['dispatch_detail_id'],
@@ -262,6 +262,10 @@ class SaleReturnCreateForm extends Component
                         'product_tax_amount' => 0,
                         'serial_number_ids' => $serialIds,
                     ]);
+
+                    // Proposed unknown serials are persisted as pending text only; registration happens at receiving.
+                    app(\App\Support\SalesReturn\SerialRegistration\ReturnSerialRegistrationService::class)
+                        ->saveStandardProposals($createdDetail, $row);
                 }
 
                 $saleReturn->refresh();

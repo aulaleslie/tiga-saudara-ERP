@@ -379,7 +379,12 @@
                                                 @endif
                                             </td>
                                             <td>{{ $detail['tax_name'] ?: 'NON TAX' }}</td>
-                                            <td>{{ $detail['returned_serial'] ?: '-' }}</td>
+                                            <td>
+                                                {{ $detail['returned_serial'] ?: ($detail['registration_serial'] ?? '-') }}
+                                                @if(empty($detail['returned_serial']) && ! empty($detail['registration_serial']))
+                                                    <div class="small text-warning">belum terdaftar &ndash; didaftarkan saat persetujuan</div>
+                                                @endif
+                                            </td>
                                             <td>{{ $detail['replacement_serial'] ?: '-' }}</td>
                                             <td>
                                                 <div class="small">Stok: {{ $detail['stock_movement_intent'] }}</div>

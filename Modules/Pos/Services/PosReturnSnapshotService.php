@@ -428,7 +428,13 @@ class PosReturnSnapshotService
                 'bundle_items' => $nonSerialBundleItems,
                 'parent_allocated_price' => (float) $detail->unit_price > 0 ? (float) $detail->unit_price : (float) $unitPrice,
                 'is_zero_qty_component' => $isZeroQtyComponent,
-            ];
+            ] + $this->registrationMeta($dispatchDetailId, $detail->product, array_map('intval', (array) ($detail->serial_number_ids ?? [])));
+
+            // Units that earlier return-registration put back with the customer (via replacement) are separate,
+            // serial-addressed occurrences of this same source; they must be offered for return exactly once.
+            foreach ($this->customerHeldRegisteredRows($results[array_key_last($results)], (int) $dispatchDetailId, $checkoutSale) as $heldRow) {
+                $results[] = $heldRow;
+            }
         }
 
         return $results;
@@ -639,6 +645,17 @@ class PosReturnSnapshotService
         }
 
         if (empty($serialNumberIds)) {
+            // Tracked now, but fulfillment recorded no serials: this is a quantity-only source. It keeps its own
+            // allocation quantity (it must not strand with zero returnable quantity) and may register unknown serials.
+            $meta = $this->registrationMeta($dispatchDetailId, $product);
+            $entry = array_merge($entry, $meta);
+            if ($meta['registration_classification'] === \App\Support\SalesReturn\SerialRegistration\SourceClassification::QUANTITY_ONLY) {
+                $originalQty = $bundleItem ? (float) $bundleItem->quantity : 0.0;
+                $entry['returnable_quantity'] = $carrierDetail
+                    ? app(\App\Support\PosReturn\PosReturnQuantityGuard::class)->getRefundableQuantity($carrierDetail->id, null, $originalQty)
+                    : 0.0;
+            }
+
             return $entry;
         }
 
@@ -715,10 +732,123 @@ class PosReturnSnapshotService
             });
         }
         
+        // Serial-registration eligibility metadata is derived server-side and re-validated at submit/receiving;
+        // it must not invalidate drafts that were hashed before it existed.
+        $this->stripRegistrationMeta($data);
+
         // Sort keys recursively for canonicality
         $this->ksortRecursive($data);
         
         return md5(json_encode($data));
+    }
+
+    /**
+     * @return array<int,array<string,mixed>>
+     */
+    protected function customerHeldRegisteredRows(array $quantityRow, int $dispatchDetailId, $checkoutSale): array
+    {
+        if ($dispatchDetailId <= 0) {
+            return [];
+        }
+
+        $lineIds = PosReturnLine::query()->where('dispatch_detail_id', $dispatchDetailId)->pluck('id');
+        if ($lineIds->isEmpty()) {
+            return [];
+        }
+
+        $roots = \Modules\SalesReturn\Entities\ReturnSerialRegistration::query()
+            ->where('workflow', 'pos')->whereNotNull('registered_serial_id')
+            ->whereIn('pos_return_line_id', $lineIds->all())->orderBy('id')->pluck('registered_serial_id')->unique();
+
+        $chain = app(\Modules\Pos\Services\PosReturnSerialReplacementChainResolver::class);
+        $rows = [];
+        foreach ($roots as $rootId) {
+            try {
+                $heldId = $chain->resolveCurrentHeldSerial((int) $rootId, $checkoutSale->pos_checkout_id ?? null, null, $dispatchDetailId);
+            } catch (\Throwable $e) {
+                continue;   // in-flight replacement: not offered until the hand-off completes
+            }
+            $held = \Modules\Product\Entities\ProductSerialNumber::find($heldId);
+            if (! $held) {
+                continue;
+            }
+            // Customer-held means the unit is actually out with the customer (SOLD). Merely resolving back to the
+            // registered root is not proof it is in store: an A -> B -> A chain hands A back to the customer.
+            if ((int) $heldId === (int) $rootId && strtoupper((string) $held->status) !== \Modules\Product\Entities\ProductSerialNumber::STATUS_SOLD) {
+                continue;
+            }
+
+            // Only refunds AFTER this occurrence began (the completed replacement that handed the unit to the customer)
+            // count; an older refund of the same serial belongs to a previous occurrence.
+            $occurrenceStart = (int) PosReturnLine::query()
+                ->where('dispatch_detail_id', $dispatchDetailId)
+                ->where('replacement_serial_id', $heldId)
+                ->where('resolution', PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT)
+                ->whereHas('posReturn', fn ($q) => $q->where('is_reversed', false)->where('status', PosReturn::STATUS_COMPLETED))
+                ->max('id');
+            $isCashReturned = PosReturnLine::whereHas('posReturn', fn ($q) => $q->where('is_reversed', false)->where('status', PosReturn::STATUS_COMPLETED))
+                ->where('returned_serial_id', $heldId)->where('resolution', PosReturnLine::RESOLUTION_CASH_RETURN)
+                ->where('id', '>', $occurrenceStart)->exists();
+            $hasInFlight = PosReturnLine::whereHas('posReturn', fn ($q) => $q->where('is_reversed', false)->whereIn('status', [
+                PosReturn::STATUS_PENDING_APPROVAL, PosReturn::STATUS_APPROVED, PosReturn::STATUS_AWAITING_RECEIVING,
+                PosReturn::STATUS_AWAITING_SETTLEMENT, PosReturn::STATUS_AWAITING_DISPATCH, PosReturn::STATUS_MANUAL_CORRECTION_REQUIRED,
+            ]))->where('returned_serial_id', $heldId)->exists();
+
+            $rows[] = array_merge($quantityRow, [
+                'original_quantity' => 1.0,
+                'returned_quantity' => 0.0,
+                'returnable_quantity' => ($isCashReturned || $hasInFlight) ? 0.0 : 1.0,
+                'line_total' => (float) ($quantityRow['unit_price'] ?? 0),
+                'is_tracked' => true,
+                'serial_number_ids' => [$held->id],
+                'serial_numbers' => [['id' => $held->id, 'serial_number' => $held->serial_number]],
+                'registration_eligible' => false,
+                'registration_origin_serial_id' => (int) $rootId,
+            ]);
+        }
+
+        return $rows;
+    }
+
+    protected function stripRegistrationMeta(array &$array): void
+    {
+        foreach ($array as $key => &$value) {
+            if (is_string($key) && str_starts_with($key, 'registration_')) {
+                unset($array[$key]);
+                continue;
+            }
+            if (is_array($value)) {
+                $this->stripRegistrationMeta($value);
+            }
+        }
+    }
+
+    /**
+     * Server-derived unknown-serial registration metadata for a quantity-style source row.
+     * Eligible only when persisted fulfillment recorded no serials AND the product now requires tracking.
+     *
+     * @param  array<int,int>  $knownSerialIds
+     * @return array<string,mixed>
+     */
+    protected function registrationMeta($dispatchDetailId, $product, array $knownSerialIds = []): array
+    {
+        $meta = ['registration_eligible' => false, 'registration_classification' => null, 'registration_source_key' => null, 'registration_fingerprint' => null];
+        if (! $dispatchDetailId) {
+            return $meta;
+        }
+        $dispatch = \Modules\Sale\Entities\DispatchDetail::find($dispatchDetailId);
+        if (! $dispatch) {
+            return $meta;
+        }
+        $classifier = app(\App\Support\SalesReturn\SerialRegistration\HistoricalFulfillmentClassifier::class);
+        $class = $classifier->forDispatchDetail($dispatch, $knownSerialIds);
+
+        return [
+            'registration_eligible' => (bool) ($product->serial_number_required ?? false) && $class->allowsUnknownSerialRegistration(),
+            'registration_classification' => $class->type,
+            'registration_source_key' => \App\Support\SalesReturn\SerialRegistration\HistoricalFulfillmentClassifier::standardSourceKey((int) $dispatchDetailId),
+            'registration_fingerprint' => $class->fingerprint,
+        ];
     }
 
     protected function ksortRecursive(&$array): void

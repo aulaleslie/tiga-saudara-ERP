@@ -938,7 +938,17 @@ class PosReceiptReprintProjectionService
                                 unset($compItem);
 
                                 if (! $foundInBundle) {
-                                    throw new PosReprintProjectionException("Nomor seri yang diganti ({$retSerial}) tidak ditemukan pada baris transaksi.");
+                                    // A serial registered by THIS return line was never on the original receipt (the sale
+                                    // recorded no serial); the customer simply holds the replacement from now on.
+                                    $registeredByThisLine = \Modules\SalesReturn\Entities\ReturnSerialRegistration::query()
+                                        ->where('workflow', 'pos')
+                                        ->where('pos_return_line_id', $retLine->id)
+                                        ->where('registered_serial_id', $retLine->returned_serial_id)
+                                        ->exists();
+                                    if (! $registeredByThisLine) {
+                                        throw new PosReprintProjectionException("Nomor seri yang diganti ({$retSerial}) tidak ditemukan pada baris transaksi.");
+                                    }
+                                    $effectiveSerials[] = $repSerial;
                                 }
                             }
                         }

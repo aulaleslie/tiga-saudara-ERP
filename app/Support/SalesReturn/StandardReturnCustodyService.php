@@ -3,6 +3,9 @@
 namespace App\Support\SalesReturn;
 
 use App\Services\SerialNumberHistoryService;
+use App\Support\SalesReturn\SerialRegistration\ReturnSerialRegistrationService;
+use App\Support\SalesReturn\SerialRegistration\HistoricalFulfillmentClassifier;
+use Modules\SalesReturn\Entities\ReturnSerialRegistration;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -94,6 +97,7 @@ class StandardReturnCustodyService
             $taxId = $dispatchDetail->tax_id;
 
             $serialIds = collect($detail->serial_number_ids ?? [])->map(fn ($id) => (int) $id)->filter()->unique()->values();
+            $serialIds = $this->registerPendingSerials($detail, $dispatchDetail, $serialIds, $quantity, (int) $locationId, $taxId, $receivedAt, $actorId, $locked);
             if ($serialIds->count() > $quantity) {
                 throw new \RuntimeException('Jumlah nomor seri melebihi kuantitas retur.');
             }
@@ -105,7 +109,8 @@ class StandardReturnCustodyService
                     throw new \RuntimeException('Sebagian nomor seri tidak ditemukan.');
                 }
                 foreach ($serials as $serial) {
-                    if ((int) $serial->dispatch_detail_id !== (int) $dispatchDetail->id) {
+                    if ((int) $serial->dispatch_detail_id !== (int) $dispatchDetail->id
+                        && \App\Support\SalesReturn\SerialRegistration\RegisteredOccurrences::sourceDispatchDetailId((int) $serial->id) !== (int) $dispatchDetail->id) {
                         throw new \RuntimeException('Nomor seri tidak berasal dari pengiriman penjualan ini.');
                     }
                 }
@@ -141,6 +146,59 @@ class StandardReturnCustodyService
         }
 
         return $created;
+    }
+
+    /**
+     * Registers this detail's proposed serials (if any) inside the receiving transaction and returns the
+     * complete serial id set. Source eligibility and cardinality are re-validated NOW; a stale or
+     * inconsistent source stops the whole receiving for review (nothing is dropped silently).
+     *
+     * @param  Collection<int,int>  $serialIds
+     * @return Collection<int,int>
+     */
+    private function registerPendingSerials(SaleReturnDetail $detail, DispatchDetail $dispatchDetail, Collection $serialIds, float $quantity, int $locationId, ?int $taxId, Carbon $at, int $actorId, SaleReturn $return): Collection
+    {
+        $claims = ReturnSerialRegistration::query()
+            ->where('workflow', ReturnSerialRegistration::WORKFLOW_STANDARD)
+            ->where('sale_return_detail_id', $detail->id)
+            ->orderBy('id')->lockForUpdate()->get();
+
+        if ($claims->isEmpty()) {
+            return $serialIds;
+        }
+
+        $pending = $claims->whereNull('registered_serial_id');
+        if ($pending->isNotEmpty()) {
+            $class = app(HistoricalFulfillmentClassifier::class)->forDispatchDetail($dispatchDetail);
+            if (! $class->allowsUnknownSerialRegistration()
+                || $pending->contains(fn ($c) => $c->source_fingerprint !== $class->fingerprint)) {
+                throw new SalesReturnStateException('Sumber penjualan berubah atau tidak lagi mengizinkan pendaftaran nomor seri baru. Muat ulang dan tinjau retur.');
+            }
+            if (! (bool) Product::query()->whereKey($detail->product_id)->value('serial_number_required')) {
+                throw new SalesReturnStateException('Produk tidak lagi memerlukan nomor seri. Muat ulang dan tinjau retur.');
+            }
+        }
+
+        $registered = app(ReturnSerialRegistrationService::class)->register($claims, [
+            'location_id' => $locationId,
+            'tax_id' => $taxId,
+            'dispatch_detail_id' => $dispatchDetail->id,   // operational anchor only; classification excludes registered serials
+            'status' => ProductSerialNumber::STATUS_RETURN_IN_PROCESS,
+            'is_in_return_process' => true,
+            'actor_id' => $actorId,
+            'at' => $at,
+            'reference' => $return,
+        ]);
+
+        $all = $serialIds->merge($registered->pluck('id')->map(fn ($id) => (int) $id))->unique()->values();
+        if (abs($all->count() - $quantity) > 0.0004) {
+            throw new SalesReturnStateException('Jumlah nomor seri tidak sama dengan kuantitas retur. Tinjau retur sebelum diterima.');
+        }
+
+        // Received evidence lives on the RETURN detail (never on the original sale/dispatch serial lists).
+        $detail->forceFill(['serial_number_ids' => $all->all()])->save();
+
+        return $all;
     }
 
     /** @param array<string, mixed> $base */

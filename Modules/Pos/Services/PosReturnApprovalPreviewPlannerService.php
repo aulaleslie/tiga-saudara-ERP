@@ -658,6 +658,8 @@ class PosReturnApprovalPreviewPlannerService
             ? 'tidak_ada_mutasi_serial_catatan_saja'
             : $replacementPreview['serial_movement_intent'];
 
+        $pendingClaim = $line->returned_serial_id ? null : \Modules\SalesReturn\Entities\ReturnSerialRegistration::query()
+            ->where('workflow', 'pos')->where('pos_return_line_id', $line->id)->whereNull('registered_serial_id')->first();
         $detail = [
             'row_type' => $isComponentLine ? 'component' : 'parent',
             'pos_return_line_id' => (int) $line->id,
@@ -723,6 +725,9 @@ class PosReturnApprovalPreviewPlannerService
             'component_line_group_key' => $componentBundleItem?->line_group_key,
             'component_bundle_id' => $componentBundleItem ? (int) $componentBundleItem->bundle_id : null,
             'component_quantity_per_bundle' => $line->component_quantity_per_bundle,
+            // Unknown-serial registration INTENTION (read-only): the serial is created only when receiving commits.
+            'registration_claim_uuid' => $pendingClaim?->claim_uuid,
+            'registration_serial' => $pendingClaim?->proposed_serial,
             'component_serial_ids' => $line->returned_serial_id ? [(int) $line->returned_serial_id] : [],
             'component_serial_numbers' => $line->returnedSerial?->serial_number
                 ? [(string) $line->returnedSerial->serial_number]
@@ -1463,6 +1468,12 @@ class PosReturnApprovalPreviewPlannerService
     private function serialMovementIntent(PosReturnLine $line): string
     {
         if (! $line->returned_serial_id) {
+            if (\Modules\SalesReturn\Entities\ReturnSerialRegistration::query()->where('workflow', 'pos')->where('pos_return_line_id', $line->id)->exists()) {
+                return $line->resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
+                    ? 'serial_baru_didaftarkan_saat_receiving_dan_serial_pengganti_dikirim_pada_fase_dispatch'
+                    : 'serial_baru_didaftarkan_saat_receiving';
+            }
+
             return 'tidak_ada_mutasi_serial';
         }
 

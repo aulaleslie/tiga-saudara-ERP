@@ -2,6 +2,7 @@
 
 namespace App\Support\SalesReturn;
 
+use App\Support\SalesReturn\SerialRegistration\PendingSerialValidator;
 use Illuminate\Validation\ValidationException;
 use Modules\Product\Entities\ProductSerialNumber;
 use Modules\Sale\Entities\Sale;
@@ -20,8 +21,10 @@ use Modules\SalesReturn\Entities\SaleReturnDetail;
  */
 class StandardReturnClaimService
 {
-    public function __construct(private readonly SaleReturnEligibilityService $eligibility)
-    {
+    public function __construct(
+        private readonly SaleReturnEligibilityService $eligibility,
+        private readonly PendingSerialValidator $pendingValidator = new PendingSerialValidator,
+    ) {
     }
 
     /**
@@ -39,6 +42,7 @@ class StandardReturnClaimService
         // dispatch line share one remaining quantity, and a serial can appear only once.
         $claimedByLine = [];
         $seenSerials = [];
+        $seenPending = [];
 
         foreach ($rows as $index => $row) {
             $quantity = (int) ($row['quantity'] ?? 0);
@@ -60,7 +64,11 @@ class StandardReturnClaimService
             }
 
             $alreadyClaimed = $claimedByLine[$dispatchDetailId] ?? 0;
-            $remaining = (int) $source['available_quantity'] - $alreadyClaimed;
+            // A re-returned return-registered unit re-uses its attributed unit (no extra entitlement).
+            $repeatUnits = $this->serialIds($row)
+                ->filter(fn ($id) => \App\Support\SalesReturn\SerialRegistration\RegisteredOccurrences::isReReturnable((int) $id, $excludeSaleReturnId))
+                ->count();
+            $remaining = (int) $source['available_quantity'] - $alreadyClaimed + $repeatUnits;
             if ($quantity > $remaining) {
                 $errors["rows.$index.quantity"] = "Jumlah retur melebihi sisa yang dapat dikembalikan ({$remaining}).";
                 continue;
@@ -69,6 +77,18 @@ class StandardReturnClaimService
             $serialError = $this->validateSerials($row, $source, $quantity, $excludeSaleReturnId);
             if ($serialError) {
                 $errors["rows.$index.serial_numbers"] = $serialError;
+                continue;
+            }
+
+            $pendingTexts = $this->pendingTexts($row);
+            $duplicate = false;
+            foreach ($pendingTexts as $text) {
+                $scope = $source['product_id'].'|'.$text;
+                $duplicate = $duplicate || isset($seenPending[$scope]);
+                $seenPending[$scope] = true;
+            }
+            if ($duplicate) {
+                $errors["rows.$index.serial_numbers"] = 'Nomor seri baru yang sama tidak boleh diajukan lebih dari sekali.';
                 continue;
             }
 
@@ -93,6 +113,10 @@ class StandardReturnClaimService
                 'unit_price' => $unitPrice,
                 'quantity' => $quantity,
                 'total' => round($quantity * $unitPrice, 2),
+                // Authoritative classification; the client's eligibility claims are never trusted.
+                'source_classification' => $source['source_classification'] ?? null,
+                'registration_eligible' => (bool) ($source['registration_eligible'] ?? false),
+                'pending_serials' => $pendingTexts,
             ]);
         }
 
@@ -119,26 +143,62 @@ class StandardReturnClaimService
         return $raw->unique()->values();
     }
 
+    /** @return list<string> normalized proposed (unregistered) serial texts of a row */
+    public function pendingTexts(array $row): array
+    {
+        return collect($row['serial_numbers'] ?? [])
+            ->filter(fn ($serial) => is_array($serial) && empty($serial['id']) && ! empty($serial['pending']) && trim((string) ($serial['serial_number'] ?? '')) !== '')
+            ->map(fn ($serial) => $this->pendingValidator->normalize((string) $serial['serial_number']))
+            ->values()
+            ->all();
+    }
+
     private function validateSerials(array $row, array $source, int $quantity, ?int $excludeSaleReturnId): ?string
     {
         $serialIds = $this->serialIds($row);
+        $pending = $this->pendingTexts($row);
+        $total = $serialIds->count() + count($pending);
 
-        if (! empty($source['serial_number_required']) && $serialIds->count() !== $quantity) {
+        if (! empty($source['serial_number_required']) && $total !== $quantity) {
             return 'Jumlah nomor seri harus sama dengan kuantitas yang diretur.';
+        }
+
+        if ($pending !== []) {
+            if (empty($source['registration_eligible'])) {
+                return 'Nomor seri baru hanya dapat didaftarkan untuk pengiriman tanpa nomor seri tercatat pada produk yang kini wajib bernomor seri.';
+            }
+            $errors = $this->pendingValidator->validate(array_map(
+                fn ($text, $i) => ['product_id' => $source['product_id'], 'serial' => $text, 'key' => $i], $pending, array_keys($pending)
+            ));
+            if ($errors !== []) {
+                return match (reset($errors)) {
+                    PendingSerialValidator::ERROR_ALREADY_REGISTERED => 'Nomor seri sudah terdaftar; gunakan pencarian nomor seri yang ada.',
+                    PendingSerialValidator::ERROR_DUPLICATE => 'Nomor seri baru tidak boleh duplikat.',
+                    PendingSerialValidator::ERROR_TOO_LONG => 'Nomor seri terlalu panjang.',
+                    default => 'Nomor seri tidak valid.',
+                };
+            }
+        }
+
+        if ($total === 0) {
+            return null;
+        }
+
+        if ($total !== $quantity) {
+            return 'Jumlah nomor seri tidak sesuai dengan kuantitas yang diretur.';
         }
 
         if ($serialIds->isEmpty()) {
             return null;
         }
 
-        if ($serialIds->count() !== $quantity) {
-            return 'Jumlah nomor seri tidak sesuai dengan kuantitas yang diretur.';
-        }
-
         $owned = ProductSerialNumber::query()
             ->whereIn('id', $serialIds)
             ->where('dispatch_detail_id', $source['dispatch_detail_id'])
             ->count();
+        // A replacement standing in for a return-registered unit belongs to that unit's source line.
+        $owned += $serialIds->filter(fn ($id) => ! ProductSerialNumber::query()->whereKey($id)->where('dispatch_detail_id', $source['dispatch_detail_id'])->exists()
+            && \App\Support\SalesReturn\SerialRegistration\RegisteredOccurrences::sourceDispatchDetailId((int) $id) === (int) $source['dispatch_detail_id'])->count();
 
         if ($owned !== $serialIds->count()) {
             return 'Nomor seri tidak berasal dari pengiriman terkait.';
@@ -152,7 +212,7 @@ class StandardReturnClaimService
             ->get(['serial_number_ids'])
             ->contains(fn ($detail) => collect($detail->serial_number_ids ?? [])
                 ->map(fn ($id) => (int) $id)
-                ->intersect($serialIds)
+                ->intersect($serialIds->reject(fn ($id) => \App\Support\SalesReturn\SerialRegistration\RegisteredOccurrences::isReReturnable((int) $id, $excludeSaleReturnId)))
                 ->isNotEmpty());
 
         return $reserved ? 'Nomor seri sudah diretur pada dokumen lain.' : null;

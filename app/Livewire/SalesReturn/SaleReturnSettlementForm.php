@@ -76,7 +76,8 @@ class SaleReturnSettlementForm extends Component
             $existingSettlements = $this->saleReturn->settlementItems
                 ->where('sale_return_detail_id', $detail->id);
 
-            if ($detail->product->serial_number_required) {
+            if ($detail->product->serial_number_required || ! empty($detail->serial_number_ids)) {
+                // Received serial evidence (including return-registered serials) decides the occurrence shape.
                 // Get ProductSerialNumber entities
                 $snEntities = ProductSerialNumber::whereIn('id', $detail->serial_number_ids ?? [])->get();
                 
@@ -345,7 +346,7 @@ class SaleReturnSettlementForm extends Component
 
                 $serialId = ! empty($line['serial_number_id']) ? (int) $line['serial_number_id'] : null;
                 $claimedSerialIds = collect($detail->serial_number_ids ?? [])->map(fn ($id) => (int) $id)->all();
-                $requiresSerial = (bool) optional($detail->product)->serial_number_required;
+                $requiresSerial = (bool) optional($detail->product)->serial_number_required || $claimedSerialIds !== [];
                 if ($requiresSerial && ($serialId === null || ! in_array($serialId, $claimedSerialIds, true))) {
                     throw new \App\Support\SalesReturn\SalesReturnWorkflowException('Nomor seri tidak termasuk dalam rincian retur ini.', (int) $this->saleReturn->sale_id);
                 }

@@ -111,7 +111,10 @@ class SaleReturnTable extends Component
 
         $current = collect($this->rows[$index]['serial_numbers'] ?? []);
 
-        $exists = $current->firstWhere('id', $serial['id'] ?? null);
+        $pending = ! empty($serial['pending']) && empty($serial['id']);
+        $exists = $pending
+            ? $current->contains(fn ($entry) => empty($entry['id']) && ($entry['serial_number'] ?? null) === ($serial['serial_number'] ?? null))
+            : (! empty($serial['id']) && $current->firstWhere('id', $serial['id']));
         if ($exists) {
             return;
         }
@@ -119,7 +122,7 @@ class SaleReturnTable extends Component
         $current->push([
             'id' => $serial['id'] ?? null,
             'serial_number' => $serial['serial_number'] ?? null,
-        ]);
+        ] + ($pending ? ['pending' => true] : []));
 
         $this->rows[$index]['serial_numbers'] = $current->values()->all();
         $this->rows[$index]['quantity'] = $current->count();

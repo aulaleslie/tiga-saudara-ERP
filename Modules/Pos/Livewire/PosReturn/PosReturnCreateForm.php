@@ -12,6 +12,8 @@ use Modules\Pos\Entities\PosReturnLine;
 
 class PosReturnCreateForm extends Component
 {
+    use Concerns\ManagesPendingSerials;
+
     public $identifier = '';
     public $loading = false;
     public $error = null;
@@ -436,7 +438,17 @@ class PosReturnCreateForm extends Component
         foreach ($this->snapshot['lines'] as $line) {
             $key = self::buildLineKey($line);
             $selection = $this->lineSelections[$key] ?? null;
-            if ($selection) {
+            if ($selection && !empty($line['registration_eligible'])) {
+                // Unknown-serial path: one line per proposed unit; an empty list is still sent when a resolution is
+                // chosen so the server (not the form) rejects the missing serials.
+                $pendingLines = $this->buildPendingSubmissionLines($line, $selection);
+                if ($pendingLines === [] && ($selection['resolution'] ?? 'none') !== PosReturnLine::RESOLUTION_NONE) {
+                    $lines[] = ['sale_detail_id' => $line['sale_detail_id'], 'sale_id' => $line['sale_id'] ?? null, 'pos_transaction_line_id' => $line['pos_transaction_line_id'] ?? null,
+                        'returned_serial_id' => null, 'resolution' => $selection['resolution'], 'quantity' => 1, 'replacement_serial_id' => null,
+                        'replacement_reason' => $selection['replacement_reason'] ?? null, 'bundle_return_scope' => $selection['bundle_return_scope'] ?? null];
+                }
+                array_push($lines, ...$pendingLines);
+            } elseif ($selection) {
                 $built = $this->buildSubmissionLineFor($line, $selection);
                 if ($built) $lines[] = $built;
             }
@@ -501,6 +513,15 @@ class PosReturnCreateForm extends Component
 
                 $isSerial = ($candidateLine['is_tracked'] ?? false) && !empty($candidateLine['serial_number_ids']);
 
+                if (!empty($candidateLine['registration_eligible'])) {
+                    foreach ($selection['pending_serials'] ?? [] as $i => $pending) {
+                        if (empty($pending['replacement_serial_id'])) {
+                            return [$key . '.pending_serials.' . $i . '.replacement_serial_input', 'Serial pengganti harus diisi untuk setiap nomor seri baru.'];
+                        }
+                    }
+                    continue;
+                }
+
                 if ($isSerial && empty($selection['replacement_serial_id'])) {
                     return [$key . '.replacement_serial_input', 'Serial pengganti harus diisi untuk penggantian produk.'];
                 }
@@ -545,6 +566,12 @@ class PosReturnCreateForm extends Component
             return;
         }
 
+        if ($componentError = $this->validateComponentReplacements()) {
+            [$field, $message] = $componentError;
+            $this->addError($field, $message);
+            return;
+        }
+
         try {
             $submissionService = app(PosReturnSubmissionService::class);
             $posReturn = $submissionService->store([
@@ -554,6 +581,8 @@ class PosReturnCreateForm extends Component
                 'source_snapshot_hash' => $this->snapshot['hash'],
                 'lines' => $lines,
                 'line_selections' => $this->lineSelections,
+                'component_pending_serials' => $this->componentPendingSerials,
+                'component_replacement_serials' => $this->componentReplacementPayload(),
             ]);
 
             toast('Retur POS berhasil disimpan sebagai draft.', 'success');

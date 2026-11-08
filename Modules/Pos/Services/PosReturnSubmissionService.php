@@ -24,6 +24,12 @@ class PosReturnSubmissionService
     protected $serialChainResolver;
     protected $bundleComponentResolver;
 
+    /** @var array<string,list<string>> "carrierSaleDetailId:componentProductId" => proposed serial texts (whole-bundle components) */
+    protected array $componentPendingSerials = [];
+
+    /** @var array<string,list<int>> carrierDetailId:componentProductId => replacement serial ids, one per registered component unit */
+    protected array $componentReplacementSerials = [];
+
     public function __construct(
         PosReturnSnapshotService $snapshotService,
         PosReturnQuantityGuard $quantityGuard,
@@ -49,6 +55,9 @@ class PosReturnSubmissionService
      */
     public function store(array $data)
     {
+        $this->componentPendingSerials = $this->normalizeComponentPending($data['component_pending_serials'] ?? []);
+        $this->componentReplacementSerials = $this->normalizeComponentReplacements($data['component_replacement_serials'] ?? []);
+
         return DB::transaction(function () use ($data) {
             $transaction = PosTransaction::with(['customer', 'completedCheckout'])
                 ->findOrFail($data['pos_transaction_id']);
@@ -189,7 +198,11 @@ class PosReturnSubmissionService
                     $componentOriginalQuantity = $quantityPerBundle * $parentRefundableQty;
                 }
 
-                $returnableQty = $resolution === PosReturnLine::RESOLUTION_CASH_RETURN
+                // A registered split-owner component replacement is also measured against the component's own
+                // allocation (the carrier row's nominal quantity is always 0).
+                $componentReplacement = $resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
+                    && $componentOriginalQuantity !== null;
+                $returnableQty = ($resolution === PosReturnLine::RESOLUTION_CASH_RETURN || $componentReplacement)
                     ? $this->quantityGuard->getRefundableQuantity($saleDetail->id, null, $componentOriginalQuantity)
                     : $this->quantityGuard->getReturnableQuantity($saleDetail->dispatch_detail_id, $saleDetail->id);
                 if (!$isSerial && $quantity > $returnableQty) {
@@ -253,6 +266,16 @@ class PosReturnSubmissionService
 
                     if (isset($valuationResult['lines'][$lineKey])) {
                         $expectedCashAmount = (float) $valuationResult['lines'][$lineKey]['refund_amount'];
+                        if (trim((string) ($lineData['pending_serial'] ?? '')) !== '') {
+                            // The valuation covers the key's whole quantity; split it across the per-unit lines.
+                            $unitCount = max(1, (int) collect($validatedLines)->filter(fn ($l) => trim((string) ($l['pending_serial'] ?? '')) !== ''
+                                && (int) $l['sale_detail_id'] === (int) $lineData['sale_detail_id'])->count());
+                            $pendingCashSeen[$lineKey] = ($pendingCashSeen[$lineKey] ?? 0) + 1;
+                            $perUnit = round($expectedCashAmount / $unitCount, 2);
+                            $expectedCashAmount = $pendingCashSeen[$lineKey] < $unitCount
+                                ? $perUnit
+                                : round($expectedCashAmount - $perUnit * ($unitCount - 1), 2);
+                        }
                         $lineTotal = $expectedCashAmount;
                         $valuationErrorMessage = $valuationResult['lines'][$lineKey]['valuation_error'] ?? null;
                     } elseif ($saleDetail) {
@@ -411,6 +434,7 @@ class PosReturnSubmissionService
                 ];
 
                 $returnLine = PosReturnLine::create($returnLineData);
+                $this->persistPendingRegistration($returnLine, $lineData, $preservedClaimUuids ?? []);
                 if ($resolution === PosReturnLine::RESOLUTION_CASH_RETURN) {
                     $totalAmount += $expectedCashAmount;
                 }
@@ -465,7 +489,7 @@ class PosReturnSubmissionService
                 // Task 2.5: Tag replacement lines with their execution mode so
                 // later phases (preview/lifecycle) can read intent without
                 // re-deriving it. cash_return / none lines never get this key.
-                $executionMode = $this->resolveExecutionMode($resolution, $isSerial);
+                $executionMode = $this->resolveExecutionMode($resolution, $isSerial || trim((string) ($lineData['pending_serial'] ?? '')) !== '');
                 if ($executionMode !== null) {
                     $lineMetaUpdate['execution_mode'] = $executionMode;
                 }
@@ -495,7 +519,16 @@ class PosReturnSubmissionService
             throw new \Exception('Hanya retur draft atau ditolak yang dapat diubah.');
         }
 
+        $this->componentPendingSerials = $this->normalizeComponentPending($data['component_pending_serials'] ?? []);
+        $this->componentReplacementSerials = $this->normalizeComponentReplacements($data['component_replacement_serials'] ?? []);
+
         return DB::transaction(function () use ($posReturn, $data) {
+            // Keep claim identity stable across edits (read server-side), then drop the old draft lines
+            // (their unregistered claims cascade with them).
+            $preservedClaimUuids = \Modules\SalesReturn\Entities\ReturnSerialRegistration::query()
+                ->where('workflow', 'pos')->where('pos_return_id', $posReturn->id)
+                ->whereNull('registered_serial_id')->pluck('claim_uuid', 'proposed_serial')->all();
+
             // Delete old associated draft lines
             $posReturn->lines()->delete();
             
@@ -574,7 +607,9 @@ class PosReturnSubmissionService
                     $componentOriginalQuantity = $quantityPerBundle * $parentRefundableQty;
                 }
 
-                $returnableQty = $resolution === PosReturnLine::RESOLUTION_CASH_RETURN
+                $componentReplacement = $resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
+                    && $componentOriginalQuantity !== null;
+                $returnableQty = ($resolution === PosReturnLine::RESOLUTION_CASH_RETURN || $componentReplacement)
                     ? $this->quantityGuard->getRefundableQuantity($saleDetail->id, $posReturn->id, $componentOriginalQuantity)
                     : $this->quantityGuard->getReturnableQuantity($saleDetail->dispatch_detail_id, $saleDetail->id, $posReturn->id);
                 if (!$isSerial && $quantity > $returnableQty) {
@@ -634,6 +669,16 @@ class PosReturnSubmissionService
 
                     if (isset($valuationResult['lines'][$lineKey])) {
                         $expectedCashAmount = (float) $valuationResult['lines'][$lineKey]['refund_amount'];
+                        if (trim((string) ($lineData['pending_serial'] ?? '')) !== '') {
+                            // The valuation covers the key's whole quantity; split it across the per-unit lines.
+                            $unitCount = max(1, (int) collect($validatedLines)->filter(fn ($l) => trim((string) ($l['pending_serial'] ?? '')) !== ''
+                                && (int) $l['sale_detail_id'] === (int) $lineData['sale_detail_id'])->count());
+                            $pendingCashSeen[$lineKey] = ($pendingCashSeen[$lineKey] ?? 0) + 1;
+                            $perUnit = round($expectedCashAmount / $unitCount, 2);
+                            $expectedCashAmount = $pendingCashSeen[$lineKey] < $unitCount
+                                ? $perUnit
+                                : round($expectedCashAmount - $perUnit * ($unitCount - 1), 2);
+                        }
                         $lineTotal = $expectedCashAmount;
                         $valuationErrorMessage = $valuationResult['lines'][$lineKey]['valuation_error'] ?? null;
                     } elseif ($saleDetail) {
@@ -772,6 +817,7 @@ class PosReturnSubmissionService
                 ];
 
                 $returnLine = PosReturnLine::create($returnLineData);
+                $this->persistPendingRegistration($returnLine, $lineData, $preservedClaimUuids ?? []);
                 if ($resolution === PosReturnLine::RESOLUTION_CASH_RETURN) {
                     $totalAmount += $expectedCashAmount;
                 }
@@ -822,7 +868,7 @@ class PosReturnSubmissionService
                 // Task 2.5: Tag replacement lines with their execution mode so
                 // later phases (preview/lifecycle) can read intent without
                 // re-deriving it. cash_return / none lines never get this key.
-                $executionMode = $this->resolveExecutionMode($resolution, $isSerial);
+                $executionMode = $this->resolveExecutionMode($resolution, $isSerial || trim((string) ($lineData['pending_serial'] ?? '')) !== '');
                 if ($executionMode !== null) {
                     $lineMetaUpdate['execution_mode'] = $executionMode;
                 }
@@ -860,6 +906,11 @@ class PosReturnSubmissionService
         }
 
         return DB::transaction(function () use ($posReturn) {
+            // Serialize competing submissions against the SAME source. This must be the FIRST statement: under
+            // REPEATABLE READ any earlier plain read would pin a snapshot that predates the winner's commit,
+            // and the claim re-check below would then miss the winner's quantities.
+            \Modules\Pos\Entities\PosTransaction::query()->whereKey($posReturn->pos_transaction_id)->lockForUpdate()->first();
+
             $lockedReturn = PosReturn::query()
                 ->with('lines')
                 ->whereKey($posReturn->id)
@@ -886,9 +937,23 @@ class PosReturnSubmissionService
             $this->assertNoMixedWorkflowHistory((int) $lockedReturn->pos_checkout_id);
             $currentSnapshot = $this->snapshotService->build($transaction->id);
 
+            $pendingClaims = \Modules\SalesReturn\Entities\ReturnSerialRegistration::query()
+                ->where('workflow', 'pos')->where('pos_return_id', $lockedReturn->id)
+                ->whereNull('registered_serial_id')->pluck('proposed_serial', 'pos_return_line_id');
+
+            // Whole-bundle component proposals are re-synthesized from the parent line: feed them from the persisted claims.
+            $isComponentLine = fn (PosReturnLine $l) => $l->bundle_parent_sale_detail_id && (int) $l->bundle_parent_sale_detail_id !== (int) $l->sale_detail_id;
+            $this->componentPendingSerials = [];
+            foreach ($lockedReturn->lines as $l) {
+                if ($isComponentLine($l) && $pendingClaims->has($l->id)) {
+                    $this->componentPendingSerials[$l->sale_detail_id . ':' . $l->product_id][] = $pendingClaims->get($l->id);
+                }
+            }
+
             $this->validateDraftLines(
-                $lockedReturn->lines->map(function (PosReturnLine $line) {
+                $lockedReturn->lines->map(function (PosReturnLine $line) use ($pendingClaims, $isComponentLine) {
                     return [
+                        'pending_serial' => $isComponentLine($line) ? null : $pendingClaims->get($line->id),
                         'sale_detail_id' => $line->sale_detail_id,
                         'sale_id' => $line->sale_id,
                         'pos_transaction_line_id' => $line->pos_transaction_line_id,
@@ -984,11 +1049,15 @@ class PosReturnSubmissionService
                 ? (($l['pos_transaction_line_id'] ?? $l['sale_detail_id']) . '-' . $l['returned_serial_id'])
                 : (string) $l['sale_detail_id'];
 
+            // Per-unit proposed-serial lines share their source key: their quantities add up.
+            $isPendingUnit = trim((string) ($l['pending_serial'] ?? '')) !== '';
+            $carried = ($isPendingUnit && isset($selections[$key]['__pending_total'])) ? (float) $selections[$key]['__pending_total'] : 0.0;
+
             $selections[$key] = [
                 'resolution' => $l['resolution'] ?? PosReturnLine::RESOLUTION_NONE,
-                'quantity' => $l['quantity'] ?? 0,
+                'quantity' => ($l['quantity'] ?? 0) + $carried,
                 'bundle_return_scope' => $l['bundle_return_scope'] ?? null,
-            ];
+            ] + ($isPendingUnit ? ['__pending_total' => ($l['quantity'] ?? 0) + $carried] : []);
         }
 
         return $selections;
@@ -1003,6 +1072,9 @@ class PosReturnSubmissionService
     {
         $validatedLines = [];
         $usedReplacementSerialIds = [];
+        $pendingProposals = [];
+        $pendingPerSaleDetail = [];
+        $chainClaims = [];
 
         foreach ($lines as $lineData) {
             $resolution = $lineData['resolution'] ?? PosReturnLine::RESOLUTION_NONE;
@@ -1155,6 +1227,29 @@ class PosReturnSubmissionService
                 }
             }
 
+            // Unknown-serial registration: eligibility is derived from persisted fulfillment of the resolved
+            // dispatch line (never from client flags). One proposed serial == one unit == one line.
+            $pendingText = trim((string) ($lineData['pending_serial'] ?? ''));
+            $isPending = $pendingText !== '';
+            $registration = $this->registrationEligibility($effectiveProductId, (int) $resolvedDispatchDetailId);
+            if ($isPending) {
+                if ($isSerial) {
+                    throw new \Exception('Nomor seri terdaftar dan nomor seri baru tidak dapat digabung pada satu baris retur.');
+                }
+                if ($isSynthesizedComponentLine || $this->isBundleComponentAllocationRow($saleDetail)) {
+                    throw new \Exception('Nomor seri komponen bundel didaftarkan melalui retur seluruh paket.');
+                }
+                if (! $registration['eligible']) {
+                    throw new \Exception("Nomor seri baru hanya dapat didaftarkan untuk penjualan tanpa nomor seri tercatat pada produk yang kini wajib bernomor seri ({$saleDetail->product_name}).");
+                }
+                $quantity = 1;
+                $normalizedPending = \Modules\Product\Entities\ProductSerialNumber::normalize($pendingText);
+                $pendingProposals[] = ['product_id' => $effectiveProductId, 'serial' => $normalizedPending, 'key' => count($pendingProposals)];
+                $lineData['pending_serial'] = $normalizedPending;
+            } elseif (! $isSerial && $registration['eligible'] && ! $isSynthesizedComponentLine && ! $this->isBundleComponentAllocationRow($saleDetail)) {
+                throw new \Exception("Nomor seri wajib diisi untuk setiap unit {$saleDetail->product_name} yang diretur (produk kini wajib bernomor seri).");
+            }
+
             if ($isSerial) {
                 if ($resolvedDispatchDetailId <= 0) {
                     throw new \Exception('Lineage pengiriman sumber untuk serial tidak valid.');
@@ -1192,7 +1287,10 @@ class PosReturnSubmissionService
             // lines are checked against refundable (not resolution-agnostic
             // returned) quantity, so a prior product_replacement never blocks
             // a later cash_return for the same logical quantity.
-            $returnableQty = $resolution === PosReturnLine::RESOLUTION_CASH_RETURN
+            // A registered split-owner component replacement is measured against the component's own allocation.
+            $componentReplacement = $resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
+                && $componentOriginalQuantity !== null;
+            $returnableQty = ($resolution === PosReturnLine::RESOLUTION_CASH_RETURN || $componentReplacement)
                 ? $this->quantityGuard->getRefundableQuantity($saleDetail->id, $ignorePosReturnId, $componentOriginalQuantity)
                 : $this->quantityGuard->getReturnableQuantity($saleDetail->dispatch_detail_id, $saleDetail->id, $ignorePosReturnId);
 
@@ -1200,11 +1298,29 @@ class PosReturnSubmissionService
                 throw new \Exception("Kuantitas retur melebihi batas yang diizinkan untuk produk {$saleDetail->product_name}.");
             }
 
+            // A customer-held occurrence that originates from return registration is one unit of its quantity-based
+            // source: it must fit the source's remaining entitlement together with every other claim (counted once).
+            if ($isSerial && $this->isRegisteredChainOccurrence((int) $returnedSerialId, (int) $resolvedDispatchDetailId, $currentSnapshot['header']['checkout_id'] ?? null)) {
+                $chainKey = $saleDetail->id . ':' . $resolution;
+                $chainClaims[$chainKey] = ($chainClaims[$chainKey] ?? 0) + 1;
+                if ($chainClaims[$chainKey] + ($pendingPerSaleDetail[$chainKey] ?? 0) > $returnableQty) {
+                    throw new \Exception("Kuantitas retur melebihi batas yang diizinkan untuk produk {$saleDetail->product_name}.");
+                }
+            }
+
+            if ($isPending) {
+                $pendingKey = $saleDetail->id . ':' . $resolution;
+                $pendingPerSaleDetail[$pendingKey] = ($pendingPerSaleDetail[$pendingKey] ?? 0) + 1;
+                if ($pendingPerSaleDetail[$pendingKey] + ($chainClaims[$pendingKey] ?? 0) > $returnableQty) {
+                    throw new \Exception("Jumlah nomor seri baru melebihi sisa kuantitas yang dapat diretur untuk produk {$saleDetail->product_name}.");
+                }
+            }
+
             $replacementSerialId = $resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
                 ? ($lineData['replacement_serial_id'] ?? null)
                 : null;
 
-            if ($resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT && $isSerial && empty($replacementSerialId)) {
+            if ($resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT && ($isSerial || $isPending) && empty($replacementSerialId)) {
                 throw new \Exception('Serial pengganti harus diisi untuk penggantian produk.');
             }
 
@@ -1213,6 +1329,7 @@ class PosReturnSubmissionService
             // it optional.
             if ($resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
                 && !$isSerial
+                && !$isPending
                 && trim((string) ($lineData['replacement_reason'] ?? '')) === '') {
                 throw new \Exception('Alasan penggantian wajib diisi untuk penggantian produk non-serial.');
             }
@@ -1234,7 +1351,7 @@ class PosReturnSubmissionService
                 // replaced regardless of which row carries it.
                 $effectiveReplacementProductId = $isSerial && $returnedSerialId
                     ? (int) (ProductSerialNumber::find($returnedSerialId)->product_id ?? $saleDetail->product_id)
-                    : (int) $saleDetail->product_id;
+                    : (int) (($isTaggedComponentLine && ! empty($lineData['__component_product_id'])) ? $lineData['__component_product_id'] : $saleDetail->product_id);
 
                 $this->replacementGuard->validateReplacementSerial(
                     $effectiveReplacementProductId,
@@ -1251,6 +1368,20 @@ class PosReturnSubmissionService
             $lineData['replacement_serial_id'] = $replacementSerialId;
             $lineData['__resolved_dispatch_detail_id'] = $resolvedDispatchDetailId;
             $validatedLines[] = $lineData;
+        }
+
+        if ($pendingProposals !== []) {
+            $errors = app(\App\Support\SalesReturn\SerialRegistration\PendingSerialValidator::class)->validate($pendingProposals);
+            if ($errors !== []) {
+                $reason = match (reset($errors)) {
+                    \App\Support\SalesReturn\SerialRegistration\PendingSerialValidator::ERROR_ALREADY_REGISTERED => 'sudah terdaftar; gunakan pencarian nomor seri yang ada',
+                    \App\Support\SalesReturn\SerialRegistration\PendingSerialValidator::ERROR_DUPLICATE => 'duplikat',
+                    \App\Support\SalesReturn\SerialRegistration\PendingSerialValidator::ERROR_TOO_LONG => 'terlalu panjang',
+                    default => 'tidak valid',
+                };
+                $bad = $pendingProposals[array_key_first($errors)]['serial'] ?? '';
+                throw new \Exception("Nomor seri baru {$bad} {$reason}.");
+            }
         }
 
         $hasActionable = collect($validatedLines)->contains(function (array $lineData) {
@@ -1315,7 +1446,14 @@ class PosReturnSubmissionService
     protected function synthesizeBundleCashReturnComponents(array $validatedLines, array $usedReplacementSerialIds, ?int $ignorePosReturnId = null): array
     {
         $cashReturnLines = collect($validatedLines)->filter(function (array $lineData) {
-            return ($lineData['resolution'] ?? null) === PosReturnLine::RESOLUTION_CASH_RETURN;
+            if (($lineData['resolution'] ?? null) === PosReturnLine::RESOLUTION_CASH_RETURN) {
+                return true;
+            }
+
+            // A whole-bundle REPLACEMENT may replace registered components unit by unit (see componentReplacementSerials).
+            return ($lineData['resolution'] ?? null) === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
+                && ($this->componentReplacementSerials !== [] || $this->componentPendingSerials !== [])
+                && ($lineData['bundle_return_scope'] ?? null) === PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE;
         });
 
         if ($cashReturnLines->isEmpty()) {
@@ -1416,6 +1554,7 @@ class PosReturnSubmissionService
         }
 
         $synthesized = [];
+        $pendingComponentProposals = [];
         $handledComponentSaleDetailIds = [];
 
         foreach ($cashReturnLines as $lineData) {
@@ -1432,6 +1571,7 @@ class PosReturnSubmissionService
                 continue;
             }
 
+            $replacementMode = ($lineData['resolution'] ?? null) === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT;
             $parentQuantity = (float) ($lineData['quantity'] ?? 0);
             $bundleGroupKey = 'bundle-' . $saleDetailId;
             $bundleId = $parentInfo['catalog_items']->first()->bundle_id ?? null;
@@ -1544,6 +1684,24 @@ class PosReturnSubmissionService
                 $componentProduct = $bundleItem->product ?? \Modules\Product\Entities\Product::find($componentProductId);
                 $componentIsSerial = (bool) ($componentProduct->serial_number_required ?? false);
 
+                // A component that now requires tracking but whose fulfillment recorded no serials is a quantity-only
+                // source: it keeps its own allocation quantity and registers one proposed serial per unit instead.
+                $registerComponent = $componentIsSerial
+                    && $this->registrationEligibility($componentProductId, (int) $componentDispatchDetailId)['eligible'];
+                if ($registerComponent) {
+                    $componentIsSerial = false;
+                }
+
+                // Replacement mode synthesizes ONLY the registered components the user chose to replace; every other
+                // component keeps the parent line's existing (unchanged) replacement semantics.
+                $replacementKey = $carrierDetail->id . ':' . $componentProductId;
+                if ($replacementMode && ! isset($this->componentReplacementSerials[$replacementKey]) && empty($this->componentPendingSerials[$replacementKey])) {
+                    continue;
+                }
+                if ($replacementMode && ! $registerComponent) {
+                    throw new \Exception("Komponen {$componentProduct->product_name} tidak memenuhi syarat penggantian dengan nomor seri baru.");
+                }
+
                 // Dedupe key: the carrier row's id alone is NOT a unique
                 // identity for a component (the same carrier row can host
                 // multiple distinct components) — key by carrier id +
@@ -1645,6 +1803,29 @@ class PosReturnSubmissionService
                     }
                 }
 
+                $componentTexts = $registerComponent
+                    ? ($this->componentPendingSerials[$carrierDetail->id . ':' . $componentProductId] ?? [])
+                    : [];
+                if ($registerComponent && abs(count($componentTexts) - $componentQuantity) > 0.0001) {
+                    throw new \Exception("Nomor seri wajib diisi untuk setiap unit komponen {$componentInfo['component_product_name']} ({$componentQuantity} unit).");
+                }
+
+                $componentReplacements = ($registerComponent && $replacementMode)
+                    ? ($this->componentReplacementSerials[$replacementKey] ?? [])
+                    : [];
+                if ($replacementMode && count($componentReplacements) !== count($componentTexts)) {
+                    throw new \Exception("Setiap unit komponen {$componentInfo['component_product_name']} yang diganti membutuhkan tepat satu serial pengganti.");
+                }
+                foreach ($componentReplacements as $replacementId) {
+                    if (in_array($replacementId, $usedReplacementSerialIds, true)) {
+                        throw new \Exception('Serial pengganti tidak boleh digunakan lebih dari satu kali dalam retur yang sama.');
+                    }
+                    // Same SKU / owner / stock checks as every other serialized replacement, against the COMPONENT product.
+                    $this->replacementGuard->validateReplacementSerial($componentProductId, (int) $replacementId, null, $ignorePosReturnId);
+                    $usedReplacementSerialIds[] = $replacementId;
+                }
+
+                foreach ($registerComponent ? $componentTexts : [null] as $componentUnitIndex => $componentText) {
                 $synthesized[] = [
                     'sale_id' => $componentSaleId,
                     // Corrections/10: the CARRIER row's id — the only real
@@ -1672,6 +1853,20 @@ class PosReturnSubmissionService
                     '__component_dispatch_detail_id' => $componentDispatchDetailId,
                     '__sale_bundle_item_id' => $bundleItem->id,
                 ];
+                if ($componentText !== null) {
+                    $last = array_key_last($synthesized);
+                    $synthesized[$last]['quantity'] = 1;
+                    if ($componentReplacements !== []) {
+                        // Registered original replaced from the component owner's own serialized stock: the replacement
+                        // must be a serial of the SAME component product (validated with the other replacement checks).
+                        $synthesized[$last]['resolution'] = PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT;
+                        $synthesized[$last]['replacement_serial_id'] = $componentReplacements[$componentUnitIndex];
+                        $synthesized[$last]['replacement_reason'] = $lineData['replacement_reason'] ?? null;
+                    }
+                    $synthesized[$last]['pending_serial'] = $componentText;
+                    $pendingComponentProposals[] = ['product_id' => $componentProductId, 'serial' => $componentText, 'key' => count($pendingComponentProposals)];
+                }
+                }
             }
 
             // Tag the parent line itself with identity columns so it shares the
@@ -1679,6 +1874,22 @@ class PosReturnSubmissionService
             $lineData['__bundle_parent_sale_detail_id'] = $saleDetailId;
             $lineData['__bundle_group_key'] = $bundleGroupKey;
             $lineData['__bundle_quantity'] = $parentQuantity;
+        }
+
+        if ($pendingComponentProposals !== []) {
+            // Component proposals must be distinct from each other and from every other proposal of this request.
+            $all = $pendingComponentProposals;
+            foreach ($validatedLines as $vl) {
+                $text = trim((string) ($vl['pending_serial'] ?? ''));
+                if ($text !== '' && empty($vl['__component_product_id'])) {
+                    $all[] = ['product_id' => (int) SaleDetails::query()->whereKey($vl['sale_detail_id'])->value('product_id'), 'serial' => $text, 'key' => count($all)];
+                }
+            }
+            $errors = app(\App\Support\SalesReturn\SerialRegistration\PendingSerialValidator::class)->validate($all);
+            if ($errors !== []) {
+                $bad = $all[array_key_first($errors)]['serial'] ?? '';
+                throw new \Exception("Nomor seri baru {$bad} " . (reset($errors) === \App\Support\SalesReturn\SerialRegistration\PendingSerialValidator::ERROR_ALREADY_REGISTERED ? 'sudah terdaftar; gunakan pencarian nomor seri yang ada' : 'tidak valid atau duplikat') . '.');
+            }
         }
 
         $hasBundleParents = collect($validatedLines)->contains(function ($l) use ($parentToCatalogComponents) {
@@ -2195,7 +2406,7 @@ class PosReturnSubmissionService
                 $componentProductId = (int) $catalogItem->product_id;
                 $quantityPerBundle = (float) $catalogItem->quantity;
                 $lines = $componentLines[$componentProductId];
-                $isSerialComponent = collect($lines)->contains(fn ($l) => !empty($l['returned_serial_id']));
+                $isSerialComponent = collect($lines)->contains(fn ($l) => !empty($l['returned_serial_id']) || !empty($l['pending_serial']));
 
                 $componentQuantity = $isSerialComponent
                     ? (float) count($lines)
@@ -2363,6 +2574,12 @@ class PosReturnSubmissionService
                 ->all();
         }
 
+        // Serials created by return registration are return-time lineage, never original fulfillment evidence.
+        $registered = app(\App\Support\SalesReturn\SerialRegistration\HistoricalFulfillmentClassifier::class)->returnCreatedSerialIdsForSource(array_map('intval', $serialIds), (int) $dispatchDetailId);
+        if ($registered !== []) {
+            $serialIds = array_values(array_diff(array_map('intval', $serialIds), $registered));
+        }
+
         if (empty($serialIds)) {
             $firstRepl = PosReturnLine::query()
                 ->join('pos_returns', 'pos_return_lines.pos_return_id', '=', 'pos_returns.id')
@@ -2373,7 +2590,8 @@ class PosReturnSubmissionService
                 ->orderBy('pos_return_lines.id', 'ASC')
                 ->first();
 
-            if ($firstRepl && $firstRepl->returned_serial_id) {
+            if ($firstRepl && $firstRepl->returned_serial_id
+                && ! in_array((int) $firstRepl->returned_serial_id, app(\App\Support\SalesReturn\SerialRegistration\HistoricalFulfillmentClassifier::class)->returnCreatedSerialIdsForSource([(int) $firstRepl->returned_serial_id], (int) $dispatchDetailId), true)) {
                 $serialIds = [(int) $firstRepl->returned_serial_id];
             }
         }
@@ -2467,6 +2685,89 @@ class PosReturnSubmissionService
      * carry this key so a whole-bundle cash return never gets tagged
      * non_serial_note_only.
      */
+    /** @return array<string,list<int>> */
+    protected function normalizeComponentReplacements(array $input): array
+    {
+        $out = [];
+        foreach ($input as $key => $ids) {
+            $clean = collect((array) $ids)->map(fn ($id) => (int) $id)->filter(fn ($id) => $id > 0)->values()->all();
+            if ($clean !== []) {
+                $out[(string) $key] = $clean;
+            }
+        }
+
+        return $out;
+    }
+
+    /** @return array<string,list<string>> */
+    protected function normalizeComponentPending(array $input): array
+    {
+        $out = [];
+        foreach ($input as $key => $texts) {
+            $clean = collect((array) $texts)->map(fn ($t) => trim((string) $t))->filter(fn ($t) => $t !== '')
+                ->map(fn ($t) => ProductSerialNumber::normalize($t))->values()->all();
+            if ($clean !== []) {
+                $out[(string) $key] = $clean;
+            }
+        }
+
+        return $out;
+    }
+
+    /** True when $serialId is the current customer-held end of a chain rooted at a serial registered by a POS return on this dispatch line. */
+    public function isRegisteredChainOccurrence(int $serialId, int $dispatchDetailId, $posCheckoutId = null): bool
+    {
+        if ($serialId <= 0 || $dispatchDetailId <= 0) {
+            return false;
+        }
+        $lineIds = PosReturnLine::query()->where('dispatch_detail_id', $dispatchDetailId)->pluck('id');
+        if ($lineIds->isEmpty()) {
+            return false;
+        }
+        $roots = \Modules\SalesReturn\Entities\ReturnSerialRegistration::query()
+            ->where('workflow', 'pos')->whereNotNull('registered_serial_id')
+            ->whereIn('pos_return_line_id', $lineIds->all())->pluck('registered_serial_id');
+        foreach ($roots as $root) {
+            try {
+                if ($this->serialChainResolver->resolveCurrentHeldSerial((int) $root, $posCheckoutId ? (int) $posCheckoutId : null, null, $dispatchDetailId) === $serialId) {
+                    return true;
+                }
+            } catch (\Throwable $e) {
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array{eligible: bool, classification: ?string}
+     */
+    protected function registrationEligibility(int $productId, int $dispatchDetailId): array
+    {
+        if ($productId <= 0 || $dispatchDetailId <= 0) {
+            return ['eligible' => false, 'classification' => null];
+        }
+        $dispatch = \Modules\Sale\Entities\DispatchDetail::query()->find($dispatchDetailId);
+        if (! $dispatch || (int) $dispatch->product_id !== $productId) {
+            return ['eligible' => false, 'classification' => null];
+        }
+        $class = app(\App\Support\SalesReturn\SerialRegistration\HistoricalFulfillmentClassifier::class)->forDispatchDetail($dispatch);
+        $tracked = (bool) \Modules\Product\Entities\Product::query()->whereKey($productId)->value('serial_number_required');
+
+        return ['eligible' => $tracked && $class->allowsUnknownSerialRegistration(), 'classification' => $class->type];
+    }
+
+    /** Persist a proposed serial for a just-created line (no inventory; preserves claim identity on edit). */
+    protected function persistPendingRegistration(PosReturnLine $line, array $lineData, array $preservedClaimUuids = []): void
+    {
+        $text = trim((string) ($lineData['pending_serial'] ?? ''));
+        if ($text === '' || ! empty($line->returned_serial_id)) {
+            return;
+        }
+        app(\App\Support\SalesReturn\SerialRegistration\ReturnSerialRegistrationService::class)
+            ->savePosProposal($line, $text, $preservedClaimUuids);
+    }
+
     protected function resolveExecutionMode(string $resolution, bool $isSerial): ?string
     {
         if ($resolution !== PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT) {

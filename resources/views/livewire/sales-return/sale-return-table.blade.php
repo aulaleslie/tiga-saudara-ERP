@@ -102,7 +102,11 @@
                                             <tbody>
                                                 @forelse (($row['serial_numbers'] ?? []) as $serialIndex => $serial)
                                                     <tr>
-                                                        <td>{{ $serial['serial_number'] ?? '-' }}</td>
+                                                        <td>{{ $serial['serial_number'] ?? '-' }}
+                                                            @if (!empty($serial['pending']))
+                                                                <span class="badge bg-warning text-dark ms-1">Belum terdaftar &ndash; didaftarkan saat barang diterima</span>
+                                                            @endif
+                                                        </td>
                                                         <td class="text-center">
                                                             @if (!$approvalLocked)
                                                                 <button type="button" class="btn btn-outline-danger btn-sm rounded-circle"
