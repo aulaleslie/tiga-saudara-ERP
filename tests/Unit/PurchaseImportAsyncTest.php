@@ -31,6 +31,16 @@ class PurchaseImportAsyncTest extends TestCase
         $this->cleanupTestData();
     }
 
+    protected function tearDown(): void
+    {
+        // This test writes outside a transaction (RefreshDatabase is disabled); without
+        // cleaning up here its users/batches/rows leak into whichever test runs next on
+        // the shared SQLite database.
+        $this->cleanupTestData();
+
+        parent::tearDown();
+    }
+
     protected function cleanupTestData()
     {
         $schema = \Illuminate\Support\Facades\Schema::connection('sqlite');

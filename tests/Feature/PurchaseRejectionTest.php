@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Gate;
 use Modules\Currency\Entities\Currency;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Setting\Entities\Setting;
@@ -44,6 +43,13 @@ class PurchaseRejectionTest extends TestCase
 
         $this->user = User::factory()->create();
 
+        // Lifecycle transitions are permission-gated (PurchaseLifecycleService::authorizeAction):
+        // reset/submit need purchases.update, approve/reject need purchases.approval.
+        foreach (['purchases.update', 'purchases.approval'] as $permission) {
+            \Spatie\Permission\Models\Permission::findOrCreate($permission, 'web');
+        }
+        $this->user->givePermissionTo(['purchases.update', 'purchases.approval']);
+
         \Modules\People\Entities\Supplier::create([
             'id' => 1,
             'supplier_name' => 'Test Supplier',
@@ -58,11 +64,6 @@ class PurchaseRejectionTest extends TestCase
 
     public function test_purchase_rejection_captures_reason(): void
     {
-        Gate::shouldReceive('denies')->andReturnFalse();
-        Gate::shouldReceive('allows')->andReturnTrue();
-        Gate::shouldReceive('any')->andReturnTrue();
-        Gate::shouldReceive('check')->andReturnTrue();
-
         $purchase = Purchase::create([
             'date' => now(),
             'due_date' => now()->addDays(7),
@@ -92,13 +93,37 @@ class PurchaseRejectionTest extends TestCase
         $this->assertEquals($rejectionReason, $purchase->rejection_note);
     }
 
+    public function test_rejection_without_approval_permission_is_forbidden_and_leaves_status_unchanged(): void
+    {
+        $this->user->revokePermissionTo('purchases.approval');
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+
+        $purchase = Purchase::create([
+            'date' => now(),
+            'due_date' => now()->addDays(7),
+            'supplier_id' => 1,
+            'total_amount' => 1000,
+            'paid_amount' => 0,
+            'due_amount' => 1000,
+            'status' => Purchase::STATUS_WAITING_APPROVAL,
+            'payment_status' => 'Unpaid',
+            'payment_method' => 'Cash',
+            'setting_id' => $this->setting->id,
+        ]);
+
+        $this->actingAs($this->user)
+            ->withSession(['setting_id' => $this->setting->id])
+            ->patch(route('purchases.updateStatus', $purchase->id), [
+                'status' => Purchase::STATUS_REJECTED,
+                'rejection_note' => 'No permission',
+            ])
+            ->assertForbidden();
+
+        $this->assertEquals(Purchase::STATUS_WAITING_APPROVAL, $purchase->fresh()->status);
+    }
+
     public function test_purchase_acknowledgement_resets_to_draft(): void
     {
-        Gate::shouldReceive('denies')->andReturnFalse();
-        Gate::shouldReceive('allows')->andReturnTrue();
-        Gate::shouldReceive('any')->andReturnTrue();
-        Gate::shouldReceive('check')->andReturnTrue();
-
         $purchase = Purchase::create([
             'date' => now(),
             'due_date' => now()->addDays(7),
@@ -129,11 +154,6 @@ class PurchaseRejectionTest extends TestCase
 
     public function test_rejection_requires_reason(): void
     {
-        Gate::shouldReceive('denies')->andReturnFalse();
-        Gate::shouldReceive('allows')->andReturnTrue();
-        Gate::shouldReceive('any')->andReturnTrue();
-        Gate::shouldReceive('check')->andReturnTrue();
-
         $purchase = Purchase::create([
             'date' => now(),
             'due_date' => now()->addDays(7),

@@ -830,7 +830,7 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
         PosCheckoutSale::create([
             'pos_checkout_id' => $checkout1->id,
             'split_key' => '1_10_notax',
-            'source_setting_id' => 1,
+            'source_setting_id' => $this->setting1->id,
             'source_location_id' => $location1->id,
             'tax_bucket' => 'notax',
             'sale_id' => $retSale1->id,
@@ -842,7 +842,7 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
         PosCheckoutSale::create([
             'pos_checkout_id' => $checkout1->id,
             'split_key' => '2_20_notax',
-            'source_setting_id' => 1,
+            'source_setting_id' => $this->setting1->id,
             'source_location_id' => $location1->id,
             'tax_bucket' => 'notax',
             'sale_id' => $paySale1->id,
@@ -903,7 +903,7 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
         PosCheckoutSale::create([
             'pos_checkout_id' => $checkout2->id,
             'split_key' => '1_10_notax',
-            'source_setting_id' => 1,
+            'source_setting_id' => $this->setting1->id,
             'source_location_id' => $location1->id,
             'tax_bucket' => 'notax',
             'sale_id' => $retSale2->id,

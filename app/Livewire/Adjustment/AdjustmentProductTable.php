@@ -483,20 +483,6 @@ class AdjustmentProductTable extends Component
 
     public function locationSelected($locationId): void
     {
-        $locationId = (int) $locationId;
-        $loc = Location::where('id', $locationId)
-            ->where('setting_id', session('setting_id'))
-            ->where('is_active', true)
-            ->where('is_consignment', false)
-            ->first();
-
-        if (!$loc) {
-            $this->feedbackMessage = 'Lokasi tidak ditemukan atau bukan milik pengaturan aktif.';
-            $this->feedbackType = 'danger';
-            $this->dispatch('setSelectedLocation', locationId: $this->locationId);
-            return;
-        }
-
         $this->handleLocationsChange([$locationId]);
     }
 

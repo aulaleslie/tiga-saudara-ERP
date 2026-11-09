@@ -70,7 +70,7 @@ class CostCalculationServicesTest extends TestCase
         $saleDetail->quantity = 2;
         $saleDetail->setRelation('product', $product);
 
-        $service = new SalesCostSnapshotService();
+        $service = app(SalesCostSnapshotService::class);
         $service->snapshotSaleDetailCost($saleDetail);
 
         $this->assertEquals(0, $saleDetail->cost_unit_snapshot);
@@ -88,7 +88,7 @@ class CostCalculationServicesTest extends TestCase
         $saleDetail->quantity = 2;
         $saleDetail->setRelation('product', $product);
 
-        $service = new SalesCostSnapshotService();
+        $service = app(SalesCostSnapshotService::class);
         $service->snapshotSaleDetailCost($saleDetail);
 
         $this->assertEquals(0, $saleDetail->cost_unit_snapshot);
@@ -106,8 +106,10 @@ class CostCalculationServicesTest extends TestCase
         $saleDetail->quantity = 1.5; // Decimal qty
         $saleDetail->setRelation('product', $product);
 
-        $service = new SalesCostSnapshotService();
-        $service->snapshotSaleDetailCost($saleDetail);
+        // Costs resolve per physical owner setting (AverageCostResolver); a detail
+        // without a Sale needs the owner setting passed explicitly.
+        $service = app(SalesCostSnapshotService::class);
+        $service->snapshotSaleDetailCost($saleDetail, null, 1);
 
         $this->assertEquals(12500.333333, $saleDetail->cost_unit_snapshot);
         // 12500.333333 * 1.5 = 18750.50

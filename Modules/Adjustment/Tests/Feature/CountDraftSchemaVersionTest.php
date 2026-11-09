@@ -209,11 +209,14 @@ class CountDraftSchemaVersionTest extends TestCase
         $this->assertArrayHasKey('position', $firstLoc);
         $this->assertEquals(1, $firstLoc['position']);
 
-        // Rows have per-location baselines instead of single baseline
+        // Per-location evidence also supplies the combined display baseline.
         $firstRow = $draft['rows'][0];
         $this->assertArrayHasKey('location_baselines', $firstRow);
         $this->assertCount(2, $firstRow['location_baselines']);
-        $this->assertArrayNotHasKey('baseline', $firstRow); // v1 key absent
+        $this->assertSame(8, $firstRow['baseline']['existing_good_total']);
+        foreach (['existing_good_total', 'existing_good_tax', 'existing_good_non_tax', 'existing_bad_total', 'existing_bad_tax', 'existing_bad_non_tax'] as $field) {
+            $this->assertSame(array_sum(array_column($firstRow['location_baselines'], $field)), $firstRow['baseline'][$field]);
+        }
         $this->assertArrayNotHasKey('tax_allocation', $firstRow); // v1 key absent
 
         // Per-location baseline has structure

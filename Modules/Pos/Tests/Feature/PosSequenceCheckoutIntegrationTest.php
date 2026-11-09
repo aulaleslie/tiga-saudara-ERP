@@ -7,6 +7,7 @@ use App\Services\Sequence\DocumentSequenceAllocator;
 use App\Services\Sequence\DocumentType;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\DatabaseTruncation;
+use Tests\Concerns\PreservesMigrationSeededTables;
 use Illuminate\Support\Facades\DB;
 use Modules\Currency\Entities\Currency;
 use Modules\People\Entities\Customer;
@@ -31,6 +32,7 @@ use Tests\TestCase;
 class PosSequenceCheckoutIntegrationTest extends TestCase
 {
     use DatabaseTruncation;
+    use PreservesMigrationSeededTables;
 
     private int $sequence = 1;
 

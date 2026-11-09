@@ -443,6 +443,39 @@ class ConsignmentPhase3FeatureTest extends TestCase
     }
 
     /** @test */
+    public function it_forbids_status_changes_on_consignment_billing_purchases_without_lifecycle_permission_and_does_not_mutate()
+    {
+        $this->actingAs($this->billingUser)
+            ->withSession(['setting_id' => $this->setting1->id]);
+
+        $this->post(route('consignments.billing.convert', $this->confirmation->id), [
+            'supplier_invoice_number' => 'INV-FEAT-FORBID',
+            'invoice_date' => '2026-08-28',
+            'due_date' => '2026-09-28',
+        ]);
+
+        $purchase = Purchase::where('supplier_purchase_number', 'INV-FEAT-FORBID')->firstOrFail();
+        $statusBefore = $purchase->status;
+
+        // The billing user holds neither purchases.update nor purchases.approval here: authorization
+        // must answer with a real 403 (not an error toast) before the consignment source guard or any
+        // transition logic runs, and nothing may change.
+        $this->assertFalse($this->billingUser->can('purchases.update'));
+        $this->assertFalse($this->billingUser->can('purchases.approval'));
+
+        foreach ([Purchase::STATUS_DRAFTED, Purchase::STATUS_APPROVED] as $target) {
+            $this->patch(route('purchases.updateStatus', $purchase->id), ['status' => $target])->assertForbidden();
+        }
+        $this->patch(route('purchases.updateStatus', $purchase->id), [
+            'status' => Purchase::STATUS_REJECTED,
+            'rejection_note' => 'not allowed',
+        ])->assertForbidden();
+
+        $this->assertEquals($statusBefore, $purchase->fresh()->status);
+        $this->assertNull($purchase->fresh()->rejection_note);
+    }
+
+    /** @test */
     public function it_converts_multiple_serials_from_single_receipt_allocation_without_unique_constraint_failure()
     {
         $this->actingAs($this->billingUser)

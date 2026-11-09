@@ -27,6 +27,14 @@ class ProductQuantityProjectionTest extends TestCase
     protected $location;
     protected $product;
 
+    protected function tearDown(): void
+    {
+        // Model::unguard() is process-global; restore it so later tests keep mass-assignment protection.
+        \Illuminate\Database\Eloquent\Model::reguard();
+
+        parent::tearDown();
+    }
+
     protected function setUp(): void
     {
         parent::setUp();

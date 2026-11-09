@@ -360,7 +360,7 @@ class SearchProductSelectionRoutingTest extends TestCase
         $this->assertEquals('Test Laptop', $row1['product_name']);
         $this->assertTrue($row1['serial_number_required']);
 
-        // 3. Duplicate selection -> no extra row, duplicate flash message
+        // 3. Duplicate selection -> no extra row, row-specific feedback (generic message is forbidden)
         $component->call('productSelected', [
             'id' => $this->product->id,
             'product_name' => $this->product->product_name,
@@ -368,7 +368,7 @@ class SearchProductSelectionRoutingTest extends TestCase
             'serial_number_required' => true,
         ])
             ->assertCount('products', 1)
-            ->assertSee('Produk sudah dipilih.');
+            ->assertSee('sudah ada di daftar (baris 1)');
 
         // 4. Select product 2 -> adds second row and retains existing row
         $component->call('productSelected', [
@@ -438,7 +438,7 @@ class SearchProductSelectionRoutingTest extends TestCase
         $this->assertTrue($row1['serial_number_required']);
         $this->assertEquals(0, $component->get('quantities')[0]);
 
-        // 3. Duplicate selection -> no extra row, duplicate flash message
+        // 3. Duplicate selection -> no extra row, row-specific feedback (generic message is forbidden)
         $component->call('productSelected', [
             'id' => $this->product->id,
             'product_name' => $this->product->product_name,

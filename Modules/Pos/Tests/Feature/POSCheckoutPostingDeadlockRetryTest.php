@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Support\SalesLocationResolver;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\DatabaseTruncation;
+use Tests\Concerns\PreservesMigrationSeededTables;
 use Illuminate\Support\Carbon;
 use Modules\Currency\Entities\Currency;
 use Modules\People\Entities\Customer;
@@ -41,6 +42,7 @@ use Tests\TestCase;
 class POSCheckoutPostingDeadlockRetryTest extends TestCase
 {
     use DatabaseTruncation;
+    use PreservesMigrationSeededTables;
 
     private int $sequence = 1;
 

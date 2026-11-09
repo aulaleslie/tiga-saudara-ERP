@@ -14,6 +14,9 @@
         <testsuite name="Pos">
             <directory suffix="Test.php">./Modules/Pos/Tests</directory>
         </testsuite>
+        <testsuite name="Consignment">
+            <directory suffix="Test.php">./Modules/Consignment/Tests</directory>
+        </testsuite>
         <testsuite name="Purchase">
             <directory suffix="Test.php">./Modules/Purchase/Tests</directory>
         </testsuite>
@@ -36,6 +39,14 @@
             <directory suffix="Test.php">./Modules/Product/Tests</directory>
         </testsuite>
     </testsuites>
+    <groups>
+        <exclude>
+            <!-- Need the isolated MySQL database (phpunit.mysql.xml / scripts/run-mysql-sequence-tests.sh).
+                 Their DatabaseTruncation setUp() wipes seeded tables on the shared SQLite database
+                 before they can skip, so they must not be loaded in the default run. -->
+            <group>mysql</group>
+        </exclude>
+    </groups>
     <coverage>
         <include>
             <directory suffix=".php">./app</directory>

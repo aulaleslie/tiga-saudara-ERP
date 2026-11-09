@@ -10,6 +10,7 @@ use App\Services\Sequence\SequenceNamespace;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\ResetsSqliteAutoIncrement;
 use Illuminate\Support\Facades\DB;
 use Modules\Currency\Entities\Currency;
 use Modules\People\Entities\Supplier;
@@ -21,6 +22,7 @@ use Tests\TestCase;
 class DocumentSequenceAllocatorTest extends TestCase
 {
     use RefreshDatabase;
+    use ResetsSqliteAutoIncrement;
 
     private Setting $settingA;
     private Setting $settingB;
@@ -638,6 +640,9 @@ class DocumentSequenceAllocatorTest extends TestCase
         DB::table('suppliers')->whereIn('setting_id', [$this->settingA->id, $this->settingB->id])->delete();
         DB::table('settings')->whereIn('id', [$this->settingA->id, $this->settingB->id])->delete();
         DB::table('currencies')->truncate();
+
+        // Committed rows were deleted by hand; rewind the counters so later tests still get id 1.
+        $this->resetSqliteAutoIncrement(['document_sequences', 'purchases', 'payment_terms', 'suppliers', 'settings', 'currencies']);
 
         while (DB::transactionLevel() < $initialLevel) {
             DB::beginTransaction();

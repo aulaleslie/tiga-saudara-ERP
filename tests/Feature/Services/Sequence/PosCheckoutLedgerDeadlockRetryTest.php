@@ -5,6 +5,7 @@ namespace Tests\Feature\Services\Sequence;
 use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\ResetsSqliteAutoIncrement;
 use Illuminate\Support\Facades\DB;
 use Modules\Currency\Entities\Currency;
 use Modules\Pos\Entities\PosCheckout;
@@ -27,6 +28,7 @@ use Tests\TestCase;
 class PosCheckoutLedgerDeadlockRetryTest extends TestCase
 {
     use RefreshDatabase;
+    use ResetsSqliteAutoIncrement;
 
     private FinalizePosCheckoutService $service;
 
@@ -404,6 +406,9 @@ class PosCheckoutLedgerDeadlockRetryTest extends TestCase
         DB::table('settings')->delete();
         DB::table('users')->delete();
         DB::table('currencies')->truncate();
+
+        // Committed rows were deleted by hand; rewind the counters so later tests still get id 1.
+        $this->resetSqliteAutoIncrement(['pos_checkouts', 'pos_sessions', 'pos_terminals', 'settings', 'users', 'currencies']);
 
         while (DB::transactionLevel() < $initialLevel) {
             DB::beginTransaction();

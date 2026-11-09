@@ -827,6 +827,52 @@ class StockOpnameRedesignTest extends TestCase
         $this->assertCount(1, $component->get('products'));
     }
 
+    public function test_ineligible_locations_leave_populated_rows_and_selection_untouched_while_eligible_cross_setting_asks_confirmation(): void
+    {
+        $product = Product::create([
+            'product_name' => 'Item Y',
+            'product_code' => 'IY-1',
+            'product_cost' => 1000,
+            'product_price' => 2000,
+            'setting_id' => $this->setting->id,
+            'unit_id' => $this->baseUnit->id,
+            'base_unit_id' => $this->baseUnit->id,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        $inactive = Location::create(['name' => 'Gudang Nonaktif', 'setting_id' => $this->setting->id, 'is_active' => false, 'is_consignment' => false]);
+        $consignment = Location::create(['name' => 'Gudang Konsinyasi', 'setting_id' => $this->setting->id, 'is_active' => true, 'is_consignment' => true]);
+
+        $otherSetting = Setting::create([
+            'company_name' => 'Other Setting', 'company_email' => 'o@example.com', 'company_phone' => '1',
+            'default_currency_id' => $this->setting->default_currency_id, 'default_currency_position' => 'prefix',
+            'notification_email' => 'o@example.com', 'footer_text' => 'F', 'company_address' => 'A',
+        ]);
+        $foreign = Location::create(['name' => 'Gudang Lintas', 'setting_id' => $otherSetting->id, 'is_active' => true, 'is_consignment' => false]);
+
+        $component = Livewire::test(AdjustmentProductTable::class, ['locationId' => $this->location->id]);
+        $component->call('productSelected', [
+            'id' => $product->id, 'product_name' => $product->product_name,
+            'product_code' => $product->product_code, 'serial_number_required' => false,
+        ]);
+        $this->assertCount(1, $component->get('products'));
+
+        foreach ([$inactive->id, $consignment->id, 999999] as $badId) {
+            $component->call('locationSelected', $badId);
+            $this->assertFalse($component->get('showLocationConfirmModal'));
+            $this->assertEquals($this->location->id, $component->get('locationId'));
+            $this->assertCount(1, $component->get('products'));
+        }
+
+        // Eligible cross-setting location: rows are retained until confirmation.
+        $component->call('locationSelected', $foreign->id);
+        $this->assertTrue($component->get('showLocationConfirmModal'));
+        $this->assertEquals($foreign->id, $component->get('pendingLocationId'));
+        $this->assertEquals($this->location->id, $component->get('locationId'));
+        $this->assertCount(1, $component->get('products'));
+    }
+
     public function test_signed_baseline_preserved_when_stock_changes_between_addition_and_submission(): void
     {
         $this->actingAs($this->user);
@@ -2483,9 +2529,9 @@ class StockOpnameRedesignTest extends TestCase
     }
 
     /**
-     * Task 4.2: Foreign-setting location is rejected on selection and preserves valid location.
+     * Eligible foreign-setting locations use the same selection path as local locations.
      */
-    public function test_foreign_setting_location_is_rejected_on_selection()
+    public function test_foreign_setting_location_is_allowed_on_selection()
     {
         $otherSetting = Setting::create([
             'company_name' => 'Other Setting',
@@ -2511,10 +2557,9 @@ class StockOpnameRedesignTest extends TestCase
         ]);
 
         $component->call('locationSelected', $foreignLocation->id)
-            ->assertSet('locationId', $this->location->id)
-            ->assertSet('feedbackType', 'danger')
-            ->assertSee('Lokasi tidak ditemukan atau bukan milik pengaturan aktif.')
-            ->assertDispatched('setSelectedLocation', locationId: $this->location->id);
+            ->assertSet('locationId', $foreignLocation->id)
+            ->assertSet('locationIds', [$foreignLocation->id])
+            ->assertDispatched('setSelectedLocation', locationId: $foreignLocation->id);
     }
 
     /**
@@ -2536,7 +2581,7 @@ class StockOpnameRedesignTest extends TestCase
         $component->call('locationSelected', $consignmentLocation->id)
             ->assertSet('locationId', $this->location->id)
             ->assertSet('feedbackType', 'danger')
-            ->assertSee('Lokasi tidak ditemukan atau bukan milik pengaturan aktif.')
+            ->assertSee('Lokasi tidak ditemukan, tidak aktif, atau merupakan lokasi konsinyasi.')
             ->assertDispatched('setSelectedLocation', locationId: $this->location->id);
     }
 

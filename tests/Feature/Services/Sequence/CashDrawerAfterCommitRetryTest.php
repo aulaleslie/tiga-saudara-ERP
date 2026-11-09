@@ -7,6 +7,7 @@ use App\Services\Sequence\DocumentType;
 use App\Services\Sequence\SequenceNamespace;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\ResetsSqliteAutoIncrement;
 use Illuminate\Support\Facades\DB;
 use Modules\Currency\Entities\Currency;
 use Modules\Pos\Services\Contracts\PosCashDrawerAdapter;
@@ -30,6 +31,7 @@ use Tests\TestCase;
 class CashDrawerAfterCommitRetryTest extends TestCase
 {
     use RefreshDatabase;
+    use ResetsSqliteAutoIncrement;
 
     private Setting $setting;
 
@@ -196,6 +198,9 @@ class CashDrawerAfterCommitRetryTest extends TestCase
         DB::table('purchases')->where('setting_id', $this->setting->id)->delete();
         DB::table('settings')->where('id', $this->setting->id)->delete();
         DB::table('currencies')->truncate();
+
+        // Committed rows were deleted by hand; rewind the counters so later tests still get id 1.
+        $this->resetSqliteAutoIncrement(['document_sequences', 'purchases', 'settings', 'currencies']);
 
         while (DB::transactionLevel() < $initialLevel) {
             DB::beginTransaction();

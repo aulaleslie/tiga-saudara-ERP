@@ -459,7 +459,7 @@ class StockOpnameShowViewCorrectionsTest extends TestCase
         ]);
     }
 
-    public function test_show_route_rejects_document_owned_by_another_setting()
+    public function test_show_route_allows_audit_view_of_document_owned_by_another_setting()
     {
         $otherLocation = $this->makeOtherSettingLocation();
 
@@ -473,7 +473,55 @@ class StockOpnameShowViewCorrectionsTest extends TestCase
         ]);
 
         $response = $this->get(route('adjustments.show', $adjustment));
-        $response->assertForbidden();
+        $response->assertOk();
+        $response->assertViewHas('isNormalVersioned', true);
+    }
+
+    public function test_cross_setting_show_still_requires_adjustments_show_permission()
+    {
+        $otherLocation = $this->makeOtherSettingLocation();
+
+        $adjustment = Adjustment::create([
+            'reference' => 'ADJ-SHOW-CROSS-NOPERM',
+            'date' => now()->toDateString(),
+            'type' => 'normal',
+            'status' => AdjustmentStatus::Draft,
+            'location_id' => $otherLocation->id,
+            'count_draft' => ['schema_version' => 1, 'rows' => []],
+        ]);
+
+        $this->user->revokePermissionTo('adjustments.show');
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+
+        $this->get(route('adjustments.show', $adjustment))->assertForbidden();
+    }
+
+    public function test_cross_setting_show_redacts_system_stock_without_view_system_stock_permission()
+    {
+        $otherLocation = $this->makeOtherSettingLocation();
+        $product = $this->makeProduct();
+        $this->makeStockRow($product, $otherLocation, goodTax: 5);
+
+        $adjustment = Adjustment::create([
+            'reference' => 'ADJ-SHOW-CROSS-REDACT',
+            'date' => now()->toDateString(),
+            'type' => 'normal',
+            'status' => AdjustmentStatus::WaitingApproval,
+            'location_id' => $otherLocation->id,
+            'submitted_by' => $this->user->id,
+            'submitted_at' => now(),
+            'count_draft' => ['schema_version' => 1, 'rows' => [
+                ['product_id' => $product->id, 'good_count' => 8, 'bad_count' => 0, 'serials' => []],
+            ]],
+        ]);
+
+        $this->user->revokePermissionTo(['adjustments.view-system-stock', 'adjustments.approval']);
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+
+        $response = $this->get(route('adjustments.show', $adjustment));
+        $response->assertOk();
+        $response->assertDontSee('Ringkasan Peninjauan');
+        $response->assertDontSee('Saat Ini');
     }
 
     public function test_update_route_rejects_document_owned_by_another_setting()

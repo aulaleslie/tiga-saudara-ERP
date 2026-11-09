@@ -756,6 +756,11 @@ class PurchaseController extends Controller
             );
 
             toast("Status pembelian diperbarui menjadi {$validated['status']}!", 'success');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e) {
+            // Authorization failures (abort(403) in PurchaseLifecycleService::authorizeAction) must
+            // reach the client as a real 403. They are raised before any transaction starts, so no
+            // purchase state has been touched.
+            throw $e;
         } catch (\Modules\Purchase\Exceptions\PurchaseLifecycleTransitionException $e) {
             toast($e->getMessage(), 'error');
         } catch (Exception $e) {
