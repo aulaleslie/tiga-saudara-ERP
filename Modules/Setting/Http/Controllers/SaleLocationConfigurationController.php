@@ -42,15 +42,14 @@ class SaleLocationConfigurationController extends Controller
             ->orderBy('setting_sale_locations.position')
             ->get()
             ->map(function ($location) use ($currentSettingId) {
-                $location->is_owned = $location->setting_id === $currentSettingId;
+                $location->is_owned = (int) $location->setting_id === $currentSettingId;
                 $location->is_enabled = true;
                 return $location;
             });
 
-        // Available collection: disabled or unassigned locations (foreign only)
+        // Available collection: disabled locations (owned or foreign) and unassigned foreign locations
         $availableLocations = Location::query()
             ->with(['setting:id,company_name'])
-            ->where('locations.setting_id', '!=', $currentSettingId)
             ->leftJoin('setting_sale_locations', function ($join) use ($currentSettingId) {
                 $join->on('locations.id', '=', 'setting_sale_locations.location_id')
                     ->where('setting_sale_locations.setting_id', '=', $currentSettingId);
@@ -60,14 +59,16 @@ class SaleLocationConfigurationController extends Controller
                 'setting_sale_locations.is_enabled'
             ])
             ->where(function ($query) use ($currentSettingId) {
-                $query->whereNull('setting_sale_locations.id')
-                    ->orWhere('setting_sale_locations.is_enabled', false);
+                $query->where(function ($q) use ($currentSettingId) {
+                    $q->whereNull('setting_sale_locations.id')
+                        ->where('locations.setting_id', '!=', $currentSettingId);
+                })->orWhere('setting_sale_locations.is_enabled', false);
             })
             ->orderBy('locations.name')
             ->orderBy('locations.id')
             ->get()
             ->map(function ($location) use ($currentSettingId) {
-                $location->is_owned = false;
+                $location->is_owned = (int) $location->setting_id === $currentSettingId;
                 $location->is_enabled = false;
                 return $location;
             });
@@ -90,11 +91,6 @@ class SaleLocationConfigurationController extends Controller
         $currentSettingId = (int) session('setting_id');
 
         $location = Location::findOrFail($locationId);
-
-        if ($location->setting_id === $currentSettingId && !$validated['is_enabled']) {
-            toast('Lokasi milik bisnis tidak dapat dinonaktifkan.', 'warning');
-            return redirect()->route('sales-location-configurations.index');
-        }
 
         DB::transaction(function () use ($currentSettingId, $locationId, $validated) {
             $assignment = SettingSaleLocation::where('setting_id', $currentSettingId)

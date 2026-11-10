@@ -628,6 +628,15 @@ class FinalizePosCheckoutService
             throw new PosCheckoutValidationException('CART_EMPTY', 'Keranjang harus berisi setidaknya satu item baris.');
         }
 
+        // No implicit owner fallback: with zero enabled sale locations, checkout is blocked
+        // for both stock and non-stock lines with an explicit configuration error.
+        if (\App\Support\SalesLocationResolver::resolveLocationIds($settingId)->isEmpty()) {
+            throw new PosCheckoutValidationException(
+                'SALE_LOCATION_UNCONFIGURED',
+                'Tidak ada lokasi penjualan POS aktif. Aktifkan minimal satu lokasi di Konfigurasi Lokasi Penjualan POS sebelum checkout.'
+            );
+        }
+
         foreach ($cartLines as $lineIndex => $line) {
             $isParentSerialRequired = (bool) ($line['serial_number_required'] ?? false);
 

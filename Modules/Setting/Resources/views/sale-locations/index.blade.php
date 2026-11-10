@@ -63,13 +63,11 @@
                                             </td>
                                             @if($canEdit)
                                                 <td class="text-end">
-                                                    @if(!$location->is_owned)
-                                                        <button type="button" class="btn btn-sm btn-outline-danger btn-toggle"
-                                                            data-url="{{ route('sales-location-configurations.toggle', $location->id) }}"
-                                                            data-enabled="1">
-                                                            Nonaktifkan
-                                                        </button>
-                                                    @endif
+                                                    <button type="button" class="btn btn-sm btn-outline-danger btn-toggle"
+                                                        data-url="{{ route('sales-location-configurations.toggle', $location->id) }}"
+                                                        data-enabled="1">
+                                                        Nonaktifkan
+                                                    </button>
                                                 </td>
                                             @endif
                                         </tr>
@@ -84,7 +82,7 @@
                             </table>
                         </div>
                         <div class="card-footer small text-muted">
-                            Lokasi yang dimiliki bisnis ini akan selalu tersedia dan tidak dapat dihapus dari konfigurasi.
+                            Lokasi milik bisnis ini aktif secara default dan dapat dinonaktifkan jika tidak digunakan untuk POS. Jika tidak ada lokasi aktif, transaksi POS tidak dapat diproses.
                         </div>
                     </div>
 
@@ -111,6 +109,9 @@
                                                 <td>{{ $location->name }}</td>
                                                 <td>{{ optional($location->setting)->company_name ?? 'Tidak diketahui' }}</td>
                                                 <td>
+                                                    @if($location->is_owned)
+                                                        <span class="badge bg-success">Milik Bisnis</span>
+                                                    @endif
                                                     <span class="badge bg-secondary">Tidak Aktif</span>
                                                 </td>
                                                 @if($canEdit)

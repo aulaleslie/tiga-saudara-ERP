@@ -181,6 +181,35 @@ class AverageCostResolverTest extends TestCase
         $this->assertSame($closer->id, $result['setting_id']);
     }
 
+    public function test_disabled_assignment_is_excluded_from_fallback_priority(): void
+    {
+        $owner = $this->makeSetting(false);
+        $product = $this->makeProduct($owner);
+        $ownedLocation = $this->makeLocation($owner);
+
+        $closer = $this->makeSetting(false);
+        $closeLocation = $this->makeLocation($closer);
+        $this->linkSaleLocation($owner, $closeLocation, 1);
+        $this->setAveragePrice($product, $closer, 400);
+
+        $farther = $this->makeSetting(false);
+        $farLocation = $this->makeLocation($farther);
+        $this->linkSaleLocation($owner, $farLocation, 2);
+        $this->setAveragePrice($product, $farther, 900);
+
+        $this->assertSame($closer->id, $this->resolver->resolve($product, $owner->id)['setting_id']);
+
+        // Disable the closer assignment and the owner's own location (via the configuration's disable semantics)
+        foreach ([$closeLocation->id, $ownedLocation->id] as $locationId) {
+            SettingSaleLocation::where('setting_id', $owner->id)->where('location_id', $locationId)->get()
+                ->each(fn ($a) => $a->update(['is_enabled' => false, 'position' => null]));
+        }
+
+        $result = $this->resolver->resolve($product, $owner->id);
+        $this->assertSame(900.0, $result['unit_cost']);
+        $this->assertSame($farther->id, $result['setting_id']);
+    }
+
     public function test_multiple_locations_owned_by_same_setting_collapse_to_earliest_position(): void
     {
         $owner = $this->makeSetting(false);
