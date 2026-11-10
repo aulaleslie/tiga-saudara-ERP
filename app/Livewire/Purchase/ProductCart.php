@@ -1271,6 +1271,7 @@ class ProductCart extends Component
             'unit_price' => $this->unit_price[$row_id],
             'options' => array_merge($cart_item->options->toArray(), [
                 'unit_price' => $this->unit_price[$row_id],
+                'entered_unit_price' => $this->unit_price[$row_id],
                 'sub_total' => $allocated['sub_total'],
                 'sub_total_before_tax' => $allocated['sub_total_before_tax'],
                 'product_tax_amount' => $allocated['product_tax_amount'],
