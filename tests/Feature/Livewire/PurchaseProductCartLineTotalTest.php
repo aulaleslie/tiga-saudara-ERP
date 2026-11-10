@@ -95,13 +95,17 @@ class PurchaseProductCartLineTotalTest extends TestCase
                 'product_unit' => 'pcs',
                 'last_purchase_price' => 1000,
                 'average_purchase_price' => 1000,
-            ])
-            ->set('quantity.' . $this->product->id, 2)
-            ->set('quantity.' . $this->product->id, 2)
-            ->call('updateQuantity', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+            ]);
 
-        $livewire->set('line_total.' . $this->product->id, 2500)
-            ->call('updateLineTotal', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $livewire->set("quantity.$rowId", 2)
+            ->call('updateQuantity', $rowId, $this->product->id);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $livewire->set("line_total.$rowId", 2500)
+            ->call('updateLineTotal', $rowId, $this->product->id);
 
         $cartItem = Cart::instance('purchase')->content()->first();
         $this->assertEquals(1250, $cartItem->price);
@@ -122,16 +126,22 @@ class PurchaseProductCartLineTotalTest extends TestCase
                 'product_unit' => 'pcs',
                 'last_purchase_price' => 1000,
                 'average_purchase_price' => 1000,
-            ])
-            ->set('quantity.' . $this->product->id, 2)
-            ->set('quantity.' . $this->product->id, 2)
-            ->call('updateQuantity', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+            ]);
 
-        $livewire->set('product_tax.' . $this->product->id, $this->tax11->id)
-            ->call('updateTax', Cart::instance('purchase')->content()->first()->rowId, $this->product->id, $this->tax11->id);
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
 
-        $livewire->set('line_total.' . $this->product->id, 3330) // base: 3000, qty 2 -> unit price 1500
-            ->call('updateLineTotal', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+        $livewire->set("quantity.$rowId", 2)
+            ->call('updateQuantity', $rowId, $this->product->id);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $livewire->set("product_tax.$rowId", $this->tax11->id)
+            ->call('updateTax', $rowId, $this->product->id, $this->tax11->id);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $livewire->set("line_total.$rowId", 3330) // base: 3000, qty 2 -> unit price 1500
+            ->call('updateLineTotal', $rowId, $this->product->id);
 
         $cartItem = Cart::instance('purchase')->content()->first();
         // (3330 / 2) / 1.11 = 1500
@@ -153,16 +163,22 @@ class PurchaseProductCartLineTotalTest extends TestCase
                 'product_unit' => 'pcs',
                 'last_purchase_price' => 1000,
                 'average_purchase_price' => 1000,
-            ])
-            ->set('quantity.' . $this->product->id, 2)
-            ->set('quantity.' . $this->product->id, 2)
-            ->call('updateQuantity', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+            ]);
 
-        $livewire->set('product_tax.' . $this->product->id, $this->tax11->id)
-            ->call('updateTax', Cart::instance('purchase')->content()->first()->rowId, $this->product->id, $this->tax11->id);
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
 
-        $livewire->set('line_total.' . $this->product->id, 3000) // tax included, so effective price = 1500, qty=2 -> 3000
-            ->call('updateLineTotal', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+        $livewire->set("quantity.$rowId", 2)
+            ->call('updateQuantity', $rowId, $this->product->id);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $livewire->set("product_tax.$rowId", $this->tax11->id)
+            ->call('updateTax', $rowId, $this->product->id, $this->tax11->id);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $livewire->set("line_total.$rowId", 3000) // tax included, so effective price = 1500, qty=2 -> 3000
+            ->call('updateLineTotal', $rowId, $this->product->id);
 
         $cartItem = Cart::instance('purchase')->content()->first();
         // (3000 / 2) = 1500
@@ -183,19 +199,25 @@ class PurchaseProductCartLineTotalTest extends TestCase
                 'product_unit' => 'pcs',
                 'last_purchase_price' => 1000,
                 'average_purchase_price' => 1000,
-            ])
-            ->set('quantity.' . $this->product->id, 2)
-            ->set('quantity.' . $this->product->id, 2)
-            ->call('updateQuantity', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+            ]);
 
-        $livewire->set('discount_type.' . $this->product->id, 'fixed')
-            ->set('item_discount.' . $this->product->id, 200) // per unit discount
-            ->call('setProductDiscount', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $livewire->set("quantity.$rowId", 2)
+            ->call('updateQuantity', $rowId, $this->product->id);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $livewire->set("discount_type.$rowId", 'fixed')
+            ->set("item_discount.$rowId", 200) // per unit discount
+            ->call('setProductDiscount', $rowId, $this->product->id);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
 
         // original effective price = (1000 - 200) * 2 = 1600. Let's change line total to 2000.
         // effective price per unit = 1000. So base price = 1000 + 200 = 1200.
-        $livewire->set('line_total.' . $this->product->id, 2000)
-            ->call('updateLineTotal', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+        $livewire->set("line_total.$rowId", 2000)
+            ->call('updateLineTotal', $rowId, $this->product->id);
             
         $cartItem = Cart::instance('purchase')->content()->first();
         $this->assertEquals(1200, $cartItem->price);
@@ -216,20 +238,26 @@ class PurchaseProductCartLineTotalTest extends TestCase
                 'product_unit' => 'pcs',
                 'last_purchase_price' => 1000,
                 'average_purchase_price' => 1000,
-            ])
-            ->set('quantity.' . $this->product->id, 2)
-            ->set('quantity.' . $this->product->id, 2)
-            ->call('updateQuantity', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+            ]);
 
-        $livewire->set('discount_type.' . $this->product->id, 'percentage')
-            ->set('item_discount.' . $this->product->id, 20) // 20%
-            ->call('setProductDiscount', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $livewire->set("quantity.$rowId", 2)
+            ->call('updateQuantity', $rowId, $this->product->id);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $livewire->set("discount_type.$rowId", 'percentage')
+            ->set("item_discount.$rowId", 20) // 20%
+            ->call('setProductDiscount', $rowId, $this->product->id);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
 
         // original effective price = (1000 * 0.8) * 2 = 1600
         // Let's change line total to 2000.
         // effective price per unit = 1000. Base price = 1000 / (1 - 0.20) = 1250.
-        $livewire->set('line_total.' . $this->product->id, 2000)
-            ->call('updateLineTotal', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+        $livewire->set("line_total.$rowId", 2000)
+            ->call('updateLineTotal', $rowId, $this->product->id);
 
         $cartItem = Cart::instance('purchase')->content()->first();
         $this->assertEquals(1250, $cartItem->price);
@@ -250,9 +278,12 @@ class PurchaseProductCartLineTotalTest extends TestCase
                 'product_unit' => 'pcs',
                 'last_purchase_price' => 1000,
                 'average_purchase_price' => 1000,
-            ])
-            ->set('line_total.' . $this->product->id, -500)
-            ->call('updateLineTotal', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+            ]);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $livewire->set("line_total.$rowId", -500)
+            ->call('updateLineTotal', $rowId, $this->product->id);
 
         $cartItem = Cart::instance('purchase')->content()->first();
         $this->assertEquals(1000, $cartItem->price);
@@ -274,17 +305,21 @@ class PurchaseProductCartLineTotalTest extends TestCase
                 'average_purchase_price' => 1000,
             ]);
 
-        $livewire->set('discount_type.' . $this->product->id, 'percentage')
-            ->set('item_discount.' . $this->product->id, 100)
-            ->call('setProductDiscount', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $livewire->set("discount_type.$rowId", 'percentage')
+            ->set("item_discount.$rowId", 100)
+            ->call('setProductDiscount', $rowId, $this->product->id);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
 
         // Subtotal should be 0 now.
         $cartItem = Cart::instance('purchase')->content()->first();
         $this->assertEquals(0, $cartItem->options->sub_total);
 
         // Try to update line total to a nonzero value
-        $livewire->set('line_total.' . $this->product->id, 500)
-            ->call('updateLineTotal', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+        $livewire->set("line_total.$rowId", 500)
+            ->call('updateLineTotal', $rowId, $this->product->id);
 
         $cartItem = Cart::instance('purchase')->content()->first();
         $this->assertEquals(0, $cartItem->options->sub_total);
@@ -307,12 +342,17 @@ class PurchaseProductCartLineTotalTest extends TestCase
                 'product_unit' => 'pcs',
                 'last_purchase_price' => 1000,
                 'average_purchase_price' => 1000,
-            ])
-            ->set('quantity.' . $this->product->id, 1200)
-            ->call('updateQuantity', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+            ]);
 
-        $livewire->set('line_total.' . $this->product->id, 1460000)
-            ->call('updateLineTotal', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $livewire->set("quantity.$rowId", 1200)
+            ->call('updateQuantity', $rowId, $this->product->id);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $livewire->set("line_total.$rowId", 1460000)
+            ->call('updateLineTotal', $rowId, $this->product->id);
 
         $cartItem = Cart::instance('purchase')->content()->first();
         $this->assertEquals(1460000, $cartItem->options->sub_total, 'Committed total must be preserved as authoritative');
@@ -337,15 +377,22 @@ class PurchaseProductCartLineTotalTest extends TestCase
                 'product_unit' => 'pcs',
                 'last_purchase_price' => 1000,
                 'average_purchase_price' => 1000,
-            ])
-            ->set('quantity.' . $this->product->id, 1200)
-            ->call('updateQuantity', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+            ]);
 
-        $livewire->set('product_tax.' . $this->product->id, $this->tax11->id)
-            ->call('updateTax', Cart::instance('purchase')->content()->first()->rowId, $this->product->id, $this->tax11->id);
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
 
-        $livewire->set('line_total.' . $this->product->id, 1460000)
-            ->call('updateLineTotal', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+        $livewire->set("quantity.$rowId", 1200)
+            ->call('updateQuantity', $rowId, $this->product->id);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $livewire->set("product_tax.$rowId", $this->tax11->id)
+            ->call('updateTax', $rowId, $this->product->id, $this->tax11->id);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $livewire->set("line_total.$rowId", 1460000)
+            ->call('updateLineTotal', $rowId, $this->product->id);
 
         $cartItem = Cart::instance('purchase')->content()->first();
         $this->assertEquals(1460000.00, (float) $cartItem->options->sub_total, 'Committed total must be preserved as authoritative');
@@ -370,15 +417,22 @@ class PurchaseProductCartLineTotalTest extends TestCase
                 'product_unit' => 'pcs',
                 'last_purchase_price' => 1000,
                 'average_purchase_price' => 1000,
-            ])
-            ->set('quantity.' . $this->product->id, 1200)
-            ->call('updateQuantity', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+            ]);
 
-        $livewire->set('product_tax.' . $this->product->id, $this->tax11->id)
-            ->call('updateTax', Cart::instance('purchase')->content()->first()->rowId, $this->product->id, $this->tax11->id);
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
 
-        $livewire->set('line_total.' . $this->product->id, 1460000)
-            ->call('updateLineTotal', Cart::instance('purchase')->content()->first()->rowId, $this->product->id);
+        $livewire->set("quantity.$rowId", 1200)
+            ->call('updateQuantity', $rowId, $this->product->id);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $livewire->set("product_tax.$rowId", $this->tax11->id)
+            ->call('updateTax', $rowId, $this->product->id, $this->tax11->id);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+
+        $livewire->set("line_total.$rowId", 1460000)
+            ->call('updateLineTotal', $rowId, $this->product->id);
 
         $cartItem = Cart::instance('purchase')->content()->first();
         $this->assertEquals(1460000.00, (float) $cartItem->options->sub_total, 'Committed total must be preserved as authoritative');

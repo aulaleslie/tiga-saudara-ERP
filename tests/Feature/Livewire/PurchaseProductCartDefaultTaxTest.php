@@ -63,7 +63,7 @@ class PurchaseProductCartDefaultTaxTest extends TestCase
         Cart::instance('purchase')->destroy();
     }
 
-    public function test_pkp_product_add_uses_product_purchase_tax_before_default_tax(): void
+    public function test_pkp_product_add_uses_default_tax_before_product_purchase_tax(): void
     {
         $defaultTax = Tax::create([
             'name' => 'PPN 11',
@@ -100,8 +100,51 @@ class PurchaseProductCartDefaultTaxTest extends TestCase
         $cartItem = Cart::instance('purchase')->content()->firstWhere('id', $this->product->id);
 
         $this->assertNotNull($cartItem);
+        $this->assertSame($defaultTax->id, (int) $cartItem->options->product_tax);
+        $this->assertNotSame($productTax->id, (int) $cartItem->options->product_tax);
+        $this->assertTrue((float) $cartItem->options->sub_total > (float) $cartItem->options->sub_total_before_tax);
+        $this->assertTrue((float) $cartItem->options->product_tax_amount > 0);
+    }
+
+    public function test_pkp_product_add_uses_product_purchase_tax_when_no_default_tax_exists(): void
+    {
+        $taxWithoutDefault = Tax::create([
+            'name' => 'PPN 11',
+            'value' => 11,
+            'is_default' => false,
+        ]);
+
+        $productTax = Tax::create([
+            'name' => 'PPN Produk',
+            'value' => 12,
+            'is_default' => false,
+        ]);
+
+        ProductPrice::create([
+            'product_id' => $this->product->id,
+            'setting_id' => (int) session('setting_id'),
+            'last_purchase_price' => 1000,
+            'average_purchase_price' => 1000,
+            'purchase_tax_id' => $productTax->id,
+        ]);
+
+        Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
+            ->call('productSelected', [
+                'id' => $this->product->id,
+                'product_name' => $this->product->product_name,
+                'product_code' => $this->product->product_code,
+                'product_quantity' => $this->product->product_quantity,
+                'product_unit' => $this->product->product_unit,
+                'last_purchase_price' => 1000,
+                'average_purchase_price' => 1000,
+                'purchase_tax_id' => null,
+            ]);
+
+        $cartItem = Cart::instance('purchase')->content()->firstWhere('id', $this->product->id);
+
+        $this->assertNotNull($cartItem);
         $this->assertSame($productTax->id, (int) $cartItem->options->product_tax);
-        $this->assertNotSame($defaultTax->id, (int) $cartItem->options->product_tax);
+        $this->assertNotSame($taxWithoutDefault->id, (int) $cartItem->options->product_tax);
         $this->assertTrue((float) $cartItem->options->sub_total > (float) $cartItem->options->sub_total_before_tax);
         $this->assertTrue((float) $cartItem->options->product_tax_amount > 0);
     }

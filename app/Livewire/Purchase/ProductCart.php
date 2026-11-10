@@ -580,10 +580,6 @@ class ProductCart extends Component
             return (int) $defaultTax->id;
         }
 
-        if ($this->isPkp && $this->taxes->isNotEmpty()) {
-            return (int) $this->taxes->first()->id;
-        }
-
         return null;
     }
 
@@ -613,13 +609,16 @@ class ProductCart extends Component
             return null;
         }
 
+        $defaultTaxId = $this->resolveDefaultTaxId();
+        if ($defaultTaxId) {
+            return $defaultTaxId;
+        }
+
         if ($productId) {
             $productTaxId = $this->resolveProductPurchaseTaxIdForProduct($productId, $productPayload);
             if ($productTaxId) {
                 return $productTaxId;
             }
-
-            return $this->resolveDefaultTaxId();
         }
 
         return null;
@@ -1304,10 +1303,7 @@ class ProductCart extends Component
 
         $unitPrice   = $new_price ?? ($pp?->last_purchase_price ?? ($product['last_purchase_price'] ?? 0));
         $avgPurchase = $pp?->average_purchase_price ?? ($product['average_purchase_price'] ?? null);
-        $purchaseTaxId = $this->isPkp
-            ? ($pp?->purchase_tax_id ?? ($product['purchase_tax_id'] ?? null))
-            : null;
-        $purchaseTaxId = $purchaseTaxId ? (int) $purchaseTaxId : null;
+        $purchaseTaxId = $this->resolvePreferredPkpAutoTaxId($productId, $product);
 
         // Qty=1 when adding the first time; use your existing calculator
         $calc = $this->calculateSubtotalAndTax(
