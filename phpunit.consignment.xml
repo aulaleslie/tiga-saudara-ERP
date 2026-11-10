@@ -20,6 +20,9 @@
             <file>./Modules/Adjustment/Tests/Feature/SelectedLocationPoolResolverTest.php</file>
             <file>./Modules/Adjustment/Tests/Feature/StoreBreakageValidationTest.php</file>
             <file>./Modules/Adjustment/Tests/Feature/TransferEditSerializedDestinationRegressionTest.php</file>
+            <file>./Modules/Adjustment/Tests/Feature/TransferV3BuyoutReservationTest.php</file>
+            <file>./Modules/Adjustment/Tests/Feature/TransferV3DispatchReceiptCancellationTest.php</file>
+            <file>./Modules/Adjustment/Tests/Feature/TransferV3GoodsAndNumberingTest.php</file>
             <file>./Modules/Pos/Tests/Feature/POSReturnAtomicLifecycleTest.php</file>
             <file>./Modules/Pos/Tests/Feature/POSReturnCrossOwnerReplacementTest.php</file>
             <file>./Modules/Product/Tests/Feature/ProductStockSerialConversionPoolValidationTest.php</file>
@@ -33,6 +36,7 @@
             <file>./Modules/Sale/Tests/Feature/SalesImportProductSplitNoStockTest.php</file>
             <file>./Modules/Setting/Tests/Feature/MultiLocationSearchDropdownTest.php</file>
             <file>./tests/Feature/Adjustment/StockOpnameApprovalTest.php</file>
+            <file>./tests/Feature/Adjustment/StockOpnameBuyoutClaimTest.php</file>
             <file>./tests/Feature/Adjustment/StockOpnameLifecycleFoundationTest.php</file>
             <file>./tests/Feature/Adjustment/StockOpnameReconciliationServiceTest.php</file>
             <file>./tests/Feature/Adjustment/StockOpnameRedesignTest.php</file>

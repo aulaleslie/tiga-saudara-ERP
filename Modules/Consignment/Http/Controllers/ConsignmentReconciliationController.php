@@ -124,7 +124,13 @@ class ConsignmentReconciliationController extends Controller
         // a local Select2.
         $locations = Location::where('setting_id', $settingId)->consignment()->orderBy('name')->get();
 
+        $projection = app(\Modules\Consignment\Services\ConsignmentBuyoutReconciliationProjection::class);
+        $buyoutRows = $projection->forDetails($details->getCollection());
+        $buyoutDocuments = $projection->documents($settingId, $request->integer('supplier_id') ?: null);
+
         return view('consignment::reconciliation.index', compact(
+            'buyoutRows',
+            'buyoutDocuments',
             'details',
             'locations',
             'returnedQuantities',

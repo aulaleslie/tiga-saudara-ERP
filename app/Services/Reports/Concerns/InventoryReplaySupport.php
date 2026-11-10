@@ -35,6 +35,42 @@ trait InventoryReplaySupport
         $stock += $delta;
     }
 
+    /**
+     * Ownership-reclassification effects of consignment buyout transactions on OWNED valuation.
+     *
+     * The leg posted at a consignment location is the non-owned side and is ignored; the leg at the standard
+     * destination changes owned stock. The carrying average is set to the recorded post-event average
+     * (acquisition: average_after; reversal: the restored average) - event-sourced, never recomputed as a receipt.
+     * Dates stay the transaction's own timestamp: nothing is back-dated to the invoice date.
+     *
+     * @return array<int, array{ignore: bool, average: ?float}> keyed by transaction id
+     */
+    protected function loadBuyoutTransactionEffects(Collection $transactions): array
+    {
+        $ids = $transactions->filter(fn ($t) => in_array(strtoupper((string) $t->type), ['CONSIGNMENT_BUYOUT', 'CONSIGNMENT_BUYOUT_REVERSAL'], true))->pluck('id')->all();
+        if (! $ids) {
+            return [];
+        }
+
+        $movements = \Modules\Consignment\Entities\ConsignmentBuyoutMovement::whereIn('transaction_id', $ids)->get();
+        $consignmentLocations = \Modules\Setting\Entities\Location::whereIn('id', $movements->pluck('location_id')->unique())
+            ->pluck('is_consignment', 'id');
+        $events = \Modules\Consignment\Entities\ConsignmentBuyoutCostEvent::whereIn('consignment_buyout_id', $movements->pluck('consignment_buyout_id')->unique())->get()
+            ->keyBy(fn ($e) => $e->consignment_buyout_id . ':' . $e->product_id . ':' . $e->kind);
+
+        $out = [];
+        foreach ($movements as $m) {
+            $nonOwned = (bool) ($consignmentLocations[$m->location_id] ?? false);
+            $event = $events->get($m->consignment_buyout_id . ':' . $m->product_id . ':' . $m->kind);
+            $out[$m->transaction_id] = [
+                'ignore' => $nonOwned,
+                'average' => ! $nonOwned && $event ? (float) $event->average_after : null,
+            ];
+        }
+
+        return $out;
+    }
+
     protected function loadTransactionPriceMaps(Collection $transactions, Collection $productIds, int $settingId): array
     {
         $purchaseRefs = [];
@@ -368,6 +404,11 @@ trait InventoryReplaySupport
 
         if ($type === 'CONSIGNMENT_RECEIPT_REVERSAL') {
             return -abs($quantity != 0.0 ? $quantity : $diff);
+        }
+
+        // Ownership reclassification: the signed leg quantity is authoritative (business totals do not change).
+        if (in_array($type, ['CONSIGNMENT_BUYOUT', 'CONSIGNMENT_BUYOUT_REVERSAL'], true)) {
+            return $quantity;
         }
 
         if ($type === 'ADJ' && $diff != 0.0) {

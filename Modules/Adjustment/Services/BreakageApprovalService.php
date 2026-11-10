@@ -72,6 +72,20 @@ class BreakageApprovalService
                 ]);
             }
 
+            // Consignment buyout protocol: (setting, product) coordination locks precede the location lock. An unknown
+            // location or product aborts here, before any mutation (the document's own validation reports it first).
+            $coordLocationSetting = Location::where('id', $locked->location_id)->value('setting_id');
+            if ($coordLocationSetting) {
+                $coord = \Modules\Consignment\Entities\ConsignmentInventoryCoordination::lockManyReport(
+                    $locked->adjustedProducts()->pluck('product_id')->map(fn ($pid) => [(int) $coordLocationSetting, (int) $pid])->all()
+                );
+                if ($coord['missing']) {
+                    throw ValidationException::withMessages([
+                        'adjusted_products' => ['Terdapat produk yang tidak ditemukan atau tidak dapat dikoordinasikan.'],
+                    ]);
+                }
+            }
+
             // ---- Lock location, then its setting ----
             $location = Location::where('id', $locked->location_id)->lockForUpdate()->first();
             if (!$location) {
@@ -346,6 +360,20 @@ class BreakageApprovalService
                 $stock = ProductStock::where('id', $stock->id)->lockForUpdate()->first();
 
                 $movement = $plan['movement'];
+
+                // Goods reserved by an approved consignment buyout cannot be reclassified as broken.
+                try {
+                    if ($plan['type'] === 'serialized') {
+                        \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::assertSerialsUnclaimed(collect($plan['eligible'])->pluck('serial_id')->map(fn ($i) => (int) $i)->all(), (string) $product->product_name);
+                    } else {
+                        \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::assertQuantityAvailable(
+                            (int) $product->id, (int) $location->id, (bool) $isPkp,
+                            (float) ($isPkp ? $stock->quantity_tax : $stock->quantity_non_tax), (float) $movement, (string) $product->product_name
+                        );
+                    }
+                } catch (\DomainException $e) {
+                    throw ValidationException::withMessages(['adjusted_products' => [$e->getMessage()]]);
+                }
 
                 $beforeGood = (int) round((float) ($stock->quantity_tax ?? 0)) + (int) round((float) ($stock->quantity_non_tax ?? 0));
                 $beforeGlobalGood = max(0, (float) $product->product_quantity - (float) ($product->broken_quantity ?? 0));

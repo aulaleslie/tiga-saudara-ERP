@@ -75,6 +75,9 @@ class PosReturnReplacementStockMutator
         string $reason,
         ?int $settingId = null
     ): array {
+        // Consignment buyout protocol: coordination lock (owner business of the location) precedes the Product lock.
+        \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::lockCoordinationForLocations([[$productId, $locationId]]);
+
         // Lock the product row before reading its quantity: concurrent
         // movements at other locations would otherwise lose this update.
         $product = Product::query()->whereKey($productId)->lockForUpdate()->firstOrFail();
@@ -110,6 +113,14 @@ class PosReturnReplacementStockMutator
 
         if ($bucketBefore < $quantity) {
             throw new \RuntimeException('Stok produk pengganti tidak mencukupi di lokasi sumber asli retur.');
+        }
+
+        try {
+            \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::assertQuantityAvailable(
+                (int) $product->id, $locationId, $bucket === self::BUCKET_TAX, (float) $bucketBefore, (float) $quantity, (string) $product->product_name
+            );
+        } catch (\DomainException $e) {
+            throw new \RuntimeException($e->getMessage(), 0, $e);
         }
 
         $previousQuantity = (int) $product->product_quantity;

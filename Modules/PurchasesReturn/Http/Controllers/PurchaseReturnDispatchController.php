@@ -118,6 +118,25 @@ class PurchaseReturnDispatchController extends Controller
             return back();
         }
 
+        try {
+            $this->approveDispatchTransaction($purchase_return);
+        } catch (\DomainException $e) {
+            // Goods reserved by an approved consignment buyout: nothing was changed (the transaction rolled back).
+            toast($e->getMessage(), 'error');
+
+            return back();
+        }
+
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($purchase_return, 'dispatch');
+        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($purchase_return, 'dispatch');
+
+        toast('Pengiriman retur disetujui dan dieksekusi.', 'success');
+
+        return back();
+    }
+
+    private function approveDispatchTransaction(PurchaseReturn $purchase_return): void
+    {
         DB::transaction(function () use ($purchase_return) {
             // Lock stock when dispatch is approved
             $this->lockReturnStock($purchase_return);
@@ -134,13 +153,6 @@ class PurchaseReturnDispatchController extends Controller
                 'dispatch_rejection_reason' => null,
             ]);
         });
-
-        app(\App\Services\Notification\DocumentNotificationService::class)->resolveApproval($purchase_return, 'dispatch');
-        app(\App\Services\Notification\DocumentNotificationService::class)->resolveRevision($purchase_return, 'dispatch');
-
-        toast('Pengiriman retur disetujui dan dieksekusi.', 'success');
-
-        return back();
     }
 
     public function rejectDispatch(Request $request, PurchaseReturn $purchase_return)
@@ -230,6 +242,11 @@ class PurchaseReturnDispatchController extends Controller
         $dispatchHistoryRecordedSerialIds = [];
         $quantityService = app(PurchaseReturnQuantityService::class);
 
+        // Consignment buyout protocol: coordination locks for every consumed product/location come first.
+        \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::lockCoordinationForLocations(
+            $purchase_return->purchaseReturnDetails->map(fn ($d) => [(int) $d->product_id, (int) $d->location_id])->all()
+        );
+
         foreach ($purchase_return->purchaseReturnDetails as $detail) {
             $quantity = $quantityService->toBigDecimal($detail->quantity);
             if (! $quantity->isPositive()) {
@@ -253,6 +270,9 @@ class PurchaseReturnDispatchController extends Controller
             $prevProductQty = (float) $product->product_quantity;
             $prevStockQty = (float) $stock->quantity;
             $prevBrokenQty = (float) $stock->broken_quantity;
+
+            // Goods reserved by approved consignment buyouts cannot be returned/consumed.
+            $effectiveStock = \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::effectiveStock($stock);
 
             $remaining = $quantity;
             $deducted = [
@@ -284,7 +304,7 @@ class PurchaseReturnDispatchController extends Controller
 
             // Priority 3: quantity_non_tax (Good stock)
             if ($remaining->isPositive()) {
-                $take = $quantityService->min($remaining, $stock->quantity_non_tax ?? 0);
+                $take = $quantityService->min($remaining, $effectiveStock->quantity_non_tax ?? 0);
                 if ($take->isPositive()) {
                     $stock->decrement('quantity_non_tax', $take->toFloat());
                     $stock->decrement('quantity', $take->toFloat());
@@ -295,7 +315,7 @@ class PurchaseReturnDispatchController extends Controller
 
             // Priority 4: quantity_tax (Good stock)
             if ($remaining->isPositive()) {
-                $take = $quantityService->min($remaining, $stock->quantity_tax ?? 0);
+                $take = $quantityService->min($remaining, $effectiveStock->quantity_tax ?? 0);
                 if ($take->isPositive()) {
                     $stock->decrement('quantity_tax', $take->toFloat());
                     $stock->decrement('quantity', $take->toFloat());
@@ -304,6 +324,9 @@ class PurchaseReturnDispatchController extends Controller
                 }
             }
 
+            if ($remaining->isPositive() && \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::reservedQuantity((int) $detail->product_id, (int) $detail->location_id) > 0) {
+                throw new \DomainException('Stok produk sebagian dicadangkan untuk pembelian putus konsinyasi dan tidak mencukupi untuk dispatch retur.');
+            }
             if ($remaining->isPositive()) {
                 // Should we throw exception or just deduct whatever left from good?
                 // For safety, we already checked, but if somehow stock is insufficient:

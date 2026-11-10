@@ -42,6 +42,9 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Konteks posting checkout tidak valid.');
         }
 
+        // Consignment buyout protocol: shared coordination locks come before any document/stock/serial lock.
+        $this->lockBuyoutCoordination($settingId, $lines, $allocations);
+
         $customer = Customer::query()
             ->whereKey($customerId)
             ->first();
@@ -816,6 +819,51 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                 "Seri {$record->serial_number} berada di lokasi yang tidak diizinkan."
             );
         }
+
+        // Serials claimed by an approved consignment buyout cannot be sold.
+        if (\Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::claimedSerialIds([(int) $record->id])) {
+            throw new PosCheckoutValidationException(
+                'SERIAL_INVALID',
+                "Seri {$record->serial_number} dicadangkan untuk dokumen konsinyasi."
+            );
+        }
+    }
+
+    /**
+     * Acquire the shared (setting, product) coordination locks for every product the checkout can touch,
+     * including bundle components and cross-setting sources.
+     */
+    private function lockBuyoutCoordination(int $settingId, array $lines, array $allocations): void
+    {
+        $productIds = [];
+        array_walk_recursive($lines, function ($value, $key) use (&$productIds) {
+            if ($key === 'product_id' && is_numeric($value) && (int) $value > 0) {
+                $productIds[(int) $value] = true;
+            }
+        });
+        $settingIds = [$settingId => true];
+        array_walk_recursive($allocations, function ($value, $key) use (&$settingIds, &$productIds) {
+            if ($key === 'source_setting_id' && is_numeric($value) && (int) $value > 0) {
+                $settingIds[(int) $value] = true;
+            }
+            if ($key === 'product_id' && is_numeric($value) && (int) $value > 0) {
+                $productIds[(int) $value] = true;
+            }
+        });
+
+        $pairs = [];
+        foreach (array_keys($settingIds) as $sid) {
+            foreach (array_keys($productIds) as $pid) {
+                $pairs[] = [$sid, $pid];
+            }
+        }
+        if ($pairs) {
+            $result = \Modules\Consignment\Entities\ConsignmentInventoryCoordination::lockManyReport($pairs);
+            if ($result['missing']) {
+                // Nothing has been written yet: reject rather than proceed without the locks.
+                throw new PosCheckoutValidationException('PAYMENT_INVALID', 'Produk atau bisnis pada checkout tidak ditemukan.');
+            }
+        }
     }
 
     /**
@@ -861,6 +909,19 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
 
             if ((int) $stock->quantity < $chunkQty) {
                 throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', "Stok produk $productLabel tidak cukup di lokasi sumber.");
+            }
+
+            try {
+                \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::assertQuantityAvailable(
+                    $productId,
+                    $chunkLocId,
+                    $taxBucketUsed,
+                    (float) ($taxBucketUsed ? $stock->quantity_tax : $stock->quantity_non_tax),
+                    (float) $chunkQty,
+                    $productLabel
+                );
+            } catch (\DomainException $e) {
+                throw new PosCheckoutValidationException('STOCK_UNAVAILABLE', $e->getMessage());
             }
 
             if ($taxBucketUsed && (int) $stock->quantity_tax < $chunkQty) {

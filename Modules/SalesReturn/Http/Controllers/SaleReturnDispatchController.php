@@ -104,6 +104,10 @@ class SaleReturnDispatchController extends Controller
               // ONE transaction: dispatch effects, completion roll-up and archival commit or roll back
               // together. Notifications are deferred to the commit (afterCommit, below).
               $applyDispatch = function () use ($request, $itemSettlement) {
+                // Consignment buyout protocol: coordination lock before the document/stock/serial locks below.
+                $coordSale = \Modules\SalesReturn\Entities\SaleReturn::query()->whereKey($itemSettlement->sale_return_id)->value('setting_id');
+                \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::lockCoordination((int) $coordSale, [(int) optional($itemSettlement->detail)->product_id]);
+
                 // Source sale -> header -> row locks, then the status is re-read: a replayed or
                 // concurrent approval finds the row no longer DISPATCH_REQUESTED and moves no stock.
                 $itemSettlement = app(StandardReturnGuard::class)->lockSettlement($itemSettlement->id);
@@ -174,6 +178,13 @@ class SaleReturnDispatchController extends Controller
                         if ($sourceStock->quantity < 1) {
                             throw new \Exception("Stok tidak cukup untuk produk {$product->product_name} di lokasi sumber.");
                         }
+
+                        // Reserved by an approved consignment buyout: neither the serial nor its bucket may be consumed.
+                        \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::assertSerialsUnclaimed([(int) $sn->id], $product->product_name);
+                        \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::assertQuantityAvailable(
+                            (int) $product->id, (int) $sourceLocationId, ! empty($taxId),
+                            (float) ($taxId ? $sourceStock->quantity_tax : $sourceStock->quantity_non_tax), 1.0, $product->product_name
+                        );
 
                         // decrement
                         $previousQuantity = $product->product_quantity;
@@ -258,6 +269,10 @@ class SaleReturnDispatchController extends Controller
                 }
 
                 $taxId = $sourceStock->tax_id ?? null;
+                \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::assertQuantityAvailable(
+                    (int) $product->id, (int) $sourceLocationId, ! empty($taxId),
+                    (float) ($taxId ? $sourceStock->quantity_tax : $sourceStock->quantity_non_tax), (float) $quantity, $product->product_name
+                );
                 $previousQuantity = $product->product_quantity;
                 $previousQuantityAtLocation = $sourceStock->quantity;
 

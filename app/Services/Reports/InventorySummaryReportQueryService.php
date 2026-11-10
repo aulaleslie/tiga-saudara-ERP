@@ -78,6 +78,7 @@ class InventorySummaryReportQueryService
         $purchaseDateMap = $this->buildPurchaseDateMap($purchaseRefs, $settingId);
         $saleDateMap = $this->buildSaleDateMap($saleRefs, $settingId);
         $transferMeta = $this->loadTransferMeta($transactions);
+        $buyoutEffects = $this->loadBuyoutTransactionEffects($transactions);
         $transactionMeta = $this->buildTransactionMeta(
             $transactions,
             $purchaseDateMap,
@@ -133,7 +134,15 @@ class InventorySummaryReportQueryService
                     $fallbackSale
                 );
 
+                $buyoutEffect = $buyoutEffects[$transaction->id] ?? null;
+                if ($buyoutEffect['ignore'] ?? false) {
+                    continue;   // the non-owned (consignment) side of an ownership reclassification
+                }
+
                 $this->applyTransaction($type, $delta, $unitPrice, $runningStock, $runningAvg);
+                if (($buyoutEffect['average'] ?? null) !== null) {
+                    $runningAvg = $buyoutEffect['average'];
+                }
             }
 
             if ($runningAvg == 0.0 && $fallbackAvg > 0) {

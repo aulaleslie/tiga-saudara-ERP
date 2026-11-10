@@ -71,6 +71,24 @@
                         </a>
                     </div>
                     <div class="card-body">
+                        @if($purchase->isConsignmentBuyout())
+                            @php
+                                $buyoutDoc = \Modules\Consignment\Entities\ConsignmentBuyout::where('purchase_id', $purchase->id)->first();
+                            @endphp
+                            <div class="alert {{ $purchase->isCancelled() ? 'alert-dark' : 'alert-info' }} border-left-info shadow-sm mb-4">
+                                <i class="bi bi-link-45deg mr-1"></i>
+                                <strong>Dokumen Pembelian Putus Konsinyasi:</strong>
+                                @if($buyoutDoc)
+                                    @can('consignments.buyouts.access')
+                                        <a href="{{ route('consignments.buyouts.show', $buyoutDoc->id) }}" class="font-weight-bold alert-link">{{ $buyoutDoc->reference }}</a>
+                                    @else
+                                        {{ $buyoutDoc->reference }}
+                                    @endcan
+                                @endif
+                                — barang belum terjual dipindahkan ke stok milik tanpa penerimaan barang baru; barang terjual dibayar tanpa pergerakan stok.
+                                @if($purchase->isCancelled())<strong class="d-block mt-1">Dokumen ini telah dibatalkan melalui reversal; sisa tagihan nol.</strong>@endif
+                            </div>
+                        @endif
                         @if($purchase->isConsignmentBilling() && $purchase->consignmentBillingConfirmation)
                             <div class="alert alert-info border-left-info shadow-sm mb-4">
                                 <i class="bi bi-link-45deg mr-1"></i>

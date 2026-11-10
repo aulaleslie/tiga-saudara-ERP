@@ -44,6 +44,7 @@ class AgedPayablesReportQueryService
             ->selectRaw("SUM(CASE WHEN {$diffSql} BETWEEN 61 AND 90 THEN ROUND(purchases.total_amount - COALESCE(payments.paid_to_date, 0), 2) ELSE 0 END) as bucket_3", [$filter->asOfDate])
             ->selectRaw("SUM(CASE WHEN {$diffSql} > 90 THEN ROUND(purchases.total_amount - COALESCE(payments.paid_to_date, 0), 2) ELSE 0 END) as bucket_4", [$filter->asOfDate])
             ->where('purchases.setting_id', $scopeSettingId)
+            ->where('purchases.status', '!=', 'CANCELLED')   // reversed consignment buyout liabilities are not collectible
             ->where('purchases.date', '<=', $filter->asOfDate)
             ->whereRaw('ROUND(purchases.total_amount - COALESCE(payments.paid_to_date, 0), 2) > ?', [0])
             ->groupBy('purchases.supplier_id', 'suppliers.supplier_name')

@@ -1025,6 +1025,12 @@ class SaleController extends Controller
 
         DB::beginTransaction();
         try {
+            // Shared coordination locks come before any document/stock/serial lock (consignment buyout protocol).
+            \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::lockCoordination(
+                (int) $sale->setting_id,
+                DispatchDetail::where('dispatch_id', $dispatch->id)->pluck('product_id')->all()
+            );
+
             /** @var Dispatch $lockedDispatch */
             $lockedDispatch = Dispatch::query()->where('id', $dispatch->id)->lockForUpdate()->firstOrFail();
 
@@ -1158,6 +1164,16 @@ class SaleController extends Controller
             throw new Exception("Stok tidak cukup untuk produk {$product->product_name} di lokasi selected.");
         }
 
+        // Approved consignment buyouts reserve part of this bucket; dispatch must not consume it.
+        \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::assertQuantityAvailable(
+            (int) $product->id,
+            (int) $locationId,
+            ! empty($taxId),
+            (float) ($taxId ? $productStock->quantity_tax : $productStock->quantity_non_tax),
+            (float) $qty,
+            $product->product_name
+        );
+
         $lockedSerialRecords = collect();
         if ($detail->serial_numbers) {
             $serials = json_decode($detail->serial_numbers, true);
@@ -1172,6 +1188,11 @@ class SaleController extends Controller
                 if ($lockedSerialRecords->count() !== count(array_unique($serials))) {
                     throw new Exception("Beberapa serial number tidak ditemukan untuk produk {$product->product_name}.");
                 }
+
+                \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::assertSerialsUnclaimed(
+                    $lockedSerialRecords->pluck('id')->all(),
+                    $product->product_name
+                );
 
                 $isTaxedSaleItem = !empty($taxId) && (int)$taxId > 0;
 

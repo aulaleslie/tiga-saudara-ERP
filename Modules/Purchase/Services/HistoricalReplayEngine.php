@@ -75,6 +75,12 @@ class HistoricalReplayEngine
             ->where('product_id', $productId)
             ->whereHas('purchase', function ($q) use ($untilDate) {
                 $q->whereIn('status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY, 'COMPLETED']);
+                // A consignment BUYOUT Purchase is an ownership reclassification, never a receipt: it must not enter the
+                // physically-complete-without-Received-Note fallback. Its carrying-value effect arrives as zero-quantity
+                // cost events below. (A reversed buyout is CANCELLED and already outside the status filter.)
+                $q->where(function ($w) {
+                    $w->whereNull('source_type')->orWhere('source_type', '!=', Purchase::SOURCE_CONSIGNMENT_BUYOUT);
+                });
                 if ($untilDate) {
                     $q->where('date', '<=', $untilDate);
                 }
@@ -287,6 +293,29 @@ class HistoricalReplayEngine
             }
         }
 
+        // 5. Consignment buyout carrying-value events (zero physical quantity; applied exactly once each).
+        foreach (\Modules\Consignment\Entities\ConsignmentBuyoutCostEvent::query()
+            ->where('product_id', $productId)
+            ->when($settingId, fn ($q) => $q->where('setting_id', $settingId))
+            ->when($untilDate, fn ($q) => $q->where('effective_at', '<=', $untilDate))
+            ->orderBy('id')->get() as $ev) {
+            $companyName = $this->getSettingCompanyName((int) $ev->setting_id);
+            $events->push([
+                'type' => 'cost_replace',
+                'kind' => $ev->kind,
+                'order' => 1,
+                'id' => 'buyout-cost-' . str_pad((string) $ev->id, 12, '0', STR_PAD_LEFT),
+                'acquisition_key' => 'buyout:' . $ev->consignment_buyout_id . ':' . $ev->product_id,
+                'date' => Carbon::parse($ev->effective_at)->format('Y-m-d H:i:s'),
+                'quantity' => 0,                       // no physical quantity: never a receipt
+                'q' => (float) $ev->acquired_quantity,
+                'cost' => (float) $ev->acquired_cost_total,
+                'bucket' => BackfillCostCalculator::classifyBucket($companyName),
+                'setting_id' => (int) $ev->setting_id,
+                'model' => $ev,
+            ]);
+        }
+
         // Sort by date, then order, then ID for determinism
         return $events->sort(function ($a, $b) {
             if ($a['date'] === $b['date']) {
@@ -309,7 +338,18 @@ class HistoricalReplayEngine
         $runningValue = 0;
         $currentAverage = 0;
 
+        $preAcquisition = [];
+
         foreach ($events as $event) {
+            if ($event['type'] === 'cost_replace') {
+                // Applies in and out of scope alike: it shapes the opening state exactly like any earlier event.
+                $state = $this->applyCostReplace($event, $runningQty, $runningValue, $currentAverage, $preAcquisition);
+                $runningQty = $state['runningQty'];
+                $runningValue = $state['runningValue'];
+                $currentAverage = $state['currentAverage'];
+                continue;
+            }
+
             if ($fromDate && $event['date'] < $fromDate->format('Y-m-d H:i:s')) {
                 // Build opening state from pre-fromDate events
                 if ($event['type'] === 'purchase') {
@@ -395,6 +435,9 @@ class HistoricalReplayEngine
             ->where('product_id', $productId)
             ->whereHas('purchase', function ($q) use ($afterDate) {
                 $q->whereIn('status', [Purchase::STATUS_RECEIVED, Purchase::STATUS_RECEIVED_PARTIALLY, 'COMPLETED']);
+                $q->where(function ($w) {
+                    $w->whereNull('source_type')->orWhere('source_type', '!=', Purchase::SOURCE_CONSIGNMENT_BUYOUT);
+                });
                 $q->where('date', '>', $afterDate);
             })
             ->orderBy('id', 'asc')
@@ -498,10 +541,29 @@ class HistoricalReplayEngine
             }
         }
 
+        $preAcquisition = ['tiga_nusa' => [], 'top_it' => [], 'rest' => []];
+
         // Process events
         foreach ($events as $event) {
             $bucket = $event['bucket'];
             $inScope = !$fromDate || $event['date'] >= $fromDate->format('Y-m-d H:i:s');
+
+            if ($event['type'] === 'cost_replace') {
+                $state = $this->applyCostReplace(
+                    $event,
+                    $states[$bucket]['runningQty'],
+                    $states[$bucket]['runningValue'],
+                    $states[$bucket]['currentAverage'],
+                    $preAcquisition[$bucket],
+                );
+                $states[$bucket]['runningQty'] = $state['runningQty'];
+                $states[$bucket]['runningValue'] = $state['runningValue'];
+                $states[$bucket]['currentAverage'] = $state['currentAverage'];
+                if (! empty($state['warning'])) {
+                    $warnings['cost_replace'][] = ['id' => $event['id'], 'date' => $event['date'], 'bucket' => $bucket, 'reason' => $state['warning']];
+                }
+                continue;
+            }
 
             if ($event['type'] === 'purchase') {
                 $state = BackfillCostCalculator::applyPurchase(
@@ -582,6 +644,37 @@ class HistoricalReplayEngine
             'sale_snapshots' => $saleSnapshots,
             'warnings' => $warnings,
         ];
+    }
+
+    /**
+     * Carrying-value replacement of a consignment buyout, replayed with the engine's own running state:
+     *   acquisition: V' = V - q*A + C   (quantity unchanged)
+     *   reversal:    V' = V - C + q*A_pre (A_pre = the average just before THAT acquisition), applied once.
+     * Never adds quantity, so a replay can neither duplicate the acquisition nor invent a receipt.
+     *
+     * @param array<string, float> $preAcquisition
+     * @return array{runningQty: float, runningValue: float, currentAverage: float, warning?: string}
+     */
+    private function applyCostReplace(array $event, float $qty, float $value, float $avg, array &$preAcquisition): array
+    {
+        $unchanged = ['runningQty' => $qty, 'runningValue' => $value, 'currentAverage' => $avg];
+        $key = $event['acquisition_key'];
+
+        if ($event['kind'] === 'ACQUISITION') {
+            if ($qty <= 0 || $event['q'] <= 0 || $event['q'] > $qty + 0.0004) {
+                return $unchanged + ['warning' => 'no_stock_for_acquisition'];
+            }
+            $preAcquisition[$key] = $avg;
+            $newValue = $value - $event['q'] * $avg + $event['cost'];
+        } else {
+            if (! array_key_exists($key, $preAcquisition)) {
+                return $unchanged + ['warning' => 'reversal_without_acquisition'];
+            }
+            $newValue = $value - $event['cost'] + $event['q'] * $preAcquisition[$key];
+            unset($preAcquisition[$key]);
+        }
+
+        return ['runningQty' => $qty, 'runningValue' => $newValue, 'currentAverage' => $qty > 0 ? $newValue / $qty : 0];
     }
 
     /**

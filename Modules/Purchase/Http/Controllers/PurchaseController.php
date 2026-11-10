@@ -1142,6 +1142,18 @@ class PurchaseController extends Controller
 
                 try {
                 DB::transaction(function () use ($receivedNote) {
+                    // Consignment buyout protocol: (setting, product) coordination locks precede the Purchase lock so
+                    // average-cost changes cannot race an acquisition or its reversal.
+                    $coordSettingId = (int) Purchase::query()->whereKey($receivedNote->po_id)->value('setting_id');
+                    \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::lockCoordination(
+                        $coordSettingId,
+                        DB::table('received_note_details as rnd')
+                            ->leftJoin('purchase_details as pd', 'pd.id', '=', 'rnd.po_detail_id')
+                            ->where('rnd.received_note_id', $receivedNote->id)
+                            ->selectRaw('COALESCE(rnd.product_id, pd.product_id) as pid')
+                            ->pluck('pid')->all()
+                    );
+
                     // Lock shared records in agreed deterministic order:
                     // 1. Purchase
                     $purchase = Purchase::query()

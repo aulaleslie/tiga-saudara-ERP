@@ -148,6 +148,17 @@ class ConsignmentReceiptAllocationService
                 });
             $pendingReserved = (float) $pendingQuery->sum('allocated_base_quantity');
 
+            // Shared capacity: buyout finalized consumption and active reservations (counted once, never both).
+            $buyoutConsumed = (float) \Modules\Consignment\Entities\ConsignmentBuyoutLine::where('consignment_receiving_detail_id', $detail->id)
+                ->whereHas('buyout', fn ($q) => $q->where('status', \Modules\Consignment\Entities\ConsignmentBuyout::STATUS_FINALIZED))
+                ->sum('base_quantity');
+            $buyoutReserved = (float) \Modules\Consignment\Entities\ConsignmentBuyoutReservation::where('resource_type', 'RECEIPT')
+                ->where('consignment_receiving_detail_id', $detail->id)
+                ->where('status', \Modules\Consignment\Entities\ConsignmentBuyoutReservation::STATUS_ACTIVE)
+                ->sum('base_quantity');
+            $approvedAllocated += $buyoutConsumed;
+            $pendingReserved += $buyoutReserved;
+
             $remainingQty = max(0.0, $receivedQty - $approvedAllocated - $pendingReserved);
 
             $pools[] = [

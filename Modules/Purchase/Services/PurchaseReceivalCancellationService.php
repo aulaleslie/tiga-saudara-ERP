@@ -56,6 +56,16 @@ class PurchaseReceivalCancellationService
         }
 
         return DB::transaction(function () use ($purchase, $reason, $actor, $settingId) {
+            // Consignment buyout protocol: coordination locks precede the Purchase lock (cost replay shares them).
+            \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::lockCoordination(
+                (int) $purchase->setting_id,
+                DB::table('received_note_details as rnd')
+                    ->leftJoin('purchase_details as pd', 'pd.id', '=', 'rnd.po_detail_id')
+                    ->whereIn('rnd.received_note_id', ReceivedNote::where('po_id', $purchase->id)->select('id'))
+                    ->selectRaw('COALESCE(rnd.product_id, pd.product_id) as pid')
+                    ->pluck('pid')->all()
+            );
+
             // 1. Authoritative Deterministic Locking in order:
             // Purchase -> ReceivedNotes -> ReceivedNoteDetails -> ProductStocks/Products -> Transactions -> Serials
             $purchase = Purchase::where('id', $purchase->id)
@@ -187,6 +197,9 @@ class PurchaseReceivalCancellationService
                     $newStockQty = $prevStockQty - $qty;
                     $newStockTax = $prevStockTax - $qtyTax;
                     $newStockNonTax = $prevStockNonTax - $qtyNonTax;
+
+                    \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::assertBucketsRetainReserved(
+                        (int) $prodId, (int) $locId, $newStockTax, $newStockNonTax, "(pembatalan penerimaan produk #{$prodId})");
 
                     $productStock->update([
                         'quantity' => $newStockQty,

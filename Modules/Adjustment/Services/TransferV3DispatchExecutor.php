@@ -67,6 +67,15 @@ class TransferV3DispatchExecutor
 
             // Stable lock order: locations, settings, products, stock rows, serials.
             $locationIds = $plan->pluck('source_location_id')->merge($plan->pluck('destination_location_id'))->filter()->unique()->sort()->values()->all();
+
+            // Consignment buyout protocol: shared (setting, product) coordination locks precede these locks.
+            $coordPairs = [];
+            $sourceSettings = Location::whereIn('id', $plan->pluck('source_location_id')->unique()->all())->pluck('setting_id', 'id');
+            foreach ($plan as $row) {
+                $coordPairs[] = [(int) $sourceSettings->get($row->source_location_id), (int) $row->product_id];
+            }
+            \Modules\Consignment\Entities\ConsignmentInventoryCoordination::lockMany($coordPairs);
+
             $locations = Location::whereIn('id', $locationIds)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
             $settingIds = $locations->pluck('setting_id')->unique()->sort()->values()->all();
             $settings = Setting::whereIn('id', $settingIds)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
@@ -158,6 +167,10 @@ class TransferV3DispatchExecutor
 
                 if ($serialized) {
                     $buckets = TransferV3InventoryPoster::EMPTY_BUCKETS;
+                    $claimed = \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::claimedSerialIds($row->serials->pluck('product_serial_number_id')->map(fn ($i) => (int) $i)->all());
+                    if ($claimed) {
+                        throw new RuntimeException("Nomor seri {$product->product_name} diklaim oleh dokumen konsinyasi dan tidak dapat ditransfer.");
+                    }
                     foreach ($row->serials as $assignment) {
                         $serial = $liveSerials->get($assignment->product_serial_number_id);
                         $this->assertSerialDispatchable($serial, $product, $source, $isBroken);
@@ -171,7 +184,9 @@ class TransferV3DispatchExecutor
                         throw new RuntimeException("Jumlah nomor seri {$product->product_name} tidak sesuai dengan alokasi.");
                     }
                 } else {
-                    $buckets = TransferV3InventoryPoster::allocateNonTaxFirst($stock, $quantity, $isBroken);
+                    // Plan against stock that excludes goods reserved by approved consignment buyouts.
+                    $planningStock = $isBroken ? $stock : \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::effectiveStock($stock);
+                    $buckets = TransferV3InventoryPoster::allocateNonTaxFirst($planningStock, $quantity, $isBroken);
                 }
 
                 // Immutable per-allocation route policy: cross-business depends

@@ -467,6 +467,10 @@ class ConsignmentReceivingService
             return ['can_reverse' => false, 'blockers' => $blockers];
         }
 
+        foreach ((new ConsignmentBuyoutDependencyChecker())->receivingBlockers($receiving) as $b) {
+            $blockers[] = $b;
+        }
+
         $location = Location::find($locationId);
         $settingLocationIds = Location::where('setting_id', $settingId)->pluck('id');
 
@@ -595,7 +599,7 @@ class ConsignmentReceivingService
                 ->keyBy('product_id');
 
             // Authoritative eligibility check under lock
-            $blockers = [];
+            $blockers = (new ConsignmentBuyoutDependencyChecker())->receivingBlockers($lockedReceiving);
             foreach ($lockedReceiving->details as $detail) {
                 $product = $products->get($detail->product_id);
                 $stock = $productStocks->get($detail->product_id);

@@ -126,6 +126,20 @@ class StockOpnameApprovalService
                 enteredSerialTexts: $enteredSerialTexts,
             );
 
+            // Consignment buyout protocol: (setting, product) coordination locks precede every other lock below.
+            $coordSettings = \Modules\Setting\Entities\Location::whereIn('id', collect($selectedLocationIds)->concat($discovery['locationIds'])->unique()->all())
+                ->pluck('setting_id')->unique();
+            $coord = \Modules\Consignment\Entities\ConsignmentInventoryCoordination::lockManyReport(
+                $coordSettings->flatMap(fn ($sid) => $productIds->map(fn ($pid) => [(int) $sid, (int) $pid]))->all()
+            );
+            if ($coord['missing']) {
+                // Rejected before any mutation: a product that cannot be coordinated is never silently skipped.
+                $badIds = collect($coord['missing'])->pluck(1)->unique()->implode(', ');
+                throw ValidationException::withMessages([
+                    'count_draft' => ["Produk dengan ID {$badIds} tidak ditemukan, tidak aktif, atau bukan produk yang stoknya dikelola."],
+                ]);
+            }
+
             // ---- Step 2 (lock): complete affected Location set, ascending ID, in ONE query ----
             $allLocationIdsToLock = collect($selectedLocationIds)
                 ->concat($discovery['locationIds'])

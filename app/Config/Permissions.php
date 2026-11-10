@@ -474,6 +474,16 @@ return [
         'consignments.allocations.reject' => 'Tolak Alokasi Penjualan Konsinyasi',
         'consignments.billing.access' => 'Hak Akses Tagihan Konsinyasi Supplier',
         'consignments.billing.convert' => 'Konversi Tagihan Konsinyasi Supplier',
+        'consignments.buyouts.access' => 'Hak Akses Pembelian Putus Konsinyasi',
+        'consignments.buyouts.create' => 'Buat Pembelian Putus Konsinyasi',
+        'consignments.buyouts.edit' => 'Ubah Pembelian Putus Konsinyasi',
+        'consignments.buyouts.submit' => 'Ajukan Pembelian Putus Konsinyasi',
+        'consignments.buyouts.approve' => 'Setujui Pembelian Putus Konsinyasi',
+        'consignments.buyouts.reject' => 'Tolak Pembelian Putus Konsinyasi',
+        'consignments.buyouts.cancel' => 'Batalkan Pembelian Putus Konsinyasi',
+        'consignments.buyouts.finalize' => 'Finalisasi Pembelian Putus Konsinyasi',
+        'consignments.buyouts.reverse' => 'Reversal Pembelian Putus Konsinyasi',
+        'consignments.buyouts.acquire_unsold' => 'Ambil Alih Stok Konsinyasi Belum Terjual',
     ],
 
     'Notifications' => [

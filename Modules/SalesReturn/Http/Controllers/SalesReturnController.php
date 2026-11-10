@@ -318,6 +318,12 @@ class SalesReturnController extends Controller
             DB::transaction(function () use ($sale_return) {
                 $receivedAt = now();
 
+                // Consignment buyout protocol: (setting, product) coordination locks precede the document locks.
+                \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::lockCoordination(
+                    (int) $sale_return->setting_id,
+                    $sale_return->saleReturnDetails()->pluck('product_id')->all()
+                );
+
                 // Source sale -> header locks, then the authoritative state check: a replayed or
                 // concurrent receive finds the return no longer awaiting receiving and writes nothing.
                 $guard = app(StandardReturnGuard::class);

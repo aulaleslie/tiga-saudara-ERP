@@ -28,6 +28,7 @@ class Purchase extends BaseModel implements HasMedia
 
     public const SOURCE_ORDINARY = 'ORDINARY';
     public const SOURCE_CONSIGNMENT_BILLING = 'CONSIGNMENT_BILLING';
+    public const SOURCE_CONSIGNMENT_BUYOUT = 'CONSIGNMENT_BUYOUT';
 
     protected $fillable = [
         'date',
@@ -75,6 +76,8 @@ class Purchase extends BaseModel implements HasMedia
     const STATUS_RECEIVED = 'RECEIVED';
     const STATUS_RETURNED = 'RETURNED';
     const STATUS_RETURNED_PARTIALLY = 'RETURNED PARTIALLY';
+    /** Set only by the dedicated consignment buyout reversal; ordinary status actions can never reach it. */
+    const STATUS_CANCELLED = 'CANCELLED';
 
     const STATUS_LABELS = [
         self::STATUS_DRAFTED => 'Draf',
@@ -85,6 +88,7 @@ class Purchase extends BaseModel implements HasMedia
         self::STATUS_RECEIVED => 'Diterima',
         self::STATUS_RETURNED => 'Dikembalikan',
         self::STATUS_RETURNED_PARTIALLY => 'Dikembalikan Sebagian',
+        self::STATUS_CANCELLED => 'Dibatalkan',
     ];
 
     const PAYMENT_STATUS_PAID = 'Paid';
@@ -111,7 +115,7 @@ class Purchase extends BaseModel implements HasMedia
      */
     public function resolveEditMode(?\Illuminate\Contracts\Auth\Authenticatable $user = null): string
     {
-        if ($this->isConsignmentBilling()) {
+        if ($this->isConsignmentFinancial()) {
             return self::EDIT_MODE_NONE;
         }
 
@@ -185,6 +189,10 @@ class Purchase extends BaseModel implements HasMedia
         return $this->hasOne(\Modules\Consignment\Entities\ConsignmentBillingConfirmation::class, 'purchase_id', 'id');
     }
 
+    public function consignmentBuyout() {
+        return $this->hasOne(\Modules\Consignment\Entities\ConsignmentBuyout::class, 'purchase_id', 'id');
+    }
+
     public function consignmentLineages() {
         return $this->hasMany(\Modules\Consignment\Entities\ConsignmentPurchaseDetailLineage::class, 'purchase_id', 'id');
     }
@@ -199,6 +207,40 @@ class Purchase extends BaseModel implements HasMedia
 
     public function isConsignmentBilling(): bool {
         return $this->source_type === self::SOURCE_CONSIGNMENT_BILLING;
+    }
+
+    /** @var array<int,bool> purchase ids currently inside the dedicated buyout reversal */
+    protected static array $buyoutReversalScope = [];
+
+    /**
+     * Run $callback with the tightly scoped permission to cancel THIS buyout Purchase's liability
+     * (status CANCELLED, collectible due 0). Nothing else about the commercial evidence becomes mutable.
+     */
+    public static function withBuyoutReversalScope(int $purchaseId, \Closure $callback): mixed
+    {
+        self::$buyoutReversalScope[$purchaseId] = true;
+        try {
+            return $callback();
+        } finally {
+            unset(self::$buyoutReversalScope[$purchaseId]);
+        }
+    }
+
+    public function isCancelled(): bool {
+        return $this->status === self::STATUS_CANCELLED;
+    }
+
+    public function isConsignmentBuyout(): bool {
+        return $this->source_type === self::SOURCE_CONSIGNMENT_BUYOUT;
+    }
+
+    /**
+     * Any Purchase whose commercial evidence derives from consignment documents (legacy billing or buyout).
+     * Source/model guards use this predicate; places that need the legacy confirmation lineage keep
+     * isConsignmentBilling().
+     */
+    public function isConsignmentFinancial(): bool {
+        return $this->isConsignmentBilling() || $this->isConsignmentBuyout();
     }
 
     public function isOrdinary(): bool {
@@ -290,7 +332,7 @@ class Purchase extends BaseModel implements HasMedia
         });
 
         static::updating(function ($model) {
-            if ($model->getOriginal('source_type') === self::SOURCE_CONSIGNMENT_BILLING) {
+            if (in_array($model->getOriginal('source_type'), [self::SOURCE_CONSIGNMENT_BILLING, self::SOURCE_CONSIGNMENT_BUYOUT], true)) {
                 $dirty = array_keys($model->getDirty());
                 $allowed = [
                     'paid_amount',
@@ -303,6 +345,13 @@ class Purchase extends BaseModel implements HasMedia
                     'tax_ref_no',
                     'updated_at',
                 ];
+                if ($model->getOriginal('source_type') === self::SOURCE_CONSIGNMENT_BUYOUT && (self::$buyoutReversalScope[$model->id] ?? false)) {
+                    $allowed = array_merge($allowed, ['status', 'due_amount']);
+                    // The scope may only cancel: any other status value is still forbidden.
+                    if ($model->isDirty('status') && $model->status !== self::STATUS_CANCELLED) {
+                        throw new \DomainException("Buyout Purchase #{$model->id} can only move to CANCELLED through its dedicated reversal.");
+                    }
+                }
                 $forbidden = array_diff($dirty, $allowed);
 
                 if (!empty($forbidden)) {
@@ -326,11 +375,12 @@ class Purchase extends BaseModel implements HasMedia
      */
     public static function canonicalLiveDueFormula(): string
     {
-        return 'total_amount - COALESCE((
+        // A cancelled (reversed buyout) Purchase has no collectible due, whatever its original amounts say.
+        return "CASE WHEN purchases.status = 'CANCELLED' THEN 0 ELSE total_amount - COALESCE((
             SELECT SUM(amount) FROM purchase_payments
             WHERE purchase_payments.purchase_id = purchases.id
             AND purchase_payments.status = ?
-        ), 0)';
+        ), 0) END";
     }
 
     /**
@@ -452,6 +502,10 @@ class Purchase extends BaseModel implements HasMedia
 
     public function getLiveDueAmountAttribute(): float
     {
+        if ($this->isCancelled()) {
+            return 0.0;
+        }
+
         return max(0, $this->total_amount - $this->getEffectivePaidAmount());
     }
 
@@ -462,7 +516,7 @@ class Purchase extends BaseModel implements HasMedia
     public function reconcileFromActivePayments(): void
     {
         $paidAmount = $this->getEffectivePaidAmount();
-        $dueAmount = max(0, round($this->total_amount - $paidAmount, 2));
+        $dueAmount = $this->isCancelled() ? 0.0 : max(0, round($this->total_amount - $paidAmount, 2));
 
         $status = $dueAmount <= 0.01 ? self::PAYMENT_STATUS_PAID : ($paidAmount > 0.01 ? self::PAYMENT_STATUS_PARTIAL : self::PAYMENT_STATUS_UNPAID);
 

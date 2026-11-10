@@ -19,6 +19,7 @@ class ConsignmentBillingConfirmationLifecycleService
 {
     protected ConsignmentReturnEligibilityService $eligibilityService;
     protected ConsignmentReceiptAllocationService $receiptAllocationService;
+    protected ?ConsignmentBuyoutCapacityService $buyoutCapacityService = null;
 
 
     public function __construct(
@@ -188,9 +189,21 @@ class ConsignmentBillingConfirmationLifecycleService
     /**
      * Submit confirmation transaction with deterministic lock ordering and reservation checks.
      */
+    protected function buyoutCapacity(): ConsignmentBuyoutCapacityService
+    {
+        return $this->buyoutCapacityService ??= new ConsignmentBuyoutCapacityService($this->eligibilityService);
+    }
+
+    /** @return array<int, array{0:int,1:int}> read-only (business, product) discovery for the lock planner */
+    protected function confirmationPairs(ConsignmentBillingConfirmation $confirmation): array
+    {
+        return ConsignmentBillingConfirmationLine::where('consignment_billing_confirmation_id', $confirmation->id)
+            ->pluck('product_id')->unique()->map(fn ($p) => [(int) $confirmation->setting_id, (int) $p])->all();
+    }
+
     public function submitConfirmation(ConsignmentBillingConfirmation $confirmation, ?int $userId = null): ConsignmentBillingConfirmation
     {
-        return DB::transaction(function () use ($confirmation, $userId) {
+        return ConsignmentLockPlanner::run(fn () => $this->confirmationPairs($confirmation), function ($cover) use ($confirmation, $userId) {
             // 1. Lock header
             $header = ConsignmentBillingConfirmation::where('id', $confirmation->id)->lockForUpdate()->firstOrFail();
 
@@ -200,6 +213,7 @@ class ConsignmentBillingConfirmationLifecycleService
 
             // Collect IDs for deterministic locking via unlocked reads
             $lines = $header->lines()->with(['receiptAllocations', 'serializedAllocations'])->get();
+            $cover($this->confirmationPairs($header));
             $soldSourceIds = $lines->pluck('consignment_sold_source_id')->unique()->sort()->values()->toArray();
             $crdIds = $lines->flatMap(fn ($l) => $l->receiptAllocations->pluck('consignment_receiving_detail_id'))->filter()->unique()->sort()->values()->toArray();
             $serialIds = $lines->flatMap(fn ($l) => $l->serializedAllocations->pluck('product_serial_number_id'))->filter()->unique()->sort()->values()->toArray();
@@ -305,7 +319,8 @@ class ConsignmentBillingConfirmationLifecycleService
                     })
                     ->sum('allocated_base_quantity');
 
-                $capacity = (float) $crd->quantity_received - (float) $otherAllocated;
+                $capacity = (float) $crd->quantity_received - (float) $otherAllocated
+                    - $this->buyoutCapacity()->buyoutReceiptConsumption((int) $crdId);
                 if ($totalAllocQty > $capacity + 0.0001) {
                     throw new Exception("Requested total receipt allocation ({$totalAllocQty}) exceeds remaining capacity ({$capacity}) for receiving detail #{$crdId}.");
                 }
@@ -368,6 +383,9 @@ class ConsignmentBillingConfirmationLifecycleService
                 }
             }
 
+            // Adopt/validate sold-receipt attribution atomically with the reservation.
+            $this->buyoutCapacity()->adoptLegacyAllocations($header);
+
             // Move header to WAITING_APPROVAL
             $header->update([
                 'status' => ConsignmentBillingConfirmation::STATUS_WAITING_APPROVAL,
@@ -397,8 +415,9 @@ class ConsignmentBillingConfirmationLifecycleService
      */
     public function approveConfirmation(ConsignmentBillingConfirmation $confirmation, ?int $userId = null): ConsignmentBillingConfirmation
     {
-        return DB::transaction(function () use ($confirmation, $userId) {
+        return ConsignmentLockPlanner::run(fn () => $this->confirmationPairs($confirmation), function ($cover) use ($confirmation, $userId) {
             $header = ConsignmentBillingConfirmation::where('id', $confirmation->id)->lockForUpdate()->firstOrFail();
+            $cover($this->confirmationPairs($header));
 
             if (! $header->isWaitingApproval()) {
                 throw new InvalidArgumentException("Only WAITING_APPROVAL confirmations can be approved. Current: {$header->status}.");
@@ -535,7 +554,8 @@ class ConsignmentBillingConfirmationLifecycleService
                     })
                     ->sum('allocated_base_quantity');
 
-                $capacity = (float) $crd->quantity_received - (float) $otherAllocated;
+                $capacity = (float) $crd->quantity_received - (float) $otherAllocated
+                    - $this->buyoutCapacity()->buyoutReceiptConsumption((int) $crdId);
                 if ($totalAllocQty > $capacity + 0.0001) {
                     throw new Exception("Approval failed: requested total receipt allocation ({$totalAllocQty}) exceeds remaining capacity ({$capacity}) for receiving detail #{$crdId}.");
                 }
@@ -565,6 +585,8 @@ class ConsignmentBillingConfirmationLifecycleService
                     $sa->update(['status' => ConsignmentSerializedAllocation::STATUS_APPROVED]);
                 }
             }
+
+            $this->buyoutCapacity()->adoptLegacyAllocations($header);
 
             // Update status to APPROVED
             $header->update([

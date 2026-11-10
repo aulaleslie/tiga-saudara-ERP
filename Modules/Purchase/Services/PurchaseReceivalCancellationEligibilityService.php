@@ -69,7 +69,7 @@ class PurchaseReceivalCancellationEligibilityService
         }
 
         // 2. Ordinary purchase check (no consignment billing)
-        if ($purchase->isConsignmentBilling()) {
+        if ($purchase->isConsignmentFinancial()) {
             $blockers[] = "Consignment-billing purchases cannot have receivals cancelled. Goods are managed under consignment custody.";
         }
 
@@ -317,6 +317,14 @@ class PurchaseReceivalCancellationEligibilityService
 
             if ($req['quantity_tax'] > 0 && $availTax < $req['quantity_tax']) {
                 $blockers[] = "Insufficient tax stock bucket for {$productName} at location #{$req['location_id']}. Required: {$req['quantity_tax']}, Available: {$availTax}.";
+            }
+
+            // Goods reserved by approved consignment buyouts cannot be removed by a receival cancellation.
+            $reservedTax = \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::reservedQuantity((int) $req['product_id'], (int) $req['location_id'], true);
+            $reservedNonTax = \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::reservedQuantity((int) $req['product_id'], (int) $req['location_id'], false);
+            if (($reservedTax > 0 && $availTax - $req['quantity_tax'] + 0.0004 < $reservedTax)
+                || ($reservedNonTax > 0 && $availNonTax - $req['quantity_non_tax'] + 0.0004 < $reservedNonTax)) {
+                $blockers[] = "Stok {$productName} di lokasi #{$req['location_id']} sebagian dicadangkan untuk pembelian putus konsinyasi; pembatalan penerimaan akan melanggar cadangan tersebut.";
             }
 
             if ($req['quantity_non_tax'] > 0 && $availNonTax < $req['quantity_non_tax']) {

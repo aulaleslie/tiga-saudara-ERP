@@ -314,6 +314,77 @@
         </div>
         @endif
     </div>
+
+@if(isset($buyoutRows) && count($buyoutRows))
+    <div class="container-fluid mt-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header">Pembelian Putus per Penerimaan (halaman ini)</div>
+            <div class="card-body">
+                <p class="small text-muted">Atribusi penjualan bersifat non-finansial dan terpisah dari tagihan; barang yang sudah dibeli tidak lagi dihitung sebagai milik supplier.</p>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-sm mb-0">
+                        <thead class="thead-light">
+                            <tr><th>Penerimaan</th><th class="text-right">Diterima</th><th class="text-right">Terjual (atribusi)</th><th class="text-right">Cadangan finansial</th>
+                                <th class="text-right">Cadangan fisik</th><th class="text-right">Ditagih (terjual)</th><th class="text-right">Dibeli (milik)</th>
+                                <th class="text-right">Sisa fisik supplier</th><th class="text-right">Tersedia dibeli</th><th>Catatan</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach($details as $d)
+                                @continue(! isset($buyoutRows[$d->id]))
+                                @php($r = $buyoutRows[$d->id])
+                                <tr>
+                                    <td>{{ $d->consignmentReceiving->receiving_number ?? '#' . $d->id }}</td>
+                                    <td class="text-right">{{ $r['received'] }}</td>
+                                    <td class="text-right">{{ $r['attributed_sold_net'] }} @if($r['attributions'])<small class="text-muted">({{ $r['attributions'] }} baris)</small>@endif</td>
+                                    <td class="text-right">{{ $r['reserved_financial'] }}</td>
+                                    <td class="text-right">{{ $r['reserved_unsold'] }}</td>
+                                    <td class="text-right">{{ $r['billed_sold'] }}</td>
+                                    <td class="text-right">{{ $r['acquired_unsold'] }}</td>
+                                    <td class="text-right">{{ $r['physical_residual'] }}</td>
+                                    <td class="text-right font-weight-bold">{{ $r['unsold_available'] }}</td>
+                                    <td class="small text-danger">{{ implode(' ', array_merge($r['conservation_errors'], $r['blockers'])) }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+@endif
+
+@if(isset($buyoutDocuments) && $buyoutDocuments->isNotEmpty())
+    <div class="container-fluid mt-4 mb-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header">Dokumen Pembelian Putus</div>
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm mb-0">
+                    <thead class="thead-light">
+                        <tr><th>Dokumen</th><th>Supplier</th><th>Status</th><th class="text-right">Cadangan aktif</th><th class="text-right">Cadangan terpakai</th>
+                            <th class="text-right">Pergerakan</th><th class="text-right">Reversal</th><th>Faktur</th><th class="text-right">Total</th><th class="text-right">Dibayar</th><th class="text-right">Sisa</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach($buyoutDocuments as $doc)
+                            <tr>
+                                <td><a href="{{ route('consignments.buyouts.show', $doc['id']) }}">{{ $doc['reference'] }}</a></td>
+                                <td>{{ $doc['supplier'] }}</td>
+                                <td>@include('consignment::buyouts.partials.status-badge', ['status' => $doc['status']])</td>
+                                <td class="text-right">{{ $doc['active_reservations'] }}</td>
+                                <td class="text-right">{{ $doc['consumed_reservations'] }}</td>
+                                <td class="text-right">{{ $doc['acquisition_legs'] }}</td>
+                                <td class="text-right">{{ $doc['reversal_legs'] }}</td>
+                                <td>{{ $doc['purchase_reference'] ?? '-' }}@if($doc['cancelled']) <span class="badge badge-dark">dibatalkan</span>@endif</td>
+                                <td class="text-right">{{ $doc['total'] !== null ? number_format($doc['total'], 2, ',', '.') : '-' }}</td>
+                                <td class="text-right">{{ $doc['paid'] !== null ? number_format($doc['paid'], 2, ',', '.') : '-' }}</td>
+                                <td class="text-right">{{ $doc['due'] !== null ? number_format($doc['due'], 2, ',', '.') : '-' }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+@endif
 @endsection
 
 @push('page_scripts')

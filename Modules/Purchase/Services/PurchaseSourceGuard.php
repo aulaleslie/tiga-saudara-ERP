@@ -14,8 +14,8 @@ class PurchaseSourceGuard
      */
     public static function assertReceivingAllowed(Purchase $purchase): void
     {
-        if ($purchase->isConsignmentBilling()) {
-            throw new PurchaseSourceOperationNotAllowedException("Receiving is not permitted for consignment-billing Purchase #{$purchase->id} ({$purchase->reference}). Goods were received under consignment custody.");
+        if ($purchase->isConsignmentFinancial()) {
+            throw new PurchaseSourceOperationNotAllowedException("Receiving is not permitted for consignment Purchase #{$purchase->id} ({$purchase->reference}). Goods were received under consignment custody.");
         }
     }
 
@@ -26,8 +26,8 @@ class PurchaseSourceGuard
      */
     public static function assertCommercialEditAllowed(Purchase $purchase): void
     {
-        if ($purchase->isConsignmentBilling()) {
-            throw new PurchaseSourceOperationNotAllowedException("Commercial details cannot be edited for consignment-billing Purchase #{$purchase->id} ({$purchase->reference}). Commercial evidence is derived from approved consignment allocations.");
+        if ($purchase->isConsignmentFinancial()) {
+            throw new PurchaseSourceOperationNotAllowedException("Commercial details cannot be edited for consignment Purchase #{$purchase->id} ({$purchase->reference}). Commercial evidence is derived from approved consignment allocations.");
         }
     }
 
@@ -36,7 +36,7 @@ class PurchaseSourceGuard
      * as the target of a cash refund / supplier credit application).
      *
      * Phase 3 excludes post-billing supplier returns and credits: settling against a
-     * consignment-billing Purchase would mutate commercial evidence derived from approved
+     * consignment Purchase would mutate commercial evidence derived from approved
      * consignment allocations, and the CREDIT path additionally deletes active payments
      * and resets balances.
      *
@@ -44,8 +44,8 @@ class PurchaseSourceGuard
      */
     public static function assertReturnAllowed(Purchase $purchase): void
     {
-        if ($purchase->isConsignmentBilling()) {
-            throw new PurchaseSourceOperationNotAllowedException("Return settlement is not permitted for consignment-billing Purchase #{$purchase->id} ({$purchase->reference}). Post-billing supplier returns and credits are out of scope for consignment billing evidence.");
+        if ($purchase->isConsignmentFinancial()) {
+            throw new PurchaseSourceOperationNotAllowedException("Return settlement is not permitted for consignment Purchase #{$purchase->id} ({$purchase->reference}). Post-billing supplier returns and credits are out of scope for consignment billing evidence.");
         }
     }
 
@@ -56,8 +56,8 @@ class PurchaseSourceGuard
      */
     public static function assertDeletionAllowed(Purchase $purchase): void
     {
-        if ($purchase->isConsignmentBilling()) {
-            throw new PurchaseSourceOperationNotAllowedException("Deletion or archival is prohibited for consignment-billing Purchase #{$purchase->id} ({$purchase->reference}).");
+        if ($purchase->isConsignmentFinancial()) {
+            throw new PurchaseSourceOperationNotAllowedException("Deletion or archival is prohibited for consignment Purchase #{$purchase->id} ({$purchase->reference}).");
         }
     }
 
@@ -65,7 +65,7 @@ class PurchaseSourceGuard
      * Assert that a purchase allows payment recording and settlement operations.
      *
      * Consignment-billing Purchases produce real commercial payables that MUST be paid.
-     * Payments are allowed for both ordinary and consignment-billing Purchases provided
+     * Payments are allowed for both ordinary and consignment Purchases provided
      * the Purchase is not archived or cancelled.
      *
      * @throws PurchaseSourceOperationNotAllowedException

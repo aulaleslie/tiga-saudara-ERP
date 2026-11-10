@@ -24,6 +24,8 @@ class InventoryValuationReportQueryService
         'OPENING' => 'Saldo Awal',
         'CONSIGNMENT_RECEIPT' => 'Penerimaan Titipan Konsinyasi',
         'CONSIGNMENT_RECEIPT_REVERSAL' => 'Pembatalan Titipan Konsinyasi',
+        'CONSIGNMENT_BUYOUT' => 'Pembelian Putus Konsinyasi',
+        'CONSIGNMENT_BUYOUT_REVERSAL' => 'Pembatalan Pembelian Putus Konsinyasi',
     ];
 
     public function getSummary(InventoryValuationReportFilterData $filters, int $settingId, int $perPage = 15, int $page = 1): array
@@ -124,6 +126,7 @@ class InventoryValuationReportQueryService
         $purchaseDateMap = $this->buildPurchaseDateMap($purchaseRefs, $settingId);
         $saleDateMap = $this->buildSaleDateMap($saleRefs, $settingId);
         $transferMeta = $this->loadTransferMeta($transactions);
+        $buyoutEffects = $this->loadBuyoutTransactionEffects($transactions);
         $transactionMeta = $this->buildTransactionMeta(
             $transactions,
             $purchaseDateMap,
@@ -183,7 +186,8 @@ class InventoryValuationReportQueryService
                 }
 
                 $type = strtoupper((string) $transaction->type);
-                $isConsignmentLocation = !empty($consignmentLocationMap[$transaction->location_id]);
+                $buyoutEffect = $buyoutEffects[$transaction->id] ?? null;
+                $isConsignmentLocation = !empty($consignmentLocationMap[$transaction->location_id]) || ($buyoutEffect['ignore'] ?? false);
                 $reference = $meta['reference'] ?? $this->extractReference($transaction->reason);
                 
                 $unitPrice = $this->resolveUnitPrice(
@@ -197,6 +201,9 @@ class InventoryValuationReportQueryService
                 );
 
                 $this->applyTransaction($type, $delta, $unitPrice, $runningStock, $runningAvg, $isConsignmentLocation);
+                if (($buyoutEffect['average'] ?? null) !== null) {
+                    $runningAvg = $buyoutEffect['average'];
+                }
 
                 if ($transactionDate->lt($tanggalAwal)) {
                     // This is before the start date, just accumulate the running totals

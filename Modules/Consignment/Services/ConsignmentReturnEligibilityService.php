@@ -15,11 +15,25 @@ class ConsignmentReturnEligibilityService
      */
     public function getEffectiveReturnQuantity(int $dispatchDetailId): float
     {
+        // Units acquired through a finalized buyout stay company-owned when returned: only the unacquired portion
+        // participates in pre-billing eligibility and supplier capacity.
+        $acquired = (float) \Modules\Consignment\Entities\ConsignmentBuyoutReturnApportionment::where('dispatch_detail_id', $dispatchDetailId)
+            ->where('status', \Modules\Consignment\Entities\ConsignmentBuyoutReturnApportionment::STATUS_APPLIED)->sum('acquired_quantity');
+
+        return max(0.0, round($this->getRawReceivedReturnQuantity($dispatchDetailId) - $acquired, 3));
+    }
+
+    /**
+     * All physically received returned quantity for a dispatch detail, acquired or not.
+     */
+    public function getRawReceivedReturnQuantity(int $dispatchDetailId, ?int $exceptReturnDetailId = null): float
+    {
         if (! class_exists(\Modules\SalesReturn\Entities\SaleReturnDetail::class)) {
             return 0.0;
         }
 
         $details = \Modules\SalesReturn\Entities\SaleReturnDetail::where('dispatch_detail_id', $dispatchDetailId)
+            ->when($exceptReturnDetailId, fn ($q) => $q->where('id', '!=', $exceptReturnDetailId))
             ->whereHas('saleReturn', function ($query) {
                 $query->whereIn('status', [
                     'Awaiting Settlement',
@@ -76,7 +90,11 @@ class ConsignmentReturnEligibilityService
             }
         }
 
-        return array_values(array_unique($returnedSerialIds));
+        $acquiredSerials = \Modules\Consignment\Entities\ConsignmentBuyoutReturnApportionment::where('dispatch_detail_id', $dispatchDetailId)
+            ->where('status', \Modules\Consignment\Entities\ConsignmentBuyoutReturnApportionment::STATUS_APPLIED)->pluck('acquired_serial_ids')
+            ->flatten()->map(fn ($id) => (int) $id)->all();
+
+        return array_values(array_diff(array_unique($returnedSerialIds), $acquiredSerials));
     }
 
     /**
@@ -105,6 +123,16 @@ class ConsignmentReturnEligibilityService
                 }
             });
         $pendingReserved = (float) $pendingQuery->sum('allocated_base_quantity');
+
+        // Shared capacity: finalized sold-unbilled buyout consumption and active buyout reservations.
+        $approvedAllocated += (float) \Modules\Consignment\Entities\ConsignmentBuyoutLine::where('consignment_sold_source_id', $source->id)
+            ->where('line_type', \Modules\Consignment\Entities\ConsignmentBuyoutLine::TYPE_SOLD_UNBILLED)
+            ->whereHas('buyout', fn ($q) => $q->where('status', \Modules\Consignment\Entities\ConsignmentBuyout::STATUS_FINALIZED))
+            ->sum('base_quantity');
+        $pendingReserved += (float) \Modules\Consignment\Entities\ConsignmentBuyoutReservation::where('resource_type', 'SOLD_SOURCE')
+            ->where('consignment_sold_source_id', $source->id)
+            ->where('status', \Modules\Consignment\Entities\ConsignmentBuyoutReservation::STATUS_ACTIVE)
+            ->sum('base_quantity');
 
         $netEligible = max(0.0, $originalSold - $effectiveReturned);
         $remainingQuantity = max(0.0, $netEligible - $approvedAllocated - $pendingReserved);

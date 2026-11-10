@@ -72,6 +72,12 @@ class DocumentNotificationService
                 'title_prefix' => 'Penerimaan Fisik Konsinyasi',
                 'route_prefix' => 'consignments.receivings',
             ],
+            \Modules\Consignment\Entities\ConsignmentBuyout::class => [
+                'approval_permission' => 'consignments.buyouts.approve',
+                'edit_permission' => 'consignments.buyouts.edit',
+                'title_prefix' => 'Pembelian Putus Konsinyasi',
+                'route_prefix' => 'consignments.buyouts',
+            ],
             \Modules\PurchasesReturn\Entities\PurchaseReturn::class . ':dispatch' => [
                 'approval_permission' => 'purchaseReturns.dispatchApproval',
                 'edit_permission' => 'purchaseReturns.dispatchRequest',

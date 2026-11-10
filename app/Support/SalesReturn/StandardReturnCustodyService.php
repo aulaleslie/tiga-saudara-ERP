@@ -116,29 +116,63 @@ class StandardReturnCustodyService
                 }
             }
 
-            $base = [
-                'sale_return_id' => $locked->id,
-                'sale_return_detail_id' => $detail->id,
-                'sale_id' => $locked->sale_id,
-                'dispatch_detail_id' => $dispatchDetail->id,
-                'product_id' => $detail->product_id,
-                'owner_setting_id' => $ownerSettingId,
-                'location_id' => $locationId,
-                'tax_id' => $taxId,
-                'policy_version' => self::policyVersion(),
-            ];
+            // Ownership routing: units acquired through a finalized buyout come back to the company-owned standard
+            // destination of their buyout line; everything else keeps the original route. Held until inspection either way.
+            try {
+                $ownership = app(\Modules\Consignment\Services\ConsignmentBuyoutReturnOwnershipService::class)
+                    ->resolveForReceive($detail, $dispatchDetail, $serialIds, $quantity, $actorId);
+            } catch (\DomainException $e) {
+                throw new SalesReturnStateException($e->getMessage());
+            }
+            $acquiredSerialDestination = [];
+            $acquiredParts = [];
+            foreach ($ownership['allocations'] as $alloc) {
+                if (! empty($alloc['serial_ids'])) {
+                    foreach ($alloc['serial_ids'] as $sid) {
+                        $acquiredSerialDestination[(int) $sid] = (int) $alloc['destination_location_id'];
+                    }
+                } else {
+                    $acquiredParts[] = $alloc;
+                }
+            }
+
+            $baseFor = function (int $locId) use ($locked, $detail, $dispatchDetail, $taxId): array {
+                return [
+                    'sale_return_id' => $locked->id,
+                    'sale_return_detail_id' => $detail->id,
+                    'sale_id' => $locked->sale_id,
+                    'dispatch_detail_id' => $dispatchDetail->id,
+                    'product_id' => $detail->product_id,
+                    'owner_setting_id' => (int) (Location::query()->whereKey($locId)->value('setting_id') ?: $locked->setting_id),
+                    'location_id' => $locId,
+                    'tax_id' => $taxId,
+                    'policy_version' => self::policyVersion(),
+                ];
+            };
 
             foreach ($serials as $serial) {
-                $row = $this->openCustody($base, $serial->id, 1, $receivedAt, $actorId);
+                $serialLocation = $acquiredSerialDestination[(int) $serial->id] ?? (int) $locationId;
+                $row = $this->openCustody($baseFor($serialLocation), $serial->id, 1, $receivedAt, $actorId);
                 if ($row) {
                     $created->push($row);
-                    $this->holdSerial($serial, $locationId, $taxId, $detail, $locked, $receivedAt);
+                    $this->holdSerial($serial, $serialLocation, $taxId, $detail, $locked, $receivedAt);
                 }
             }
 
             $untracked = round($quantity - $serials->count(), 3);
+            foreach ($acquiredParts as $part) {
+                $partQty = round((float) $part['quantity'], 3);
+                if ($partQty <= 0 || $untracked <= 0) {
+                    continue;
+                }
+                $row = $this->openCustody($baseFor((int) $part['destination_location_id']), null, $partQty, $receivedAt, $actorId, 'ACQ' . $part['line_id']);
+                if ($row) {
+                    $created->push($row);
+                }
+                $untracked = round($untracked - $partQty, 3);
+            }
             if ($untracked > 0) {
-                $row = $this->openCustody($base, null, $untracked, $receivedAt, $actorId);
+                $row = $this->openCustody($baseFor((int) $locationId), null, $untracked, $receivedAt, $actorId);
                 if ($row) {
                     $created->push($row);
                 }
@@ -202,9 +236,9 @@ class StandardReturnCustodyService
     }
 
     /** @param array<string, mixed> $base */
-    private function openCustody(array $base, ?int $serialId, float $quantity, Carbon $at, int $actorId): ?SaleReturnCustody
+    private function openCustody(array $base, ?int $serialId, float $quantity, Carbon $at, int $actorId, ?string $keySuffix = null): ?SaleReturnCustody
     {
-        $occurrence = $base['sale_return_detail_id'] . ':' . ($serialId ?? 0);
+        $occurrence = $base['sale_return_detail_id'] . ':' . ($serialId ?? 0) . ($keySuffix ? ':' . $keySuffix : '');
 
         if (SaleReturnCustody::query()->where('occurrence_key', $occurrence)->lockForUpdate()->exists()) {
             return null;   // replay: this physical occurrence was already received
@@ -359,6 +393,12 @@ class StandardReturnCustodyService
         }
 
         return DB::transaction(function () use ($saleReturn, $selections, $notes, $requestKey) {
+            // Consignment buyout protocol: (setting, product) coordination locks precede the document locks below.
+            \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::lockCoordination(
+                (int) \Modules\SalesReturn\Entities\SaleReturn::query()->whereKey($saleReturn->id)->value('setting_id'),
+                \Modules\SalesReturn\Entities\SaleReturnCustody::query()->where('sale_return_id', $saleReturn->id)->pluck('product_id')->all()
+            );
+
             // Source sale (archived sales stay accessible) -> header; business scope + standard ownership.
             $locked = $this->guard->lockForAction($saleReturn);
 

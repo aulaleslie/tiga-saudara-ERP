@@ -45,6 +45,22 @@ Route::group(['middleware' => ['auth', 'role.setting'], 'prefix' => 'consignment
     Route::get('sold-sources', [\Modules\Consignment\Http\Controllers\ConsignmentSoldSourceController::class, 'index'])->name('sold-sources.index');
     Route::post('sold-sources/discover', [\Modules\Consignment\Http\Controllers\ConsignmentSoldSourceController::class, 'discover'])->name('sold-sources.discover');
 
+    // Buyouts: read screens always; every mutation route is a hidden 404 unless consignment.buyouts.ui_enabled.
+    $buyouts = \Modules\Consignment\Http\Controllers\ConsignmentBuyoutController::class;
+    Route::get('buyouts', [$buyouts, 'index'])->name('buyouts.index');
+    Route::get('buyouts/create', [$buyouts, 'create'])->name('buyouts.create');
+    Route::get('buyouts/{id}', [$buyouts, 'show'])->name('buyouts.show')->whereNumber('id');
+    Route::post('buyouts', [$buyouts, 'store'])->name('buyouts.store');
+    Route::put('buyouts/{id}', [$buyouts, 'update'])->name('buyouts.update')->whereNumber('id');
+    Route::post('buyouts/{id}/submit', [$buyouts, 'submit'])->name('buyouts.submit')->whereNumber('id');
+    Route::post('buyouts/{id}/approve', [$buyouts, 'approve'])->name('buyouts.approve')->whereNumber('id');
+    Route::post('buyouts/{id}/reject', [$buyouts, 'reject'])->name('buyouts.reject')->whereNumber('id');
+    Route::post('buyouts/{id}/cancel', [$buyouts, 'cancel'])->name('buyouts.cancel')->whereNumber('id');
+    Route::post('buyouts/{id}/finalize', [$buyouts, 'finalize'])->name('buyouts.finalize')->whereNumber('id');
+    Route::post('buyouts/{id}/reverse', [$buyouts, 'reverse'])->name('buyouts.reverse')->whereNumber('id');
+    Route::post('buyouts/sold-sources/{sourceId}/attribution', [$buyouts, 'attribute'])->name('buyouts.attribute')->whereNumber('sourceId');
+    Route::post('buyouts/returns/{detailId}/declare', [$buyouts, 'declareReturn'])->name('buyouts.returns.declare')->whereNumber('detailId');
+
     // Confirmations
     Route::get('confirmations', [\Modules\Consignment\Http\Controllers\ConsignmentBillingConfirmationController::class, 'index'])->name('confirmations.index');
     Route::get('confirmations/create', [\Modules\Consignment\Http\Controllers\ConsignmentBillingConfirmationController::class, 'create'])->name('confirmations.create');

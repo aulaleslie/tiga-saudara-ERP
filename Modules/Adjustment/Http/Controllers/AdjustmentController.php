@@ -1201,6 +1201,11 @@ class AdjustmentController extends Controller
             $settingId = session('setting_id');
             $latestTax = Tax::orderByDesc('created_at')->first();
 
+            // Consignment buyout protocol: coordination locks for every consumed product precede the writes below.
+            \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::lockCoordinationForLocations(
+                $adjustment->adjustedProducts->map(fn ($ap) => [(int) $ap->product_id, (int) $adjustment->location_id])->all()
+            );
+
             foreach ($adjustment->adjustedProducts as $adjustedProduct) {
                 $product = $adjustedProduct->product;
                 $locationId = $adjustment->location_id;
@@ -1271,6 +1276,7 @@ class AdjustmentController extends Controller
 
                     $serialsToDelete = array_diff($existingSerials, $serialIdsInDoc);
                     if (!empty($serialsToDelete)) {
+                        \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::assertSerialsUnclaimed(array_map('intval', $serialsToDelete), (string) $product->product_name);
                         ProductSerialNumber::whereIn('id', $serialsToDelete)->delete();
                         Log::info("Deleted unmatched serials for product {$product->product_code}", [
                             'deleted_ids' => $serialsToDelete,
@@ -1278,7 +1284,10 @@ class AdjustmentController extends Controller
                     }
 
                 } else {
-                    // Directly assign non-serial quantities
+                    // Directly assign non-serial quantities (never below what approved buyouts reserve)
+                    \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::assertBucketsRetainReserved(
+                        (int) $product->id, (int) $locationId, (float) $adjustedProduct->quantity_tax, (float) $adjustedProduct->quantity_non_tax, (string) $product->product_name
+                    );
                     $productStock->quantity_tax = (int) $adjustedProduct->quantity_tax;
                     $productStock->quantity_non_tax = (int) $adjustedProduct->quantity_non_tax;
                     $productStock->quantity = (int) $productStock->quantity_tax + (int) $productStock->quantity_non_tax;

@@ -640,7 +640,8 @@ class PurchasesReturnSettlementController extends Controller
     protected function moveStock($productId, $sourceId, $targetId, $qty, $type, $reason, $settingId = null, $isBroken = false)
     {
         $settingId = $settingId ?? session('setting_id');
-        
+        \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::lockCoordinationForLocations([[(int) $productId, (int) $sourceId]]);
+
         $sourceStock = ProductStock::where('product_id', $productId)
             ->where('location_id', $sourceId)
             ->lockForUpdate()
@@ -662,8 +663,11 @@ class PurchasesReturnSettlementController extends Controller
         $sourceBucketTax = $isBroken ? 'broken_quantity_tax' : 'quantity_tax';
         $sourceBucketMain = $isBroken ? 'broken_quantity' : 'quantity';
 
+        // Goods reserved by approved consignment buyouts cannot be moved (broken stock is never reserved).
+        $effectiveSource = $isBroken ? $sourceStock : \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::effectiveStock($sourceStock);
+
         // 1. Non-tax
-        $take = $quantityService->min($remaining, $sourceStock->$sourceBucketNonTax ?? 0);
+        $take = $quantityService->min($remaining, $effectiveSource->$sourceBucketNonTax ?? 0);
         if ($take->isPositive()) {
             $sourceStock->decrement($sourceBucketNonTax, $take->toFloat());
             $sourceStock->decrement($sourceBucketMain, $take->toFloat());
@@ -673,7 +677,7 @@ class PurchasesReturnSettlementController extends Controller
 
         // 2. Tax
         if ($remaining->isPositive()) {
-            $take = $quantityService->min($remaining, $sourceStock->$sourceBucketTax ?? 0);
+            $take = $quantityService->min($remaining, $effectiveSource->$sourceBucketTax ?? 0);
             if ($take->isPositive()) {
                 $sourceStock->decrement($sourceBucketTax, $take->toFloat());
                 $sourceStock->decrement($sourceBucketMain, $take->toFloat());
@@ -817,6 +821,7 @@ class PurchasesReturnSettlementController extends Controller
     protected function breakStock($productId, $sourceId, $targetId, $qty, $isSerial, $isDispatched = false, $settingId = null)
     {
         $settingId = $settingId ?? session('setting_id');
+        \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::lockCoordinationForLocations([[(int) $productId, (int) $sourceId]]);
         $product = Product::find($productId);
         $quantityService = app(PurchaseReturnQuantityService::class);
         $qtyBd = $quantityService->toBigDecimal($qty);
@@ -847,6 +852,8 @@ class PurchasesReturnSettlementController extends Controller
                 'good_tax' => $quantityService->toBigDecimal(0),
             ];
 
+            $effectiveSource = \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::effectiveStock($sourceStock);
+
             // Priority 1: broken_quantity_non_tax
             $take = $quantityService->min($remaining, $sourceStock->broken_quantity_non_tax ?? 0);
             if ($take->isPositive()) {
@@ -873,7 +880,7 @@ class PurchasesReturnSettlementController extends Controller
 
             // Priority 3: quantity_non_tax (Good stock)
             if ($remaining->isPositive()) {
-                $take = $quantityService->min($remaining, $sourceStock->quantity_non_tax ?? 0);
+                $take = $quantityService->min($remaining, $effectiveSource->quantity_non_tax ?? 0);
                 if ($take->isPositive()) {
                     $sourceStock->decrement('quantity_non_tax', $take->toFloat());
                     $sourceStock->decrement('quantity', $take->toFloat());
@@ -886,7 +893,7 @@ class PurchasesReturnSettlementController extends Controller
 
             // Priority 4: quantity_tax (Good stock)
             if ($remaining->isPositive()) {
-                $take = $quantityService->min($remaining, $sourceStock->quantity_tax ?? 0);
+                $take = $quantityService->min($remaining, $effectiveSource->quantity_tax ?? 0);
                 if ($take->isPositive()) {
                     $sourceStock->decrement('quantity_tax', $take->toFloat());
                     $sourceStock->decrement('quantity', $take->toFloat());

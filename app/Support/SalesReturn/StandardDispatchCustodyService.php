@@ -279,6 +279,11 @@ class StandardDispatchCustodyService
         if (! $sn->location_id) {
             throw new SalesReturnStateException("Serial Number {$sn->serial_number} sedang tidak tersedia dalam stok.");
         }
+        try {
+            \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::assertSerialsUnclaimed([(int) $sn->id], (string) $sn->serial_number);
+        } catch (\DomainException $e) {
+            throw new SalesReturnStateException($e->getMessage());
+        }
         $owner = Location::query()->whereKey($sn->location_id)->value('setting_id');
         if ((int) $owner !== (int) $custody->owner_setting_id) {
             throw new SalesReturnStateException('Serial pengganti bukan milik bisnis yang sama dengan retur.');
@@ -301,6 +306,13 @@ class StandardDispatchCustodyService
         $available = $stock ? (float) ($taxed ? $stock->quantity_tax : $stock->quantity_non_tax) : 0.0;
         if (! $stock || $quantity - $available > 0.0004) {
             throw new SalesReturnStateException('Stok pengganti tidak cukup pada lokasi dan kelompok pajak yang diperlukan.');
+        }
+
+        // Goods reserved by an approved consignment buyout cannot be used as the replacement.
+        try {
+            \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::assertQuantityAvailable((int) $custody->product_id, $locationId, $taxed, $available, $quantity);
+        } catch (\DomainException $e) {
+            throw new SalesReturnStateException($e->getMessage());
         }
 
         return $stock;

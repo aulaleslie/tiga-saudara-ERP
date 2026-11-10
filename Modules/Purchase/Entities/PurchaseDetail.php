@@ -91,7 +91,7 @@ class PurchaseDetail extends BaseModel
             ? $this->getRelation('purchase')
             : Purchase::withArchived()->select(['id', 'reference', 'source_type'])->find($this->purchase_id);
 
-        if ($purchase && $purchase->isConsignmentBilling()) {
+        if ($purchase && $purchase->isConsignmentFinancial()) {
             throw new \Modules\Purchase\Exceptions\PurchaseSourceOperationNotAllowedException(
                 "Purchase detail #{$this->id} cannot be {$operation}: it belongs to consignment-billing Purchase #{$purchase->id} ({$purchase->reference}), whose commercial evidence is immutable."
             );
