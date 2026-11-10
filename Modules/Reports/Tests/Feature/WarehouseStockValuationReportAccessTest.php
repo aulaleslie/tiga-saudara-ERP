@@ -57,4 +57,16 @@ class WarehouseStockValuationReportAccessTest extends TestCase
         $response->assertSeeLivewire('reports.warehouse-stock-valuation-report');
     }
 
+    /** @test */
+    public function it_denies_controller_directly_when_gate_denies()
+    {
+        $controller = new \Modules\Reports\Http\Controllers\WarehouseStockValuationReportController();
+
+        $userWithoutPermission = User::factory()->create();
+        $this->actingAs($userWithoutPermission);
+
+        $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+        $controller->index();
+    }
+
 }

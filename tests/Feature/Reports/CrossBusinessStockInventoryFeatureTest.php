@@ -385,7 +385,8 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
             ->assertSee('SN-GOOD-1A')
             ->assertDontSee('SN-BAD-1A')
             ->assertDontSee('SN-RETURNED-1A')
-            ->assertDontSee('SN-GOOD-2A');
+            ->assertDontSee('SN-GOOD-2A')
+            ->assertSee('Bagus (Siap Jual)');
 
         // Test Bad dialog for Setting 1
         Livewire::test(CrossBusinessStockInventory::class)
@@ -1676,5 +1677,77 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
             $this->assertEquals(20, $dataRow[5]); // Total Dalam Pengiriman
             return true;
         });
+    }
+
+    public function test_serial_dialog_security_enforces_business_scoping_and_tampering(): void
+    {
+        $product = Product::create([
+            'setting_id' => $this->setting1->id,
+            'category_id' => $this->category->id,
+            'brand_id' => $this->brand->id,
+            'product_name' => 'Serial Security Item',
+            'product_code' => 'SEC-001',
+            'product_price' => 500000,
+            'product_cost' => 300000,
+            'stock_managed' => true,
+            'is_active' => true,
+        ]);
+
+        ProductSerialNumber::create([
+            'product_id' => $product->id,
+            'location_id' => $this->location2A->id,
+            'serial_number' => 'SN-FORBIDDEN-BETA',
+            'status' => 'ACTIVE',
+            'is_broken' => false,
+            'is_in_return_process' => false,
+        ]);
+
+        // 1. User assigned to Setting 1 calls openSerialDialog for Setting 2 -> 403 Forbidden
+        Livewire::actingAs($this->assignedUser)
+            ->test(CrossBusinessStockInventory::class)
+            ->call('openSerialDialog', $product->id, $product->product_name, $this->setting2->id, $this->setting2->company_name, null, 'Semua Lokasi', 'good')
+            ->assertStatus(403);
+
+        // 2. User assigned to Setting 1 calls openSerialDialog with mismatched location belonging to Setting 2 -> 403 Forbidden
+        Livewire::actingAs($this->assignedUser)
+            ->test(CrossBusinessStockInventory::class)
+            ->call('openSerialDialog', $product->id, $product->product_name, $this->setting1->id, $this->setting1->company_name, $this->location2A->id, 'Lokasi Asing', 'good')
+            ->assertStatus(403);
+
+        // 2b. User calls openSerialDialog with inactive location belonging to assigned Setting 1 -> 403 Forbidden
+        $inactiveLocation = Location::create([
+            'name' => 'Gudang Nonaktif',
+            'setting_id' => $this->setting1->id,
+            'is_active' => false,
+        ]);
+
+        Livewire::actingAs($this->assignedUser)
+            ->test(CrossBusinessStockInventory::class)
+            ->call('openSerialDialog', $product->id, $product->product_name, $this->setting1->id, $this->setting1->company_name, $inactiveLocation->id, 'Gudang Nonaktif', 'good')
+            ->assertStatus(403);
+
+        // 3. Locked property prevents client-side tampering of dialogProductId and dialogSettingId
+        try {
+            Livewire::actingAs($this->assignedUser)
+                ->test(CrossBusinessStockInventory::class)
+                ->set('dialogSettingId', $this->setting2->id);
+            $this->fail('Expected exception for locked property dialogSettingId');
+        } catch (\Throwable $e) {
+            $this->assertStringContainsString('Cannot update locked property: [dialogSettingId]', $e->getMessage());
+        }
+
+        // Even if injected on the instance, render guards dialogSettingId against unauthorized setting
+        $component = Livewire::actingAs($this->assignedUser)->test(CrossBusinessStockInventory::class);
+        $instance = $component->instance();
+        $instance->dialogProductId = $product->id;
+        $instance->dialogSettingId = $this->setting2->id;
+        $instance->dialogCondition = 'good';
+        $instance->showSerialDialog = true;
+        $component->assertDontSee('SN-FORBIDDEN-BETA');
+
+        // 4. Unauthenticated guest is denied mount
+        auth()->logout();
+        Livewire::test(CrossBusinessStockInventory::class)
+            ->assertStatus(403);
     }
 }

@@ -7,6 +7,7 @@ use App\Services\Reports\InventorySummaryReportQueryService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\Transaction;
 use Modules\Setting\Entities\Setting;
 use Tests\TestCase;
@@ -28,6 +29,20 @@ class InventorySummaryReportQueryServiceTest extends TestCase
         $this->category = \Modules\Product\Entities\Category::create(['setting_id' => $this->setting->id, 'category_code' => 'C1', 'category_name' => 'Cat1', 'created_by' => $user->id]);
         \Modules\Setting\Entities\Location::create(["id" => 1, "setting_id" => $this->setting->id, "name" => "Main"]);
         $this->service = new InventorySummaryReportQueryService();
+    }
+
+    private function createProductStock(int $productId, int $locationId = 1, float $quantity = 0): ProductStock
+    {
+        return ProductStock::create([
+            'product_id' => $productId,
+            'location_id' => $locationId,
+            'quantity' => $quantity,
+            'quantity_tax' => $quantity,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
     }
 
     public function test_it_calculates_running_stock_and_average_correctly()
@@ -119,6 +134,7 @@ class InventorySummaryReportQueryServiceTest extends TestCase
             'product_cost' => 100,
             'stock_managed' => true,
         ]);
+        $this->createProductStock($product1->id, 1, 0);
 
         $product2 = Product::create([
             'setting_id' => $this->setting->id,
@@ -220,6 +236,7 @@ class InventorySummaryReportQueryServiceTest extends TestCase
             'product_cost' => 100,
             'stock_managed' => true,
         ]);
+        $this->createProductStock($product->id, 1, 0);
 
         // No transactions
 
@@ -236,7 +253,7 @@ class InventorySummaryReportQueryServiceTest extends TestCase
 
     public function test_it_handles_nullable_product_code_and_minimum_stock()
     {
-        Product::create([
+        $product = Product::create([
             'setting_id' => $this->setting->id,
             'category_id' => $this->category->id,
             'product_name' => 'Null Code Product',
@@ -246,6 +263,7 @@ class InventorySummaryReportQueryServiceTest extends TestCase
             'product_stock_alert' => 5,
             'stock_managed' => true,
         ]);
+        $this->createProductStock($product->id, 1, 0);
 
         $filters = new InventorySummaryReportFilterData(
             asOfDate: now(),
@@ -273,6 +291,7 @@ class InventorySummaryReportQueryServiceTest extends TestCase
             'product_cost' => 100,
             'stock_managed' => true,
         ]);
+        $this->createProductStock($product1->id, 1, 0);
 
         $product2 = Product::create([
             'setting_id' => $this->setting->id,
@@ -283,6 +302,7 @@ class InventorySummaryReportQueryServiceTest extends TestCase
             'product_cost' => 100,
             'stock_managed' => true,
         ]);
+        $this->createProductStock($product2->id, 1, 0);
 
         $filters = new InventorySummaryReportFilterData(
             asOfDate: now(),
@@ -299,7 +319,7 @@ class InventorySummaryReportQueryServiceTest extends TestCase
 
     public function test_it_sorts_results()
     {
-        Product::create([
+        $product1 = Product::create([
             'setting_id' => $this->setting->id,
             'category_id' => $this->category->id,
             'product_name' => 'A Product',
@@ -308,8 +328,9 @@ class InventorySummaryReportQueryServiceTest extends TestCase
             'product_cost' => 100,
             'stock_managed' => true,
         ]);
+        $this->createProductStock($product1->id, 1, 0);
 
-        Product::create([
+        $product2 = Product::create([
             'setting_id' => $this->setting->id,
             'category_id' => $this->category->id,
             'product_name' => 'B Product',
@@ -318,6 +339,7 @@ class InventorySummaryReportQueryServiceTest extends TestCase
             'product_cost' => 100,
             'stock_managed' => true,
         ]);
+        $this->createProductStock($product2->id, 1, 0);
 
         $filters = new InventorySummaryReportFilterData(
             asOfDate: now(),
@@ -329,8 +351,8 @@ class InventorySummaryReportQueryServiceTest extends TestCase
         $result = $this->service->getSummary($filters, $this->setting->id);
 
         $this->assertCount(2, $result['allRows']);
-        $this->assertEquals('B PRODUCT', $result['allRows']->first()['product_name']);
-        $this->assertEquals('A PRODUCT', $result['allRows']->last()['product_name']);
+        $this->assertEquals('B Product', $result['allRows']->first()['product_name']);
+        $this->assertEquals('A Product', $result['allRows']->last()['product_name']);
     }
 
     public function test_it_calculates_total_value()

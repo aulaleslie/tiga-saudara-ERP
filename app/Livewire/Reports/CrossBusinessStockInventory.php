@@ -5,20 +5,22 @@ namespace App\Livewire\Reports;
 use App\Exports\CrossBusinessStockInventoryExport;
 use App\Services\Reports\CrossBusinessStockInventoryFilterData;
 use App\Services\Reports\CrossBusinessStockInventoryQueryService;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Maatwebsite\Excel\Facades\Excel;
 use Modules\Product\Entities\Brand;
 use Modules\Product\Entities\Category;
+use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\Setting;
 
 class CrossBusinessStockInventory extends Component
 {
     use WithPagination;
+    use HasReportSettingScope;
 
     // Filters
     public string $search = '';
-    public array $selectedSettingIds = [];
     public string $availability = 'all'; // 'all', 'available', 'non_available'
     public array $categoryIds = [];
     public array $categoryLabels = [];
@@ -39,10 +41,13 @@ class CrossBusinessStockInventory extends Component
 
     // Serial Dialog state
     public bool $showSerialDialog = false;
+    #[Locked]
     public ?int $dialogProductId = null;
     public string $dialogProductName = '';
+    #[Locked]
     public ?int $dialogSettingId = null;
     public string $dialogBusinessName = '';
+    #[Locked]
     public ?int $dialogLocationId = null;
     public string $dialogLocationName = 'Semua Lokasi';
     public string $dialogCondition = 'good'; // 'good' or 'bad'
@@ -54,46 +59,10 @@ class CrossBusinessStockInventory extends Component
 
     public function mount(): void
     {
-        abort_unless(auth()->user()->can('inventory.view_remaining_stock'), 403);
+        abort_unless(auth()->user()?->can('inventory.view_remaining_stock') ?? false, 403);
 
         // Default-selected businesses = all businesses visible to acting user
-        $availableSettings = $this->getAvailableSettings();
-        $this->selectedSettingIds = array_map('intval', array_column($availableSettings, 'id'));
-    }
-
-    /**
-     * Local component-scoped method returning available businesses:
-     * Super Admin sees all settings, else auth()->user()->settings(),
-     * mirroring BusinessSelector.php:23-39
-     */
-    public function getAvailableSettings(): array
-    {
-        $user = auth()->user();
-
-        if ($user->hasRole('Super Admin')) {
-            return Setting::query()
-                ->orderBy('company_name', 'asc')
-                ->get()
-                ->map(fn ($s) => ['id' => $s->id, 'company_name' => $s->company_name])
-                ->toArray();
-        }
-
-        return $user->settings()
-            ->orderBy('company_name', 'asc')
-            ->get()
-            ->map(fn ($s) => ['id' => $s->id, 'company_name' => $s->company_name])
-            ->toArray();
-    }
-
-    /**
-     * Ensure only businesses visible to acting user can be selected.
-     */
-    public function getSanitizedSelectedSettingIds(): array
-    {
-        $allowedIds = array_map('intval', array_column($this->getAvailableSettings(), 'id'));
-        $selected = array_map('intval', $this->selectedSettingIds);
-
-        return array_values(array_intersect($selected, $allowedIds));
+        $this->selectedSettingIds = $this->allAvailableSettingIds();
     }
 
     public function clearSearch(): void
@@ -204,8 +173,7 @@ class CrossBusinessStockInventory extends Component
     {
         $this->search = '';
         $this->availability = 'all';
-        $availableSettings = $this->getAvailableSettings();
-        $this->selectedSettingIds = array_map('intval', array_column($availableSettings, 'id'));
+        $this->selectedSettingIds = $this->allAvailableSettingIds();
         $this->categoryIds = [];
         $this->categoryLabels = [];
         $this->brandIds = [];
@@ -229,6 +197,12 @@ class CrossBusinessStockInventory extends Component
         string $locationName = 'Semua Lokasi',
         string $condition = 'good'
     ): void {
+        abort_unless(auth()->user()?->can('inventory.view_remaining_stock') ?? false, 403);
+
+        $sanitizedIds = $this->getSanitizedSettingIds([$settingId]);
+        abort_unless(in_array($settingId, $sanitizedIds, true), 403);
+        abort_unless($this->locationBelongsToSetting($locationId, $settingId), 403);
+
         $this->dialogProductId = $productId;
         $this->dialogProductName = $productName;
         $this->dialogSettingId = $settingId;
@@ -257,17 +231,18 @@ class CrossBusinessStockInventory extends Component
 
     public function setDialogPage(int $page): void
     {
+        abort_unless(auth()->user()?->can('inventory.view_remaining_stock') ?? false, 403);
         $this->dialogPage = $page;
     }
 
     // Excel Export
     public function exportExcel(CrossBusinessStockInventoryQueryService $queryService)
     {
-        abort_unless(auth()->user()->can('inventory.view_remaining_stock'), 403);
+        abort_unless(auth()->user()?->can('inventory.view_remaining_stock') ?? false, 403);
 
         $filterData = new CrossBusinessStockInventoryFilterData(
             search: $this->search,
-            businessIds: $this->getSanitizedSelectedSettingIds(),
+            businessIds: $this->getSanitizedSettingIds(),
             categoryIds: $this->categoryIds,
             brandIds: $this->brandIds,
             availability: $this->availability
@@ -288,7 +263,7 @@ class CrossBusinessStockInventory extends Component
     {
         $filterData = new CrossBusinessStockInventoryFilterData(
             search: $this->search,
-            businessIds: $this->getSanitizedSelectedSettingIds(),
+            businessIds: $this->getSanitizedSettingIds(),
             categoryIds: $this->categoryIds,
             brandIds: $this->brandIds,
             availability: $this->availability
@@ -298,7 +273,12 @@ class CrossBusinessStockInventory extends Component
 
         $serialNumbersPaginator = null;
         $dialogDiscrepancy = null;
-        if ($this->showSerialDialog && $this->dialogProductId && $this->dialogSettingId) {
+        $dialogSettingAllowed = $this->dialogSettingId !== null
+            && in_array($this->dialogSettingId, $this->getSanitizedSettingIds([$this->dialogSettingId]), true);
+        $dialogLocationAllowed = $dialogSettingAllowed
+            && $this->locationBelongsToSetting($this->dialogLocationId, $this->dialogSettingId);
+
+        if ($this->showSerialDialog && $this->dialogProductId && $dialogSettingAllowed && $dialogLocationAllowed) {
             $serialNumbersPaginator = $queryService->getSerialNumbers(
                 productId: $this->dialogProductId,
                 settingId: $this->dialogSettingId,
@@ -344,5 +324,22 @@ class CrossBusinessStockInventory extends Component
             'dialogDiscrepancy' => $dialogDiscrepancy,
             'displayMode' => $this->displayMode,
         ]);
+    }
+
+    private function locationBelongsToSetting(?int $locationId, ?int $settingId): bool
+    {
+        if ($locationId === null) {
+            return true;
+        }
+
+        if ($settingId === null) {
+            return false;
+        }
+
+        return Location::query()
+            ->where('id', $locationId)
+            ->where('setting_id', $settingId)
+            ->where('is_active', true)
+            ->exists();
     }
 }

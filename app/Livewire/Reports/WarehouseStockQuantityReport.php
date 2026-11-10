@@ -2,18 +2,19 @@
 
 namespace App\Livewire\Reports;
 
+use App\Exports\WarehouseStockQuantityReportExport;
 use App\Services\Reports\WarehouseStockQuantityReportFilterData;
 use App\Services\Reports\WarehouseStockQuantityReportQueryService;
 use Carbon\Carbon;
 use Livewire\Component;
 use Livewire\WithPagination;
-use Modules\Setting\Entities\Location;
 use Maatwebsite\Excel\Facades\Excel;
-use App\Exports\WarehouseStockQuantityReportExport;
+use Modules\Setting\Entities\Location;
 
 class WarehouseStockQuantityReport extends Component
 {
     use WithPagination;
+    use HasReportSettingScope;
 
     public $asOfDate;
     public $periodPreset = '';
@@ -26,20 +27,56 @@ class WarehouseStockQuantityReport extends Component
     public $appliedFilters = [];
     
     public $availableWarehouses = [];
+    public array $expandedBusinesses = [];
 
     protected $paginationTheme = 'bootstrap';
 
     public function mount(): void
     {
-        abort_unless(auth()->user()->can('stockMutationReports.access'), 403);
-        $this->settingId = session('setting_id');
+        abort_unless(auth()->user()?->can('stockMutationReports.access') ?? false, 403);
+        $this->selectedSettingIds = $this->defaultSettingSelection();
         $this->asOfDate = now()->format('Y-m-d');
         
-        $this->availableWarehouses = Location::where('setting_id', $this->settingId)
-            ->get(['id', 'name'])
-            ->toArray();
-            
+        $this->refreshAvailableWarehouses();
         $this->appliedFilters = $this->exportFilters();
+    }
+
+    public function refreshAvailableWarehouses(): void
+    {
+        $sanitizedSettingIds = $this->getSanitizedSettingIds($this->selectedSettingIds);
+        $locations = Location::query()
+            ->whereIn('setting_id', $sanitizedSettingIds)
+            ->where('is_active', true)
+            ->with('setting:id,company_name')
+            ->orderBy('name')
+            ->get();
+
+        $isMulti = count($sanitizedSettingIds) > 1;
+        $this->availableWarehouses = $locations->map(function ($loc) use ($isMulti) {
+            return [
+                'id' => (int) $loc->id,
+                'name' => $isMulti ? "{$loc->name} — {$loc->setting?->company_name}" : (string) $loc->name,
+                'raw_name' => (string) $loc->name,
+                'setting_id' => (int) $loc->setting_id,
+            ];
+        })->toArray();
+    }
+
+    public function updatedSelectedSettingIds(): void
+    {
+        $this->refreshAvailableWarehouses();
+        $validWarehouseIds = array_column($this->availableWarehouses, 'id');
+        $this->warehouseIds = array_values(array_intersect($this->warehouseIds, $validWarehouseIds));
+        $this->resetPage();
+    }
+
+    public function toggleBusiness(int $settingId): void
+    {
+        if (in_array($settingId, $this->expandedBusinesses)) {
+            $this->expandedBusinesses = array_values(array_diff($this->expandedBusinesses, [$settingId]));
+        } else {
+            $this->expandedBusinesses[] = $settingId;
+        }
     }
 
     public function sortBy($field): void
@@ -96,12 +133,17 @@ class WarehouseStockQuantityReport extends Component
             $this->asOfDate = $this->appliedFilters['asOfDate'] ?? $this->asOfDate;
             $this->periodPreset = $this->appliedFilters['periodPreset'] ?? '';
             $this->warehouseIds = $this->appliedFilters['warehouseIds'] ?? [];
+            $this->refreshAvailableWarehouses();
+            $validWarehouseIds = array_column($this->availableWarehouses, 'id');
+            $this->warehouseIds = array_values(array_intersect($this->warehouseIds, $validWarehouseIds));
         }
     }
 
     public function resetFilters(): void
     {
         $this->asOfDate = now()->format('Y-m-d');
+        $this->selectedSettingIds = $this->defaultSettingSelection();
+        $this->refreshAvailableWarehouses();
         $this->periodPreset = '';
         $this->warehouseIds = [];
     }
@@ -112,15 +154,16 @@ class WarehouseStockQuantityReport extends Component
             'asOfDate' => 'required|date',
         ]);
 
-        $this->appliedFilters = $this->exportFilters();
+        $this->appliedFilters = $this->exportFilters($this->getSanitizedSettingIds($this->selectedSettingIds));
         $this->filterTriggered = true;
         $this->resetPage();
     }
 
-    private function exportFilters(): array
+    private function exportFilters(?array $settingIds = null): array
     {
         return [
             'asOfDate' => $this->asOfDate,
+            'selectedSettingIds' => $settingIds ?? $this->activeSettingIds(),
             'periodPreset' => $this->periodPreset,
             'warehouseIds' => $this->warehouseIds,
             'sortField' => $this->sortColumn,
@@ -130,42 +173,58 @@ class WarehouseStockQuantityReport extends Component
 
     public function exportExcel(WarehouseStockQuantityReportQueryService $queryService)
     {
-        abort_unless(auth()->user()->can('stockMutationReports.access'), 403);
+        abort_unless(auth()->user()?->can('stockMutationReports.access') ?? false, 403);
         
         if (!$this->filterTriggered || empty($this->appliedFilters)) {
             $this->dispatch('alert', ['type' => 'error', 'message' => 'Silakan filter data terlebih dahulu sebelum melakukan ekspor.']);
             return null;
         }
 
-        $filterData = WarehouseStockQuantityReportFilterData::fromArray($this->appliedFilters);
+        $sanitizedSettingIds = $this->activeSettingIds();
+        if (empty($sanitizedSettingIds)) {
+            $this->dispatch('alert', ['type' => 'error', 'message' => 'Pilih minimal satu bisnis.']);
+            return null;
+        }
+
+        $appliedFilters = $this->appliedFilters;
+        $appliedFilters['selectedSettingIds'] = $sanitizedSettingIds;
+        $filterData = WarehouseStockQuantityReportFilterData::fromArray($appliedFilters);
         $result = $queryService->build($filterData);
 
         $dateFormatted = Carbon::parse($filterData->asOfDate)->format('d-m-Y');
         $fileName = sprintf('kuantitas-stok-gudang_%s.xlsx', $dateFormatted);
 
         return Excel::download(
-            new WarehouseStockQuantityReportExport($result, $filterData, $this->availableWarehouses, false),
+            new WarehouseStockQuantityReportExport($result, $filterData, $this->availableWarehouses, false, $sanitizedSettingIds),
             $fileName
         );
     }
 
     public function exportCsv(WarehouseStockQuantityReportQueryService $queryService)
     {
-        abort_unless(auth()->user()->can('stockMutationReports.access'), 403);
+        abort_unless(auth()->user()?->can('stockMutationReports.access') ?? false, 403);
         
         if (!$this->filterTriggered || empty($this->appliedFilters)) {
             $this->dispatch('alert', ['type' => 'error', 'message' => 'Silakan filter data terlebih dahulu sebelum melakukan ekspor.']);
             return null;
         }
 
-        $filterData = WarehouseStockQuantityReportFilterData::fromArray($this->appliedFilters);
+        $sanitizedSettingIds = $this->activeSettingIds();
+        if (empty($sanitizedSettingIds)) {
+            $this->dispatch('alert', ['type' => 'error', 'message' => 'Pilih minimal satu bisnis.']);
+            return null;
+        }
+
+        $appliedFilters = $this->appliedFilters;
+        $appliedFilters['selectedSettingIds'] = $sanitizedSettingIds;
+        $filterData = WarehouseStockQuantityReportFilterData::fromArray($appliedFilters);
         $result = $queryService->build($filterData);
 
         $dateFormatted = Carbon::parse($filterData->asOfDate)->format('d-m-Y');
         $fileName = sprintf('kuantitas-stok-gudang_%s.csv', $dateFormatted);
 
         return Excel::download(
-            new WarehouseStockQuantityReportExport($result, $filterData, $this->availableWarehouses, true),
+            new WarehouseStockQuantityReportExport($result, $filterData, $this->availableWarehouses, true, $sanitizedSettingIds),
             $fileName,
             \Maatwebsite\Excel\Excel::CSV
         );
@@ -174,15 +233,30 @@ class WarehouseStockQuantityReport extends Component
     public function render(WarehouseStockQuantityReportQueryService $queryService)
     {
         $paginator = null;
+        $availableSettings = $this->getAvailableSettings();
+        $sanitizedSettingIds = $this->getSanitizedSettingIds($this->selectedSettingIds);
+        $activeSettingIds = $this->activeSettingIds();
+        $isMultiBusiness = $this->isMultiBusiness($activeSettingIds);
+        $selectedSettings = collect($availableSettings)
+            ->whereIn('id', $activeSettingIds)
+            ->map(fn($s) => (object) $s)
+            ->values();
 
-        if ($this->filterTriggered) {
-            $filterData = WarehouseStockQuantityReportFilterData::fromArray($this->appliedFilters);
+        if ($this->filterTriggered && !empty($activeSettingIds)) {
+            $appliedFilters = $this->appliedFilters;
+            $appliedFilters['selectedSettingIds'] = $activeSettingIds;
+            $filterData = WarehouseStockQuantityReportFilterData::fromArray($appliedFilters);
             $filterData->page = $this->getPage();
             $paginator = $queryService->paginate($filterData);
         }
 
         return view('livewire.reports.warehouse-stock-quantity-report', [
             'paginator' => $paginator,
+            'availableSettings' => $availableSettings,
+            'selectedSettings' => $selectedSettings,
+            'sanitizedSettingIds' => $sanitizedSettingIds,
+            'activeSettingIds' => $activeSettingIds,
+            'isMultiBusiness' => $isMultiBusiness,
         ]);
     }
 }

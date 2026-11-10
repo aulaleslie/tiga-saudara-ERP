@@ -15,6 +15,7 @@ use Maatwebsite\Excel\Facades\Excel;
 class InventorySummaryReport extends Component
 {
     use WithPagination;
+    use HasReportSettingScope;
 
     public $asOfDate;
     public $periodPreset = '';
@@ -73,6 +74,11 @@ class InventorySummaryReport extends Component
             : '<i class="bi bi-caret-down-fill text-primary ms-1"></i>';
     }
 
+    public function updatedSelectedSettingIds(): void
+    {
+        $this->resetPage();
+    }
+
     public function updatedPeriodPreset($value): void
     {
         match ($value) {
@@ -97,7 +103,6 @@ class InventorySummaryReport extends Component
         }
 
         $this->categoryOptions = Category::query()
-            ->where('setting_id', $this->settingId)
             ->whereRaw('LOWER(category_name) LIKE ?', ['%' . mb_strtolower($value) . '%'])
             ->limit(10)
             ->get(['id', 'category_name'])
@@ -129,7 +134,6 @@ class InventorySummaryReport extends Component
         }
 
         $this->productOptions = Product::query()
-            ->where('setting_id', $this->settingId)
             ->whereRaw('LOWER(product_name) LIKE ?', ['%' . mb_strtolower($value) . '%'])
             ->limit(10)
             ->get(['id', 'product_name'])
@@ -154,8 +158,8 @@ class InventorySummaryReport extends Component
 
     public function mount(): void
     {
-        abort_unless(auth()->user()->can('inventoryValuationReports.access'), 403);
-        $this->settingId = session('setting_id');
+        abort_unless(auth()->user()?->can('inventoryValuationReports.access') ?? false, 403);
+        $this->selectedSettingIds = $this->defaultSettingSelection();
         $this->asOfDate = now()->format('Y-m-d');
         $this->appliedFilters = $this->exportFilters();
     }
@@ -182,6 +186,7 @@ class InventorySummaryReport extends Component
     public function resetFilters(): void
     {
         $this->asOfDate = now()->format('Y-m-d');
+        $this->selectedSettingIds = $this->defaultSettingSelection();
         $this->periodPreset = '';
         $this->stockStatus = '';
         $this->categoryIds = [];
@@ -203,15 +208,16 @@ class InventorySummaryReport extends Component
             'asOfDate' => 'required|date',
         ]);
 
-        $this->appliedFilters = $this->exportFilters();
+        $this->appliedFilters = $this->exportFilters($this->getSanitizedSettingIds($this->selectedSettingIds));
         $this->filterTriggered = true;
         $this->resetPage();
     }
 
-    private function exportFilters(): array
+    private function exportFilters(?array $settingIds = null): array
     {
         return [
             'asOfDate' => $this->asOfDate,
+            'selectedSettingIds' => $settingIds ?? $this->activeSettingIds(),
             'periodPreset' => $this->periodPreset,
             'stockStatus' => $this->stockStatus,
             'categoryIds' => $this->categoryIds,
@@ -227,42 +233,54 @@ class InventorySummaryReport extends Component
 
     public function exportExcel(InventorySummaryReportQueryService $queryService)
     {
-        abort_unless(auth()->user()->can('inventoryValuationReports.access'), 403);
+        abort_unless(auth()->user()?->can('inventoryValuationReports.access') ?? false, 403);
         
         if (!$this->filterTriggered || empty($this->appliedFilters)) {
             $this->dispatch('alert', ['type' => 'error', 'message' => 'Silakan filter data terlebih dahulu sebelum melakukan ekspor.']);
             return null;
         }
 
+        $settingIds = $this->activeSettingIds();
+        if (empty($settingIds)) {
+            $this->dispatch('alert', ['type' => 'error', 'message' => 'Pilih minimal satu bisnis.']);
+            return null;
+        }
+
         $filterData = InventorySummaryReportFilterData::fromArray($this->appliedFilters);
-        $result = $queryService->getSummary($filterData, $this->settingId, 1, 1); // just to get all rows
+        $result = $queryService->getSummary($filterData, $settingIds, 1, 1);
 
         $dateFormatted = Carbon::parse($filterData->asOfDate)->format('d-m-Y');
         $fileName = sprintf('ringkasan-persediaan-barang_%s.xlsx', $dateFormatted);
 
         return Excel::download(
-            new \App\Exports\InventorySummaryReportExport($result['allRows'], $filterData, false),
+            new InventorySummaryReportExport($result['allRows'], $filterData, false, $settingIds),
             $fileName
         );
     }
 
     public function exportCsv(InventorySummaryReportQueryService $queryService)
     {
-        abort_unless(auth()->user()->can('inventoryValuationReports.access'), 403);
+        abort_unless(auth()->user()?->can('inventoryValuationReports.access') ?? false, 403);
         
         if (!$this->filterTriggered || empty($this->appliedFilters)) {
             $this->dispatch('alert', ['type' => 'error', 'message' => 'Silakan filter data terlebih dahulu sebelum melakukan ekspor.']);
             return null;
         }
 
+        $settingIds = $this->activeSettingIds();
+        if (empty($settingIds)) {
+            $this->dispatch('alert', ['type' => 'error', 'message' => 'Pilih minimal satu bisnis.']);
+            return null;
+        }
+
         $filterData = InventorySummaryReportFilterData::fromArray($this->appliedFilters);
-        $result = $queryService->getSummary($filterData, $this->settingId, 1, 1);
+        $result = $queryService->getSummary($filterData, $settingIds, 1, 1);
 
         $dateFormatted = Carbon::parse($filterData->asOfDate)->format('d-m-Y');
         $fileName = sprintf('ringkasan-persediaan-barang_%s.csv', $dateFormatted);
 
         return Excel::download(
-            new \App\Exports\InventorySummaryReportExport($result['allRows'], $filterData, true),
+            new InventorySummaryReportExport($result['allRows'], $filterData, true, $settingIds),
             $fileName,
             \Maatwebsite\Excel\Excel::CSV
         );
@@ -273,19 +291,37 @@ class InventorySummaryReport extends Component
         $paginator = null;
         $totalItems = 0;
         $totalValue = 0.0;
+        $businessTotals = [];
 
-        if ($this->filterTriggered) {
+        $availableSettings = $this->getAvailableSettings();
+        $sanitizedSettingIds = $this->getSanitizedSettingIds($this->selectedSettingIds);
+        $activeSettingIds = $this->activeSettingIds();
+        $isMultiBusiness = $this->isMultiBusiness($activeSettingIds);
+
+        $selectedSettings = collect($availableSettings)
+            ->whereIn('id', $activeSettingIds)
+            ->map(fn($s) => (object) $s)
+            ->values();
+
+        if ($this->filterTriggered && !empty($activeSettingIds)) {
             $filterData = InventorySummaryReportFilterData::fromArray($this->appliedFilters);
-            $result = $queryService->getSummary($filterData, $this->settingId, 15, $this->getPage());
+            $result = $queryService->getSummary($filterData, $activeSettingIds, 15, $this->getPage());
             $paginator = $result['paginator'];
             $totalItems = $result['totalItems'];
             $totalValue = $result['totalValue'];
+            $businessTotals = $result['businessTotals'] ?? [];
         }
 
         return view('livewire.reports.inventory-summary-report', [
             'paginator' => $paginator,
             'totalItems' => $totalItems,
             'totalValue' => $totalValue,
+            'businessTotals' => $businessTotals,
+            'availableSettings' => $availableSettings,
+            'selectedSettings' => $selectedSettings,
+            'sanitizedSettingIds' => $sanitizedSettingIds,
+            'activeSettingIds' => $activeSettingIds,
+            'isMultiBusiness' => $isMultiBusiness,
         ]);
     }
 }

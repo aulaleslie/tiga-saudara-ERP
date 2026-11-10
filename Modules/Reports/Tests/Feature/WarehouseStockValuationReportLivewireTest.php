@@ -149,7 +149,7 @@ class WarehouseStockValuationReportLivewireTest extends TestCase
             ->call('applyFilters')
             ->assertSet('filterTriggered', true)
             ->assertSee('SKU-001')
-            ->assertSee('TEST PRODUCT')
+            ->assertSee('Test Product')
             ->assertSee('WAREHOUSE A')
             ->assertSee('WAREHOUSE B')
             ->assertSee('10,00') // Qty
@@ -169,7 +169,7 @@ class WarehouseStockValuationReportLivewireTest extends TestCase
         Livewire::test(WarehouseStockValuationReport::class)
             ->set('asOfDate', now()->format('Y-m-d'))
             ->call('applyFilters')
-            ->assertSee('NO CODE PRODUCT')
+            ->assertSee('No Code Product')
             ->assertSee('-');
     }
 

@@ -10,11 +10,13 @@ use Livewire\Component;
 use Livewire\WithPagination;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
+use Modules\Setting\Entities\Setting;
 use Maatwebsite\Excel\Facades\Excel;
 
 class InventoryValuationReport extends Component
 {
     use WithPagination;
+    use HasReportSettingScope;
 
     public $tanggalAwal;
     public $tanggalAkhir;
@@ -26,7 +28,6 @@ class InventoryValuationReport extends Component
     public $sortDirection = 'asc';
     
     public $filterTriggered = false;
-    public $settingId;
     public $appliedFilters = [];
     
     public $expandedProducts = [];
@@ -42,6 +43,13 @@ class InventoryValuationReport extends Component
     public $productLabels = [];
 
     protected $paginationTheme = 'bootstrap';
+
+    public function updatedSelectedSettingIds(): void
+    {
+        $this->resetPage();
+        $this->expandedProducts = [];
+        $this->loadedProductDetails = [];
+    }
 
     public function sortBy($field): void
     {
@@ -135,7 +143,6 @@ class InventoryValuationReport extends Component
         }
 
         $this->categoryOptions = Category::query()
-            ->where('setting_id', $this->settingId)
             ->whereRaw('LOWER(category_name) LIKE ?', ['%' . mb_strtolower($value) . '%'])
             ->limit(10)
             ->get(['id', 'category_name'])
@@ -167,7 +174,6 @@ class InventoryValuationReport extends Component
         }
 
         $this->productOptions = Product::query()
-            ->where('setting_id', $this->settingId)
             ->whereRaw('LOWER(product_name) LIKE ?', ['%' . mb_strtolower($value) . '%'])
             ->limit(10)
             ->get(['id', 'product_name'])
@@ -192,8 +198,8 @@ class InventoryValuationReport extends Component
 
     public function mount(): void
     {
-        abort_unless(auth()->user()->can('inventoryValuationReports.access'), 403);
-        $this->settingId = session('setting_id');
+        abort_unless(auth()->user()?->can('inventoryValuationReports.access') ?? false, 403);
+        $this->selectedSettingIds = $this->defaultSettingSelection();
         $this->periodPreset = 'this_month';
         $this->updatedPeriodPreset('this_month');
         $this->appliedFilters = $this->exportFilters();
@@ -222,6 +228,7 @@ class InventoryValuationReport extends Component
 
     public function resetFilters(): void
     {
+        $this->selectedSettingIds = $this->defaultSettingSelection();
         $this->periodPreset = 'this_month';
         $this->updatedPeriodPreset('this_month');
         $this->categoryIds = [];
@@ -246,7 +253,7 @@ class InventoryValuationReport extends Component
             'tanggalAkhir' => 'required|date|after_or_equal:tanggalAwal',
         ]);
 
-        $this->appliedFilters = $this->exportFilters();
+        $this->appliedFilters = $this->exportFilters($this->getSanitizedSettingIds($this->selectedSettingIds));
         $this->filterTriggered = true;
         
         $this->expandedProducts = [];
@@ -255,9 +262,10 @@ class InventoryValuationReport extends Component
         $this->resetPage();
     }
 
-    private function exportFilters(): array
+    private function exportFilters(?array $settingIds = null): array
     {
         return [
+            'selectedSettingIds' => $settingIds ?? $this->activeSettingIds(),
             'tanggalAwal' => $this->tanggalAwal,
             'tanggalAkhir' => $this->tanggalAkhir,
             'periodPreset' => $this->periodPreset,
@@ -273,44 +281,56 @@ class InventoryValuationReport extends Component
 
     public function exportExcel(InventoryValuationReportQueryService $queryService)
     {
-        abort_unless(auth()->user()->can('inventoryValuationReports.access'), 403);
+        abort_unless(auth()->user()?->can('inventoryValuationReports.access') ?? false, 403);
         
         if (!$this->filterTriggered || empty($this->appliedFilters)) {
             $this->dispatch('alert', ['type' => 'error', 'message' => 'Silakan filter data terlebih dahulu sebelum melakukan ekspor.']);
             return null;
         }
 
+        $settingIds = $this->activeSettingIds();
+        if (empty($settingIds)) {
+            $this->dispatch('alert', ['type' => 'error', 'message' => 'Pilih minimal satu bisnis.']);
+            return null;
+        }
+
         $filterData = InventoryValuationReportFilterData::fromArray($this->appliedFilters);
-        $result = $queryService->getReport($filterData, $this->settingId, PHP_INT_MAX, 1);
+        $result = $queryService->getReport($filterData, $settingIds, PHP_INT_MAX, 1);
 
         $dateStart = Carbon::parse($filterData->tanggalAwal)->format('d-m-Y');
         $dateEnd = Carbon::parse($filterData->tanggalAkhir)->format('d-m-Y');
         $fileName = sprintf('nilai-persediaan-barang_%s_sd_%s.xlsx', $dateStart, $dateEnd);
 
         return Excel::download(
-            new \App\Exports\InventoryValuationReportExport($result['allRows'], $result['totalValue'], $filterData, false),
+            new \App\Exports\InventoryValuationReportExport($result['allRows'], $result['totalValue'], $filterData, false, $settingIds),
             $fileName
         );
     }
 
     public function exportCsv(InventoryValuationReportQueryService $queryService)
     {
-        abort_unless(auth()->user()->can('inventoryValuationReports.access'), 403);
+        abort_unless(auth()->user()?->can('inventoryValuationReports.access') ?? false, 403);
         
         if (!$this->filterTriggered || empty($this->appliedFilters)) {
             $this->dispatch('alert', ['type' => 'error', 'message' => 'Silakan filter data terlebih dahulu sebelum melakukan ekspor.']);
             return null;
         }
 
+        $settingIds = $this->activeSettingIds();
+        if (empty($settingIds)) {
+            $this->dispatch('alert', ['type' => 'error', 'message' => 'Pilih minimal satu bisnis.']);
+            return null;
+        }
+
         $filterData = InventoryValuationReportFilterData::fromArray($this->appliedFilters);
-        $result = $queryService->getReport($filterData, $this->settingId, PHP_INT_MAX, 1);
+        $result = $queryService->getReport($filterData, $settingIds, PHP_INT_MAX, 1);
 
         $dateStart = Carbon::parse($filterData->tanggalAwal)->format('d-m-Y');
         $dateEnd = Carbon::parse($filterData->tanggalAkhir)->format('d-m-Y');
         $fileName = sprintf('nilai-persediaan-barang_%s_sd_%s.csv', $dateStart, $dateEnd);
 
         return Excel::download(
-            new \App\Exports\InventoryValuationReportExport($result['allRows'], $result['totalValue'], $filterData, true),
+            new \App\Exports\InventoryValuationReportExport($result['allRows'], $result['totalValue'], $filterData, true, $settingIds),
             $fileName,
             \Maatwebsite\Excel\Excel::CSV
         );
@@ -318,15 +338,18 @@ class InventoryValuationReport extends Component
     
     public function toggleProduct($productId): void
     {
+        abort_unless(auth()->user()?->can('inventoryValuationReports.access') ?? false, 403);
+
         if (in_array($productId, $this->expandedProducts)) {
-            $this->expandedProducts = array_diff($this->expandedProducts, [$productId]);
+            $this->expandedProducts = array_values(array_diff($this->expandedProducts, [$productId]));
         } else {
             $this->expandedProducts[] = $productId;
             
             if (!isset($this->loadedProductDetails[$productId])) {
                 $queryService = app(InventoryValuationReportQueryService::class);
                 $filterData = InventoryValuationReportFilterData::fromArray($this->appliedFilters);
-                $this->loadedProductDetails[$productId] = $queryService->getProductDetail($filterData, $this->settingId, $productId);
+                $activeSettingIds = $this->activeSettingIds();
+                $this->loadedProductDetails[$productId] = $queryService->getProductDetail($filterData, $activeSettingIds, (int) $productId);
             }
         }
     }
@@ -335,17 +358,33 @@ class InventoryValuationReport extends Component
     {
         $paginator = null;
         $totalValue = 0.0;
+        $businessTotals = [];
 
-        if ($this->filterTriggered) {
+        $sanitizedSettingIds = $this->getSanitizedSettingIds();
+        $activeSettingIds = $this->activeSettingIds();
+        $isMultiBusiness = $this->isMultiBusiness($activeSettingIds);
+
+        $selectedSettings = !empty($activeSettingIds)
+            ? Setting::whereIn('id', $activeSettingIds)->orderBy('company_name')->get()
+            : collect();
+
+        if ($this->filterTriggered && !empty($activeSettingIds)) {
             $filterData = InventoryValuationReportFilterData::fromArray($this->appliedFilters);
-            $result = $queryService->getSummary($filterData, $this->settingId, 15, $this->getPage());
+            $result = $queryService->getSummary($filterData, $activeSettingIds, 15, $this->getPage());
             $paginator = $result['paginator'];
             $totalValue = $result['totalValue'];
+            $businessTotals = $result['businessTotals'] ?? [];
         }
 
         return view('livewire.reports.inventory-valuation-report', [
             'paginator' => $paginator,
             'totalValue' => $totalValue,
+            'businessTotals' => $businessTotals,
+            'availableSettings' => $this->getAvailableSettings(),
+            'sanitizedSettingIds' => $sanitizedSettingIds,
+            'activeSettingIds' => $activeSettingIds,
+            'isMultiBusiness' => $isMultiBusiness,
+            'selectedSettings' => $selectedSettings,
         ]);
     }
 }

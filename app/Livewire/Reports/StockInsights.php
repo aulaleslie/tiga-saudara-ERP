@@ -14,6 +14,7 @@ use Modules\Product\Entities\Category;
 class StockInsights extends Component
 {
     use WithPagination;
+    use HasReportSettingScope;
 
     protected $paginationTheme = 'bootstrap';
 
@@ -42,7 +43,7 @@ class StockInsights extends Component
 
     public function mount(): void
     {
-        abort_unless(auth()->user()->can('stockInsights.access'), 403);
+        abort_unless(auth()->user()?->can('stockInsights.access') ?? false, 403);
 
         $today = Carbon::today();
         $this->startDate = $today->copy()->subDays(6)->format('Y-m-d');
@@ -153,16 +154,18 @@ class StockInsights extends Component
     {
         $leavingNotice = '';
         if (!empty($this->statuses)) {
+            $assignedSettingIds = array_map('intval', array_column($this->getAvailableSettings(), 'id'));
             $queryService = app(StockInsightsQueryService::class);
             $singleFilter = new StockInsightsFilterData(
                 statuses: $this->statuses,
-                today: Carbon::today()
+                today: Carbon::today(),
+                assignedSettingIds: $assignedSettingIds
             );
             $stillMatches = $queryService->getEligibleProductsBaseQuery()
                 ->where('products.id', $productId)
-                ->where(function ($q) use ($singleFilter) {
-                    $goodStockSql = StockInsightsQueryService::globalGoodStockSqlExpression();
-                    $slowMovingSql = StockInsightsQueryService::slowMovingSqlExpression($singleFilter->endDate);
+                ->where(function ($q) use ($singleFilter, $assignedSettingIds) {
+                    $goodStockSql = StockInsightsQueryService::globalGoodStockSqlExpression($assignedSettingIds);
+                    $slowMovingSql = StockInsightsQueryService::slowMovingSqlExpression($singleFilter->endDate, $assignedSettingIds);
                     foreach ($singleFilter->statuses as $status) {
                         if ($status === StockInsightsFilterData::STATUS_OUT_OF_STOCK) {
                             $q->orWhereRaw("({$goodStockSql} <= 0)");
@@ -205,7 +208,7 @@ class StockInsights extends Component
 
     public function render()
     {
-        abort_unless(auth()->user()->can('stockInsights.access'), 403);
+        abort_unless(auth()->user()?->can('stockInsights.access') ?? false, 403);
 
         $queryService = app(StockInsightsQueryService::class);
         $today = Carbon::today();
@@ -218,6 +221,8 @@ class StockInsights extends Component
             }
         }
 
+        $assignedSettingIds = array_map('intval', array_column($this->getAvailableSettings(), 'id'));
+
         $filter = new StockInsightsFilterData(
             search: $this->search,
             statuses: $this->statuses,
@@ -228,12 +233,13 @@ class StockInsights extends Component
             sortDirection: $this->sortDirection,
             perPage: $this->perPage,
             page: $this->getPage(),
-            today: $today
+            today: $today,
+            assignedSettingIds: $assignedSettingIds
         );
 
-        $attentionCounts = $queryService->getAttentionCounts($filter);
-        $paginatedRows = $queryService->paginate($filter);
-        $hierarchy = $queryService->getBusinessHierarchy();
+        $attentionCounts = $queryService->getAttentionCounts($filter, $assignedSettingIds);
+        $paginatedRows = $queryService->paginate($filter, $assignedSettingIds);
+        $hierarchy = $queryService->getBusinessHierarchy($assignedSettingIds);
         $categories = Category::query()->orderBy('category_name')->get(['id', 'category_name']);
         $brands = Brand::query()->orderBy('name')->get(['id', 'name']);
 

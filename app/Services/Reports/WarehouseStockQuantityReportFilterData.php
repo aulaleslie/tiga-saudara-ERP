@@ -11,9 +11,15 @@ class WarehouseStockQuantityReportFilterData
         public string $sortField = 'product_name',
         public string $sortDirection = 'asc',
         public ?int $scopeSettingId = null,
+        public array $selectedSettingIds = [],
         public int $perPage = 15,
         public int $page = 1
     ) {
+        if (!empty($selectedSettingIds)) {
+            $this->selectedSettingIds = array_values(array_unique(array_filter(array_map('intval', $selectedSettingIds))));
+        } elseif ($scopeSettingId) {
+            $this->selectedSettingIds = [(int) $scopeSettingId];
+        }
     }
 
     public function toArray(): array
@@ -25,6 +31,7 @@ class WarehouseStockQuantityReportFilterData
             'sortField' => $this->sortField,
             'sortDirection' => $this->sortDirection,
             'scopeSettingId' => $this->scopeSettingId,
+            'selectedSettingIds' => $this->selectedSettingIds,
             'perPage' => $this->perPage,
             'page' => $this->page,
         ];
@@ -39,6 +46,7 @@ class WarehouseStockQuantityReportFilterData
             sortField: $data['sortField'] ?? 'product_name',
             sortDirection: $data['sortDirection'] ?? 'asc',
             scopeSettingId: $data['scopeSettingId'] ?? null,
+            selectedSettingIds: $data['selectedSettingIds'] ?? [],
             perPage: (int) ($data['perPage'] ?? 15),
             page: (int) ($data['page'] ?? 1),
         );

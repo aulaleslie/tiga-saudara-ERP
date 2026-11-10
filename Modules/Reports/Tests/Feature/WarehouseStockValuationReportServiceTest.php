@@ -162,8 +162,10 @@ class WarehouseStockValuationReportServiceTest extends TestCase
     public function it_excludes_non_stock_managed_products()
     {
         $category = $this->makeCategory();
-        $this->makeProduct($category, 'P1', 'Managed', true, 100);
-        $this->makeProduct($category, 'P2', 'Service', false, 500);
+        $p1 = $this->makeProduct($category, 'P1', 'Managed', true, 100);
+        $p2 = $this->makeProduct($category, 'P2', 'Service', false, 500);
+        $this->makeTransaction($p1, $this->location1, 'init', 10, '2023-01-01 10:00:00');
+        $this->makeTransaction($p2, $this->location1, 'init', 10, '2023-01-01 10:00:00');
 
         $filter = new WarehouseStockValuationReportFilterData(
             asOfDate: '2023-01-10',
@@ -234,8 +236,10 @@ class WarehouseStockValuationReportServiceTest extends TestCase
         
         $p1 = $this->makeProduct($cat1, 'P1', 'Product 1');
         $p2 = $this->makeProduct($cat2, 'P2', 'Product 2');
-        
         $p3 = $this->makeProduct($cat1, 'P3', 'Product 3');
+        $this->makeTransaction($p1, $this->location1, 'init', 10, '2023-01-01 10:00:00');
+        $this->makeTransaction($p2, $this->location1, 'init', 10, '2023-01-01 10:00:00');
+        $this->makeTransaction($p3, $this->location1, 'init', 10, '2023-01-01 10:00:00');
 
         $filterAny = new WarehouseStockValuationReportFilterData(
             scopeSettingId: $this->setting->id,

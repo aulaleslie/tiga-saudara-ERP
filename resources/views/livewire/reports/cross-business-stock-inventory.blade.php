@@ -38,12 +38,11 @@
                     </div>
                 </div>
 
-                {{-- Business Multi-Select (Reusing business-source-selector) --}}
-                <div class="col-md-3">
-                    @include('livewire.reports.business-source-selector', [
+                {{-- Business Multi-Select (Reusing business-checkbox-selector) --}}
+                <div class="report-business-slot">
+                    @include('livewire.reports.business-checkbox-selector', [
                         'label' => 'Pilih Bisnis / Cabang',
                         'availableSettings' => $availableSettings,
-                        'selectedValues' => $selectedSettingIds,
                         'selectId' => 'cross-business-select',
                         'livewireProperty' => 'selectedSettingIds',
                         'placeholder' => 'Pilih bisnis...',

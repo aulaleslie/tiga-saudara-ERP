@@ -6,7 +6,7 @@ The warehouse stock valuation report shows per-warehouse product stock quantitie
 
 
 ### Requirement: Warehouse stock valuation report access
-The system SHALL provide a `Nilai stok gudang` report page under Reports > Produk for authorized users, scoped to the authenticated user's active setting.
+The system SHALL provide a `Nilai stok gudang` report page under Reports > Produk for authorized users, scoped to the businesses selected through the shared report business scope (default: the user's active setting). The route SHALL enforce `inventoryValuationReports.access`.
 
 #### Scenario: Authorized user opens report
 - **WHEN** a user with `inventoryValuationReports.access` opens the warehouse stock valuation report route
@@ -23,7 +23,8 @@ The system SHALL provide a `Nilai stok gudang` report page under Reports > Produ
 
 #### Scenario: Data is scoped to active setting
 - **WHEN** the report renders or exports
-- **THEN** products, warehouses, categories, prices, and stock movements outside the active `setting_id` SHALL be excluded.
+- **THEN** warehouses, prices, and stock movements outside the selected businesses SHALL be excluded
+- **AND** products and categories SHALL NOT be filtered by their owning business.
 
 ### Requirement: Report filters
 The system SHALL provide sample-aligned filters for as-of date, period preset, warehouse selection, product stock status, product category, category match mode, and warehouse name ordering.
@@ -212,3 +213,11 @@ The report SHALL date outgoing TRF stock movements by dispatch time and incoming
 #### Scenario: Transfers load against the established schema
 - **WHEN** report data or an export includes persisted transfers on the repository's migrated database schema
 - **THEN** the report completes without an unknown transfer-date column error
+
+### Requirement: Warehouse stock valuation multi-business matrix
+With several businesses selected, the report SHALL show one row per product with a Total group (quantity, value) and one group per business (quantity, average cost, value) using that business's average cost. Each business group SHALL expand to its selected warehouses. The grand total SHALL equal the sum of the business values. Exports SHALL match the screen.
+
+#### Scenario: Per-business average cost
+- **WHEN** a product's average cost is 100 in A and 120 in B, with 2 units in each
+- **THEN** A's value SHALL be 200, B's 240, and the Total value 440
+

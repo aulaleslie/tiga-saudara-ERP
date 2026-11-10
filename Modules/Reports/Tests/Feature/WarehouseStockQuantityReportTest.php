@@ -259,7 +259,7 @@ class WarehouseStockQuantityReportTest extends TestCase
             ->assertSet('asOfDate', now()->format('Y-m-d'))
             ->set('asOfDate', now()->format('Y-m-d'))
             ->call('applyFilters')
-            ->assertSee('PRODUCT WITHOUT CODE')
+            ->assertSee('Product Without Code')
             ->assertSee('-') // Nullable product code UI display
             ->assertSee('WAREHOUSE A')
             ->assertSee('50,00')
@@ -366,16 +366,18 @@ class WarehouseStockQuantityReportTest extends TestCase
         session(['setting_id' => $this->setting->id]);
 
         $category = $this->makeCategory();
-        $this->makeProduct($category, 'B1', 'Z Product');
-        $this->makeProduct($category, 'A1', 'A Product');
+        $p1 = $this->makeProduct($category, 'B1', 'Z Product');
+        $p2 = $this->makeProduct($category, 'A1', 'A Product');
+        $this->makeTransaction($p1, $this->location1, 'init_stock', 10, now()->format('Y-m-d H:i:s'));
+        $this->makeTransaction($p2, $this->location1, 'init_stock', 10, now()->format('Y-m-d H:i:s'));
 
         $component = Livewire::test(WarehouseStockQuantityReport::class)
             ->set('asOfDate', now()->format('Y-m-d'))
             ->call('applyFilters');
 
         $results = $component->viewData('paginator')->items();
-        $this->assertEquals('A PRODUCT', $results[0]->product_name);
-        $this->assertEquals('Z PRODUCT', $results[1]->product_name);
+        $this->assertEquals('A Product', $results[0]->product_name);
+        $this->assertEquals('Z Product', $results[1]->product_name);
 
         $component->call('sortBy', 'product_code');
         $results = $component->viewData('paginator')->items();

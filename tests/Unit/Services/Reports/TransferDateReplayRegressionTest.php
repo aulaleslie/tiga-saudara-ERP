@@ -229,15 +229,23 @@ class TransferDateReplayRegressionTest extends TestCase
 
     public function test_stock_mutation_screen_and_export_agree_for_transfer(): void
     {
+        \Spatie\Permission\Models\Permission::findOrCreate('stockMutationReports.access', 'web');
+        $adminRole = \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']);
+        $user = \App\Models\User::factory()->create();
+        $user->givePermissionTo('stockMutationReports.access');
+        $user->settings()->attach($this->setting->id, ['role_id' => $adminRole->id]);
+        $this->actingAs($user);
+
         session(['setting_id' => $this->setting->id]);
         $this->transfer('2026-11-05 09:00:00', null, self::CREATED);
 
         $filters = ['startDate' => '2026-11-01', 'endDate' => '2026-11-30', 'productId' => null,
-            'locationId' => null, 'mutationType' => '', 'isGlobal' => false];
+            'locationId' => null, 'mutationType' => '', 'isGlobal' => false, 'settingIds' => [$this->setting->id]];
 
         $export = (new StockMutationReportExport($filters))->collection();
 
         $screen = new StockMutationReport();
+        $screen->selectedSettingIds = [$this->setting->id];
         $screen->startDate = '2026-11-01';
         $screen->endDate = '2026-11-30';
         $screen->filterTriggered = true;

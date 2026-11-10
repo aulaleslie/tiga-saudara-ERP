@@ -9,7 +9,22 @@
         </div>
     @endif
 
+    @if(empty($sanitizedSettingIds))
+        <div class="alert alert-warning mb-3">
+            Pilih minimal satu bisnis
+        </div>
+    @endif
+
     <div class="d-flex flex-wrap gap-2 mb-3 align-items-end">
+        <div class="report-business-slot">
+            @include('livewire.reports.business-checkbox-selector', [
+                'label' => 'Bisnis',
+                'availableSettings' => $availableSettings,
+                'selectId' => 'inventory-summary-setting-select',
+                'livewireProperty' => 'selectedSettingIds',
+                'placeholder' => 'Pilih bisnis...',
+            ])
+        </div>
         <div>
             <label class="form-label small">Per Tanggal</label>
             <select wire:model.live="periodPreset" class="form-control">
@@ -38,7 +53,7 @@
             </select>
         </div>
         <div class="ms-auto d-flex gap-2">
-            <button wire:click="applyFilters" wire:loading.attr="disabled" class="btn btn-primary">
+            <button wire:click="applyFilters" wire:loading.attr="disabled" class="btn btn-primary" @if(empty($sanitizedSettingIds)) disabled @endif>
                 <span wire:loading wire:target="applyFilters" class="spinner-border spinner-border-sm me-1" role="status"></span>
                 <i wire:loading.remove wire:target="applyFilters" class="bi bi-search"></i> Filter
             </button>
@@ -46,7 +61,7 @@
                 <i class="bi bi-funnel"></i> Filter lainnya
             </button>
             <div class="dropdown">
-                <button class="btn btn-outline-success dropdown-toggle" type="button" data-toggle="dropdown" aria-expanded="false">
+                <button class="btn btn-outline-success dropdown-toggle" type="button" data-toggle="dropdown" aria-expanded="false" @if(empty($sanitizedSettingIds)) disabled @endif>
                     <i class="bi bi-download"></i> Ekspor
                 </button>
                 <ul class="dropdown-menu">
@@ -170,7 +185,7 @@
             <button type="button" wire:click="resetFilters" class="btn btn-link text-decoration-none px-0">Reset filter</button>
             <div>
                 <button type="button" @click="showDrawer = false" class="btn btn-outline-secondary">Batalkan</button>
-                <button type="button" wire:click="applyFilters" @click="isApplying = true; showDrawer = false" class="btn btn-primary">Filter</button>
+                <button type="button" wire:click="applyFilters" @click="isApplying = true; showDrawer = false" class="btn btn-primary" @if(empty($sanitizedSettingIds)) disabled @endif>Filter</button>
             </div>
         </div>
     </div>
@@ -181,7 +196,7 @@
         * Semua perhitungan nilai moneter dalam <strong>{{ config('settings.currency_symbol', 'Rp') }}</strong> kecuali dinyatakan lain.
     </div>
 
-    @if($filterTriggered && $totalItems > 0)
+    @if($filterTriggered && $totalItems > 0 && !empty($sanitizedSettingIds))
         <div class="row mb-3">
             <div class="col-md-4">
                 <div class="card bg-light border-0 shadow-sm">
@@ -203,51 +218,128 @@
     @endif
 
     <div class="table-responsive shadow-sm rounded" wire:loading.class="opacity-50">
-        <table class="table table-hover table-bordered mb-0" style="font-size: 0.8rem; min-width: 800px;">
-            <thead class="table-light">
-                <tr>
-                    <th wire:click="sortBy('product_code')" style="cursor:pointer; white-space:nowrap">Kode Produk {!! $this->sortIcon('product_code') !!}</th>
-                    <th wire:click="sortBy('product_name')" style="cursor:pointer; white-space:nowrap">Nama Produk {!! $this->sortIcon('product_name') !!}</th>
-                    <th wire:click="sortBy('stock')" class="text-end" style="cursor:pointer; white-space:nowrap">Stok di tangan {!! $this->sortIcon('stock') !!}</th>
-                    <th style="white-space:nowrap">Batas Minimum</th>
-                    <th style="white-space:nowrap">Satuan</th>
-                    <th wire:click="sortBy('average_cost')" class="text-end" style="cursor:pointer; white-space:nowrap">Harga Rata-rata {!! $this->sortIcon('average_cost') !!}</th>
-                    <th wire:click="sortBy('value')" class="text-end" style="cursor:pointer; white-space:nowrap">Nilai {!! $this->sortIcon('value') !!}</th>
-                </tr>
-            </thead>
-            <tbody class="bg-white text-dark">
-            @if($filterTriggered)
-                @forelse($paginator as $row)
+        @if($isMultiBusiness)
+            {{-- Multi-business Matrix View --}}
+            <table class="table table-hover table-bordered mb-0" style="font-size: 0.8rem; min-width: 1000px;">
+                <thead class="table-light">
                     <tr>
-                        <td>{{ $row['product_code'] }}</td>
-                        <td>{{ $row['product_name'] }}</td>
-                        <td class="text-end fw-bold">{{ number_format((float)$row['stock'], 2, ',', '.') }}</td>
-                        <td>{{ number_format((float)$row['minimum_stock'], 2, ',', '.') }}</td>
-                        <td>{{ $row['product_unit'] }}</td>
-                        <td class="text-end">{{ number_format((float)$row['average_cost'], 2, ',', '.') }}</td>
-                        <td class="text-end fw-bold text-primary">{{ number_format((float)$row['value'], 0, ',', '.') }}</td>
+                        <th rowspan="2" wire:click="sortBy('product_code')" style="cursor:pointer; white-space:nowrap; vertical-align: middle;">Kode Produk {!! $this->sortIcon('product_code') !!}</th>
+                        <th rowspan="2" wire:click="sortBy('product_name')" style="cursor:pointer; white-space:nowrap; vertical-align: middle;">Nama Produk {!! $this->sortIcon('product_name') !!}</th>
+                        <th rowspan="2" style="white-space:nowrap; vertical-align: middle;">Batas Minimum</th>
+                        <th rowspan="2" style="white-space:nowrap; vertical-align: middle;">Satuan</th>
+                        <th colspan="2" class="text-center bg-light">Total</th>
+                        @foreach($selectedSettings as $setting)
+                            <th colspan="3" class="text-center">{{ $setting->company_name }}</th>
+                        @endforeach
                     </tr>
-                @empty
                     <tr>
-                        <td colspan="7" class="text-center py-4 text-muted">
-                            <i class="bi bi-inbox fs-2 d-block mb-2"></i>
-                            Tidak ada data persediaan yang sesuai dengan filter ini.
+                        <th wire:click="sortBy('stock')" class="text-end" style="cursor:pointer; white-space:nowrap">Stok {!! $this->sortIcon('stock') !!}</th>
+                        <th wire:click="sortBy('value')" class="text-end" style="cursor:pointer; white-space:nowrap">Nilai {!! $this->sortIcon('value') !!}</th>
+                        @foreach($selectedSettings as $setting)
+                            <th class="text-end" style="white-space:nowrap">Stok</th>
+                            <th class="text-end" style="white-space:nowrap">Biaya Rata-rata</th>
+                            <th class="text-end" style="white-space:nowrap">Nilai</th>
+                        @endforeach
+                    </tr>
+                </thead>
+                <tbody class="bg-white text-dark">
+                @if($filterTriggered && !empty($activeSettingIds) && $paginator)
+                    @forelse($paginator as $row)
+                        <tr>
+                            <td>{{ $row['product_code'] }}</td>
+                            <td>{{ $row['product_name'] }}</td>
+                            <td>{{ number_format((float)$row['minimum_stock'], 2, ',', '.') }}</td>
+                            <td>{{ $row['product_unit'] }}</td>
+                            <td class="text-end fw-bold">{{ number_format((float)$row['stock'], 2, ',', '.') }}</td>
+                            <td class="text-end fw-bold text-primary">{{ number_format((float)$row['value'], 0, ',', '.') }}</td>
+                            @foreach($selectedSettings as $setting)
+                                @php $b = $row['businesses'][$setting->id] ?? ['stock' => 0, 'average_cost' => 0, 'value' => 0]; @endphp
+                                <td class="text-end">{{ number_format((float)$b['stock'], 2, ',', '.') }}</td>
+                                <td class="text-end">{{ number_format((float)$b['average_cost'], 2, ',', '.') }}</td>
+                                <td class="text-end fw-bold">{{ number_format((float)$b['value'], 0, ',', '.') }}</td>
+                            @endforeach
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="{{ 6 + (count($selectedSettings) * 3) }}" class="text-center py-4 text-muted">
+                                <i class="bi bi-inbox fs-2 d-block mb-2"></i>
+                                Tidak ada data persediaan yang sesuai dengan filter ini.
+                            </td>
+                        </tr>
+                    @endforelse
+                @else
+                    <tr>
+                        <td colspan="{{ 6 + (count($selectedSettings) * 3) }}" class="text-center py-5 text-muted">
+                            <i class="bi bi-info-circle fs-2 d-block mb-2"></i>
+                            Silakan atur filter dan klik <strong>Filter</strong> untuk menampilkan laporan.
                         </td>
                     </tr>
-                @endforelse
-            @else
-                <tr>
-                    <td colspan="7" class="text-center py-5 text-muted">
-                        <i class="bi bi-info-circle fs-2 d-block mb-2"></i>
-                        Silakan atur filter dan klik <strong>Filter</strong> untuk menampilkan laporan.
-                    </td>
-                </tr>
-            @endif
-            </tbody>
-        </table>
+                @endif
+                </tbody>
+                @if($filterTriggered && !empty($activeSettingIds) && $paginator && $totalItems > 0)
+                    <tfoot class="table-light">
+                        <tr class="fw-bold">
+                            <td colspan="4" class="text-end">Total:</td>
+                            <td class="text-end"></td>
+                            <td class="text-end text-primary">{{ number_format((float)$totalValue, 0, ',', '.') }}</td>
+                            @foreach($selectedSettings as $setting)
+                                @php $bTotal = $businessTotals[$setting->id] ?? ['stock' => 0, 'value' => 0]; @endphp
+                                <td></td>
+                                <td></td>
+                                <td class="text-end">{{ number_format((float)($bTotal['value'] ?? 0), 0, ',', '.') }}</td>
+                            @endforeach
+                        </tr>
+                    </tfoot>
+                @endif
+            </table>
+        @else
+            {{-- Single-business View (Original Layout) --}}
+            <table class="table table-hover table-bordered mb-0" style="font-size: 0.8rem; min-width: 800px;">
+                <thead class="table-light">
+                    <tr>
+                        <th wire:click="sortBy('product_code')" style="cursor:pointer; white-space:nowrap">Kode Produk {!! $this->sortIcon('product_code') !!}</th>
+                        <th wire:click="sortBy('product_name')" style="cursor:pointer; white-space:nowrap">Nama Produk {!! $this->sortIcon('product_name') !!}</th>
+                        <th wire:click="sortBy('stock')" class="text-end" style="cursor:pointer; white-space:nowrap">Stok di tangan {!! $this->sortIcon('stock') !!}</th>
+                        <th style="white-space:nowrap">Batas Minimum</th>
+                        <th style="white-space:nowrap">Satuan</th>
+                        <th wire:click="sortBy('average_cost')" class="text-end" style="cursor:pointer; white-space:nowrap">Harga Rata-rata {!! $this->sortIcon('average_cost') !!}</th>
+                        <th wire:click="sortBy('value')" class="text-end" style="cursor:pointer; white-space:nowrap">Nilai {!! $this->sortIcon('value') !!}</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white text-dark">
+                @if($filterTriggered && !empty($activeSettingIds) && $paginator)
+                    @forelse($paginator as $row)
+                        <tr>
+                            <td>{{ $row['product_code'] }}</td>
+                            <td>{{ $row['product_name'] }}</td>
+                            <td class="text-end fw-bold">{{ number_format((float)$row['stock'], 2, ',', '.') }}</td>
+                            <td>{{ number_format((float)$row['minimum_stock'], 2, ',', '.') }}</td>
+                            <td>{{ $row['product_unit'] }}</td>
+                            <td class="text-end">{{ number_format((float)$row['average_cost'], 2, ',', '.') }}</td>
+                            <td class="text-end fw-bold text-primary">{{ number_format((float)$row['value'], 0, ',', '.') }}</td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="7" class="text-center py-4 text-muted">
+                                <i class="bi bi-inbox fs-2 d-block mb-2"></i>
+                                Tidak ada data persediaan yang sesuai dengan filter ini.
+                            </td>
+                        </tr>
+                    @endforelse
+                @else
+                    <tr>
+                        <td colspan="7" class="text-center py-5 text-muted">
+                            <i class="bi bi-info-circle fs-2 d-block mb-2"></i>
+                            Silakan atur filter dan klik <strong>Filter</strong> untuk menampilkan laporan.
+                        </td>
+                    </tr>
+                @endif
+                </tbody>
+            </table>
+        @endif
     </div>
 
-    @if($filterTriggered && $paginator)
+    @if($filterTriggered && $paginator && !empty($activeSettingIds))
         <div class="mt-3">
             {{ $paginator->links() }}
         </div>

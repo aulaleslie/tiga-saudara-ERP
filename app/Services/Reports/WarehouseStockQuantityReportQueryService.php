@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Modules\Product\Entities\Product;
+use Modules\Product\Entities\ProductStock;
 use Modules\Product\Entities\Transaction;
 use Modules\Setting\Entities\Location;
 
@@ -13,19 +14,53 @@ class WarehouseStockQuantityReportQueryService
 {
     public function build(WarehouseStockQuantityReportFilterData $filter): Collection
     {
-        $settingId = $filter->scopeSettingId ?: session('setting_id');
-        $warehouseIds = $filter->warehouseIds;
+        $settingIds = !empty($filter->selectedSettingIds)
+            ? $filter->selectedSettingIds
+            : ($filter->scopeSettingId ? [$filter->scopeSettingId] : [(int) session('setting_id')]);
+        $settingIds = array_values(array_unique(array_filter(array_map('intval', (array) $settingIds))));
+
+        if (empty($settingIds)) {
+            return collect();
+        }
+
+        $availableLocations = Location::query()
+            ->whereIn('setting_id', $settingIds)
+            ->where('is_active', true)
+            ->get(['id', 'setting_id', 'name']);
+
+        if ($availableLocations->isEmpty()) {
+            return collect();
+        }
+
+        $allAvailableWarehouseIds = $availableLocations->pluck('id')->toArray();
+        $warehouseIds = !empty($filter->warehouseIds)
+            ? array_values(array_intersect($allAvailableWarehouseIds, $filter->warehouseIds))
+            : $allAvailableWarehouseIds;
+
+        if (empty($warehouseIds)) {
+            return collect();
+        }
+
+        $locationSettingMap = $availableLocations->pluck('setting_id', 'id')->all();
+
         $asOfDate = $filter->asOfDate ? Carbon::parse($filter->asOfDate)->endOfDay() : now()->endOfDay();
 
-        if (empty($warehouseIds)) {
-            $warehouseIds = Location::where('setting_id', $settingId)->pluck('id')->toArray();
+        $stockProductIds = ProductStock::query()
+            ->whereIn('location_id', $warehouseIds)
+            ->pluck('product_id');
+
+        $txProductIds = Transaction::query()
+            ->whereIn('setting_id', $settingIds)
+            ->pluck('product_id');
+
+        $candidateProductIds = $stockProductIds->concat($txProductIds)->unique()->filter()->values();
+
+        if ($candidateProductIds->isEmpty()) {
+            return collect();
         }
 
-        if (empty($warehouseIds)) {
-            return collect(); // Return empty if no warehouses available
-        }
-
-        $products = Product::where('setting_id', $settingId)
+        $products = Product::query()
+            ->whereIn('id', $candidateProductIds)
             ->where('stock_managed', true)
             ->with(['category', 'unit'])
             ->get();
@@ -37,7 +72,7 @@ class WarehouseStockQuantityReportQueryService
         $productIds = $products->pluck('id');
 
         $transactions = Transaction::query()
-            ->where('setting_id', $settingId)
+            ->whereIn('setting_id', $settingIds)
             ->whereIn('product_id', $productIds)
             ->whereIn('location_id', $warehouseIds)
             ->where('created_at', '<=', $asOfDate)
@@ -55,18 +90,32 @@ class WarehouseStockQuantityReportQueryService
             }
 
             if ($type === 'BUY') {
-                $purchaseRefs[$reference] = true;
+                $purchaseRefs[$transaction->setting_id][$reference] = true;
             }
 
             if (in_array($type, ['DISPATCH', 'SELL'], true)) {
-                $saleRefs[$reference] = true;
+                $saleRefs[$transaction->setting_id][$reference] = true;
             }
         }
 
-        $purchaseDateMap = $this->buildPurchaseDateMap(array_keys($purchaseRefs), $settingId);
-        $saleDateMap = $this->buildSaleDateMap(array_keys($saleRefs), $settingId);
-        $transferMeta = $this->loadTransferMeta($transactions);
+        $purchaseDateMap = [];
+        $saleDateMap = [];
+        foreach ($settingIds as $sId) {
+            if (!empty($purchaseRefs[$sId])) {
+                $pMap = $this->buildPurchaseDateMap(array_keys($purchaseRefs[$sId]), $sId);
+                foreach ($pMap as $ref => $dt) {
+                    $purchaseDateMap["{$sId}_{$ref}"] = $dt;
+                }
+            }
+            if (!empty($saleRefs[$sId])) {
+                $sMap = $this->buildSaleDateMap(array_keys($saleRefs[$sId]), $sId);
+                foreach ($sMap as $ref => $dt) {
+                    $saleDateMap["{$sId}_{$ref}"] = $dt;
+                }
+            }
+        }
 
+        $transferMeta = $this->loadTransferMeta($transactions);
         $transactionsByProductAndLocation = $transactions->groupBy(['product_id', 'location_id']);
 
         $results = [];
@@ -77,17 +126,21 @@ class WarehouseStockQuantityReportQueryService
             $row->product_code = $product->product_code ?? '';
             $row->product_name = $product->product_name;
             $row->product_unit = $product->unit?->short_name ?? $product->product_unit ?? 'PCS';
-            
-            $totalQty = 0;
+
+            $totalQty = 0.0;
+            $businessTotals = [];
+            foreach ($settingIds as $sId) {
+                $businessTotals[$sId] = 0.0;
+            }
 
             foreach ($warehouseIds as $warehouseId) {
                 $locationTransactions = $transactionsByProductAndLocation->get($product->id, collect())->get($warehouseId, collect());
-                
+
                 $locationQty = 0.0;
                 foreach ($locationTransactions as $transaction) {
                     $delta = $this->resolveDelta($transaction);
                     $reference = $this->extractReference($transaction->reason);
-                    
+
                     $transactionDate = $this->resolveTransactionDate(
                         $transaction,
                         $delta,
@@ -96,23 +149,31 @@ class WarehouseStockQuantityReportQueryService
                         $saleDateMap,
                         $transferMeta
                     );
-                    
+
                     if ($transactionDate === null) {
-                        \Illuminate\Support\Facades\Log::warning("Transaction {$transaction->id} has no resolvable date for WarehouseStockQuantityReport");
                         continue;
                     }
-                    
+
                     if ($transactionDate->gt($asOfDate)) {
                         continue;
                     }
-                    
+
                     $locationQty += $delta;
                 }
-                
+
                 $row->{"qty_loc_{$warehouseId}"} = $locationQty;
                 $totalQty += $locationQty;
+
+                $wSettingId = $locationSettingMap[$warehouseId] ?? null;
+                if ($wSettingId !== null && isset($businessTotals[$wSettingId])) {
+                    $businessTotals[$wSettingId] += $locationQty;
+                }
             }
 
+            foreach ($settingIds as $sId) {
+                $row->{"qty_business_{$sId}"} = $businessTotals[$sId] ?? 0.0;
+            }
+            $row->business_totals = $businessTotals;
             $row->total_quantity = $totalQty;
             $results[] = $row;
         }
@@ -148,7 +209,7 @@ class WarehouseStockQuantityReportQueryService
     {
         $type = strtoupper((string) $transaction->type);
         $quantity = (float) ($transaction->quantity ?? 0);
-        
+
         $prevLocation = (float) ($transaction->previous_quantity_at_location ?? 0);
         $afterLocation = (float) ($transaction->after_quantity_at_location ?? 0);
         $diffLocation = $afterLocation - $prevLocation;
@@ -205,14 +266,16 @@ class WarehouseStockQuantityReportQueryService
         array $transferMeta
     ): ?Carbon {
         $type = strtoupper((string) $transaction->type);
+        $sId = $transaction->setting_id;
 
         if ($reference) {
-            if ($type === 'BUY' && isset($purchaseDateMap[$reference])) {
-                return Carbon::parse($purchaseDateMap[$reference]);
+            $key = "{$sId}_{$reference}";
+            if ($type === 'BUY' && isset($purchaseDateMap[$key])) {
+                return Carbon::parse($purchaseDateMap[$key]);
             }
 
-            if (in_array($type, ['DISPATCH', 'SELL'], true) && isset($saleDateMap[$reference])) {
-                return Carbon::parse($saleDateMap[$reference]);
+            if (in_array($type, ['DISPATCH', 'SELL'], true) && isset($saleDateMap[$key])) {
+                return Carbon::parse($saleDateMap[$key]);
             }
         }
 
@@ -291,4 +354,3 @@ class WarehouseStockQuantityReportQueryService
             ->all();
     }
 }
-

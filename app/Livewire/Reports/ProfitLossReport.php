@@ -34,11 +34,7 @@ class ProfitLossReport extends Component
     }
 
     public function render(OperationalProfitLossReportService $reportService) {
-        $availableSettings = Setting::query()
-            ->orderBy('company_name')
-            ->select('id', 'company_name')
-            ->get()
-            ->toArray();
+        $availableSettings = $this->getAvailableSettings();
 
         $effectiveSettingIds = $this->getEffectiveSettingIds();
         $validatedSettingIds = $this->validateSettingIds($effectiveSettingIds, $availableSettings);
@@ -76,10 +72,13 @@ class ProfitLossReport extends Component
     }
 
     private function exportFilters(): array {
+        $availableSettings = $this->getAvailableSettings();
+        $validatedSettingIds = $this->validateSettingIds($this->getEffectiveSettingIds(), $availableSettings);
+
         return [
             'startDate' => $this->start_date ?: null,
             'endDate' => $this->end_date ?: null,
-            'settingIds' => $this->getEffectiveSettingIds()
+            'settingIds' => $validatedSettingIds
         ];
     }
 

@@ -42,6 +42,7 @@ class StockInsightsFilterData
     public string $sortDirection; // 'asc' or 'desc'
     public int $perPage;
     public int $page;
+    public ?array $assignedSettingIds = null;
 
     public function __construct(
         string $search = '',
@@ -53,8 +54,10 @@ class StockInsightsFilterData
         string $sortDirection = 'asc',
         int $perPage = 25,
         int $page = 1,
-        ?Carbon $today = null
+        ?Carbon $today = null,
+        ?array $assignedSettingIds = null
     ) {
+        $this->assignedSettingIds = $assignedSettingIds !== null ? array_values(array_unique(array_map('intval', $assignedSettingIds))) : null;
         $today = $today ? $today->copy()->startOfDay() : Carbon::today();
         $this->endDate = $today->format('Y-m-d');
 

@@ -9,7 +9,22 @@
         </div>
     @endif
 
+    @if(empty($sanitizedSettingIds))
+        <div class="alert alert-warning mb-3">
+            Pilih minimal satu bisnis
+        </div>
+    @endif
+
     <div class="d-flex flex-wrap gap-2 mb-3 align-items-end">
+        <div class="report-business-slot">
+            @include('livewire.reports.business-checkbox-selector', [
+                'label' => 'Bisnis',
+                'availableSettings' => $availableSettings,
+                'selectId' => 'inventory-valuation-setting-select',
+                'livewireProperty' => 'selectedSettingIds',
+                'placeholder' => 'Pilih bisnis...',
+            ])
+        </div>
         <div>
             <label class="form-label small">Per Tanggal</label>
             <select wire:model.live="periodPreset" class="form-control">
@@ -35,7 +50,7 @@
             <input type="date" wire:model.live="tanggalAkhir" value="{{ $tanggalAkhir }}" class="form-control">
         </div>
         <div class="ms-auto d-flex gap-2">
-            <button wire:click="applyFilters" wire:loading.attr="disabled" class="btn btn-primary">
+            <button wire:click="applyFilters" wire:loading.attr="disabled" class="btn btn-primary" @if(empty($sanitizedSettingIds)) disabled @endif>
                 <span wire:loading wire:target="applyFilters" class="spinner-border spinner-border-sm me-1" role="status"></span>
                 <i wire:loading.remove wire:target="applyFilters" class="bi bi-search"></i> Filter
             </button>
@@ -43,7 +58,7 @@
                 <i class="bi bi-funnel"></i> Filter lainnya
             </button>
             <div class="dropdown">
-                <button class="btn btn-outline-success dropdown-toggle" type="button" data-toggle="dropdown" aria-expanded="false">
+                <button class="btn btn-outline-success dropdown-toggle" type="button" data-toggle="dropdown" aria-expanded="false" @if(empty($sanitizedSettingIds)) disabled @endif>
                     <i class="bi bi-download"></i> Ekspor
                 </button>
                 <ul class="dropdown-menu">
@@ -200,110 +215,283 @@
     @endif
 
     <div class="table-responsive shadow-sm rounded" wire:loading.class="opacity-50">
-        <table class="table table-hover table-bordered mb-0" style="font-size: 0.8rem; min-width: 1000px;">
-            <thead class="table-light">
-                <tr>
-                    <th style="white-space:nowrap">Tanggal</th>
-                    <th style="white-space:nowrap">Transaksi</th>
-                    <th style="white-space:nowrap">No. Referensi</th>
-                    <th class="text-end" style="white-space:nowrap">Mutasi</th>
-                    <th class="text-end" style="white-space:nowrap">Kuantitas</th>
-                    <th style="white-space:nowrap">Satuan</th>
-                    <th class="text-end" style="white-space:nowrap">Nilai Masuk</th>
-                    <th class="text-end" style="white-space:nowrap">Nilai Keluar</th>
-                    <th class="text-end" style="white-space:nowrap">Harga Rata-rata</th>
-                    <th class="text-end" style="white-space:nowrap">Nilai</th>
-                </tr>
-            </thead>
-            <tbody class="bg-white text-dark">
-            @if($filterTriggered)
-                @forelse($paginator as $group)
-                    <tr class="table-secondary">
-                        <td colspan="10" class="fw-bold">
-                            <button wire:click="toggleProduct({{ $group['product_id'] }})" class="btn btn-sm btn-link p-0 me-2 text-decoration-none">
-                                <i class="bi {{ in_array($group['product_id'], $expandedProducts) ? 'bi-chevron-up' : 'bi-chevron-down' }} text-dark"></i>
-                            </button>
-                            {{ $group['product_code'] }} - {{ $group['product_name'] }}
-                        </td>
-                    </tr>
-                    
-                    {{-- Opening Row & Ledger Rows (Lazy Loaded) --}}
-                    @if(in_array($group['product_id'], $expandedProducts))
-                        @if(isset($loadedProductDetails[$group['product_id']]))
-                            @php $detail = $loadedProductDetails[$group['product_id']]; @endphp
-                            
-                            {{-- Opening Row --}}
-                            <tr>
-                                <td>{{ $detail['opening_row']['date'] }}</td>
-                                <td>{{ $detail['opening_row']['type_label'] }}</td>
-                                <td>{{ $detail['opening_row']['reference'] }}</td>
-                                <td class="text-end">{{ $detail['opening_row']['mutation'] }}</td>
-                                <td class="text-end fw-bold">{{ number_format((float)$detail['opening_row']['running_stock'], 2, ',', '.') }}</td>
-                                <td>{{ $detail['opening_row']['unit'] }}</td>
-                                <td class="text-end">-</td>
-                                <td class="text-end">-</td>
-                                <td class="text-end">{{ number_format((float)$detail['opening_row']['running_avg'], 2, ',', '.') }}</td>
-                                <td class="text-end fw-bold">{{ number_format((float)$detail['opening_row']['running_value'], 0, ',', '.') }}</td>
-                            </tr>
-
-                            {{-- Ledger Rows --}}
-                            @foreach($detail['ledger_rows'] as $row)
-                                <tr>
-                                    <td>{{ $row['date'] }}</td>
-                                    <td>{{ $row['type_label'] }}</td>
-                                    <td>{{ $row['reference'] }}</td>
-                                    <td class="text-end">{{ number_format((float)$row['mutation'], 2, ',', '.') }}</td>
-                                    <td class="text-end fw-bold">{{ number_format((float)$row['running_stock'], 2, ',', '.') }}</td>
-                                    <td>{{ $row['unit'] }}</td>
-                                    <td class="text-end">{{ (float)$row['mutation'] > 0 && is_numeric($row['unit_price']) ? number_format((float)$row['unit_price'], 2, ',', '.') : '-' }}</td>
-                                    <td class="text-end">{{ (float)$row['mutation'] < 0 && is_numeric($row['unit_price']) ? number_format((float)$row['unit_price'], 2, ',', '.') : '-' }}</td>
-                                    <td class="text-end">{{ number_format((float)$row['running_avg'], 2, ',', '.') }}</td>
-                                    <td class="text-end fw-bold">{{ number_format((float)$row['running_value'], 0, ',', '.') }}</td>
-                                </tr>
-                            @endforeach
-                        @else
-                            <tr>
-                                <td colspan="10" class="text-center py-3">
-                                    <div class="spinner-border spinner-border-sm text-primary" role="status">
-                                        <span class="sr-only">Loading...</span>
-                                    </div>
-                                    <span class="ms-2 text-muted">Memuat data pergerakan nilai...</span>
-                                </td>
-                            </tr>
-                        @endif
-                    @endif
-
-                    {{-- Subtotal Row --}}
-                    <tr class="table-light">
-                        <td colspan="4" class="text-end text-muted small">
-                            Saldo Awal: <strong>{{ number_format((float)$group['opening_stock'], 2, ',', '.') }} ({{ number_format((float)$group['opening_value'], 0, ',', '.') }})</strong> &nbsp;|&nbsp; 
-                            Masuk: <strong>{{ number_format((float)$group['period_stock_in'], 2, ',', '.') }}</strong> &nbsp;|&nbsp; 
-                            Keluar: <strong>{{ number_format((float)$group['period_stock_out'], 2, ',', '.') }}</strong> &nbsp;|&nbsp; 
-                            HPP Rata-rata: <strong>{{ number_format((float)$group['ending_avg'], 2, ',', '.') }}</strong>
-                        </td>
-                        <td class="text-end fw-bold">{{ number_format((float)$group['ending_stock'], 2, ',', '.') }}</td>
-                        <td>{{ $group['product_unit'] }}</td>
-                        <td colspan="3" class="text-end fw-bold">Subtotal nilai</td>
-                        <td class="text-end fw-bold text-primary">{{ number_format((float)$group['ending_value'], 0, ',', '.') }}</td>
-                    </tr>
-                @empty
+        @if($isMultiBusiness)
+            {{-- Multi-business Matrix View --}}
+            <table class="table table-hover table-bordered mb-0" style="font-size: 0.8rem; min-width: 1000px;">
+                <thead class="table-light">
                     <tr>
-                        <td colspan="10" class="text-center py-4 text-muted">
-                            <i class="bi bi-inbox fs-2 d-block mb-2"></i>
-                            Tidak ada data persediaan yang sesuai dengan filter ini.
+                        <th style="white-space:nowrap">Tanggal</th>
+                        <th style="white-space:nowrap">Transaksi</th>
+                        <th style="white-space:nowrap">No. Referensi</th>
+                        <th class="text-end" style="white-space:nowrap">Mutasi</th>
+                        <th class="text-end" style="white-space:nowrap">Kuantitas</th>
+                        <th style="white-space:nowrap">Satuan</th>
+                        <th class="text-end" style="white-space:nowrap">Nilai Masuk</th>
+                        <th class="text-end" style="white-space:nowrap">Nilai Keluar</th>
+                        <th class="text-end" style="white-space:nowrap">Harga Rata-rata</th>
+                        <th class="text-end" style="white-space:nowrap">Nilai</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white text-dark">
+                @if($filterTriggered && !empty($sanitizedSettingIds) && $paginator)
+                    @forelse($paginator as $group)
+                        {{-- Product Summary Header Row --}}
+                        <tr class="table-secondary">
+                            <td colspan="10" class="fw-bold">
+                                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                                    <div>
+                                        <button wire:click="toggleProduct({{ $group['product_id'] }})" class="btn btn-sm btn-link p-0 me-2 text-decoration-none">
+                                            <i class="bi {{ in_array($group['product_id'], $expandedProducts) ? 'bi-chevron-up' : 'bi-chevron-down' }} text-dark"></i>
+                                        </button>
+                                        <span>{{ $group['product_code'] }} - {{ $group['product_name'] }}</span>
+                                    </div>
+                                    <div class="d-flex flex-wrap gap-3 small align-items-center">
+                                        <span>
+                                            <span class="badge bg-secondary">Total</span>
+                                            Stok: <strong>{{ number_format((float)$group['ending_stock'], 2, ',', '.') }} {{ $group['product_unit'] }}</strong> | 
+                                            Nilai: <strong class="text-primary">{{ number_format((float)$group['ending_value'], 0, ',', '.') }}</strong>
+                                        </span>
+                                        @foreach($selectedSettings as $s)
+                                            @php $b = $group['businesses'][$s->id] ?? ['ending_stock' => 0, 'ending_value' => 0]; @endphp
+                                            <span class="border-start ps-2">
+                                                <span class="badge bg-light text-dark border">{{ $s->company_name }}</span>
+                                                Stok: <strong>{{ number_format((float)$b['ending_stock'], 2, ',', '.') }}</strong> | 
+                                                Nilai: <strong>{{ number_format((float)$b['ending_value'], 0, ',', '.') }}</strong>
+                                            </span>
+                                        @endforeach
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+
+                        {{-- Expanded Ledgers per Business --}}
+                        @if(in_array($group['product_id'], $expandedProducts))
+                            @if(isset($loadedProductDetails[$group['product_id']]))
+                                @php $detailsByBusiness = $loadedProductDetails[$group['product_id']]; @endphp
+                                @foreach($selectedSettings as $s)
+                                    @php
+                                        $detail = $detailsByBusiness[$s->id] ?? null;
+                                        if (!$detail) continue;
+                                        $hasActivity = ($detail['opening_stock'] != 0) || ($detail['ending_stock'] != 0) || !empty($detail['ledger_rows']);
+                                    @endphp
+                                    @if($hasActivity)
+                                        {{-- Business Group Header --}}
+                                        <tr class="table-primary border-top border-primary">
+                                            <td colspan="10" class="fw-bold ps-4 text-primary">
+                                                <i class="bi bi-building me-1"></i> Bisnis: {{ $s->company_name }}
+                                            </td>
+                                        </tr>
+
+                                        {{-- Business Opening Row --}}
+                                        @if(!empty($detail['opening_row']))
+                                            <tr class="bg-light">
+                                                <td class="ps-4">{{ $detail['opening_row']['date'] }}</td>
+                                                <td>{{ $detail['opening_row']['type_label'] }}</td>
+                                                <td>{{ $detail['opening_row']['reference'] }}</td>
+                                                <td class="text-end">{{ $detail['opening_row']['mutation'] }}</td>
+                                                <td class="text-end fw-bold">{{ number_format((float)$detail['opening_row']['running_stock'], 2, ',', '.') }}</td>
+                                                <td>{{ $detail['opening_row']['unit'] }}</td>
+                                                <td class="text-end">-</td>
+                                                <td class="text-end">-</td>
+                                                <td class="text-end">{{ number_format((float)$detail['opening_row']['running_avg'], 2, ',', '.') }}</td>
+                                                <td class="text-end fw-bold">{{ number_format((float)$detail['opening_row']['running_value'], 0, ',', '.') }}</td>
+                                            </tr>
+                                        @endif
+
+                                        {{-- Business Ledger Rows --}}
+                                        @foreach($detail['ledger_rows'] as $row)
+                                            <tr>
+                                                <td class="ps-4">{{ $row['date'] }}</td>
+                                                <td>{{ $row['type_label'] }}</td>
+                                                <td>{{ $row['reference'] }}</td>
+                                                <td class="text-end">{{ number_format((float)$row['mutation'], 2, ',', '.') }}</td>
+                                                <td class="text-end fw-bold">{{ number_format((float)$row['running_stock'], 2, ',', '.') }}</td>
+                                                <td>{{ $row['unit'] }}</td>
+                                                <td class="text-end">{{ (float)$row['mutation'] > 0 && is_numeric($row['unit_price']) ? number_format((float)$row['unit_price'], 2, ',', '.') : '-' }}</td>
+                                                <td class="text-end">{{ (float)$row['mutation'] < 0 && is_numeric($row['unit_price']) ? number_format((float)$row['unit_price'], 2, ',', '.') : '-' }}</td>
+                                                <td class="text-end">{{ number_format((float)$row['running_avg'], 2, ',', '.') }}</td>
+                                                <td class="text-end fw-bold">{{ number_format((float)$row['running_value'], 0, ',', '.') }}</td>
+                                            </tr>
+                                        @endforeach
+
+                                        {{-- Business Subtotal Row --}}
+                                        <tr class="table-light">
+                                            <td colspan="4" class="text-end text-muted small ps-4">
+                                                Saldo Awal ({{ $s->company_name }}): <strong>{{ number_format((float)$detail['opening_stock'], 2, ',', '.') }} ({{ number_format((float)$detail['opening_value'], 0, ',', '.') }})</strong> &nbsp;|&nbsp; 
+                                                Masuk: <strong>{{ number_format((float)$detail['period_stock_in'], 2, ',', '.') }}</strong> &nbsp;|&nbsp; 
+                                                Keluar: <strong>{{ number_format((float)$detail['period_stock_out'], 2, ',', '.') }}</strong> &nbsp;|&nbsp; 
+                                                HPP Rata-rata: <strong>{{ number_format((float)$detail['ending_avg'], 2, ',', '.') }}</strong>
+                                            </td>
+                                            <td class="text-end fw-bold">{{ number_format((float)$detail['ending_stock'], 2, ',', '.') }}</td>
+                                            <td>{{ $group['product_unit'] }}</td>
+                                            <td colspan="3" class="text-end fw-bold">Subtotal nilai ({{ $s->company_name }})</td>
+                                            <td class="text-end fw-bold text-primary">{{ number_format((float)$detail['ending_value'], 0, ',', '.') }}</td>
+                                        </tr>
+                                    @endif
+                                @endforeach
+                            @else
+                                <tr>
+                                    <td colspan="10" class="text-center py-3">
+                                        <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                            <span class="sr-only">Loading...</span>
+                                        </div>
+                                        <span class="ms-2 text-muted">Memuat data pergerakan nilai...</span>
+                                    </td>
+                                </tr>
+                            @endif
+                        @endif
+
+                        {{-- Product Total Summary Row --}}
+                        <tr class="table-secondary fw-bold">
+                            <td colspan="4" class="text-end">Total ({{ $group['product_name'] }}):</td>
+                            <td class="text-end">{{ number_format((float)$group['ending_stock'], 2, ',', '.') }}</td>
+                            <td>{{ $group['product_unit'] }}</td>
+                            <td colspan="3" class="text-end">Total Nilai:</td>
+                            <td class="text-end text-primary">{{ number_format((float)$group['ending_value'], 0, ',', '.') }}</td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="10" class="text-center py-4 text-muted">
+                                <i class="bi bi-inbox fs-2 d-block mb-2"></i>
+                                Tidak ada data persediaan yang sesuai dengan filter ini.
+                            </td>
+                        </tr>
+                    @endforelse
+                @else
+                    <tr>
+                        <td colspan="10" class="text-center py-5 text-muted">
+                            <i class="bi bi-info-circle fs-2 d-block mb-2"></i>
+                            Silakan atur filter dan klik <strong>Filter</strong> untuk menampilkan laporan.
                         </td>
                     </tr>
-                @endforelse
-            @else
-                <tr>
-                    <td colspan="10" class="text-center py-5 text-muted">
-                        <i class="bi bi-info-circle fs-2 d-block mb-2"></i>
-                        Silakan atur filter dan klik <strong>Filter</strong> untuk menampilkan laporan.
-                    </td>
-                </tr>
-            @endif
-            </tbody>
-        </table>
+                @endif
+                </tbody>
+                @if($filterTriggered && !empty($sanitizedSettingIds) && $paginator && $paginator->total() > 0)
+                    <tfoot class="table-light">
+                        <tr class="fw-bold">
+                            <td colspan="4" class="text-end">Grand Total Nilai Persediaan:</td>
+                            <td colspan="5"></td>
+                            <td class="text-end text-primary">{{ number_format((float)$totalValue, 0, ',', '.') }}</td>
+                        </tr>
+                    </tfoot>
+                @endif
+            </table>
+        @else
+            {{-- Single-business View (Original Layout) --}}
+            <table class="table table-hover table-bordered mb-0" style="font-size: 0.8rem; min-width: 1000px;">
+                <thead class="table-light">
+                    <tr>
+                        <th style="white-space:nowrap">Tanggal</th>
+                        <th style="white-space:nowrap">Transaksi</th>
+                        <th style="white-space:nowrap">No. Referensi</th>
+                        <th class="text-end" style="white-space:nowrap">Mutasi</th>
+                        <th class="text-end" style="white-space:nowrap">Kuantitas</th>
+                        <th style="white-space:nowrap">Satuan</th>
+                        <th class="text-end" style="white-space:nowrap">Nilai Masuk</th>
+                        <th class="text-end" style="white-space:nowrap">Nilai Keluar</th>
+                        <th class="text-end" style="white-space:nowrap">Harga Rata-rata</th>
+                        <th class="text-end" style="white-space:nowrap">Nilai</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white text-dark">
+                @if($filterTriggered && !empty($sanitizedSettingIds) && $paginator)
+                    @forelse($paginator as $group)
+                        <tr class="table-secondary">
+                            <td colspan="10" class="fw-bold">
+                                <button wire:click="toggleProduct({{ $group['product_id'] }})" class="btn btn-sm btn-link p-0 me-2 text-decoration-none">
+                                    <i class="bi {{ in_array($group['product_id'], $expandedProducts) ? 'bi-chevron-up' : 'bi-chevron-down' }} text-dark"></i>
+                                </button>
+                                {{ $group['product_code'] }} - {{ $group['product_name'] }}
+                            </td>
+                        </tr>
+                        
+                        {{-- Opening Row & Ledger Rows (Lazy Loaded) --}}
+                        @if(in_array($group['product_id'], $expandedProducts))
+                            @if(isset($loadedProductDetails[$group['product_id']]))
+                                @php
+                                    $detailRaw = $loadedProductDetails[$group['product_id']];
+                                    $detail = isset($detailRaw['opening_row'])
+                                        ? $detailRaw
+                                        : ($detailRaw[$activeSettingIds[0] ?? session('setting_id')] ?? reset($detailRaw) ?: []);
+                                @endphp
+                                
+                                {{-- Opening Row --}}
+                                @if(!empty($detail['opening_row']))
+                                    <tr>
+                                        <td>{{ $detail['opening_row']['date'] }}</td>
+                                        <td>{{ $detail['opening_row']['type_label'] }}</td>
+                                        <td>{{ $detail['opening_row']['reference'] }}</td>
+                                        <td class="text-end">{{ $detail['opening_row']['mutation'] }}</td>
+                                        <td class="text-end fw-bold">{{ number_format((float)$detail['opening_row']['running_stock'], 2, ',', '.') }}</td>
+                                        <td>{{ $detail['opening_row']['unit'] }}</td>
+                                        <td class="text-end">-</td>
+                                        <td class="text-end">-</td>
+                                        <td class="text-end">{{ number_format((float)$detail['opening_row']['running_avg'], 2, ',', '.') }}</td>
+                                        <td class="text-end fw-bold">{{ number_format((float)$detail['opening_row']['running_value'], 0, ',', '.') }}</td>
+                                    </tr>
+                                @endif
+
+                                {{-- Ledger Rows --}}
+                                @if(!empty($detail['ledger_rows']))
+                                    @foreach($detail['ledger_rows'] as $row)
+                                        <tr>
+                                            <td>{{ $row['date'] }}</td>
+                                            <td>{{ $row['type_label'] }}</td>
+                                            <td>{{ $row['reference'] }}</td>
+                                            <td class="text-end">{{ number_format((float)$row['mutation'], 2, ',', '.') }}</td>
+                                            <td class="text-end fw-bold">{{ number_format((float)$row['running_stock'], 2, ',', '.') }}</td>
+                                            <td>{{ $row['unit'] }}</td>
+                                            <td class="text-end">{{ (float)$row['mutation'] > 0 && is_numeric($row['unit_price']) ? number_format((float)$row['unit_price'], 2, ',', '.') : '-' }}</td>
+                                            <td class="text-end">{{ (float)$row['mutation'] < 0 && is_numeric($row['unit_price']) ? number_format((float)$row['unit_price'], 2, ',', '.') : '-' }}</td>
+                                            <td class="text-end">{{ number_format((float)$row['running_avg'], 2, ',', '.') }}</td>
+                                            <td class="text-end fw-bold">{{ number_format((float)$row['running_value'], 0, ',', '.') }}</td>
+                                        </tr>
+                                    @endforeach
+                                @endif
+                            @else
+                                <tr>
+                                    <td colspan="10" class="text-center py-3">
+                                        <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                            <span class="sr-only">Loading...</span>
+                                        </div>
+                                        <span class="ms-2 text-muted">Memuat data pergerakan nilai...</span>
+                                    </td>
+                                </tr>
+                            @endif
+                        @endif
+
+                        {{-- Subtotal Row --}}
+                        <tr class="table-light">
+                            <td colspan="4" class="text-end text-muted small">
+                                Saldo Awal: <strong>{{ number_format((float)$group['opening_stock'], 2, ',', '.') }} ({{ number_format((float)$group['opening_value'], 0, ',', '.') }})</strong> &nbsp;|&nbsp; 
+                                Masuk: <strong>{{ number_format((float)$group['period_stock_in'], 2, ',', '.') }}</strong> &nbsp;|&nbsp; 
+                                Keluar: <strong>{{ number_format((float)$group['period_stock_out'], 2, ',', '.') }}</strong> &nbsp;|&nbsp; 
+                                HPP Rata-rata: <strong>{{ number_format((float)$group['ending_avg'], 2, ',', '.') }}</strong>
+                            </td>
+                            <td class="text-end fw-bold">{{ number_format((float)$group['ending_stock'], 2, ',', '.') }}</td>
+                            <td>{{ $group['product_unit'] }}</td>
+                            <td colspan="3" class="text-end fw-bold">Subtotal nilai</td>
+                            <td class="text-end fw-bold text-primary">{{ number_format((float)$group['ending_value'], 0, ',', '.') }}</td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="10" class="text-center py-4 text-muted">
+                                <i class="bi bi-inbox fs-2 d-block mb-2"></i>
+                                Tidak ada data persediaan yang sesuai dengan filter ini.
+                            </td>
+                        </tr>
+                    @endforelse
+                @else
+                    <tr>
+                        <td colspan="10" class="text-center py-5 text-muted">
+                            <i class="bi bi-info-circle fs-2 d-block mb-2"></i>
+                            Silakan atur filter dan klik <strong>Filter</strong> untuk menampilkan laporan.
+                        </td>
+                    </tr>
+                @endif
+                </tbody>
+            </table>
+        @endif
     </div>
 
     @if($filterTriggered && $paginator)
