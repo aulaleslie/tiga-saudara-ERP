@@ -291,8 +291,8 @@ class StockMutationReport extends Component
             $meta = $transferId ? ($transferMeta[$transferId] ?? null) : null;
             if ($meta) {
                 $candidate = $delta >= 0
-                    ? ($meta['received_at'] ?? $meta['transfer_date'] ?? $meta['dispatched_at'] ?? null)
-                    : ($meta['dispatched_at'] ?? $meta['transfer_date'] ?? $meta['received_at'] ?? null);
+                    ? ($meta['received_at'] ?? null)
+                    : ($meta['dispatched_at'] ?? null);
 
                 if ($candidate) {
                     return Carbon::parse($candidate);
@@ -348,12 +348,11 @@ class StockMutationReport extends Component
 
         return Transfer::query()
             ->whereIn('id', $transferIds)
-            ->get(['id', 'document_number', 'transfer_date', 'dispatched_at', 'received_at'])
+            ->get(['id', 'document_number', 'dispatched_at', 'received_at'])
             ->mapWithKeys(function (Transfer $transfer) {
                 return [
                     $transfer->id => [
                         'document_number' => $transfer->document_number,
-                        'transfer_date' => $transfer->transfer_date,
                         'dispatched_at' => $transfer->dispatched_at,
                         'received_at' => $transfer->received_at,
                     ],
