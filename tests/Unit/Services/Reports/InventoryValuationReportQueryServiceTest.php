@@ -45,6 +45,20 @@ class InventoryValuationReportQueryServiceTest extends TestCase
         ], $overrides));
     }
 
+    private function createStock(int $productId, float $quantity = 0): \Modules\Product\Entities\ProductStock
+    {
+        return \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $productId,
+            'location_id' => 1,
+            'quantity' => $quantity,
+            'quantity_tax' => $quantity,
+            'quantity_non_tax' => 0,
+            'broken_quantity' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+        ]);
+    }
+
     private function createTransaction(array $overrides = [])
     {
         $tx = Transaction::create(array_merge([
@@ -110,6 +124,7 @@ class InventoryValuationReportQueryServiceTest extends TestCase
         $product = $this->createProduct([
             'average_purchase_price' => 1500
         ]);
+        $this->createStock($product->id);
 
         $filters = new InventoryValuationReportFilterData(
             Carbon::parse('2023-10-10 00:00:00'),
@@ -191,6 +206,9 @@ class InventoryValuationReportQueryServiceTest extends TestCase
         $prod1 = $this->createProduct(['product_code' => 'P1']);
         $prod2 = $this->createProduct(['category_id' => $cat2->id, 'product_code' => 'P2']);
         $prod3 = $this->createProduct(['product_code' => 'P3']);
+        $this->createStock($prod1->id);
+        $this->createStock($prod2->id);
+        $this->createStock($prod3->id);
 
         // any mode for cat1
         $filtersAny = new InventoryValuationReportFilterData(null, null, [$this->category->id], 'any');

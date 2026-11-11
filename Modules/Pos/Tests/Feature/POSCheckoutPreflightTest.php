@@ -300,6 +300,110 @@ class POSCheckoutPreflightTest extends PosTransactionFeatureTestCase
             ->assertJsonPath('details.unfulfilled_lines.0.allocated_qty', 2);
     }
 
+    public function test_checkout_is_blocked_after_last_sale_location_is_disabled(): void
+    {
+        $context = $this->createCheckoutContext('EMPTY SALE LOCATIONS');
+        $setting = $context['setting'];
+        $cashier = $context['cashier'];
+        $methods = \Modules\Setting\Entities\PaymentMethod::query()->where('is_cash', true)->latest('id')->first();
+
+        $stocked = $this->createStockedProduct($setting, $context['location'], [
+            'product_code' => 'PROD-EMPTY-CFG',
+            'sale_price' => 100000,
+            'serial_number_required' => false,
+        ]);
+        $service = $this->createNonStockServiceProduct($setting, 'SVC-EMPTY-CFG', 'Empty Config Service', 50000);
+
+        // Cart built while the location is still enabled
+        $this->addCartLine($cashier, $setting, $stocked->id, 1);
+        $this->addCartLine($cashier, $setting, $service->id, 1);
+        $customer = \Modules\People\Entities\Customer::factory()->create(['setting_id' => $setting->id]);
+        $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->patchJson(route('pos.sell.cart.customer.update'), ['customer_id' => $customer->id])
+            ->assertOk();
+
+        $this->assertNotEmpty(SalesLocationResolver::resolveLocationIds($setting->id)->all());
+
+        // Disable every enabled sale location for this business
+        \Modules\Setting\Entities\SettingSaleLocation::query()
+            ->where('setting_id', $setting->id)
+            ->where('is_enabled', true)
+            ->get()
+            ->each(fn ($a) => $a->update(['is_enabled' => false, 'position' => null]));
+
+        $this->assertTrue(SalesLocationResolver::resolveLocationIds($setting->id)->isEmpty());
+
+        $stockBefore = ProductStock::query()->where('product_id', $stocked->id)->sum('quantity');
+        $salesBefore = DB::table('sales')->count();
+
+        $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.checkout.preflight'))
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'SALE_LOCATION_UNCONFIGURED');
+
+        $finalize = $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.checkout.finalize'), [
+                'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
+                'payments' => [['payment_method_id' => $methods->id, 'amount_paid' => 150000]],
+            ]);
+        $finalize->assertStatus(422);
+        $finalize->assertJsonPath('code', 'SALE_LOCATION_UNCONFIGURED');
+        $this->assertStringContainsString('lokasi penjualan POS aktif', (string) $finalize->json('message'));
+
+        $this->assertSame($salesBefore, DB::table('sales')->count());
+        $this->assertEquals($stockBefore, ProductStock::query()->where('product_id', $stocked->id)->sum('quantity'));
+
+        // Non-stock-only cart is also blocked (no owner fallback)
+        $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->deleteJson(route('pos.sell.cart.clear'))->assertOk();
+        \Modules\Setting\Entities\SettingSaleLocation::query()->where('setting_id', $setting->id)->first()
+            ->update(['is_enabled' => true, 'position' => 1]);
+        $this->addCartLine($cashier, $setting, $service->id, 1);
+        \Modules\Setting\Entities\SettingSaleLocation::query()->where('setting_id', $setting->id)->first()
+            ->update(['is_enabled' => false, 'position' => null]);
+
+        $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.checkout.preflight'))
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'SALE_LOCATION_UNCONFIGURED');
+
+        // Re-enabling restores eligibility immediately
+        \Modules\Setting\Entities\SettingSaleLocation::query()->where('setting_id', $setting->id)->first()
+            ->update(['is_enabled' => true, 'position' => 1]);
+        $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.checkout.preflight'))
+            ->assertOk()
+            ->assertJson(['status' => 'OK']);
+    }
+
+    public function test_disabled_owned_location_stock_is_excluded_while_other_enabled_location_is_usable(): void
+    {
+        $context = $this->createCheckoutContext('DISABLED OWNED STOCK');
+        $setting = $context['setting'];
+        $cashier = $context['cashier'];
+        $owned = $context['location'];
+        $other = Location::create(['name' => 'Second Owned', 'setting_id' => $setting->id]);
+
+        $product = $this->createStockedProduct($setting, $owned, [
+            'product_code' => 'PROD-DIS-OWN',
+            'sale_price' => 100000,
+            'serial_number_required' => false,
+        ]);
+        $this->addCartLine($cashier, $setting, $product->id, 1);
+
+        \Modules\Setting\Entities\SettingSaleLocation::query()
+            ->where('setting_id', $setting->id)->where('location_id', $owned->id)->first()
+            ->update(['is_enabled' => false, 'position' => null]);
+
+        $this->assertSame([$other->id], SalesLocationResolver::resolveLocationIds($setting->id)->all());
+
+        // Stock only exists at the disabled owned location -> unavailable, not a config error
+        $this->actingAs($cashier)->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sell.checkout.preflight'))
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'STOCK_UNAVAILABLE');
+    }
+
     protected function createCheckoutContext(string $name): array
     {
         $setting = $this->createSetting($name);

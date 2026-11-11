@@ -224,16 +224,20 @@ class PurchaseProductCartLineTotalFocusValueTest extends TestCase
                 'product_unit' => 'pc',
                 'last_purchase_price' => 41892,
                 'average_purchase_price' => 41892,
-            ])
-            ->set('product_tax.' . $this->product->id, $this->tax11->id)
-            ->call('updateTax', Cart::instance('purchase')->content()->first()->rowId, $this->product->id, $this->tax11->id);
+            ]);
 
         $cartItem = Cart::instance('purchase')->content()->first();
         $productId = $cartItem->id;
         $rowId = $cartItem->rowId;
 
+        $component->set("product_tax.$rowId", $this->tax11->id)
+            ->call('updateTax', $rowId, $productId, $this->tax11->id);
+
+        $cartItem = Cart::instance('purchase')->content()->first();
+        $rowId = $cartItem->rowId;
+
         // Update line total to 50000 and verify it calculates correctly
-        $component->set('line_total.' . $productId, 50000)
+        $component->set("line_total.$rowId", 50000)
             ->call('updateLineTotal', $rowId, $productId)
             ->assertViewHas('cart_items', function ($items) {
                 $item = $items->first();

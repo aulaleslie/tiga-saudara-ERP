@@ -14,22 +14,36 @@ use Modules\Setting\Entities\Setting;
 class StockInsightsQueryService
 {
     /**
-     * Get the active business hierarchy (Settings and active locations) across the whole system.
+     * Get the active business hierarchy (Settings and active locations) across the whole system,
+     * optionally filtered to assigned business IDs.
      *
+     * @param array<int>|null $assignedSettingIds
      * @return Collection
      */
-    public function getBusinessHierarchy(): Collection
+    public function getBusinessHierarchy(?array $assignedSettingIds = null): Collection
     {
-        $activeLocations = Location::query()
-            ->where('is_active', true)
+        $locationsQuery = Location::query()
+            ->where('is_active', true);
+
+        if ($assignedSettingIds !== null) {
+            $locationsQuery->whereIn('setting_id', $assignedSettingIds);
+        }
+
+        $activeLocations = $locationsQuery
             ->orderBy('name', 'asc')
             ->orderBy('id', 'asc')
             ->get(['id', 'name', 'setting_id'])
             ->groupBy('setting_id');
 
-        return Setting::without(['currency'])
+        $settingsQuery = Setting::without(['currency'])
             ->orderBy('company_name', 'asc')
-            ->orderBy('id', 'asc')
+            ->orderBy('id', 'asc');
+
+        if ($assignedSettingIds !== null) {
+            $settingsQuery->whereIn('id', $assignedSettingIds);
+        }
+
+        return $settingsQuery
             ->get(['id', 'company_name', 'is_pkp'])
             ->map(function (Setting $setting) use ($activeLocations) {
                 $locations = $activeLocations->get($setting->id, collect());
@@ -70,21 +84,27 @@ class StockInsightsQueryService
      * ]
      *
      * @param array<int> $productIds
+     * @param array<int>|null $assignedSettingIds
      * @return array<int, array>
      */
-    public function getStockMatrix(array $productIds): array
+    public function getStockMatrix(array $productIds, ?array $assignedSettingIds = null): array
     {
         if (empty($productIds)) {
             return [];
         }
 
-        // Query product_stocks joined to active locations across all settings
-        $rows = DB::table('product_stocks')
+        // Query product_stocks joined to active locations across settings
+        $query = DB::table('product_stocks')
             ->join('locations', 'product_stocks.location_id', '=', 'locations.id')
             ->join('settings', 'locations.setting_id', '=', 'settings.id')
             ->where('locations.is_active', true)
-            ->whereIn('product_stocks.product_id', $productIds)
-            ->select([
+            ->whereIn('product_stocks.product_id', $productIds);
+
+        if ($assignedSettingIds !== null) {
+            $query->whereIn('locations.setting_id', $assignedSettingIds);
+        }
+
+        $rows = $query->select([
                 'product_stocks.product_id',
                 'locations.setting_id',
                 'locations.id as location_id',
@@ -148,15 +168,28 @@ class StockInsightsQueryService
     }
 
     /**
-     * SQL expression for a product's current global Good stock across all businesses and active locations.
+     * SQL expression for a product's current global Good stock across active locations,
+     * optionally filtered to assigned businesses.
+     *
+     * @param array<int>|null $assignedSettingIds
      */
-    public static function globalGoodStockSqlExpression(): string
+    public static function globalGoodStockSqlExpression(?array $assignedSettingIds = null): string
     {
+        $settingFilter = '';
+        if ($assignedSettingIds !== null) {
+            if (empty($assignedSettingIds)) {
+                $settingFilter = ' AND 1 = 0';
+            } else {
+                $ids = implode(',', array_map('intval', $assignedSettingIds));
+                $settingFilter = " AND l.setting_id IN ({$ids})";
+            }
+        }
+
         return "(SELECT COALESCE(SUM(ps.quantity_tax + ps.quantity_non_tax), 0)
                  FROM product_stocks ps
                  JOIN locations l ON ps.location_id = l.id
                  JOIN settings s ON l.setting_id = s.id
-                 WHERE l.is_active = 1
+                 WHERE l.is_active = 1{$settingFilter}
                    AND ps.product_id = products.id)";
     }
 
@@ -165,15 +198,28 @@ class StockInsightsQueryService
      * - Global Good stock > 0
      * - Product age >= 90 days (created_at <= 90 days before today)
      * - No eligible sale quantity in the 90 days ending today
+     *
+     * @param string $todayDate
+     * @param array<int>|null $assignedSettingIds
      */
-    public static function slowMovingSqlExpression(string $todayDate): string
+    public static function slowMovingSqlExpression(string $todayDate, ?array $assignedSettingIds = null): string
     {
         $cutoffDate = \Carbon\Carbon::parse($todayDate)->subDays(89)->format('Y-m-d');
         $productAgeCutoff = \Carbon\Carbon::parse($todayDate)->subDays(90)->endOfDay()->toDateTimeString();
 
-        $goodStockSql = self::globalGoodStockSqlExpression();
+        $goodStockSql = self::globalGoodStockSqlExpression($assignedSettingIds);
         $effectiveDateSql = \App\Services\Reports\Concerns\EffectiveSaleReportingDate::sqlExpression('sales');
         $saleEligibilitySql = \App\Services\Reports\Concerns\FulfilledTransactionEligibility::saleSqlExpression('sales');
+
+        $settingFilter = '';
+        if ($assignedSettingIds !== null) {
+            if (empty($assignedSettingIds)) {
+                $settingFilter = ' AND 1 = 0';
+            } else {
+                $ids = implode(',', array_map('intval', $assignedSettingIds));
+                $settingFilter = " AND sales.setting_id IN ({$ids})";
+            }
+        }
 
         return "({$goodStockSql} > 0
             AND products.created_at <= '{$productAgeCutoff}'
@@ -185,7 +231,7 @@ class StockInsightsQueryService
                   AND {$saleEligibilitySql}
                   AND {$effectiveDateSql} >= '{$cutoffDate}'
                   AND {$effectiveDateSql} <= '{$todayDate}'
-                  AND sale_details.quantity > 0
+                  AND sale_details.quantity > 0{$settingFilter}
             ))";
     }
 
@@ -207,16 +253,18 @@ class StockInsightsQueryService
      * Get aggregate attention counts across all eligible products.
      *
      * @param StockInsightsFilterData|null $filter
+     * @param array<int>|null $assignedSettingIds
      * @return array{out_of_stock: int, reorder_required: int, minimum_unset: int, slow_moving: int}
      */
-    public function getAttentionCounts(?StockInsightsFilterData $filter = null): array
+    public function getAttentionCounts(?StockInsightsFilterData $filter = null, ?array $assignedSettingIds = null): array
     {
         $todayDate = $filter ? $filter->endDate : \Carbon\Carbon::today()->format('Y-m-d');
+        $settingIds = $assignedSettingIds ?? $filter?->assignedSettingIds;
 
         $query = $this->getEligibleProductsBaseQuery();
 
-        $goodStockSql = self::globalGoodStockSqlExpression();
-        $slowMovingSql = self::slowMovingSqlExpression($todayDate);
+        $goodStockSql = self::globalGoodStockSqlExpression($settingIds);
+        $slowMovingSql = self::slowMovingSqlExpression($todayDate, $settingIds);
 
         $outOfStockCase = "CASE WHEN ({$goodStockSql}) <= 0 THEN 1 ELSE 0 END";
         $reorderCase = "CASE WHEN COALESCE(products.product_stock_alert, 0) > 0 AND ({$goodStockSql}) > 0 AND ({$goodStockSql}) <= products.product_stock_alert THEN 1 ELSE 0 END";
@@ -242,15 +290,17 @@ class StockInsightsQueryService
      * Query and paginate ProductStockInsightsRow objects according to filter parameters.
      *
      * @param StockInsightsFilterData $filter
+     * @param array<int>|null $assignedSettingIds
      * @return LengthAwarePaginator
      */
-    public function paginate(StockInsightsFilterData $filter): LengthAwarePaginator
+    public function paginate(StockInsightsFilterData $filter, ?array $assignedSettingIds = null): LengthAwarePaginator
     {
         $todayDate = $filter->endDate;
         $startDate = $filter->startDate;
+        $settingIds = $assignedSettingIds ?? $filter->assignedSettingIds;
 
-        $goodStockSql = self::globalGoodStockSqlExpression();
-        $slowMovingSql = self::slowMovingSqlExpression($todayDate);
+        $goodStockSql = self::globalGoodStockSqlExpression($settingIds);
+        $slowMovingSql = self::slowMovingSqlExpression($todayDate, $settingIds);
 
         $outOfStockSql = "({$goodStockSql} <= 0)";
         $reorderRequiredSql = "(COALESCE(products.product_stock_alert, 0) > 0 AND {$goodStockSql} > 0 AND {$goodStockSql} <= products.product_stock_alert)";
@@ -314,6 +364,16 @@ class StockInsightsQueryService
         $effectiveDateSql = \App\Services\Reports\Concerns\EffectiveSaleReportingDate::sqlExpression('sales');
         $saleEligibilitySql = \App\Services\Reports\Concerns\FulfilledTransactionEligibility::saleSqlExpression('sales');
 
+        $saleSettingFilter = '';
+        if ($settingIds !== null) {
+            if (empty($settingIds)) {
+                $saleSettingFilter = ' AND 1 = 0';
+            } else {
+                $ids = implode(',', array_map('intval', $settingIds));
+                $saleSettingFilter = " AND sales.setting_id IN ({$ids})";
+            }
+        }
+
         $soldQtySubquery = "
             SELECT COALESCE(SUM(sd.quantity), 0)
             FROM sale_details sd
@@ -321,7 +381,7 @@ class StockInsightsQueryService
             WHERE sd.product_id = products.id
               AND {$saleEligibilitySql}
               AND {$effectiveDateSql} >= '{$startDate}'
-              AND {$effectiveDateSql} <= '{$todayDate}'
+              AND {$effectiveDateSql} <= '{$todayDate}'{$saleSettingFilter}
         ";
 
         $lastSaleDateSubquery = "
@@ -331,7 +391,7 @@ class StockInsightsQueryService
             WHERE sd.product_id = products.id
               AND {$saleEligibilitySql}
               AND {$effectiveDateSql} >= '{$startDate}'
-              AND {$effectiveDateSql} <= '{$todayDate}'
+              AND {$effectiveDateSql} <= '{$todayDate}'{$saleSettingFilter}
         ";
 
         $rawLineDppSql = "(
@@ -419,7 +479,7 @@ class StockInsightsQueryService
             WHERE sd.product_id = products.id
               AND {$saleEligibilitySql}
               AND {$effectiveDateSql} >= '{$startDate}'
-              AND {$effectiveDateSql} <= '{$todayDate}'
+              AND {$effectiveDateSql} <= '{$todayDate}'{$saleSettingFilter}
         ";
 
         $soldCostSubquery = "
@@ -445,7 +505,7 @@ class StockInsightsQueryService
             WHERE sd.product_id = products.id
               AND {$saleEligibilitySql}
               AND {$effectiveDateSql} >= '{$startDate}'
-              AND {$effectiveDateSql} <= '{$todayDate}'
+              AND {$effectiveDateSql} <= '{$todayDate}'{$saleSettingFilter}
         ";
 
         if ($filter->sortColumn === 'sold_quantity') {
@@ -516,10 +576,10 @@ class StockInsightsQueryService
         }
 
         // Bounded load: Stock Matrix
-        $stockMatrix = $this->getStockMatrix($productIds);
+        $stockMatrix = $this->getStockMatrix($productIds, $settingIds);
 
         // Bounded load: Sales & Financial Aggregates for the page
-        $financialAggregates = $this->getSalesAndFinancialAggregates($productIds, $startDate, $todayDate);
+        $financialAggregates = $this->getSalesAndFinancialAggregates($productIds, $startDate, $todayDate, $settingIds);
 
         // Transform into ProductStockInsightsRow objects
         $rows = $productCollection->map(function (Product $product) use ($stockMatrix, $financialAggregates) {
@@ -587,9 +647,10 @@ class StockInsightsQueryService
      * @param array<int> $productIds
      * @param string $startDate 'Y-m-d'
      * @param string $endDate 'Y-m-d'
+     * @param array<int>|null $assignedSettingIds
      * @return array<int, array{sold_quantity: float, sales_value: float, sold_cost: float, gross_profit: float, is_cost_incomplete: bool, last_sale_date: ?string}>
      */
-    public function getSalesAndFinancialAggregates(array $productIds, string $startDate, string $endDate): array
+    public function getSalesAndFinancialAggregates(array $productIds, string $startDate, string $endDate, ?array $assignedSettingIds = null): array
     {
         if (empty($productIds)) {
             return [];
@@ -599,13 +660,18 @@ class StockInsightsQueryService
         $saleEligibilitySql = \App\Services\Reports\Concerns\FulfilledTransactionEligibility::saleSqlExpression('sales');
 
         // Step 1: Find all eligible sales that contain any of our target products in this date range
-        $allSaleIds = DB::table('sale_details')
+        $salesQuery = DB::table('sale_details')
             ->join('sales', 'sale_details.sale_id', '=', 'sales.id')
             ->whereIn('sale_details.product_id', $productIds)
             ->whereRaw($saleEligibilitySql)
             ->whereRaw("{$effectiveDateSql} >= ?", [$startDate])
-            ->whereRaw("{$effectiveDateSql} <= ?", [$endDate])
-            ->distinct()
+            ->whereRaw("{$effectiveDateSql} <= ?", [$endDate]);
+
+        if ($assignedSettingIds !== null) {
+            $salesQuery->whereIn('sales.setting_id', $assignedSettingIds);
+        }
+
+        $allSaleIds = $salesQuery->distinct()
             ->pluck('sales.id')
             ->all();
 

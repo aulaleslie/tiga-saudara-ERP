@@ -264,6 +264,36 @@ class PricePointBrowserSearchTest extends TestCase
             ->assertSee('15');
     }
 
+    public function test_disabled_owned_location_stock_is_excluded_from_price_point_browsing(): void
+    {
+        $location = Location::create(['name' => 'Main Shop', 'setting_id' => $this->setting->id]);
+
+        $product = $this->createProduct(['product_name' => 'Disabled Loc Item', 'stock_managed' => true]);
+        $this->createProductPrice($product);
+        \Modules\Product\Entities\ProductStock::create([
+            'product_id' => $product->id,
+            'location_id' => $location->id,
+            'quantity' => 7,
+            'quantity_non_tax' => 7,
+            'quantity_tax' => 0,
+            'broken_quantity_non_tax' => 0,
+            'broken_quantity_tax' => 0,
+            'broken_quantity' => 0,
+        ]);
+
+        $products = Livewire::actingAs($this->user)->test(Browser::class, ['setting' => $this->setting])
+            ->viewData('products')->keyBy('id');
+        $this->assertEquals(7, (float) $products[$product->id]->available_qty);
+
+        \Modules\Setting\Entities\SettingSaleLocation::where('setting_id', $this->setting->id)
+            ->where('location_id', $location->id)->get()
+            ->each(fn ($a) => $a->update(['is_enabled' => false, 'position' => null]));
+
+        $products = Livewire::actingAs($this->user)->test(Browser::class, ['setting' => $this->setting])
+            ->viewData('products')->keyBy('id');
+        $this->assertEquals(0, (float) ($products[$product->id]->available_qty ?? 0));
+    }
+
     public function test_unit_denominated_stock_quantity_formatting(): void
     {
         $location = Location::create(['name' => 'Storefront', 'setting_id' => $this->setting->id]);

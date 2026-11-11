@@ -286,8 +286,14 @@ class ConsignmentBuyoutController extends Controller
         return $this->mutating(function () use ($request, $detailId) {
             abort_if(Gate::denies('consignments.buyouts.acquire_unsold'), 403);
             $data = $request->validate(['acquired_quantity' => 'required|numeric|min:0']);
-            $detail = \Modules\SalesReturn\Entities\SaleReturnDetail::findOrFail($detailId);
-            $this->returns->declare($detail, (float) $data['acquired_quantity'], auth()->id());
+            // Scoped to the active business: the return's own business or the sold source's inventory-owner business
+            // (POS split-owner). Anything else is indistinguishable from a missing record.
+            $active = (int) session('setting_id');
+            $detail = \Modules\SalesReturn\Entities\SaleReturnDetail::whereKey($detailId)
+                ->where(fn ($q) => $q->whereHas('saleReturn', fn ($r) => $r->where('setting_id', $active))
+                    ->orWhereIn('dispatch_detail_id', ConsignmentSoldSource::where('setting_id', $active)->select('dispatch_detail_id')))
+                ->firstOrFail();
+            $this->returns->declare($detail, (float) $data['acquired_quantity'], $this->actor());
 
             return [null, 'Pembagian kuantitas retur (milik/bukan milik) disimpan.'];
         }, back: true);

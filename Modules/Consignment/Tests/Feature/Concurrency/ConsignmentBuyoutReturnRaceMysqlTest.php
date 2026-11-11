@@ -223,4 +223,197 @@ class ConsignmentBuyoutReturnRaceMysqlTest extends TestCase
         }
         fwrite(STDERR, "\n[approval-vs-return outcomes] " . json_encode(array_count_values($outcomes)) . "\n");
     }
+
+    /* ------------------------------------------------------------------ declaration races */
+
+    /** Sell 6, FINALIZED buyout of 3 sold units, an approved return of 2 awaiting receiving (ambiguous split). */
+    private function ambiguousReturn(): array
+    {
+        $f = $this->approvedSoldBuyout(approve: false);
+        // Re-cut the draft to 3 acquired units before approval so the return of 2 is ambiguous.
+        DB::table('consignment_buyout_lines')->where('consignment_buyout_id', $f['buyout']->id)->update(['base_quantity' => 3]);
+        $svc = new ConsignmentBuyoutLifecycleService();
+        $b = $svc->approve($f['buyout']->fresh(), $this->user);
+        (new \Modules\Consignment\Services\ConsignmentBuyoutFinalizationService())->finalize($b->fresh(), $this->user);
+        $return = $this->newReturn($f['flow'], 2);
+        $detail = \Modules\SalesReturn\Entities\SaleReturnDetail::where('sale_return_id', $return->id)->sole();
+
+        return $f + ['return' => $return, 'detail' => $detail, 'buyout' => $b->fresh()];
+    }
+
+    /** @test negative controls: each declaration-race worker really performs its operation alone */
+    public function declaration_and_reversal_each_succeed_alone_in_a_worker(): void
+    {
+        $f = $this->ambiguousReturn();
+        $this->assertSame(1, $this->ok($this->race([['declare', $f['detail']->id, '1']])));
+        $this->assertSame('DECLARED', DB::table('consignment_buyout_return_apportionments')->value('status'));
+
+        $this->build();
+        $f = $this->ambiguousReturn();
+        $results = $this->race([['reverse', $f['buyout']->id]]);
+        $this->assertSame(1, $this->ok($results), implode(' | ', $results));
+        $this->assertSame('REVERSED', $f['buyout']->fresh()->status);
+    }
+
+    /** @test a declaration and a buyout reversal over the same acquired sold units never both commit */
+    public function declaration_versus_reversal_never_leaves_acquired_ownership_on_a_reversed_buyout(): void
+    {
+        $outcomes = [];
+        foreach ([[0, 0], [0, 0], [0, 0], [0, 0], [0, 150], [150, 0], [0, 60], [60, 0], [0, 20], [20, 0]] as $round => $delays) {
+            if ($round > 0) {
+                $this->build();
+            }
+            $f = $this->ambiguousReturn();
+            $results = $this->race([['declare', $f['detail']->id, '1'], ['reverse', $f['buyout']->id]], $delays);
+
+            $reversed = $f['buyout']->fresh()->status === 'REVERSED';
+            $declared = DB::table('consignment_buyout_return_apportionments')->where('sale_return_detail_id', $f['detail']->id)->exists();
+            $this->assertFalse($reversed && $declared, 'acquired ownership declared against a reversed acquisition: ' . implode(' | ', $results));
+            $this->assertTrue($reversed || $declared, 'one of the two must win: ' . implode(' | ', $results));
+            if ($declared) {
+                $this->assertSame('FINALIZED', $f['buyout']->fresh()->status, 'reversal saw the declaration and refused');
+                $this->assertSame(0, DB::table('consignment_buyout_reversals')->count());
+            }
+            $outcomes[] = $declared ? 'declaration-won' : 'reversal-won';
+        }
+        fwrite(STDERR, "\n[declaration-vs-reversal outcomes] " . json_encode(array_count_values($outcomes)) . "\n");
+    }
+
+    /** @test receiving and a re-declaration race: the applied split is never overwritten and always matches custody */
+    public function declaration_versus_receiving_never_overwrites_an_applied_split(): void
+    {
+        $outcomes = [];
+        foreach ([[0, 0], [0, 150], [150, 0], [0, 60], [60, 0]] as $round => $delays) {
+            if ($round > 0) {
+                $this->build();
+            }
+            $f = $this->ambiguousReturn();
+            (new \Modules\Consignment\Services\ConsignmentBuyoutReturnOwnershipService())->declare($f['detail'], 1, $this->user);
+            $results = $this->race([
+                ['http', route('sale-returns.receive', $f['return']->id, false)],
+                ['declare', $f['detail']->id, '0'],
+            ], $delays);
+
+            $this->assertSame('awaiting settlement', strtolower((string) $f['return']->fresh()->status), implode(' | ', $results));
+            $row = DB::table('consignment_buyout_return_apportionments')->where('sale_return_detail_id', $f['detail']->id)->sole();
+            $this->assertSame('APPLIED', $row->status);
+            $redeclared = str_starts_with($results[1], 'ok');
+            $this->assertSame($redeclared ? 0.0 : 1.0, (float) $row->acquired_quantity, 'applied split = the last committed declaration: ' . implode(' | ', $results));
+            $ownedHeld = (float) SaleReturnCustody::where('sale_return_id', $f['return']->id)->where('location_id', $this->owned->id)->sum('quantity_received');
+            $this->assertSame((float) $row->acquired_quantity, $ownedHeld, 'custody follows the applied split');
+            $outcomes[] = $redeclared ? 'redeclare-then-receive' : 'receive-then-refused';
+        }
+        fwrite(STDERR, "\n[declaration-vs-receiving outcomes] " . json_encode(array_count_values($outcomes)) . "\n");
+    }
+
+    /* ------------------------------------------------------------------ different-return races (unacquired room) */
+
+    /**
+     * Sell 6, acquire 3: only 3 supplier-owned units can come back as unacquired. Two DIFFERENT returns of 2 each are
+     * declared fully unacquired (each valid alone). Both receivers queue on the same coordination key; the one that
+     * waits must re-read the committed competitor, not its REPEATABLE READ snapshot.
+     */
+    private function twoUnacquiredReturns(): array
+    {
+        $f = $this->ambiguousReturn();
+        $other = $this->newReturn($f['flow'], 2);
+        $otherDetail = \Modules\SalesReturn\Entities\SaleReturnDetail::where('sale_return_id', $other->id)->sole();
+        $svc = new \Modules\Consignment\Services\ConsignmentBuyoutReturnOwnershipService();
+        $svc->declare($f['detail'], 0, $this->user);
+        $svc->declare($otherDetail, 0, $this->user);
+
+        return $f + ['other' => $other, 'otherDetail' => $otherDetail];
+    }
+
+    private function appliedUnacquired(int $sourceId): float
+    {
+        return (float) DB::table('consignment_buyout_return_apportionments')->where('consignment_sold_source_id', $sourceId)
+            ->where('status', 'APPLIED')->sum('unacquired_quantity');
+    }
+
+    /** @test negative control: each different-return receiver succeeds alone */
+    public function each_unacquired_return_receives_alone_in_a_worker(): void
+    {
+        $f = $this->twoUnacquiredReturns();
+        $results = $this->race([['http', route('sale-returns.receive', $f['other']->id, false)]]);
+        $this->assertSame('awaiting settlement', strtolower((string) $f['other']->fresh()->status), implode(' | ', $results));
+        $this->assertSame(2.0, $this->appliedUnacquired($f['source']->id));
+    }
+
+    /** @test two different returns received concurrently never exceed the sale's unacquired room */
+    public function receiving_versus_receiving_of_different_returns_never_exceeds_unacquired_room(): void
+    {
+        $outcomes = [];
+        foreach ([[0, 0], [0, 0], [0, 0], [0, 150], [150, 0], [0, 60], [60, 0]] as $round => $delays) {
+            if ($round > 0) {
+                $this->build();
+            }
+            $f = $this->twoUnacquiredReturns();
+            $results = $this->race([
+                ['http', route('sale-returns.receive', $f['return']->id, false)],
+                ['http', route('sale-returns.receive', $f['other']->id, false)],
+            ], $delays);
+
+            $received = collect([$f['return'], $f['other']])
+                ->filter(fn ($r) => strtolower((string) $r->fresh()->status) === 'awaiting settlement')->count();
+            $this->assertLessThanOrEqual(3.0, $this->appliedUnacquired($f['source']->id), 'supplier-owned room exceeded: ' . implode(' | ', $results));
+            $this->assertSame(1, $received, 'exactly one return fits: ' . implode(' | ', $results));
+            $outcomes[] = strtolower((string) $f['return']->fresh()->status) === 'awaiting settlement' ? 'first-won' : 'second-won';
+        }
+        fwrite(STDERR, "\n[receive-vs-receive outcomes] " . json_encode(array_count_values($outcomes)) . "\n");
+    }
+
+    /**
+     * @test deterministic interleaving: a holder keeps the coordination lock while BOTH receivers start and queue behind
+     * it, so each receiver's transaction is already open while the other commits. Any plain read before the lock wait
+     * (the old in-transaction key discovery) or a snapshot eligibility read after it lets both commit.
+     */
+    public function receivers_queued_behind_a_held_coordination_lock_still_see_each_others_commit(): void
+    {
+        foreach ([[0, 300, 600], [0, 600, 300]] as $round => $delays) {
+            if ($round > 0) {
+                $this->build();
+            }
+            $f = $this->twoUnacquiredReturns();
+            $results = $this->race([
+                ['coord', $f['flow']['product']->id, '2000'],
+                ['http', route('sale-returns.receive', $f['return']->id, false)],
+                ['http', route('sale-returns.receive', $f['other']->id, false)],
+            ], $delays);
+
+            $this->assertSame('ok', $results[0], implode(' | ', $results));
+            $this->assertLessThanOrEqual(3.0, $this->appliedUnacquired($f['source']->id), 'supplier-owned room exceeded: ' . implode(' | ', $results));
+            $received = collect([$f['return'], $f['other']])
+                ->filter(fn ($r) => strtolower((string) $r->fresh()->status) === 'awaiting settlement')->count();
+            $this->assertSame(1, $received, 'exactly one return fits: ' . implode(' | ', $results));
+            $this->assertStringContainsString('room for unacquired returns: 1', implode(' | ', $results), 'the loser re-read the committed winner');
+        }
+    }
+
+    /** @test declaring another return unacquired while one is being received never yields a receivable over-split */
+    public function declaration_versus_receiving_of_a_different_return_never_exceeds_unacquired_room(): void
+    {
+        $outcomes = [];
+        foreach ([[0, 0], [0, 0], [0, 150], [150, 0], [0, 60], [60, 0]] as $round => $delays) {
+            if ($round > 0) {
+                $this->build();
+            }
+            $f = $this->ambiguousReturn();
+            (new \Modules\Consignment\Services\ConsignmentBuyoutReturnOwnershipService())->declare($f['detail'], 0, $this->user);
+            $other = $this->newReturn($f['flow'], 2);
+            $otherDetail = \Modules\SalesReturn\Entities\SaleReturnDetail::where('sale_return_id', $other->id)->sole();
+            $results = $this->race([
+                ['http', route('sale-returns.receive', $f['return']->id, false)],
+                ['declare', $otherDetail->id, '0'],
+            ], $delays);
+            $this->assertSame('awaiting settlement', strtolower((string) $f['return']->fresh()->status), implode(' | ', $results));
+
+            // Whatever won, the other return can never be received with 2 unacquired units on top.
+            $after = $this->race([['http', route('sale-returns.receive', $other->id, false)]]);
+            $this->assertNotSame('awaiting settlement', strtolower((string) $other->fresh()->status), 'over-split received: ' . implode(' | ', array_merge($results, $after)));
+            $this->assertSame(2.0, $this->appliedUnacquired($f['source']->id));
+            $outcomes[] = str_starts_with($results[1], 'ok') ? 'declared-then-receive-refused' : 'declaration-refused';
+        }
+        fwrite(STDERR, "\n[declare-vs-receive (different returns) outcomes] " . json_encode(array_count_values($outcomes)) . "\n");
+    }
 }

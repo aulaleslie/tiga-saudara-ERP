@@ -46,6 +46,7 @@
             <file>./tests/Feature/Livewire/Purchase/SearchProductSelectionRoutingTest.php</file>
             <file>./tests/Feature/MasterDataDeactivationTest.php</file>
             <file>./tests/Feature/Concerns/PreservesMigrationSeededTablesTest.php</file>
+            <file>./tests/Unit/Config/ConsignmentBuyoutConfigTest.php</file>
         </testsuite>
     </testsuites>
     <groups>

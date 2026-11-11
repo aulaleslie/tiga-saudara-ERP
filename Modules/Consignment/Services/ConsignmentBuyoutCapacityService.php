@@ -183,8 +183,12 @@ class ConsignmentBuyoutCapacityService
      */
     public function setAttribution(int $soldSourceId, array $quantities, ?int $actorId, string $reason, array $returns = []): array
     {
-        return DB::transaction(function () use ($soldSourceId, $quantities, $actorId, $reason, $returns) {
-            $probe = ConsignmentSoldSource::findOrFail($soldSourceId);
+        // Discover the coordination key BEFORE the transaction: under MySQL REPEATABLE READ a plain read inside the
+        // transaction would pin a snapshot taken before a competing approval/finalization committed, and the
+        // dependency checks below would then miss its reservations (verified on MySQL 8.0.44).
+        $probe = ConsignmentSoldSource::findOrFail($soldSourceId);
+
+        return DB::transaction(function () use ($probe, $soldSourceId, $quantities, $actorId, $reason, $returns) {
             ConsignmentInventoryCoordination::lockFor($probe->setting_id, $probe->product_id);
             $source = ConsignmentSoldSource::whereKey($soldSourceId)->lockForUpdate()->firstOrFail();
 
@@ -294,21 +298,27 @@ class ConsignmentBuyoutCapacityService
             $q->where('consignment_sold_source_id', '!=', $exceptSourceId);
         }
 
-        return self::milli($q->sum('attributed_base_quantity'));
+        return self::milli(ConsignmentBuyoutReservationGuard::latest($q)->sum('attributed_base_quantity'));
     }
 
     protected function attributionIsDependedOn(ConsignmentSoldSource $source, int $detailId): bool
     {
-        $reservation = ConsignmentBuyoutReservation::where('status', ConsignmentBuyoutReservation::STATUS_ACTIVE)
-            ->where(fn ($q) => $q->where('consignment_receiving_detail_id', $detailId)->orWhere('consignment_sold_source_id', $source->id))
+        // Locking reads (latest committed rows), so a stale snapshot can never hide a dependency even when the caller
+        // already read inside an outer transaction.
+        $reservation = ConsignmentBuyoutReservationGuard::latest(ConsignmentBuyoutReservation::where('status', ConsignmentBuyoutReservation::STATUS_ACTIVE)
+            ->where(fn ($q) => $q->where('consignment_receiving_detail_id', $detailId)->orWhere('consignment_sold_source_id', $source->id)))
             ->exists();
         if ($reservation) {
             return true;
         }
 
-        return ConsignmentBuyoutLine::whereHas('buyout', fn ($q) => $q->where('status', ConsignmentBuyout::STATUS_FINALIZED))
-            ->where(fn ($q) => $q->where('consignment_receiving_detail_id', $detailId)->orWhere('consignment_sold_source_id', $source->id))
-            ->exists();
+        // Status by its own locking read: a whereHas subquery inside a locking read is still a plain snapshot read in MySQL.
+        $buyoutIds = ConsignmentBuyoutReservationGuard::latest(ConsignmentBuyoutLine::query()
+            ->where(fn ($q) => $q->where('consignment_receiving_detail_id', $detailId)->orWhere('consignment_sold_source_id', $source->id)))
+            ->pluck('consignment_buyout_id')->unique()->all();
+
+        return $buyoutIds !== [] && ConsignmentBuyoutReservationGuard::latest(ConsignmentBuyout::whereIn('id', $buyoutIds)
+            ->where('status', ConsignmentBuyout::STATUS_FINALIZED))->exists();
     }
 
     /**

@@ -49,6 +49,15 @@ The system SHALL deduct a Sales Return detail from allocatable sold quantity onl
 - **THEN** only its unacquired portion SHALL participate in pre-billing eligibility deductions
 - **AND** its acquired portion SHALL retain original supplier consumption and retain company ownership through recorded return lineage and the existing custody/release policy
 
+#### Scenario: Mixed return split has a fractional ownership portion
+- **WHEN** an operator declares a fractional acquired quantity of a returned non-serialized quantity within its bounds
+- **THEN** receiving (Sales Return custody and POS-linked posting) SHALL post each ownership portion exactly to three decimals without rounding, preserving existing decimal stock balances, product totals and transaction snapshots
+- **AND** the units posted per destination SHALL total the returned quantity and equal the applied apportionment
+
+#### Scenario: Different returns of one sale are received concurrently
+- **WHEN** two returns of the same sold source are received or declared at the same time
+- **THEN** each SHALL decide against the latest committed received returns, and their applied unacquired quantities SHALL NOT exceed the sold quantity minus the acquired quantity
+
 ### Requirement: Reconciliation exposes custody-to-allocation balances
 The consignment reconciliation SHALL expose approved received, reversed, sold-from-consignment, physically returned-before-billing, waiting-reserved, approved-allocated, and remaining receipt-pool quantities with filters for setting, supplier, product, location, source transaction, confirmation status, and serial. Totals SHALL derive from immutable source and allocation events rather than mutable available-balance counters. Supported inventory-managed bundle movements SHALL participate in these totals using their physical DispatchDetail product and quantity. Reconciliation SHALL additionally distinguish non-financial sold receipt attribution, active buyout reservations, acquired sold/unsold quantities, ownership movements, and reversals without treating the same goods as both available consignment and acquired stock.
 

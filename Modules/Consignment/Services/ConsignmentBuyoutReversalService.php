@@ -146,7 +146,8 @@ class ConsignmentBuyoutReversalService
         // Returns: acquired sold units that already came back (or are apportioned) cannot be silently un-acquired.
         $sourceIds = $lines->where('line_type', ConsignmentBuyoutLine::TYPE_SOLD_UNBILLED)->pluck('consignment_sold_source_id')->unique()->all();
         if ($sourceIds) {
-            $apportioned = ConsignmentBuyoutReturnApportionment::whereIn('consignment_sold_source_id', $sourceIds)->count();
+            // Locking read: a declaration or receiving committed while this reversal waited must block it.
+            $apportioned = ConsignmentBuyoutReservationGuard::latest(ConsignmentBuyoutReturnApportionment::whereIn('consignment_sold_source_id', $sourceIds))->count();
             if ($apportioned > 0) {
                 $add('RETURN', 'sold sources ' . implode(',', $sourceIds), "{$apportioned} customer return(s) were apportioned against the acquired sold units.");
             }

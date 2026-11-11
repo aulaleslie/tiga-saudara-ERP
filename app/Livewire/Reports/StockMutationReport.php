@@ -18,6 +18,7 @@ use Modules\Setting\Entities\Location;
 class StockMutationReport extends Component
 {
     use WithPagination;
+    use HasReportSettingScope;
 
     public $startDate, $endDate, $productId, $locationId, $mutationType;
     public $filterTriggered = false;
@@ -27,10 +28,34 @@ class StockMutationReport extends Component
 
     public function mount($isGlobal = false)
     {
+        $permission = $isGlobal ? 'stockMutationReports.global.access' : 'stockMutationReports.access';
+        abort_unless(auth()->user()?->can($permission) ?? false, 403);
+
         $this->isGlobal = $isGlobal;
         $this->startDate = now()->startOfMonth()->format('Y-m-d');
         $this->endDate = now()->format('Y-m-d');
         $this->mutationType = '';
+
+        if ($this->isGlobal) {
+            $available = $this->getAvailableSettings();
+            $this->selectedSettingIds = array_map('intval', array_column($available, 'id'));
+        } else {
+            $this->selectedSettingIds = $this->defaultSettingSelection();
+        }
+    }
+
+    public function updatedSelectedSettingIds(): void
+    {
+        $sanitizedIds = $this->getSanitizedSettingIds();
+        if ($this->locationId) {
+            $isValid = Location::whereIn('setting_id', $sanitizedIds)
+                ->where('id', $this->locationId)
+                ->exists();
+            if (! $isValid) {
+                $this->locationId = null;
+            }
+        }
+        $this->resetPage();
     }
 
     public function applyFilters()
@@ -41,6 +66,15 @@ class StockMutationReport extends Component
 
     public function exportExcel()
     {
+        $permission = $this->isGlobal ? 'stockMutationReports.global.access' : 'stockMutationReports.access';
+        abort_unless(auth()->user()?->can($permission) ?? false, 403);
+
+        $sanitizedIds = $this->getSanitizedSettingIds();
+        if (empty($sanitizedIds)) {
+            $this->dispatch('alert', ['type' => 'error', 'message' => 'Pilih minimal satu bisnis.']);
+            return null;
+        }
+
         $filters = $this->exportFilters();
         $filename = $this->isGlobal ? 'laporan-mutasi-stok-global.xlsx' : 'laporan-mutasi-stok.xlsx';
         return Excel::download(new StockMutationReportExport($filters), $filename);
@@ -48,6 +82,15 @@ class StockMutationReport extends Component
 
     public function exportCsv()
     {
+        $permission = $this->isGlobal ? 'stockMutationReports.global.access' : 'stockMutationReports.access';
+        abort_unless(auth()->user()?->can($permission) ?? false, 403);
+
+        $sanitizedIds = $this->getSanitizedSettingIds();
+        if (empty($sanitizedIds)) {
+            $this->dispatch('alert', ['type' => 'error', 'message' => 'Pilih minimal satu bisnis.']);
+            return null;
+        }
+
         $filters = $this->exportFilters();
         $filename = $this->isGlobal ? 'laporan-mutasi-stok-global.csv' : 'laporan-mutasi-stok.csv';
         return Excel::download(new StockMutationReportExport($filters), $filename, \Maatwebsite\Excel\Excel::CSV);
@@ -62,6 +105,7 @@ class StockMutationReport extends Component
             'locationId' => $this->locationId,
             'mutationType' => $this->mutationType,
             'isGlobal' => $this->isGlobal,
+            'settingIds' => $this->getSanitizedSettingIds(),
         ];
     }
 
@@ -71,21 +115,26 @@ class StockMutationReport extends Component
             return collect();
         }
 
-        $settingId = session('setting_id');
+        $settingIds = $this->getSanitizedSettingIds();
+
+        if (empty($settingIds)) {
+            return collect();
+        }
+
+        $isMulti = count($settingIds) > 1;
         $mutationType = $this->mutationType;
         $startDate = $this->startDate ? Carbon::parse($this->startDate)->startOfDay() : null;
         $endDate = $this->endDate ? Carbon::parse($this->endDate)->endOfDay() : null;
 
         $transactions = Transaction::query()
-            ->with(['product', 'location'])
+            ->with(['product', 'location.setting'])
             ->when($this->productId, fn($q) => $q->where('product_id', $this->productId))
             ->when($this->locationId, fn($q) => $q->where('location_id', $this->locationId))
-            ->when(!$this->isGlobal, fn($q) => $q->where('setting_id', $settingId))
+            ->whereIn('setting_id', $settingIds)
             ->get();
 
-        [$purchaseRefs, $saleRefs] = $this->collectTransactionReferences($transactions);
-        $purchaseDateMap = $this->buildPurchaseDateMap($purchaseRefs, $settingId);
-        $saleDateMap = $this->buildSaleDateMap($saleRefs, $settingId);
+        $purchaseDateMap = $this->buildPurchaseDateMap($transactions, $settingIds);
+        $saleDateMap = $this->buildSaleDateMap($transactions, $settingIds);
         $transferMeta = $this->loadTransferMeta($transactions);
 
         return $transactions
@@ -95,7 +144,8 @@ class StockMutationReport extends Component
                 $endDate,
                 $purchaseDateMap,
                 $saleDateMap,
-                $transferMeta
+                $transferMeta,
+                $isMulti
             ) {
                 $delta = $this->resolveDelta($transaction);
                 if ($delta == 0.0) {
@@ -130,19 +180,26 @@ class StockMutationReport extends Component
 
                 $reference = $this->resolveReference($transaction, $transferMeta);
 
-                return [
+                $row = [
                     'date' => $transactionDate?->format('Y-m-d') ?? '-',
                     'product_name' => $transaction->product->product_name ?? '-',
                     'product_code' => $transaction->product->product_code ?? '-',
-                    'location' => $transaction->location->name ?? '-',
-                    'type' => $this->resolveTypeLabel($transaction, $delta),
-                    'qty_in' => $delta > 0 ? $delta : 0,
-                    'qty_out' => $delta < 0 ? abs($delta) : 0,
-                    'reference' => $reference,
-                    'sort_date' => $transactionDate?->toDateString() ?? '9999-12-31',
-                    'sort_reference' => $reference === '-' ? '' : $reference,
-                    'sort_id' => $transaction->id,
                 ];
+
+                if ($isMulti) {
+                    $row['business'] = $transaction->location?->setting?->company_name ?? ($transaction->setting?->company_name ?? '-');
+                }
+
+                $row['location'] = $transaction->location->name ?? '-';
+                $row['type'] = $this->resolveTypeLabel($transaction, $delta);
+                $row['qty_in'] = $delta > 0 ? $delta : 0;
+                $row['qty_out'] = $delta < 0 ? abs($delta) : 0;
+                $row['reference'] = $reference;
+                $row['sort_date'] = $transactionDate?->toDateString() ?? '9999-12-31';
+                $row['sort_reference'] = $reference === '-' ? '' : $reference;
+                $row['sort_id'] = $transaction->id;
+
+                return $row;
             })
             ->filter()
             ->sort(function (array $left, array $right) {
@@ -186,17 +243,11 @@ class StockMutationReport extends Component
 
     private function resolveTypeLabel(Transaction $transaction, float $delta): string
     {
-        $type = strtoupper((string) $transaction->type);
-
-        return match ($type) {
-            'BUY' => 'Penerimaan Pembelian',
-            'PURCHASE_RECEIVING_CANCELLED' => 'Pembatalan Penerimaan Pembelian',
-            'DISPATCH', 'SELL' => 'Pengiriman Penjualan',
-            'TRF' => $delta >= 0 ? 'Transfer Masuk' : 'Transfer Keluar',
-            'ADJ' => $delta >= 0 ? 'Penyesuaian Tambah' : 'Penyesuaian Kurang',
-            'INIT' => 'Inisialisasi Stok',
-            default => $type ?: 'Mutasi Stok',
-        };
+        return \App\Support\Reports\InventoryTransactionTypeLabel::label(
+            (string) $transaction->type,
+            $delta,
+            \App\Support\Reports\InventoryTransactionTypeLabel::CONTEXT_MUTATION
+        );
     }
 
     private function resolveReference(Transaction $transaction, array $transferMeta): string
@@ -215,54 +266,51 @@ class StockMutationReport extends Component
         return $reference ?: '-';
     }
 
-    private function collectTransactionReferences(Collection $transactions): array
+    private function buildPurchaseDateMap(Collection $transactions, array $settingIds): array
     {
-        $purchaseRefs = [];
-        $saleRefs = [];
-
-        foreach ($transactions as $transaction) {
-            $type = strtoupper((string) $transaction->type);
-            $reference = $this->extractReference($transaction->reason);
-
-            if (! $reference) {
-                continue;
-            }
-
-            if ($type === 'BUY') {
-                $purchaseRefs[$reference] = true;
-            }
-
-            if (in_array($type, ['DISPATCH', 'SELL'], true)) {
-                $saleRefs[$reference] = true;
+        $refs = [];
+        foreach ($transactions as $t) {
+            if (strtoupper((string) $t->type) === 'BUY') {
+                $ref = $this->extractReference($t->reason);
+                if ($ref) {
+                    $refs[] = $ref;
+                }
             }
         }
 
-        return [array_keys($purchaseRefs), array_keys($saleRefs)];
-    }
-
-    private function buildPurchaseDateMap(array $references, int $settingId): array
-    {
-        if (empty($references)) {
+        if (empty($refs) || empty($settingIds)) {
             return [];
         }
 
         return Purchase::query()
-            ->where('setting_id', $settingId)
-            ->whereIn('reference', $references)
-            ->pluck('date', 'reference')
+            ->whereIn('setting_id', $settingIds)
+            ->whereIn('reference', array_unique($refs))
+            ->get(['setting_id', 'reference', 'date'])
+            ->mapWithKeys(fn ($p) => ["{$p->setting_id}_{$p->reference}" => $p->date])
             ->all();
     }
 
-    private function buildSaleDateMap(array $references, int $settingId): array
+    private function buildSaleDateMap(Collection $transactions, array $settingIds): array
     {
-        if (empty($references)) {
+        $refs = [];
+        foreach ($transactions as $t) {
+            if (in_array(strtoupper((string) $t->type), ['DISPATCH', 'SELL'], true)) {
+                $ref = $this->extractReference($t->reason);
+                if ($ref) {
+                    $refs[] = $ref;
+                }
+            }
+        }
+
+        if (empty($refs) || empty($settingIds)) {
             return [];
         }
 
         return Sale::query()
-            ->where('setting_id', $settingId)
-            ->whereIn('reference', $references)
-            ->pluck('date', 'reference')
+            ->whereIn('setting_id', $settingIds)
+            ->whereIn('reference', array_unique($refs))
+            ->get(['setting_id', 'reference', 'date'])
+            ->mapWithKeys(fn ($s) => ["{$s->setting_id}_{$s->reference}" => $s->date])
             ->all();
     }
 
@@ -275,14 +323,16 @@ class StockMutationReport extends Component
         array $transferMeta
     ): ?Carbon {
         $type = strtoupper((string) $transaction->type);
+        $settingId = (int) $transaction->setting_id;
 
         if ($reference) {
-            if ($type === 'BUY' && isset($purchaseDateMap[$reference])) {
-                return Carbon::parse($purchaseDateMap[$reference]);
+            $key = "{$settingId}_{$reference}";
+            if ($type === 'BUY' && isset($purchaseDateMap[$key])) {
+                return Carbon::parse($purchaseDateMap[$key]);
             }
 
-            if (in_array($type, ['DISPATCH', 'SELL'], true) && isset($saleDateMap[$reference])) {
-                return Carbon::parse($saleDateMap[$reference]);
+            if (in_array($type, ['DISPATCH', 'SELL'], true) && isset($saleDateMap[$key])) {
+                return Carbon::parse($saleDateMap[$key]);
             }
         }
 
@@ -291,8 +341,8 @@ class StockMutationReport extends Component
             $meta = $transferId ? ($transferMeta[$transferId] ?? null) : null;
             if ($meta) {
                 $candidate = $delta >= 0
-                    ? ($meta['received_at'] ?? $meta['transfer_date'] ?? $meta['dispatched_at'] ?? null)
-                    : ($meta['dispatched_at'] ?? $meta['transfer_date'] ?? $meta['received_at'] ?? null);
+                    ? ($meta['received_at'] ?? null)
+                    : ($meta['dispatched_at'] ?? null);
 
                 if ($candidate) {
                     return Carbon::parse($candidate);
@@ -348,12 +398,11 @@ class StockMutationReport extends Component
 
         return Transfer::query()
             ->whereIn('id', $transferIds)
-            ->get(['id', 'document_number', 'transfer_date', 'dispatched_at', 'received_at'])
+            ->get(['id', 'document_number', 'dispatched_at', 'received_at'])
             ->mapWithKeys(function (Transfer $transfer) {
                 return [
                     $transfer->id => [
                         'document_number' => $transfer->document_number,
-                        'transfer_date' => $transfer->transfer_date,
                         'dispatched_at' => $transfer->dispatched_at,
                         'received_at' => $transfer->received_at,
                     ],
@@ -364,14 +413,32 @@ class StockMutationReport extends Component
 
     public function render()
     {
-        $settingId = session('setting_id');
+        $sanitizedSettingIds = $this->getSanitizedSettingIds();
+        $isMulti = count($sanitizedSettingIds) > 1;
+
+        $locations = Location::query()
+            ->whereIn('setting_id', $sanitizedSettingIds)
+            ->with('setting:id,company_name')
+            ->orderBy('name')
+            ->get()
+            ->map(function (Location $loc) use ($isMulti) {
+                $label = $loc->name;
+                if ($isMulti && $loc->setting) {
+                    $label .= ' — ' . $loc->setting->company_name;
+                }
+                return [
+                    'id' => $loc->id,
+                    'name' => $label,
+                ];
+            });
 
         return view('livewire.reports.stock-mutation-report', [
             'mutations' => $this->mutations,
             'products' => Product::orderBy('product_name')->get(),
-            'locations' => $this->isGlobal
-                ? Location::orderBy('name')->get()
-                : Location::where('setting_id', $settingId)->orderBy('name')->get(),
+            'locations' => $locations,
+            'availableSettings' => $this->getAvailableSettings(),
+            'selectedSettingIds' => $this->selectedSettingIds,
+            'sanitizedSettingIds' => $sanitizedSettingIds,
             'isGlobal' => $this->isGlobal,
         ]);
     }

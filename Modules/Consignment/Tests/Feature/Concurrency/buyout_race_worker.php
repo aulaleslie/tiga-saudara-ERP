@@ -2,7 +2,7 @@
 
 /**
  * Worker for the MySQL buyout race matrix. Calls the REAL production services/controllers; no harness retries.
- *   coord    <actorId> <settingId> <productId> <barrier>
+ *   coord    <actorId> <settingId> <productId> [<holdMs>] <barrier>   (holds the coordination lock; default 20 ms)
  *   approve  <actorId> <settingId> <buyoutId> <barrier>
  *   finalize <actorId> <settingId> <buyoutId> <barrier>
  *   reverse  <actorId> <settingId> <buyoutId> <barrier>
@@ -10,6 +10,8 @@
  *   transfer <actorId> <settingId> <transferId> <barrier>   (real TransferV3DispatchExecutor::approveAndDispatch)
  *   pos      <actorId> <settingId> <json cfg> <barrier>   (own session+cart prepared before the barrier; races pos.sell.checkout.finalize)
  *   legacy   <actorId> <settingId> <confirmationId> <barrier>   (legacy ConsignmentBillingConfirmationLifecycleService::submitConfirmation)
+ *   attribute <actorId> <settingId> <soldSourceId> <json receiptId=>qty> <barrier>   (real ConsignmentBuyoutCapacityService::setAttribution)
+ *   declare  <actorId> <settingId> <saleReturnDetailId> <acquiredQty> <barrier>   (real ConsignmentBuyoutReturnOwnershipService::declare)
  *   http     <actorId> <settingId> <POST path> [<json params>] <barrier>   (full HTTP kernel, e.g. dispatch / receiving cancellation)
  * Prints RESULT:<outcome> (ok[:detail] | refused:<class>:<message>).
  */
@@ -87,7 +89,7 @@ try {
         case 'coord':
             Illuminate\Support\Facades\DB::transaction(function () use ($settingId, $id) {
                 Modules\Consignment\Entities\ConsignmentInventoryCoordination::lockFor($settingId, $id);
-                usleep(20000);
+                usleep(1000 * (count($GLOBALS['argv']) > 6 ? (int) $GLOBALS['argv'][5] : 20));
             });
             echo "RESULT:ok\n";
             break;
@@ -129,6 +131,16 @@ try {
             $c = app(Modules\Consignment\Services\ConsignmentBillingConfirmationLifecycleService::class)
                 ->submitConfirmation(Modules\Consignment\Entities\ConsignmentBillingConfirmation::findOrFail($id), $actorId);
             echo 'RESULT:ok:' . $c->status . "\n";
+            break;
+        case 'declare':
+            $row = app(Modules\Consignment\Services\ConsignmentBuyoutReturnOwnershipService::class)
+                ->declare(Modules\SalesReturn\Entities\SaleReturnDetail::findOrFail($id), (float) $argv[5], $actor);
+            echo 'RESULT:ok:declared=' . $row->acquired_quantity . "\n";
+            break;
+        case 'attribute':
+            app(Modules\Consignment\Services\ConsignmentBuyoutCapacityService::class)
+                ->setAttribution($id, json_decode((string) $argv[5], true), $actorId, 'race re-attribution');
+            echo "RESULT:ok:attributed\n";
             break;
         case 'http':
             $kernel = app(Illuminate\Contracts\Http\Kernel::class);

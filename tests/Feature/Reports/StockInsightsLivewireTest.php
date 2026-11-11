@@ -39,6 +39,8 @@ class StockInsightsLivewireTest extends TestCase
         $this->user->givePermissionTo('stockInsights.access');
 
         $this->setting = Setting::factory()->create(['company_name' => 'Bisnis Utama']);
+        $role = \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']);
+        $this->user->settings()->attach($this->setting->id, ['role_id' => $role->id]);
         $this->location = Location::create([
             'setting_id' => $this->setting->id,
             'name' => 'Gudang Pusat',

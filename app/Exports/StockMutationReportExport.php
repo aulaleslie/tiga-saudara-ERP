@@ -24,26 +24,29 @@ class StockMutationReportExport implements FromCollection, WithHeadings, WithEve
 
     public function collection(): Collection
     {
-        $settingId = session('setting_id');
+        $settingIds = $this->filters['settingIds'] ?? [(int) session('setting_id')];
+        $isMultiBusiness = count($settingIds) > 1;
         $startDate = $this->filters['startDate'] ?? null;
         $endDate = $this->filters['endDate'] ?? null;
         $productId = $this->filters['productId'] ?? null;
         $locationId = $this->filters['locationId'] ?? null;
         $mutationType = $this->filters['mutationType'] ?? '';
-        $isGlobal = $this->filters['isGlobal'] ?? false;
         $startDateFilter = $startDate ? Carbon::parse($startDate)->startOfDay() : null;
         $endDateFilter = $endDate ? Carbon::parse($endDate)->endOfDay() : null;
 
+        if (empty($settingIds)) {
+            return collect();
+        }
+
         $transactions = Transaction::query()
-            ->with(['product', 'location'])
+            ->with(['product', 'location.setting'])
             ->when($productId, fn($q) => $q->where('product_id', $productId))
             ->when($locationId, fn($q) => $q->where('location_id', $locationId))
-            ->when(!$isGlobal, fn($q) => $q->where('setting_id', $settingId))
+            ->whereIn('setting_id', $settingIds)
             ->get();
 
-        [$purchaseRefs, $saleRefs] = $this->collectTransactionReferences($transactions);
-        $purchaseDateMap = $this->buildPurchaseDateMap($purchaseRefs, $settingId);
-        $saleDateMap = $this->buildSaleDateMap($saleRefs, $settingId);
+        $purchaseDateMap = $this->buildPurchaseDateMap($transactions, $settingIds);
+        $saleDateMap = $this->buildSaleDateMap($transactions, $settingIds);
         $transferMeta = $this->loadTransferMeta($transactions);
 
         return $transactions
@@ -53,7 +56,8 @@ class StockMutationReportExport implements FromCollection, WithHeadings, WithEve
                 $endDateFilter,
                 $purchaseDateMap,
                 $saleDateMap,
-                $transferMeta
+                $transferMeta,
+                $isMultiBusiness
             ) {
                 $delta = $this->resolveDelta($transaction);
                 if ($delta == 0.0) {
@@ -88,19 +92,26 @@ class StockMutationReportExport implements FromCollection, WithHeadings, WithEve
 
                 $reference = $this->resolveReference($transaction, $transferMeta);
 
-                return [
+                $row = [
                     'date' => $transactionDate?->format('d/m/Y') ?? '-',
                     'product_code' => $transaction->product->product_code ?? '-',
                     'product_name' => $transaction->product->product_name ?? '-',
-                    'location' => $transaction->location->name ?? '-',
-                    'type' => $this->resolveTypeLabel($transaction, $delta),
-                    'qty_in' => $delta > 0 ? $delta : 0,
-                    'qty_out' => $delta < 0 ? abs($delta) : 0,
-                    'reference' => $reference,
-                    'sort_date' => $transactionDate?->toDateString() ?? '9999-12-31',
-                    'sort_reference' => $reference === '-' ? '' : $reference,
-                    'sort_id' => $transaction->id,
                 ];
+
+                if ($isMultiBusiness) {
+                    $row['business'] = $transaction->location?->setting?->company_name ?? ($transaction->setting?->company_name ?? '-');
+                }
+
+                $row['location'] = $transaction->location->name ?? '-';
+                $row['type'] = $this->resolveTypeLabel($transaction, $delta);
+                $row['qty_in'] = $delta > 0 ? $delta : 0;
+                $row['qty_out'] = $delta < 0 ? abs($delta) : 0;
+                $row['reference'] = $reference;
+                $row['sort_date'] = $transactionDate?->toDateString() ?? '9999-12-31';
+                $row['sort_reference'] = $reference === '-' ? '' : $reference;
+                $row['sort_id'] = $transaction->id;
+
+                return $row;
             })
             ->filter()
             ->sort(function (array $left, array $right) {
@@ -126,6 +137,21 @@ class StockMutationReportExport implements FromCollection, WithHeadings, WithEve
 
     public function headings(): array
     {
+        $settingIds = $this->filters['settingIds'] ?? [(int) session('setting_id')];
+        if (count($settingIds) > 1) {
+            return [
+                'Tanggal',
+                'Kode Produk',
+                'Nama Produk',
+                'Bisnis',
+                'Lokasi',
+                'Tipe',
+                'Qty Masuk',
+                'Qty Keluar',
+                'Referensi',
+            ];
+        }
+
         return [
             'Tanggal',
             'Kode Produk',
@@ -142,9 +168,11 @@ class StockMutationReportExport implements FromCollection, WithHeadings, WithEve
     {
         $startDate = $this->filters['startDate'] ?? '-';
         $endDate = $this->filters['endDate'] ?? '-';
+        $settingIds = $this->filters['settingIds'] ?? [(int) session('setting_id')];
+        $lastCol = count($settingIds) > 1 ? 'I' : 'H';
 
         return [
-            AfterSheet::class => function (AfterSheet $event) use ($startDate, $endDate) {
+            AfterSheet::class => function (AfterSheet $event) use ($startDate, $endDate, $lastCol) {
                 $sheet = $event->sheet->getDelegate();
 
                 // Insert header rows at the top
@@ -152,7 +180,7 @@ class StockMutationReportExport implements FromCollection, WithHeadings, WithEve
 
                 // Title row
                 $sheet->setCellValue('A1', 'LAPORAN MUTASI STOK');
-                $sheet->mergeCells('A1:H1');
+                $sheet->mergeCells("A1:{$lastCol}1");
                 $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
                 $sheet->getStyle('A1')->getAlignment()->setHorizontal('center');
 
@@ -163,11 +191,11 @@ class StockMutationReportExport implements FromCollection, WithHeadings, WithEve
                     $endDate ? date('d/m/Y', strtotime($endDate)) : '-'
                 );
                 $sheet->setCellValue('A2', $periodText);
-                $sheet->mergeCells('A2:H2');
+                $sheet->mergeCells("A2:{$lastCol}2");
                 $sheet->getStyle('A2')->getAlignment()->setHorizontal('center');
 
                 // Style header row (now row 3)
-                $sheet->getStyle('A3:H3')->getFont()->setBold(true);
+                $sheet->getStyle("A3:{$lastCol}3")->getFont()->setBold(true);
             },
         ];
     }
@@ -192,17 +220,11 @@ class StockMutationReportExport implements FromCollection, WithHeadings, WithEve
 
     private function resolveTypeLabel(Transaction $transaction, float $delta): string
     {
-        $type = strtoupper((string) $transaction->type);
-
-        return match ($type) {
-            'BUY' => 'Penerimaan Pembelian',
-            'PURCHASE_RECEIVING_CANCELLED' => 'Pembatalan Penerimaan Pembelian',
-            'DISPATCH', 'SELL' => 'Pengiriman Penjualan',
-            'TRF' => $delta >= 0 ? 'Transfer Masuk' : 'Transfer Keluar',
-            'ADJ' => $delta >= 0 ? 'Penyesuaian Tambah' : 'Penyesuaian Kurang',
-            'INIT' => 'Inisialisasi Stok',
-            default => $type ?: 'Mutasi Stok',
-        };
+        return \App\Support\Reports\InventoryTransactionTypeLabel::label(
+            (string) $transaction->type,
+            $delta,
+            \App\Support\Reports\InventoryTransactionTypeLabel::CONTEXT_MUTATION
+        );
     }
 
     private function resolveReference(Transaction $transaction, array $transferMeta): string
@@ -221,54 +243,51 @@ class StockMutationReportExport implements FromCollection, WithHeadings, WithEve
         return $reference ?: '-';
     }
 
-    private function collectTransactionReferences(Collection $transactions): array
+    private function buildPurchaseDateMap(Collection $transactions, array $settingIds): array
     {
-        $purchaseRefs = [];
-        $saleRefs = [];
-
-        foreach ($transactions as $transaction) {
-            $type = strtoupper((string) $transaction->type);
-            $reference = $this->extractReference($transaction->reason);
-
-            if (! $reference) {
-                continue;
-            }
-
-            if ($type === 'BUY') {
-                $purchaseRefs[$reference] = true;
-            }
-
-            if (in_array($type, ['DISPATCH', 'SELL'], true)) {
-                $saleRefs[$reference] = true;
+        $refs = [];
+        foreach ($transactions as $t) {
+            if (strtoupper((string) $t->type) === 'BUY') {
+                $ref = $this->extractReference($t->reason);
+                if ($ref) {
+                    $refs[] = $ref;
+                }
             }
         }
 
-        return [array_keys($purchaseRefs), array_keys($saleRefs)];
-    }
-
-    private function buildPurchaseDateMap(array $references, int $settingId): array
-    {
-        if (empty($references)) {
+        if (empty($refs) || empty($settingIds)) {
             return [];
         }
 
         return Purchase::query()
-            ->where('setting_id', $settingId)
-            ->whereIn('reference', $references)
-            ->pluck('date', 'reference')
+            ->whereIn('setting_id', $settingIds)
+            ->whereIn('reference', array_unique($refs))
+            ->get(['setting_id', 'reference', 'date'])
+            ->mapWithKeys(fn ($p) => ["{$p->setting_id}_{$p->reference}" => $p->date])
             ->all();
     }
 
-    private function buildSaleDateMap(array $references, int $settingId): array
+    private function buildSaleDateMap(Collection $transactions, array $settingIds): array
     {
-        if (empty($references)) {
+        $refs = [];
+        foreach ($transactions as $t) {
+            if (in_array(strtoupper((string) $t->type), ['DISPATCH', 'SELL'], true)) {
+                $ref = $this->extractReference($t->reason);
+                if ($ref) {
+                    $refs[] = $ref;
+                }
+            }
+        }
+
+        if (empty($refs) || empty($settingIds)) {
             return [];
         }
 
         return Sale::query()
-            ->where('setting_id', $settingId)
-            ->whereIn('reference', $references)
-            ->pluck('date', 'reference')
+            ->whereIn('setting_id', $settingIds)
+            ->whereIn('reference', array_unique($refs))
+            ->get(['setting_id', 'reference', 'date'])
+            ->mapWithKeys(fn ($s) => ["{$s->setting_id}_{$s->reference}" => $s->date])
             ->all();
     }
 
@@ -281,14 +300,16 @@ class StockMutationReportExport implements FromCollection, WithHeadings, WithEve
         array $transferMeta
     ): ?Carbon {
         $type = strtoupper((string) $transaction->type);
+        $settingId = (int) $transaction->setting_id;
 
         if ($reference) {
-            if ($type === 'BUY' && isset($purchaseDateMap[$reference])) {
-                return Carbon::parse($purchaseDateMap[$reference]);
+            $key = "{$settingId}_{$reference}";
+            if ($type === 'BUY' && isset($purchaseDateMap[$key])) {
+                return Carbon::parse($purchaseDateMap[$key]);
             }
 
-            if (in_array($type, ['DISPATCH', 'SELL'], true) && isset($saleDateMap[$reference])) {
-                return Carbon::parse($saleDateMap[$reference]);
+            if (in_array($type, ['DISPATCH', 'SELL'], true) && isset($saleDateMap[$key])) {
+                return Carbon::parse($saleDateMap[$key]);
             }
         }
 
@@ -297,8 +318,8 @@ class StockMutationReportExport implements FromCollection, WithHeadings, WithEve
             $meta = $transferId ? ($transferMeta[$transferId] ?? null) : null;
             if ($meta) {
                 $candidate = $delta >= 0
-                    ? ($meta['received_at'] ?? $meta['transfer_date'] ?? $meta['dispatched_at'] ?? null)
-                    : ($meta['dispatched_at'] ?? $meta['transfer_date'] ?? $meta['received_at'] ?? null);
+                    ? ($meta['received_at'] ?? null)
+                    : ($meta['dispatched_at'] ?? null);
 
                 if ($candidate) {
                     return Carbon::parse($candidate);
@@ -354,12 +375,11 @@ class StockMutationReportExport implements FromCollection, WithHeadings, WithEve
 
         return Transfer::query()
             ->whereIn('id', $transferIds)
-            ->get(['id', 'document_number', 'transfer_date', 'dispatched_at', 'received_at'])
+            ->get(['id', 'document_number', 'dispatched_at', 'received_at'])
             ->mapWithKeys(function (Transfer $transfer) {
                 return [
                     $transfer->id => [
                         'document_number' => $transfer->document_number,
-                        'transfer_date' => $transfer->transfer_date,
                         'dispatched_at' => $transfer->dispatched_at,
                         'received_at' => $transfer->received_at,
                     ],

@@ -79,7 +79,8 @@ class Location extends BaseModel
             if ($location->wasChanged('setting_id')) {
                 $originalSettingId = $location->getOriginal('setting_id');
 
-                $location->saleAssignments()->updateOrCreate(
+                // Create an enabled default only when absent; preserve existing choices.
+                $location->saleAssignments()->firstOrCreate(
                     ['setting_id' => $location->setting_id],
                     ['is_enabled' => true]
                 );

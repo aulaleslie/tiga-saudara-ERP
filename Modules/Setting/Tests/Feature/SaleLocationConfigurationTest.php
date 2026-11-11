@@ -3,6 +3,7 @@
 namespace Modules\Setting\Tests\Feature;
 
 use App\Models\User;
+use App\Support\SalesLocationResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Currency\Entities\Currency;
 use Modules\Setting\Entities\Location;
@@ -116,30 +117,187 @@ class SaleLocationConfigurationTest extends TestCase
             ->exists());
     }
 
-    public function test_disable_owned_location_is_blocked(): void
+    public function test_disable_owned_location_persists_across_reload_and_can_be_reenabled(): void
     {
         $settingA = $this->createSetting('CV Tiga Nusa');
+        $settingB = $this->createSetting('Top IT');
 
         $this->actingAsSuperAdminForSetting($settingA);
 
-        $ownedLocation = Location::create([
-            'name'       => 'CVTN 1',
-            'setting_id' => $settingA->id,
-        ]);
-        
-        SettingSaleLocation::create(['setting_id' => $settingA->id, 'location_id' => $ownedLocation->id, 'is_enabled' => true]);
+        $owned1 = Location::create(['name' => 'CVTN 1', 'setting_id' => $settingA->id]);
+        $owned2 = Location::create(['name' => 'CVTN 2', 'setting_id' => $settingA->id]);
+        // Another business also uses owned1
+        SettingSaleLocation::create(['setting_id' => $settingB->id, 'location_id' => $owned1->id, 'is_enabled' => true]);
 
-        $response = $this->patch(route('sales-location-configurations.toggle', $ownedLocation->id), [
-            'is_enabled' => 0,
-        ]);
+        // Warm resolver cache
+        $this->assertEquals([$owned1->id, $owned2->id], SalesLocationResolver::resolveLocationIds($settingA->id)->all());
 
-        $response->assertRedirect(route('sales-location-configurations.index'));
-        
-        // Ensure it is still enabled
-        $this->assertTrue(SettingSaleLocation::where('location_id', $ownedLocation->id)
-            ->where('setting_id', $settingA->id)
-            ->where('is_enabled', true)
-            ->exists());
+        $this->patch(route('sales-location-configurations.toggle', $owned1->id), ['is_enabled' => 0])
+            ->assertRedirect(route('sales-location-configurations.index'));
+
+        $assignment = SettingSaleLocation::where('setting_id', $settingA->id)->where('location_id', $owned1->id)->first();
+        $this->assertFalse($assignment->is_enabled);
+        $this->assertNull($assignment->position);
+        $this->assertEquals([$owned2->id], SalesLocationResolver::resolveLocationIds($settingA->id)->all());
+
+        // Other business and global location unchanged
+        $this->assertTrue(SettingSaleLocation::where('setting_id', $settingB->id)->where('location_id', $owned1->id)->value('is_enabled'));
+        $this->assertEquals($settingA->id, $owned1->fresh()->setting_id);
+
+        // Repeated reloads keep it disabled and in the available list with owned badge
+        foreach ([1, 2] as $_) {
+            $response = $this->get(route('sales-location-configurations.index'));
+            $response->assertOk();
+            $this->assertEquals([$owned2->id], $response->viewData('activeLocations')->pluck('id')->all());
+            $available = $response->viewData('availableLocations');
+            $this->assertEquals([$owned1->id], $available->pluck('id')->all());
+            $this->assertTrue($available->first()->is_owned);
+        }
+        $this->assertSame(1, SettingSaleLocation::where('setting_id', $settingA->id)->where('location_id', $owned1->id)->count());
+        $this->assertFalse(SettingSaleLocation::where('setting_id', $settingA->id)->where('location_id', $owned1->id)->value('is_enabled'));
+        $response->assertSee('Aktifkan');
+        $response->assertSee('Milik Bisnis');
+        $response->assertDontSee('selalu tersedia');
+
+        // Re-enable appends after enabled locations
+        $this->patch(route('sales-location-configurations.toggle', $owned1->id), ['is_enabled' => 1]);
+        $assignment->refresh();
+        $this->assertTrue($assignment->is_enabled);
+        $this->assertEquals([$owned2->id, $owned1->id], SalesLocationResolver::resolveLocationIds($settingA->id)->all());
+    }
+
+    public function test_owned_active_location_renders_disable_action(): void
+    {
+        $settingA = $this->createSetting('CV Tiga Nusa');
+        $this->actingAsSuperAdminForSetting($settingA);
+        $owned = Location::create(['name' => 'CVTN 1', 'setting_id' => $settingA->id]);
+
+        $response = $this->get(route('sales-location-configurations.index'));
+        $response->assertSee(route('sales-location-configurations.toggle', $owned->id));
+        $response->assertSee('Nonaktifkan');
+    }
+
+    public function test_user_without_edit_permission_cannot_disable_owned_location(): void
+    {
+        $settingA = $this->createSetting('CV Tiga Nusa');
+        $owned = Location::create(['name' => 'CVTN 1', 'setting_id' => $settingA->id]);
+
+        $user = User::factory()->create();
+        $role = Role::firstOrCreate(['name' => 'Viewer']);
+        $user->assignRole($role);
+        $user->settings()->attach($settingA->id, ['role_id' => $role->id]);
+        $this->actingAs($user)->withSession(['setting_id' => $settingA->id, 'user_settings' => collect([$settingA])]);
+
+        $this->patch(route('sales-location-configurations.toggle', $owned->id), ['is_enabled' => 0])->assertForbidden();
+        $this->assertTrue(SettingSaleLocation::where('setting_id', $settingA->id)->where('location_id', $owned->id)->value('is_enabled'));
+    }
+
+    public function test_last_enabled_location_can_be_disabled_and_restored(): void
+    {
+        $settingA = $this->createSetting('CV Tiga Nusa');
+        $this->actingAsSuperAdminForSetting($settingA);
+        $owned = Location::create(['name' => 'CVTN 1', 'setting_id' => $settingA->id]);
+
+        $this->assertEquals([$owned->id], SalesLocationResolver::resolveLocationIds($settingA->id)->all());
+
+        $this->patch(route('sales-location-configurations.toggle', $owned->id), ['is_enabled' => 0]);
+        $this->assertTrue(SalesLocationResolver::resolveLocationIds($settingA->id)->isEmpty());
+        $this->assertNull(SalesLocationResolver::resolveId($settingA->id));
+
+        $this->get(route('sales-location-configurations.index'))->assertOk();
+        $this->assertTrue(SalesLocationResolver::resolveLocationIds($settingA->id)->isEmpty());
+
+        $this->patch(route('sales-location-configurations.toggle', $owned->id), ['is_enabled' => 1]);
+        $this->assertEquals([$owned->id], SalesLocationResolver::resolveLocationIds($settingA->id)->all());
+    }
+
+    public function test_reorder_rejects_disabled_owned_location(): void
+    {
+        $settingA = $this->createSetting('CV Tiga Nusa');
+        $this->actingAsSuperAdminForSetting($settingA);
+        $owned1 = Location::create(['name' => 'CVTN 1', 'setting_id' => $settingA->id]);
+        $owned2 = Location::create(['name' => 'CVTN 2', 'setting_id' => $settingA->id]);
+        $this->patch(route('sales-location-configurations.toggle', $owned1->id), ['is_enabled' => 0]);
+
+        $this->put(route('sales-location-configurations.order'), ['location_ids' => [$owned1->id, $owned2->id]]);
+
+        $this->assertNull(SettingSaleLocation::where('setting_id', $settingA->id)->where('location_id', $owned1->id)->value('position'));
+        $this->assertFalse(SettingSaleLocation::where('setting_id', $settingA->id)->where('location_id', $owned1->id)->value('is_enabled'));
+    }
+
+    public function test_ownership_transfer_preserves_existing_assignment_choices(): void
+    {
+        $settingA = $this->createSetting('CV Tiga Nusa');
+        $settingB = $this->createSetting('Top IT');
+
+        $b1 = Location::create(['name' => 'TIT 1', 'setting_id' => $settingB->id]);
+        $location = Location::create(['name' => 'CVTN 1', 'setting_id' => $settingA->id]);
+        SettingSaleLocation::create(['setting_id' => $settingB->id, 'location_id' => $location->id, 'is_enabled' => false]);
+
+        SalesLocationResolver::resolveLocationIds($settingA->id);
+        SalesLocationResolver::resolveLocationIds($settingB->id);
+
+        $location->update(['setting_id' => $settingB->id]);
+
+        $this->assertFalse(SettingSaleLocation::where('setting_id', $settingB->id)->where('location_id', $location->id)->value('is_enabled'));
+        $this->assertSame(1, SettingSaleLocation::where('setting_id', $settingB->id)->where('location_id', $location->id)->count());
+        // Former owner's choice unchanged
+        $this->assertTrue(SettingSaleLocation::where('setting_id', $settingA->id)->where('location_id', $location->id)->value('is_enabled'));
+        $this->assertEquals([$b1->id], SalesLocationResolver::resolveLocationIds($settingB->id)->all());
+
+        // Repair on new owner keeps disabled
+        SettingSaleLocation::repairMissingOwnedAssignments($settingB->id);
+        $this->assertFalse(SettingSaleLocation::where('setting_id', $settingB->id)->where('location_id', $location->id)->value('is_enabled'));
+
+        // Transfer to a business with an existing enabled assignment preserves its priority
+        $settingC = $this->createSetting('Third Biz');
+        $c1 = Location::create(['name' => 'C1', 'setting_id' => $settingC->id]);
+        SettingSaleLocation::create(['setting_id' => $settingC->id, 'location_id' => $location->id, 'is_enabled' => true]);
+        SettingSaleLocation::where('setting_id', $settingC->id)->where('location_id', $location->id)->update(['position' => 1]);
+        SettingSaleLocation::where('setting_id', $settingC->id)->where('location_id', $c1->id)->update(['position' => 2]);
+        SalesLocationResolver::forget($settingC->id);
+
+        $location->update(['setting_id' => $settingC->id]);
+        $this->assertEquals(1, SettingSaleLocation::where('setting_id', $settingC->id)->where('location_id', $location->id)->value('position'));
+        $this->assertEquals([$location->id, $c1->id], SalesLocationResolver::resolveLocationIds($settingC->id)->all());
+    }
+
+    public function test_ownership_transfer_creates_enabled_assignment_when_absent(): void
+    {
+        $settingA = $this->createSetting('CV Tiga Nusa');
+        $settingB = $this->createSetting('Top IT');
+
+        $b1 = Location::create(['name' => 'TIT 1', 'setting_id' => $settingB->id]);
+        $location = Location::create(['name' => 'CVTN 1', 'setting_id' => $settingA->id]);
+        $this->assertEquals([$b1->id], SalesLocationResolver::resolveLocationIds($settingB->id)->all());
+        SalesLocationResolver::resolveLocationIds($settingA->id);
+
+        $location->update(['setting_id' => $settingB->id]);
+
+        $this->assertTrue(SettingSaleLocation::where('setting_id', $settingB->id)->where('location_id', $location->id)->value('is_enabled'));
+        $this->assertEquals([$b1->id, $location->id], SalesLocationResolver::resolveLocationIds($settingB->id)->all());
+        $this->assertTrue(SettingSaleLocation::where('setting_id', $settingA->id)->where('location_id', $location->id)->value('is_enabled'));
+    }
+
+    public function test_repair_preserves_disabled_and_enabled_priority_and_appends_missing(): void
+    {
+        $settingA = $this->createSetting('CV Tiga Nusa');
+        $o1 = Location::create(['name' => 'CVTN 1', 'setting_id' => $settingA->id]);
+        $o2 = Location::create(['name' => 'CVTN 2', 'setting_id' => $settingA->id]);
+        $o3 = Location::create(['name' => 'CVTN 3', 'setting_id' => $settingA->id]);
+
+        SettingSaleLocation::where('setting_id', $settingA->id)->where('location_id', $o1->id)->first()
+            ->update(['is_enabled' => false, 'position' => null]);
+        SettingSaleLocation::where('setting_id', $settingA->id)->where('location_id', $o3->id)->delete();
+        $o2Position = SettingSaleLocation::where('setting_id', $settingA->id)->where('location_id', $o2->id)->value('position');
+
+        SettingSaleLocation::repairMissingOwnedAssignments($settingA->id);
+        SettingSaleLocation::repairMissingOwnedAssignments($settingA->id);
+
+        $this->assertFalse(SettingSaleLocation::where('setting_id', $settingA->id)->where('location_id', $o1->id)->value('is_enabled'));
+        $this->assertEquals($o2Position, SettingSaleLocation::where('setting_id', $settingA->id)->where('location_id', $o2->id)->value('position'));
+        $this->assertSame(1, SettingSaleLocation::where('setting_id', $settingA->id)->where('location_id', $o3->id)->count());
+        $this->assertEquals([$o2->id, $o3->id], SalesLocationResolver::resolveLocationIds($settingA->id)->all());
     }
 
     public function test_disable_and_reenable_borrowed_location(): void

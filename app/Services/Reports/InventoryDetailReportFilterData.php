@@ -14,6 +14,7 @@ class InventoryDetailReportFilterData
     public array $productIds;
     public string $sortColumn;
     public string $sortDirection;
+    public array $selectedSettingIds;
 
     public function __construct(
         ?Carbon $tanggalAwal = null,
@@ -22,7 +23,8 @@ class InventoryDetailReportFilterData
         string $categoryMatchMode = 'any',
         array $productIds = [],
         string $sortColumn = 'product_name',
-        string $sortDirection = 'asc'
+        string $sortDirection = 'asc',
+        array $selectedSettingIds = []
     ) {
         $now = now();
         $this->tanggalAwal = $tanggalAwal ? $tanggalAwal->copy()->startOfDay() : $now->copy()->startOfMonth()->startOfDay();
@@ -32,6 +34,7 @@ class InventoryDetailReportFilterData
         $this->productIds = $productIds;
         $this->sortColumn = in_array($sortColumn, ['product_name', 'product_code']) ? $sortColumn : 'product_name';
         $this->sortDirection = in_array(strtolower($sortDirection), ['asc', 'desc']) ? strtolower($sortDirection) : 'asc';
+        $this->selectedSettingIds = array_values(array_unique(array_filter(array_map('intval', $selectedSettingIds))));
     }
 
     public static function fromRequest(Request $request): self
@@ -46,7 +49,8 @@ class InventoryDetailReportFilterData
             $request->input('categoryMatchMode', 'any'),
             $request->input('productIds', []),
             $request->input('sortColumn', 'product_name'),
-            $request->input('sortDirection', 'asc')
+            $request->input('sortDirection', 'asc'),
+            $request->input('selectedSettingIds', [])
         );
     }
     
@@ -62,7 +66,8 @@ class InventoryDetailReportFilterData
             $filters['categoryMatchMode'] ?? 'any',
             $filters['productIds'] ?? [],
             $filters['sortColumn'] ?? 'product_name',
-            $filters['sortDirection'] ?? 'asc'
+            $filters['sortDirection'] ?? 'asc',
+            $filters['selectedSettingIds'] ?? []
         );
     }
 }

@@ -256,7 +256,7 @@ proving its worker really performs the operation (two earlier "passes" were vacu
 
 - Maintainability: resource discovery/locking is duplicated across lifecycle, finalization and reversal; divergent lock
   sets are a risk. Not refactored here (a refactor of the locking core would invalidate the race evidence above).
-- `ConsignmentBuyoutCapacityService` legacy-reservation `exists()` read (~line 302) is still a plain read.
+- ~~`ConsignmentBuyoutCapacityService` dependency `exists()` read (~line 302) is still a plain read.~~ Confirmed defect and fixed during main integration (see below).
 - UAT (10.5) must be executed by a person; the flake `livewire component renders business selector` stays unresolved.
 
 ### Final-review follow-up (two P1 + one deployment gap)
@@ -264,3 +264,120 @@ proving its worker really performs the operation (two earlier "passes" were vacu
 - Legacy consumption in `soldReceiptResidual`: pending (WAITING_APPROVAL) and approved legacy receipt allocations of the exact source/receipt pair are now subtracted (A=5/B=5 with A's five billed leaves A=0, B=5). Test: `legacy_pending_and_approved_allocations_consume_the_exact_source_receipt_pair`.
 - Return ownership lower bound: `assertUnacquiredRoom` enforces that units declared NOT acquired fit in the sale's unacquired, unreturned room (sold - acquired - other unacquired returns) at declaration and at receiving (explicit and "nothing acquired" paths), cumulatively. Test: `a_declaration_cannot_understate_the_acquired_quantity_even_across_partial_returns` (sell 10, acquire 5, return 10 declaring 0 refused; partial returns bounded cumulatively). Serialized ownership is exact and unaffected.
 - Deployment guide: trigger reinstall requires quiescing all cost writers until both triggers are restored and verified, including after migration failure.
+
+### Integration with main (0774d63c), 2026-11-11
+
+Report conflicts (`InventorySummaryReportQueryService`, `InventoryValuationReportQueryService`) resolved on main's per-business
+structure; `loadBuyoutTransactionEffects()` is loaded per business inside the loop, the non-owned leg is ignored (summary) /
+treated as custody (valuation), and the recorded `average_after` is applied at the event. Buyout labels moved to
+`InventoryTransactionTypeLabel` (all contexts); the now-unused private `TYPE_LABELS` constant was removed. Main's
+transfer-date change in `InventoryReplaySupport` auto-merged and its regressions pass.
+
+Attribution concurrency (confirmed defect, fixed): `setAttribution` did a plain read before the coordination lock, pinning a
+REPEATABLE READ snapshot, so `attributionIsDependedOn()` could miss a reservation committed by a concurrent approval. Race
+`attribution_edit_versus_buyout_approval_cannot_both_commit` failed on round 1 (both committed: attribution 6 -> 3/3 under an
+ACTIVE reservation). Fix: discovery read moved before the transaction; dependency and gross-attribution reads use
+`ConsignmentBuyoutReservationGuard::latest()`. After the fix: 6 rounds, approval-won 3 / edit-won 3, invariant held.
+
+New tests: multi-business valuation/summary before/after acquisition, between acquisition and reversal, after reversal, with a
+second business at a different cost (totals + summary export); owned period in/out and ledger/export labels; label contexts;
+buyout destinations never enabled for POS; config defaults/env mapping.
+
+Results on the integrated tree:
+- `bash scripts/test-consignment-baseline.sh`: 940 passed (4635 assertions), 0 failed.
+- `bash scripts/run-mysql-sequence-tests.sh` (MySQL 8.0.44): OK, 52 tests, 1480 assertions.
+- Main's report/POS/sale-location/Purchase total & PKP tax files plus buyout POS/Purchase/screens files (37 files run
+  individually with `php artisan test <file>`): 324 passed (1623 assertions).
+- `openspec validate buy-out-unsold-consignment-stock --strict`: valid.
+
+Known limitation: `WarehouseStockValuationReportQueryService` (main) values replayed per-location quantities at the *current*
+average, so historical as-of values there do not reflect the buyout average at the event date (pre-existing design, not
+buyout-specific). Inventory Detail is quantity-only.
+
+### Review corrections (2026-11-11, after independent review of the integrated candidate)
+
+1. **Cross-business return declaration (P1, fixed).** `declareReturn` loaded `SaleReturnDetail::findOrFail()` unscoped and
+   `declare()` accepted a bare actor id. Now the HTTP lookup is scoped to the active business (the return's business or
+   the sold source's inventory-owner business, for POS split-owner) and anything else is a 404; `declare()` requires a
+   `User`, checks `consignments.buyouts.acquire_unsold` and access to one of those businesses, and refuses after receiving.
+   Tests: `a_foreign_business_cannot_declare_...`, `declaring_requires_the_acquire_unsold_permission_...` (denials leave
+   apportionments, custody, stock, transactions, purchases, audit and return state unchanged).
+2. **Missing operator declaration flow (P1, fixed).** New panel `consignment::buyouts.partials.return-declaration` on the
+   Sales Return and POS return detail screens: returned non-serialized quantity, sold/acquired/already-returned acquired
+   quantities, owned destination, bounds, current declaration; form only when `ui_enabled`, permitted and not received.
+   Serialized units are never offered. Test: `the_operator_declares_through_the_rendered_form_then_receives_and_releases_...`.
+3. **POS-linked receiving ignored buyout ownership (found during this pass, fixed).** `PosReturnLifecycleService` posted
+   returned stock straight to the original location with no apportionment, so an acquired unit went back to the
+   consignment pool and an ambiguous split was guessed. It now calls `resolveForReceive()` and posts each ownership part
+   to its destination (acquired -> buyout line's owned destination). Verified red on the pre-fix code. Tests:
+   `pos_linked_receiving_routes_acquired_units_...`, `pos_linked_receiving_of_a_sale_without_a_buyout_is_unchanged`.
+4. **Declaration vs reversal (confirmed race, fixed).** New race `declaration_versus_reversal_...` failed in the
+   simultaneous-start round (both committed). Root cause: `finalizedSoldLines()` filtered status with `whereHas`; MySQL
+   evaluates a subquery inside a locking read as a plain consistent read, so a just-reversed buyout still looked FINALIZED.
+   Fix: status read by its own locking read; declaration and receiving lock the acquiring buyout rows (reversal locks the
+   same rows FOR UPDATE); reversal's apportionment blocker uses a locking read; the same `whereHas` pattern in
+   `attributionIsDependedOn()` was hardened. After: 10 rounds, reversal-won 7 / declaration-won 3, invariant held.
+   Declaration vs receiving: 5 rounds, applied split never overwritten and always equal to owned custody.
+5. Coordination keys for receiving (standard and POS) and declaration now come from
+   `ConsignmentBuyoutReturnOwnershipService::coordinationPairs()` (return business + sold-source owner business, sorted).
+
+Results (final code):
+- `bash scripts/test-consignment-baseline.sh`: 946 passed (4691 assertions).
+- `bash scripts/test-with-fresh-sqlite.sh --filter='ConsignmentBuyoutConfigTest|InventoryTransactionTypeLabelTest|TransferDateReplayRegressionTest|ProductReports.*BusinessScopeTest|ReportBusinessScopeTest|POSCheckoutPreflightTest|SaleLocationConfigurationTest|PurchaseManualLineTotalPersistenceTest|PurchaseProductCartPkpTaxReconciliationTest|PurchaseProductCartLineTotalTest|InventoryValuationReport|InventorySummaryReport|POSReturn|PosReturn'`: 593 passed (3283 assertions).
+- `bash scripts/run-mysql-sequence-tests.sh` (MySQL 8.0.44): OK, 55 tests, 1648 assertions.
+
+Remaining limitations: split-owner returns (return business != sold-source owner) have no automated test; with
+`ui_enabled=false` an ambiguous mixed return cannot be declared and therefore cannot be received.
+
+## Second review corrections (2026-11-11)
+
+1. **POS receiving rounded decimal ownership splits (P1, fixed; corrected after the third review).** `PosReturnLifecycleService`
+   cast each ownership allocation with `(int) round(...)` and cast existing stock balances, product totals and transaction
+   snapshots to integers, so a 0.5/1.5 split posted 1/1 and 0.5 existing + 1 returned became 1.0. An interim fix that
+   restricted declarations to whole units was wrong: migration `2026_06_03_000000_convert_quantity_columns_to_decimal`
+   makes stock and transaction quantities DECIMAL(15,3), and an integer return total can have fractional ownership
+   portions. That restriction is removed (service, HTTP `numeric`, form `step="0.001"` with the decimal min/max, so every
+   value the server accepts is also submittable). POS posting now keeps every quantity, balance, product total and
+   transaction snapshot as a 3-decimal value; parts are summed and checked in 3-decimal precision and must not exceed the
+   returned quantity. Tests:
+   `pos_receiving_posts_a_fractional_ownership_split_exactly_and_preserves_decimal_balances` (HTTP 0.5 declaration,
+   0.25 existing -> 0.75 owned, 1.5 to consignment, transactions 0.5/1.5 with decimal snapshots),
+   `pos_receiving_of_a_whole_split_preserves_existing_decimal_stock` (the reviewer's 0.5 + 1 = 1.5 case),
+   `the_declaration_form_accepts_every_value_inside_fractional_bounds` (sold 6, acquired 2.5, return 4: bounds 0.5-2.5;
+   1, 2, 0.5, 2.5 accepted, 0.4 and 2.6 refused), and
+   `pos_receiving_splits_acquired_units_across_several_owned_destinations_exactly`.
+2. **Concurrent different returns exceeded unacquired room (P1, fixed).** `SalesReturnController::receive` discovered
+   coordination keys with a plain read inside the transaction (pinning the REPEATABLE READ snapshot before the lock wait),
+   and the unacquired-room / ambiguity checks read received returns with a `whereHas` snapshot read. Fix: keys are
+   discovered before the transaction (POS already did); new `receivedReturnQuantity()` reads the other details and their
+   parent return statuses with separate latest-committed (locking) reads and is used by `resolveForReceive()` and
+   `assertUnacquiredRoom()`. Tests (MySQL): see "Concurrency evidence (current)" in `uat-and-deployment.md`. The
+   deterministic held-lock race was verified red on the pre-fix code (both received, 4 unacquired > 3) and green after.
+   The race worker's `coord` mode gained an optional hold time.
+
+The reviewer's fractional `/tmp` reproduction is now satisfied by the permanent tests above; the in-process stale-snapshot seam would now wait on the coordination lock its own connection holds
+(the competitor must run in another process, which the held-lock race does).
+
+Results (final code):
+- `bash scripts/test-consignment-baseline.sh`: 950 passed (4724 assertions).
+- `bash scripts/test-with-fresh-sqlite.sh --filter='Consignment|SalesReturn|SaleReturn|InventoryValuationReport|InventorySummaryReport|POSReturn|PosReturn|WarehouseStock|AverageCost|SaleLocation|POSCheckout'`:
+  1551 passed, 3 failed. The 3 failures (`POSCheckoutNoteAndPaymentImageTest` x2, `POSCheckoutSplitPostingTest` x1)
+  fail identically on a clean `main` (0774d63c) worktree: pre-existing, unrelated to this change.
+- `bash scripts/run-mysql-sequence-tests.sh` (MySQL 8.0.44): OK, 59 tests, 1841 assertions.
+
+## Independent reviewer sign-off for task 10.6 (2026-11-11)
+
+Reviewed the resolved main integration and the final correction tree at HEAD `c7846edc`, main/MERGE_HEAD `0774d63c`, including the untracked return-declaration partial. Standards and specification reviews found no remaining merge-blocking findings in the reviewed corrections. The authorization, operator declaration flow, different-return concurrency, decimal ownership posting, existing decimal balance preservation, and decimal form-bound findings are closed. The incorrect interim whole-unit restriction and its spec premise have been removed.
+
+Independent final verification:
+
+- `bash scripts/test-consignment-baseline.sh`: final serial rerun **950 passed, 4724 assertions**, 107.45 seconds.
+- `bash scripts/run-mysql-sequence-tests.sh Modules/Consignment/Tests/Feature/ConsignmentBuyoutReturnRoutingTest.php --filter='pos_receiving_posts_a_fractional_ownership_split_exactly_and_preserves_decimal_balances|pos_receiving_of_a_whole_split_preserves_existing_decimal_stock|the_declaration_form_accepts_every_value_inside_fractional_bounds|pos_receiving_splits_acquired_units_across_several_owned_destinations_exactly'`: MySQL 8.0.44, **4 passed, 33 assertions**, 20.007 seconds. The isolated container was cleaned up by the runner.
+- `openspec validate buy-out-unsold-consignment-stock --strict`: valid. PHP syntax checks on the 11 changed tracked PHP/Blade files passed; the new partial was exercised by the rendered-page tests. No unmerged index entries remain.
+
+Verification caveat: the first baseline attempt had **949 passed, 1 failed** at `StockOpnameRedesignTest::test_unauthorized_user_cannot_view_system_stock_or_differences`, line 1305 (`assertDontSee('142')`). This file is unchanged from main. The isolated rerun passed (1 test, 20 assertions) and the subsequent complete baseline passed. The same test already documents the risk of bare numeric assertions matching opaque random tokens, but the exact occurrence in the failed response was not captured; treat this as an intermittent test limitation, not a conclusively diagnosed production defect. No test was weakened or excluded. Logs: `/tmp/buyout-signoff-baseline.log`, `/tmp/buyout-signoff-opname-rerun.log`, `/tmp/buyout-signoff-baseline-rerun.log`, `/tmp/buyout-signoff-mysql-decimal.log`.
+
+The full 59-test MySQL matrix and wider SQLite clean-main failure comparisons above are implementer-reported evidence, not full reruns by this final review. The reviewer independently ran the targeted decimal tests on MySQL; the prior independent different-return race review remains recorded in the conversation. The three documented pre-existing checkout failures remain outside this change's scope.
+
+Task **10.6 is complete** for this reviewed tree. Task **10.5 remains open** for human staging UAT, including split-owner returns when applicable. This is code-review sign-off, not production activation approval; production-copy migration rehearsal and deployment prerequisites remain required. Complete the pending merge only with explicitly reviewed paths: the new return-declaration partial is required; unrelated untracked `backup/` and the historical `review-handoff.md` should not be included automatically. No application changes were made, staged, or committed by the reviewer.
+

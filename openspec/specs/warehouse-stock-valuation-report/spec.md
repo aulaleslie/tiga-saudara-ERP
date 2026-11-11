@@ -1,7 +1,12 @@
-## ADDED Requirements
+## Purpose
+
+The warehouse stock valuation report shows per-warehouse product stock quantities and values as of a selected date, under Reports > Produk.
+
+## Requirements
+
 
 ### Requirement: Warehouse stock valuation report access
-The system SHALL provide a `Nilai stok gudang` report page under Reports > Produk for authorized users, scoped to the authenticated user's active setting.
+The system SHALL provide a `Nilai stok gudang` report page under Reports > Produk for authorized users, scoped to the businesses selected through the shared report business scope (default: the user's active setting). The route SHALL enforce `inventoryValuationReports.access`.
 
 #### Scenario: Authorized user opens report
 - **WHEN** a user with `inventoryValuationReports.access` opens the warehouse stock valuation report route
@@ -18,7 +23,8 @@ The system SHALL provide a `Nilai stok gudang` report page under Reports > Produ
 
 #### Scenario: Data is scoped to active setting
 - **WHEN** the report renders or exports
-- **THEN** products, warehouses, categories, prices, and stock movements outside the active `setting_id` SHALL be excluded.
+- **THEN** warehouses, prices, and stock movements outside the selected businesses SHALL be excluded
+- **AND** products and categories SHALL NOT be filtered by their owning business.
 
 ### Requirement: Report filters
 The system SHALL provide sample-aligned filters for as-of date, period preset, warehouse selection, product stock status, product category, category match mode, and warehouse name ordering.
@@ -183,3 +189,35 @@ The warehouse stock valuation report SHALL be read-only and SHALL NOT change exi
 #### Scenario: Existing reports preserved
 - **WHEN** users open the existing inventory valuation report or warehouse stock quantity report
 - **THEN** those reports SHALL preserve their existing route, permission, filter, table, and export behavior.
+
+### Requirement: Transfer replay uses the corresponding movement timestamp
+The report SHALL date outgoing TRF stock movements by dispatch time and incoming TRF movements by receipt time. If the corresponding timestamp or referenced transfer is unavailable, it SHALL use the inventory transaction creation time directly, without substituting the opposite movement timestamp. These rules SHALL apply consistently to report output and exports.
+
+#### Scenario: Transfer crosses a reporting boundary
+- **WHEN** a transfer is dispatched before a reporting boundary and received after it
+- **THEN** outgoing stock is allocated to the dispatch date and incoming stock to the receipt date
+- **AND** period or as-of balances reflect those separate dates
+
+#### Scenario: Missing dispatch time
+- **WHEN** an outgoing TRF transaction has no dispatch timestamp but has a receipt timestamp
+- **THEN** the report uses the transaction creation time rather than the receipt time
+
+#### Scenario: Missing receipt time
+- **WHEN** an incoming TRF transaction has no receipt timestamp but has a dispatch timestamp
+- **THEN** the report uses the transaction creation time rather than the dispatch time
+
+#### Scenario: Missing transfer metadata
+- **WHEN** a TRF transaction has no available referenced transfer
+- **THEN** the report uses the transaction creation time
+
+#### Scenario: Transfers load against the established schema
+- **WHEN** report data or an export includes persisted transfers on the repository's migrated database schema
+- **THEN** the report completes without an unknown transfer-date column error
+
+### Requirement: Warehouse stock valuation multi-business matrix
+With several businesses selected, the report SHALL show one row per product with a Total group (quantity, value) and one group per business (quantity, average cost, value) using that business's average cost. Each business group SHALL expand to its selected warehouses. The grand total SHALL equal the sum of the business values. Exports SHALL match the screen.
+
+#### Scenario: Per-business average cost
+- **WHEN** a product's average cost is 100 in A and 120 in B, with 2 units in each
+- **THEN** A's value SHALL be 200, B's 240, and the Total value 440
+

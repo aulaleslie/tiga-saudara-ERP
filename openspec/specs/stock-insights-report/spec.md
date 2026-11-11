@@ -230,3 +230,16 @@ Automated verification for this capability SHALL be limited to focused unit and 
 - **WHEN** implementation tasks and acceptance instructions are prepared
 - **THEN** they identify focused automated test targets and a separate human browser checklist
 - **AND** they do not require a full automated suite or agent-driven browser command
+
+### Requirement: Stock insights is limited to assigned businesses
+`Stok Global`, the per-business and per-location columns, attention statuses, and sales and financial measures SHALL include only businesses assigned to the authenticated user, or every business for Super Admin. The report SHALL NOT add a business selector.
+
+#### Scenario: User assigned to a subset
+- **WHEN** a user assigned to A and B (not C) opens Pantauan Stok
+- **THEN** only A and B SHALL appear as business columns
+- **AND** `Stok Global` and the sales measures SHALL exclude C
+
+#### Scenario: Super Admin
+- **WHEN** a Super Admin opens Pantauan Stok
+- **THEN** every business SHALL be included
+

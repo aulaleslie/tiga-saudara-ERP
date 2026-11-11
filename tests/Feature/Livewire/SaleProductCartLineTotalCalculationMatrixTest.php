@@ -936,7 +936,7 @@ class SaleProductCartLineTotalCalculationMatrixTest extends TestCase
         // The flashed notification must name the missing product and the target business
         $message = session('message');
         $this->assertIsString($message, 'A missing-price notification should be flashed');
-        $this->assertStringContainsString('MISSING PRICE PRODUCT', $message);
+        $this->assertStringContainsString('Missing Price Product', $message);
         $this->assertStringContainsString('PKP BUSINESS', $message);
         $this->assertStringContainsString('Unit price diatur ke 0.', $message);
     }
@@ -1017,8 +1017,8 @@ class SaleProductCartLineTotalCalculationMatrixTest extends TestCase
         // One consolidated notification names both products and the target business
         $message = session('message');
         $this->assertIsString($message, 'A consolidated missing-price notification should be flashed');
-        $this->assertStringContainsString('MISSING PRICE PRODUCT A', $message);
-        $this->assertStringContainsString('MISSING PRICE PRODUCT B', $message);
+        $this->assertStringContainsString('Missing Price Product A', $message);
+        $this->assertStringContainsString('Missing Price Product B', $message);
         $this->assertStringContainsString('PKP BUSINESS', $message);
         $this->assertStringContainsString('Unit price diatur ke 0.', $message);
     }

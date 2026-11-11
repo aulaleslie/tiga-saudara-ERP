@@ -16,6 +16,7 @@ use Modules\Sale\Entities\SaleDetails;
 use Modules\SalesReturn\Entities\SaleReturn;
 use Modules\Setting\Entities\Setting;
 use Modules\Currency\Entities\Currency;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class ProfitLossReportTest extends TestCase
@@ -24,6 +25,7 @@ class ProfitLossReportTest extends TestCase
 
     protected $setting;
     protected $product;
+    protected $role;
 
     protected function setUp(): void
     {
@@ -31,6 +33,7 @@ class ProfitLossReportTest extends TestCase
 
         \Illuminate\Support\Facades\Schema::disableForeignKeyConstraints();
         \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'reports.access']);
+        $this->role = Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web']);
 
         $currency = Currency::factory()->create(['code' => 'IDR']);
         $this->setting = Setting::factory()->create(['default_currency_id' => $currency->id]);
@@ -246,6 +249,7 @@ class ProfitLossReportTest extends TestCase
     {
         $user = \App\Models\User::factory()->create();
         $user->givePermissionTo('reports.access');
+        $user->settings()->attach($this->setting->id, ['role_id' => $this->role->id]);
 
         $this->createSale(['discount_amount' => 5000], [
             ['sub_total' => 100000, 'product_tax_amount' => 0, 'quantity' => 1, 'cost_unit_snapshot' => 40000]
@@ -287,6 +291,8 @@ class ProfitLossReportTest extends TestCase
 
         $currency = Currency::factory()->create(['code' => 'IDR']);
         $setting2 = Setting::factory()->create(['default_currency_id' => $currency->id, 'company_name' => 'Test Company 2']);
+        $user->settings()->attach($this->setting->id, ['role_id' => $this->role->id]);
+        $user->settings()->attach($setting2->id, ['role_id' => $this->role->id]);
 
         $component = Livewire::actingAs($user)
             ->test(ProfitLossReport::class)
@@ -302,10 +308,10 @@ class ProfitLossReportTest extends TestCase
         $html = $component->html();
         $this->assertStringContainsString('<option value="' . $this->setting->id . '"', $html);
         $this->assertStringContainsString('selected', $html);
-        $this->assertStringContainsString('>' . $this->setting->company_name . '</option>', $html);
+        $this->assertStringContainsString('>' . e($this->setting->company_name) . '</option>', $html);
         
         $this->assertStringContainsString('<option value="' . $setting2->id . '"', $html);
-        $this->assertStringContainsString('>' . $setting2->company_name . '</option>', $html);
+        $this->assertStringContainsString('>' . e($setting2->company_name) . '</option>', $html);
     }
 
     public function test_excel_export_structure()
@@ -356,6 +362,9 @@ class ProfitLossReportTest extends TestCase
         $currency = Currency::factory()->create(['code' => 'IDR']);
         $setting2 = Setting::factory()->create(['default_currency_id' => $currency->id]);
         $setting3 = Setting::factory()->create(['default_currency_id' => $currency->id]);
+        $user->settings()->attach($this->setting->id, ['role_id' => $this->role->id]);
+        $user->settings()->attach($setting2->id, ['role_id' => $this->role->id]);
+        $user->settings()->attach($setting3->id, ['role_id' => $this->role->id]);
 
         Excel::fake();
 

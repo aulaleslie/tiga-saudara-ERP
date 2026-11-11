@@ -421,4 +421,45 @@ class ConsignmentBuyoutMysqlRaceTest extends TestCase
 
         return [$conf, $b, $src];
     }
+
+    /**
+     * @test attribution editing versus buyout approval over the same sold source. The edit's dependency check must
+     * see a reservation committed while it waited for the coordination lock (REPEATABLE READ snapshot hazard).
+     */
+    public function attribution_edit_versus_buyout_approval_cannot_both_commit(): void
+    {
+        $outcomes = [];
+        foreach ([[0, 40], [0, 120], [40, 0], [120, 0], [0, 80], [80, 0]] as $round => $delays) {
+            if ($round > 0) {
+                $this->truncateAll();
+                $this->setUpFinalizationFixtures();
+            }
+            $r = $this->receipt($this->supplier, '10');
+            $r2 = $this->receipt($this->supplier, '10');
+            $this->price($r, 100);
+            $this->price($r2, 100);
+            $this->stock('14');
+            $src = $this->soldSource('6');
+            $this->capacity()->setAttribution($src->id, [$r->id => '6'], null, 'attribute');
+            $b = $this->life->createDraft($this->setting->id, $this->supplier->id, '2026-11-10', [[
+                'line_type' => 'SOLD_UNBILLED', 'consignment_receiving_detail_id' => $r->id, 'consignment_sold_source_id' => $src->id,
+                'destination_location_id' => $this->dest1->id, 'base_quantity' => '6']], $this->user, $this->meta());
+            $b = $this->life->submit($b->fresh(), $this->user);
+
+            $results = $this->race([
+                ['approve', $b->id],
+                ['attribute', $src->id, json_encode([$r->id => '3', $r2->id => '3'])],
+            ], $delays);
+
+            $approved = $b->fresh()->status === 'APPROVED';
+            $attr = DB::table('consignment_sold_receipt_attributions')->where('consignment_sold_source_id', $src->id)
+                ->pluck('attributed_base_quantity', 'consignment_receiving_detail_id')->map(fn ($q) => (float) $q)->all();
+            $edited = ($attr[$r->id] ?? 0.0) !== 6.0;
+            $this->assertFalse($approved && $edited, 'approval reserved against an attribution that was changed underneath it: '
+                . json_encode($attr) . ' ' . implode(' | ', $results));
+            $this->assertTrue($approved || $edited, 'one of the two must have won: ' . implode(' | ', $results));
+            $outcomes[] = $approved ? 'approval-won' : 'edit-won';
+        }
+        fwrite(STDERR, "\n[attribution-vs-approval outcomes] " . json_encode(array_count_values($outcomes)) . "\n");
+    }
 }

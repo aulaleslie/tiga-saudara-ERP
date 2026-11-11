@@ -201,6 +201,8 @@
                             </div>
                         @endif
 
+                        @include('consignment::buyouts.partials.return-declaration', ['saleReturn' => $sale_return])
+
                         @include('salesreturn::partials.settlement-items-table')
 
                         <div class="table-responsive-sm mt-4">

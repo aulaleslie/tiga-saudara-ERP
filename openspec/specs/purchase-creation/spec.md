@@ -55,14 +55,14 @@ The purchase creation flow SHALL resolve purchase-line tax according to the acti
 
 #### Scenario: PKP purchase uses product purchase tax when configured
 - **WHEN** a user creates a purchase and the active setting has `is_pkp = true`
+- **AND** no default tax is configured in the system (`is_default = true`)
 - **AND** the selected product has a configured purchase tax for the active setting
 - **THEN** the purchase cart line SHALL use that product purchase tax
 - **AND** purchase tax calculations SHALL use that persisted line tax
 
 #### Scenario: PKP purchase falls back to default tax when product tax is missing
 - **WHEN** a user creates a purchase and the active setting has `is_pkp = true`
-- **AND** the selected product does not have a configured purchase tax for the active setting
-- **AND** a default tax exists
+- **AND** a default tax exists (`is_default = true`)
 - **THEN** the purchase cart line SHALL use the default tax
 - **AND** purchase tax calculations SHALL use that default tax immediately
 - **AND** the UI SHALL display this default tax as selected
@@ -71,17 +71,23 @@ The purchase creation flow SHALL resolve purchase-line tax according to the acti
 - **WHEN** a user creates a purchase and the active setting has `is_pkp = true`
 - **AND** the selected product does not have a configured purchase tax for the active setting
 - **AND** no tax is explicitly marked as "default" in the database
-- **AND** at least one tax exists in the system
-- **THEN** the purchase cart line SHALL auto-select the first available tax (alphabetical by name)
-- **AND** purchase tax calculations SHALL use that fallback tax immediately
-- **AND** the UI SHALL display this fallback tax as selected
+- **THEN** the purchase cart line SHALL NOT fall back to any available tax and SHALL remain null
+- **AND** purchase tax calculations SHALL use zero tax amount until manually selected
+- **AND** the UI SHALL display no tax selected
 
 #### Scenario: PKP purchase blocks unresolved tax lines
 - **WHEN** a user submits a purchase and the active setting has `is_pkp = true`
 - **AND** one or more purchase lines still have no resolved tax
 - **THEN** the submission SHALL fail with a validation error indicating that purchase tax is required
 
+#### Scenario: PKP cart mounts with existing taxless row and default tax exists
+- **WHEN** a PKP cart opens with an existing row without tax and a default tax exists
+- **THEN** the row's tax SHALL be set to the default tax
+- **AND** a row that already has a tax SHALL keep it
+
 ### Requirement: PKP tax availability validation
+
+The purchase creation flow SHALL validate tax availability when creating purchases under a PKP business.
 
 #### Scenario: PKP purchase blocks submission when zero taxes exist
 - **WHEN** a user submits a purchase and the active setting has `is_pkp = true`

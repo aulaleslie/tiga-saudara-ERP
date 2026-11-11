@@ -247,4 +247,63 @@ class PurchasePersistenceLineTotalTest extends TestCase
         $this->assertEquals(1400, $header['total_amount']);
         $this->assertEquals(100, $result['computed_discount_amount']);
     }
+
+    /** @test */
+    public function test_pkp_tax_included_automatic_row_normalizes_and_adds_up()
+    {
+        $setting = Setting::create([
+            'company_name' => 'PKP Setting',
+            'company_email' => 'pkp@test.com',
+            'company_phone' => '123456789',
+            'default_currency_id' => $this->currency->id,
+            'default_currency_position' => 'prefix',
+            'notification_email' => 'notify@test.com',
+            'footer_text' => 'Footer',
+            'company_address' => 'Address',
+            'is_pkp' => true,
+        ]);
+
+        $detailInput = [
+            'id' => 1,
+            'product_id' => 1,
+            'product_name' => 'Test Product',
+            'product_code' => 'TEST-01',
+            'quantity' => 1,
+            'price' => 1000,
+            'unit_price' => 1000,
+            'tax_id' => $this->tax11->id,
+            'options' => [
+                'unit_price' => 1000,
+                'product_discount' => 0,
+                'product_discount_type' => 'fixed',
+                'product_tax' => $this->tax11->id,
+                'pricing_source' => 'automatic',
+                'sub_total' => 1000,
+                'sub_total_before_tax' => 900.90,
+                'product_tax_amount' => 99.10,
+                \App\Support\RowTotalRoundingCalculator::RECALC_FLAG => true,
+            ]
+        ];
+
+        $result = $this->normalizer->normalize(
+            [
+                'discount_percentage' => 0,
+                'discount_amount' => 0,
+                'shipping_amount' => 0,
+                'tax_id' => $this->tax11->id,
+                'is_tax_included' => true,
+                'setting_id' => $setting->id,
+            ],
+            [$detailInput],
+            true,
+            $setting->id
+        );
+
+        $detail = $result['details'][0];
+
+        $this->assertEquals(1000.00, $detail['sub_total']);
+        $this->assertEquals(900.90, $detail['sub_total_before_tax']);
+        $this->assertEquals(99.10, $detail['product_tax_amount']);
+        $this->assertEquals($detail['sub_total'], round($detail['sub_total_before_tax'] + $detail['product_tax_amount'], 2));
+    }
 }

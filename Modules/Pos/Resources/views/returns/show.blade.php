@@ -399,6 +399,10 @@
                         @endif
 
                         @include('pos::returns.partials.readonly-detail', ['detailView' => $detailView])
+
+                        @foreach($return->saleReturns as $linkedSaleReturn)
+                            @include('consignment::buyouts.partials.return-declaration', ['saleReturn' => $linkedSaleReturn])
+                        @endforeach
                     </div>
                 </div>
             </div>

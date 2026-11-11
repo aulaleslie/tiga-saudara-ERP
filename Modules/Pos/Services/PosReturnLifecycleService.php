@@ -2564,7 +2564,13 @@ class PosReturnLifecycleService
     public function receive(int $posReturnId): void
     {
         $this->runLifecycleMutation($posReturnId, 'receive', function () use ($posReturnId) {
-            \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId) {
+            // Discovery before the transaction; the coordination keys (return business + sold-source owner businesses)
+            // are then locked first, sorted, matching standard receiving, declaration and buyout reversal.
+            $ownershipService = app(\Modules\Consignment\Services\ConsignmentBuyoutReturnOwnershipService::class);
+            $coordinationPairs = \Modules\Pos\Entities\PosReturn::with('saleReturns')->findOrFail($posReturnId)->saleReturns
+                ->flatMap(fn ($sr) => $ownershipService->coordinationPairs($sr))->all();
+            \Illuminate\Support\Facades\DB::transaction(function () use ($posReturnId, $coordinationPairs) {
+            \Modules\Consignment\Entities\ConsignmentInventoryCoordination::lockMany($coordinationPairs);
             $posReturn = \Modules\Pos\Entities\PosReturn::with(['saleReturns.saleReturnDetails.posReturnLine', 'lines'])->findOrFail($posReturnId);
 
             $this->assertManualCorrectionIsNotRequired($posReturn);
@@ -2679,7 +2685,7 @@ class PosReturnLifecycleService
                 continue;
             }
 
-            $quantity = (int) ($detail->quantity ?? 0);
+            $quantity = round((float) ($detail->quantity ?? 0), 3);
             if ($quantity <= 0) {
                 continue;
             }
@@ -2711,88 +2717,121 @@ class PosReturnLifecycleService
             // Unknown-serial registration commits with physical receiving, in this same transaction.
             $this->registerPendingSerialsAtReceiving($detail, $dispatchDetail, (int) $locationId, $actorId, $receivedAt, $saleReturn);
 
-            $productStock = \Modules\Product\Entities\ProductStock::where('product_id', $detail->product_id)
-                ->where('location_id', $locationId)
-                ->first();
-
-            if (!$productStock) {
-                $productStock = \Modules\Product\Entities\ProductStock::create([
-                    'product_id' => $detail->product_id,
-                    'location_id' => $locationId,
-                    'quantity' => 0,
-                    'quantity_tax' => 0,
-                    'quantity_non_tax' => 0,
-                    'broken_quantity_non_tax' => 0,
-                    'broken_quantity_tax' => 0,
-                    'broken_quantity' => 0,
-                    'tax_id' => $dispatchDetail->tax_id,
-                ]);
+            // Buyout ownership routing: units acquired by a finalized buyout are company-owned and land in the buyout
+            // line's owned destination; the rest keep the original route. Writes the APPLIED apportionment, so supplier
+            // capacity is not reopened for acquired units, and an ambiguous non-serialized split blocks receiving until
+            // it is declared (never guessed).
+            $allSerialIds = collect($detail->serial_number_ids ?? [])->map(fn ($id) => (int) $id)->filter()->values();
+            $ownership = app(\Modules\Consignment\Services\ConsignmentBuyoutReturnOwnershipService::class)
+                ->resolveForReceive($detail, $dispatchDetail, $allSerialIds, (float) $quantity, $actorId);
+            $parts = [];
+            $acquiredSerials = [];
+            // Stock, product totals and transactions are DECIMAL(15,3): ownership parts are posted exactly (milli units),
+            // never rounded, so per-destination postings always total the returned quantity and equal the APPLIED split.
+            $acquiredQty = 0.0;
+            foreach ($ownership['allocations'] as $alloc) {
+                $partQty = round((float) $alloc['quantity'], 3);
+                $partSerials = array_map('intval', $alloc['serial_ids'] ?? []);
+                $parts[] = [(int) $alloc['destination_location_id'], $partQty, $partSerials];
+                $acquiredSerials = array_merge($acquiredSerials, $partSerials);
+                $acquiredQty = round($acquiredQty + $partQty, 3);
+            }
+            if (round($acquiredQty - $quantity, 3) > 0) {
+                throw new \RuntimeException('Pembagian kepemilikan retur melebihi jumlah yang diretur.');
+            }
+            if (round($quantity - $acquiredQty, 3) > 0) {
+                $parts[] = [(int) $locationId, round($quantity - $acquiredQty, 3), $allSerialIds->reject(fn ($id) => in_array($id, $acquiredSerials, true))->values()->all()];
             }
 
-            $previousProductQuantity = (int) ($product->product_quantity ?? 0);
-            $previousQuantityAtLocation = (int) ($productStock->quantity ?? 0);
-            // Bucket selection follows the owner of the location receiving the
-            // physical movement, not the historical detail tax metadata.
-            $receiptBucket = app(\Modules\Pos\Services\PosReturnReplacementStockMutator::class)
-                ->resolveBucketForLocation((int) $locationId);
-            $taxId = $receiptBucket === \Modules\Pos\Services\PosReturnReplacementStockMutator::BUCKET_TAX;
+            $post = function (int $locationId, float $quantity, array $serialIds) use ($detail, $dispatchDetail, $product, $saleReturn, $actorId, $receivedAt) {
+                $productStock = \Modules\Product\Entities\ProductStock::where('product_id', $detail->product_id)
+                    ->where('location_id', $locationId)
+                    ->first();
 
-            $productStock->{$receiptBucket} = (int) ($productStock->{$receiptBucket} ?? 0) + $quantity;
-
-            $productStock->quantity = (int) ($productStock->quantity_non_tax ?? 0)
-                + (int) ($productStock->quantity_tax ?? 0)
-                + (int) ($productStock->broken_quantity_non_tax ?? 0)
-                + (int) ($productStock->broken_quantity_tax ?? 0);
-            
-            $productStock->save();
-
-            $product->product_quantity = (int) $product->product_quantity + $quantity;
-            $product->save();
-
-            \Illuminate\Support\Facades\DB::table('transactions')->insert([
-                'product_id' => $product->id,
-                'setting_id' => (int) ($saleReturn->setting_id ?? \Illuminate\Support\Facades\Auth::user()->setting_id),
-                'type' => $taxId ? 'SALE_RETURN_GOOD_TAX' : 'SALE_RETURN_GOOD_NON_TAX',
-                'quantity' => $quantity,
-                'current_quantity' => (int) $product->product_quantity,
-                'location_id' => $locationId,
-                'user_id' => $actorId,
-                'reason' => 'PENERIMAAN RETUR PENJUALAN (POS): ' . $saleReturn->reference,
-                'previous_quantity' => $previousProductQuantity,
-                'after_quantity' => (int) $product->product_quantity,
-                'previous_quantity_at_location' => $previousQuantityAtLocation,
-                'after_quantity_at_location' => (int) ($productStock->quantity ?? 0),
-                'quantity_tax' => $taxId ? $quantity : 0,
-                'quantity_non_tax' => $taxId ? 0 : $quantity,
-                'broken_quantity' => (int) ($productStock->broken_quantity ?? 0),
-                'broken_quantity_tax' => (int) ($productStock->broken_quantity_tax ?? 0),
-                'broken_quantity_non_tax' => (int) ($productStock->broken_quantity_non_tax ?? 0),
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-
-            $serialIds = $detail->serial_number_ids ?? [];
-            if (!empty($serialIds)) {
-                \Modules\Product\Entities\ProductSerialNumber::whereIn('id', $serialIds)
-                    ->update([
-                        'dispatch_detail_id' => null,
+                if (!$productStock) {
+                    $productStock = \Modules\Product\Entities\ProductStock::create([
+                        'product_id' => $detail->product_id,
                         'location_id' => $locationId,
-                        'status' => \Modules\Product\Entities\ProductSerialNumber::STATUS_ACTIVE,
+                        'quantity' => 0,
+                        'quantity_tax' => 0,
+                        'quantity_non_tax' => 0,
+                        'broken_quantity_non_tax' => 0,
+                        'broken_quantity_tax' => 0,
+                        'broken_quantity' => 0,
+                        'tax_id' => $dispatchDetail->tax_id,
                     ]);
+                }
 
-                \Modules\Sale\Entities\SalesOrderSerialTracking::where('sale_id', $saleReturn->sale_id)
-                    ->whereIn('product_serial_number_id', $serialIds)
-                    ->update([
-                        'return_date' => $receivedAt,
-                    ]);
+                $previousProductQuantity = round((float) ($product->product_quantity ?? 0), 3);
+                $previousQuantityAtLocation = round((float) ($productStock->quantity ?? 0), 3);
+                // Bucket selection follows the owner of the location receiving the
+                // physical movement, not the historical detail tax metadata.
+                $receiptBucket = app(\Modules\Pos\Services\PosReturnReplacementStockMutator::class)
+                    ->resolveBucketForLocation((int) $locationId);
+                $taxId = $receiptBucket === \Modules\Pos\Services\PosReturnReplacementStockMutator::BUCKET_TAX;
 
-                foreach ($serialIds as $serialId) {
-                    \App\Services\SerialNumberHistoryService::record(
-                        $serialId,
-                        \Modules\Product\Entities\SerialNumberHistory::EVENT_SALE_RETURNED,
-                        $locationId,
-                        $detail
-                    );
+                $productStock->{$receiptBucket} = round((float) ($productStock->{$receiptBucket} ?? 0) + $quantity, 3);
+
+                $productStock->quantity = round((float) ($productStock->quantity_non_tax ?? 0)
+                    + (float) ($productStock->quantity_tax ?? 0)
+                    + (float) ($productStock->broken_quantity_non_tax ?? 0)
+                    + (float) ($productStock->broken_quantity_tax ?? 0), 3);
+            
+                $productStock->save();
+
+                $product->product_quantity = round((float) $product->product_quantity + $quantity, 3);
+                $product->save();
+
+                \Illuminate\Support\Facades\DB::table('transactions')->insert([
+                    'product_id' => $product->id,
+                    'setting_id' => (int) ($saleReturn->setting_id ?? \Illuminate\Support\Facades\Auth::user()->setting_id),
+                    'type' => $taxId ? 'SALE_RETURN_GOOD_TAX' : 'SALE_RETURN_GOOD_NON_TAX',
+                    'quantity' => $quantity,
+                    'current_quantity' => (float) $product->product_quantity,
+                    'location_id' => $locationId,
+                    'user_id' => $actorId,
+                    'reason' => 'PENERIMAAN RETUR PENJUALAN (POS): ' . $saleReturn->reference,
+                    'previous_quantity' => $previousProductQuantity,
+                    'after_quantity' => (float) $product->product_quantity,
+                    'previous_quantity_at_location' => $previousQuantityAtLocation,
+                    'after_quantity_at_location' => (float) ($productStock->quantity ?? 0),
+                    'quantity_tax' => $taxId ? $quantity : 0,
+                    'quantity_non_tax' => $taxId ? 0 : $quantity,
+                    'broken_quantity' => (float) ($productStock->broken_quantity ?? 0),
+                    'broken_quantity_tax' => (float) ($productStock->broken_quantity_tax ?? 0),
+                    'broken_quantity_non_tax' => (float) ($productStock->broken_quantity_non_tax ?? 0),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                if (!empty($serialIds)) {
+                    \Modules\Product\Entities\ProductSerialNumber::whereIn('id', $serialIds)
+                        ->update([
+                            'dispatch_detail_id' => null,
+                            'location_id' => $locationId,
+                            'status' => \Modules\Product\Entities\ProductSerialNumber::STATUS_ACTIVE,
+                        ]);
+
+                    \Modules\Sale\Entities\SalesOrderSerialTracking::where('sale_id', $saleReturn->sale_id)
+                        ->whereIn('product_serial_number_id', $serialIds)
+                        ->update([
+                            'return_date' => $receivedAt,
+                        ]);
+
+                    foreach ($serialIds as $serialId) {
+                        \App\Services\SerialNumberHistoryService::record(
+                            $serialId,
+                            \Modules\Product\Entities\SerialNumberHistory::EVENT_SALE_RETURNED,
+                            $locationId,
+                            $detail
+                        );
+                    }
+                }
+            };
+            foreach ($parts as [$partLocationId, $partQuantity, $partSerialIds]) {
+                if ($partQuantity > 0) {
+                    $post($partLocationId, $partQuantity, $partSerialIds);
+                    $product->refresh();
                 }
             }
         }

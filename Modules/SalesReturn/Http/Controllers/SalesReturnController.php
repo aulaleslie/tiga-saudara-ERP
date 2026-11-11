@@ -314,15 +314,15 @@ class SalesReturnController extends Controller
             return back();
         }
 
-        try {
-            DB::transaction(function () use ($sale_return) {
-                $receivedAt = now();
+        // Consignment buyout protocol: (setting, product) coordination keys are DISCOVERED before the transaction (a plain
+        // read inside it would pin the REPEATABLE READ snapshot before the lock wait), then locked first, sorted, so
+        // receiving, declaration and buyout reversal always queue on the same keys in the same order.
+        $coordinationPairs = app(\Modules\Consignment\Services\ConsignmentBuyoutReturnOwnershipService::class)->coordinationPairs($sale_return);
 
-                // Consignment buyout protocol: (setting, product) coordination locks precede the document locks.
-                \Modules\Consignment\Services\ConsignmentBuyoutReservationGuard::lockCoordination(
-                    (int) $sale_return->setting_id,
-                    $sale_return->saleReturnDetails()->pluck('product_id')->all()
-                );
+        try {
+            DB::transaction(function () use ($sale_return, $coordinationPairs) {
+                \Modules\Consignment\Entities\ConsignmentInventoryCoordination::lockMany($coordinationPairs);
+                $receivedAt = now();
 
                 // Source sale -> header locks, then the authoritative state check: a replayed or
                 // concurrent receive finds the return no longer awaiting receiving and writes nothing.

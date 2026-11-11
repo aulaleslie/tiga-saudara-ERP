@@ -74,7 +74,7 @@ class PurchaseProductCartPkpTaxReconciliationTest extends TestCase
         Cart::instance('purchase')->destroy();
     }
 
-    public function test_pkp_default_tax_does_not_reconcile_existing_cart_row_missing_tax_on_mount(): void
+    public function test_pkp_default_tax_reconciles_existing_cart_row_missing_tax_on_mount(): void
     {
         $defaultTax = Tax::create([
             'name' => 'PPN 11',
@@ -95,7 +95,12 @@ class PurchaseProductCartPkpTaxReconciliationTest extends TestCase
         $cartItem = Cart::instance('purchase')->content()->firstWhere('id', $this->product->id);
 
         $this->assertNotNull($cartItem);
-        $this->assertNull($cartItem->options->product_tax);
+        $this->assertSame($defaultTax->id, (int) $cartItem->options->product_tax);
+        $this->assertTrue((float) $cartItem->options->product_tax_amount > 0);
+        $this->assertEquals(
+            (float) $cartItem->options->sub_total,
+            round((float) $cartItem->options->sub_total_before_tax + (float) $cartItem->options->product_tax_amount, 2)
+        );
     }
 
     public function test_pkp_default_tax_reconciliation_does_not_override_existing_row_tax(): void
@@ -184,9 +189,11 @@ class PurchaseProductCartPkpTaxReconciliationTest extends TestCase
 
         $rowId = Cart::instance('purchase')->content()->first()->rowId;
 
-        Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
-            ->call('updateTax', $rowId, $this->product->id, (string) $explicitTax->id)
-            ->assertSet('product_tax.' . $this->product->id, $explicitTax->id);
+        $lw = Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
+            ->call('updateTax', $rowId, $this->product->id, (string) $explicitTax->id);
+
+        $rowId = Cart::instance('purchase')->content()->first()->rowId;
+        $lw->assertSet("product_tax.$rowId", $explicitTax->id);
 
         $cartItem = Cart::instance('purchase')->content()->firstWhere('id', $this->product->id);
 
@@ -194,7 +201,7 @@ class PurchaseProductCartPkpTaxReconciliationTest extends TestCase
         $this->assertSame($explicitTax->id, (int) $cartItem->options->product_tax);
         $this->assertEqualsWithDelta(99.0991, (float) $cartItem->options->product_tax_amount, 0.0001);
         $this->assertSame(1000.0, (float) $cartItem->options->sub_total);
-        $this->assertEqualsWithDelta(900.9009, (float) $cartItem->options->sub_total_before_tax, 0.0001);
+        $this->assertEqualsWithDelta(900.90, (float) $cartItem->options->sub_total_before_tax, 0.001);
     }
 
     public function test_mixed_pkp_purchase_rows_persist_independent_default_and_non_default_tax_selections(): void
@@ -214,11 +221,23 @@ class PurchaseProductCartPkpTaxReconciliationTest extends TestCase
         $firstRowId = $this->seedCartRowForProduct($this->product, null);
         $secondRowId = $this->seedCartRowForProduct($this->secondProduct, null);
 
-        Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
-            ->call('updateTax', $firstRowId, $this->product->id, (string) $defaultTax->id)
-            ->call('updateTax', $secondRowId, $this->secondProduct->id, (string) $specialTax->id)
-            ->assertSet('product_tax.' . $this->product->id, $defaultTax->id)
-            ->assertSet('product_tax.' . $this->secondProduct->id, $specialTax->id);
+        $lw = Livewire::test(ProductCart::class, ['cartInstance' => 'purchase']);
+
+        $firstRowId = Cart::instance('purchase')->content()->firstWhere('id', $this->product->id)->rowId;
+        $secondRowId = Cart::instance('purchase')->content()->firstWhere('id', $this->secondProduct->id)->rowId;
+
+        $lw->call('updateTax', $firstRowId, $this->product->id, (string) $defaultTax->id);
+
+        $firstRowId = Cart::instance('purchase')->content()->firstWhere('id', $this->product->id)->rowId;
+        $secondRowId = Cart::instance('purchase')->content()->firstWhere('id', $this->secondProduct->id)->rowId;
+
+        $lw->call('updateTax', $secondRowId, $this->secondProduct->id, (string) $specialTax->id);
+
+        $firstRowId = Cart::instance('purchase')->content()->firstWhere('id', $this->product->id)->rowId;
+        $secondRowId = Cart::instance('purchase')->content()->firstWhere('id', $this->secondProduct->id)->rowId;
+
+        $lw->assertSet("product_tax.$firstRowId", $defaultTax->id)
+            ->assertSet("product_tax.$secondRowId", $specialTax->id);
 
         $cartItems = Cart::instance('purchase')->content()->keyBy('id');
 

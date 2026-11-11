@@ -111,34 +111,17 @@ class SettingSaleLocation extends BaseModel
                 $query->select('id')
                     ->from('setting_sale_locations')
                     ->where('setting_sale_locations.setting_id', $settingId)
-                    ->where('setting_sale_locations.location_id', '=', \DB::raw('locations.id'))
-                    ->where('setting_sale_locations.is_enabled', true);
+                    ->where('setting_sale_locations.location_id', '=', \DB::raw('locations.id'));
             })
             ->get();
 
         DB::transaction(function () use ($settingId, $ownedLocationsWithoutAssignment) {
             foreach ($ownedLocationsWithoutAssignment as $location) {
-                $assignment = static::where('setting_id', $settingId)
-                    ->where('location_id', $location->id)
-                    ->first();
-
-                if (!$assignment) {
-                    // Create new: triggers the creating hook for position assignment
-                    static::create([
-                        'setting_id' => $settingId,
-                        'location_id' => $location->id,
-                        'is_enabled' => true,
-                    ]);
-                } else {
-                    // Re-enable existing: append new position
-                    $maxPosition = static::where('setting_id', $settingId)
-                        ->where('is_enabled', true)
-                        ->max('position');
-                    $assignment->update([
-                        'is_enabled' => true,
-                        'position' => ($maxPosition ?? 0) + 1,
-                    ]);
-                }
+                // Only absent assignments are created; explicit disabled choices persist.
+                static::firstOrCreate(
+                    ['setting_id' => $settingId, 'location_id' => $location->id],
+                    ['is_enabled' => true]
+                );
             }
         });
     }

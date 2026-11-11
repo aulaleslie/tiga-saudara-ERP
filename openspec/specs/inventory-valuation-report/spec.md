@@ -4,12 +4,12 @@ The `Nilai Persediaan Barang` (Inventory Valuation) report allows authorized use
 ## Requirements
 ### Requirement: Inventory valuation report access
 
-The system SHALL provide an Inventory Valuation ("Nilai Persediaan Barang") report at the route `reports.inventory-valuation-report.index`, gated by the `inventoryValuationReports.access` permission, scoped to the authenticated user's active setting.
+The system SHALL provide an Inventory Valuation ("Nilai Persediaan Barang") report at the route `reports.inventory-valuation-report.index`, gated by the `inventoryValuationReports.access` permission, scoped to the businesses selected through the shared report business scope (default: the user's active setting).
 
 #### Scenario: Permitted user opens the report
 
 - **WHEN** a user holding `inventoryValuationReports.access` requests `reports.inventory-valuation-report.index`
-- **THEN** the system renders the Inventory Valuation report for the user's active setting
+- **THEN** the system renders the Inventory Valuation report with the user's active setting selected
 - **AND** the page title is "Nilai Persediaan Barang" with a "(dalam IDR)" currency note
 
 #### Scenario: Unpermitted user is denied
@@ -20,7 +20,8 @@ The system SHALL provide an Inventory Valuation ("Nilai Persediaan Barang") repo
 #### Scenario: Data is scoped to the active setting
 
 - **WHEN** the report renders
-- **THEN** only products and transactions belonging to the user's active `setting_id` are included
+- **THEN** only inventory transactions at locations of the selected businesses are included
+- **AND** products are included regardless of their owning business
 
 ### Requirement: Date range and period filters
 
@@ -207,4 +208,42 @@ The Inventory Valuation report SHALL identify consignment receipt and reversal m
 #### Scenario: Existing standard valuation is preserved
 - **WHEN** the report contains only standard inventory activity
 - **THEN** existing filters, weighted-average replay, summaries, details, pagination, and exports SHALL retain their behavior
+
+### Requirement: Transfer replay uses the corresponding movement timestamp
+The report SHALL date outgoing TRF stock movements by dispatch time and incoming TRF movements by receipt time. If the corresponding timestamp or referenced transfer is unavailable, it SHALL use the inventory transaction creation time directly, without substituting the opposite movement timestamp. These rules SHALL apply consistently to report output and exports.
+
+#### Scenario: Transfer crosses a reporting boundary
+- **WHEN** a transfer is dispatched before a reporting boundary and received after it
+- **THEN** outgoing stock is allocated to the dispatch date and incoming stock to the receipt date
+- **AND** period or as-of balances reflect those separate dates
+
+#### Scenario: Missing dispatch time
+- **WHEN** an outgoing TRF transaction has no dispatch timestamp but has a receipt timestamp
+- **THEN** the report uses the transaction creation time rather than the receipt time
+
+#### Scenario: Missing receipt time
+- **WHEN** an incoming TRF transaction has no receipt timestamp but has a dispatch timestamp
+- **THEN** the report uses the transaction creation time rather than the dispatch time
+
+#### Scenario: Missing transfer metadata
+- **WHEN** a TRF transaction has no available referenced transfer
+- **THEN** the report uses the transaction creation time
+
+#### Scenario: Transfers load against the established schema
+- **WHEN** report data or an export includes persisted transfers on the repository's migrated database schema
+- **THEN** the report completes without an unknown transfer-date column error
+
+### Requirement: Valuation ledger is replayed per business
+When several businesses are selected, the opening balance, running stock, weighted-average cost, ledger rows and subtotal SHALL be computed separately for each business. The expanded product ledger SHALL be grouped by business, with a `Bisnis` label for each group. Movements from different businesses SHALL never share a running balance.
+
+#### Scenario: Expanded product with two businesses
+- **WHEN** A and B are selected and the user expands a product with activity in both
+- **THEN** the ledger SHALL show an A group (Saldo Awal, A's rows, A's subtotal) and a B group (Saldo Awal, B's rows, B's subtotal)
+
+### Requirement: Valuation product summary shows total and per-business values
+With several businesses selected, each product summary row SHALL show the Total closing stock and value plus each business's closing stock and value. The grand total SHALL equal the sum of the business values. Exports SHALL include the business grouping.
+
+#### Scenario: Grand total across businesses
+- **WHEN** A's closing value is 1,000 and B's is 500 for the filtered products
+- **THEN** the grand total value SHALL be 1,500
 

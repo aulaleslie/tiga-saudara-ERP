@@ -1,5 +1,14 @@
 <div>
     <div class="row g-2 mb-3">
+        <div class="report-business-slot">
+            @include('livewire.reports.business-checkbox-selector', [
+                'label' => 'Bisnis',
+                'availableSettings' => $availableSettings,
+                'selectId' => 'stock-mutation-setting-select',
+                'livewireProperty' => 'selectedSettingIds',
+                'placeholder' => 'Pilih bisnis...',
+            ])
+        </div>
         <div class="col">
             <label class="form-label small">Tanggal Mulai</label>
             <input type="date" wire:model.defer="startDate" class="form-control">
@@ -22,7 +31,7 @@
             <select wire:model.defer="locationId" class="form-control">
                 <option value="">-- Semua Lokasi --</option>
                 @foreach($locations as $location)
-                    <option value="{{ $location->id }}">{{ $location->name }}</option>
+                    <option value="{{ $location['id'] }}">{{ $location['name'] }}</option>
                 @endforeach
             </select>
         </div>
@@ -44,13 +53,13 @@
             </button>
         </div>
         <div class="col-auto">
-            <button wire:click="exportExcel" wire:loading.attr="disabled" class="btn btn-success">
+            <button wire:click="exportExcel" wire:loading.attr="disabled" class="btn btn-success" @if(empty($sanitizedSettingIds)) disabled @endif>
                 <span wire:loading wire:target="exportExcel" class="spinner-border spinner-border-sm me-1" role="status"></span>
                 <i wire:loading.remove wire:target="exportExcel" class="bi bi-file-earmark-excel"></i> Export Excel
             </button>
         </div>
         <div class="col-auto">
-            <button wire:click="exportCsv" wire:loading.attr="disabled" class="btn btn-secondary">
+            <button wire:click="exportCsv" wire:loading.attr="disabled" class="btn btn-secondary" @if(empty($sanitizedSettingIds)) disabled @endif>
                 <span wire:loading wire:target="exportCsv" class="spinner-border spinner-border-sm me-1" role="status"></span>
                 <i wire:loading.remove wire:target="exportCsv" class="bi bi-filetype-csv"></i> Export CSV
             </button>
@@ -64,6 +73,9 @@
                 <th>Tanggal</th>
                 <th>Kode Produk</th>
                 <th>Nama Produk</th>
+                @if(count($sanitizedSettingIds) > 1)
+                    <th>Bisnis</th>
+                @endif
                 <th>Lokasi</th>
                 <th>Tipe</th>
                 <th class="text-end">Qty Masuk</th>
@@ -77,6 +89,9 @@
                     <td>{{ $mutation['date'] }}</td>
                     <td>{{ $mutation['product_code'] }}</td>
                     <td>{{ $mutation['product_name'] }}</td>
+                    @if(count($sanitizedSettingIds) > 1)
+                        <td>{{ $mutation['business'] ?? '-' }}</td>
+                    @endif
                     <td>{{ $mutation['location'] }}</td>
                     <td>
                         @if(str_contains($mutation['type'], 'Masuk') || str_contains($mutation['type'], 'Tambah') || str_contains($mutation['type'], 'Penerimaan'))
@@ -91,8 +106,10 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="8" class="text-center">
-                        @if($filterTriggered)
+                    <td colspan="{{ count($sanitizedSettingIds) > 1 ? 9 : 8 }}" class="text-center">
+                        @if(empty($sanitizedSettingIds))
+                            Pilih minimal satu bisnis
+                        @elseif($filterTriggered)
                             Tidak ada data mutasi stok untuk periode ini.
                         @else
                             Klik "Tampilkan Laporan" untuk menampilkan data.
