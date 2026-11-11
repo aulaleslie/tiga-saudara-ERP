@@ -1247,4 +1247,191 @@ class POSSplitSerialBundleCheckoutTest extends TestCase
             'status' => 'SOLD',
         ]);
     }
+
+
+    /**
+     * Enable/disable a location in a business's own POS sales locations and
+     * invalidate the resolver cache so the fixture takes effect.
+     */
+    private function setSaleLocationEnabled(Setting $setting, Location $location, bool $enabled, int $position = 1): void
+    {
+        SettingSaleLocation::updateOrCreate(
+            ['setting_id' => $setting->id, 'location_id' => $location->id],
+            ['is_enabled' => $enabled, 'position' => $position]
+        );
+        SalesLocationResolver::forget($setting->id);
+    }
+
+    /**
+     * Prepare a bundle checkout where the serial lives on either the parent or
+     * the component, returning [context, serialRecord, lineId].
+     */
+    private function prepareOriginAuthorizedSerialCheckout(bool $componentSerial): array
+    {
+        $context = $this->createBundleSplitContext();
+        $parent = $context['product'];
+        $child = $context['child'];
+        $bundle = $context['bundle'];
+
+        // Source location is enabled for the originating POS business but
+        // disabled for the source owner's own POS.
+        $this->setSaleLocationEnabled($context['source_setting'], $context['source_location'], false);
+
+        if ($componentSerial) {
+            $parent->update(['serial_number_required' => false]);
+            $child->update(['serial_number_required' => true]);
+            \App\Support\ProductBundleResolver::clearCache();
+        }
+
+        $lineId = $this->addCartLine($context['cashier'], $context['setting'], $parent->id, 1, $bundle->id);
+
+        if (! $componentSerial) {
+            $serial = $context['serials'][0];
+            $this->assignSerials($context['cashier'], $context['setting'], $lineId, [$serial->serial_number]);
+        } else {
+
+            $serial = ProductSerialNumber::create([
+                'product_id' => $child->id,
+                'location_id' => $context['source_location']->id,
+                'serial_number' => 'SN-COMP-ORIGIN-' . $this->sequence++,
+                'status' => 'ACTIVE',
+                'tax_id' => $context['tax']->id,
+            ]);
+            $bundleItem = ProductBundleItem::query()
+                ->where('bundle_id', $bundle->id)
+                ->where('product_id', $child->id)
+                ->first();
+
+            $this->actingAs($context['cashier'])
+                ->withSession(['setting_id' => $context['setting']->id])
+                ->postJson(route('pos.sell.cart.lines.serials.append', ['lineId' => $lineId]), [
+                    'serial_number' => $serial->serial_number,
+                    'bundle_item_id' => $bundleItem->id,
+                ])
+                ->assertOk();
+        }
+
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $context['customer']);
+
+        return [$context, $serial, $lineId];
+    }
+
+    private function assertOriginAuthorizedSerialPosted(array $context, ProductSerialNumber $serial, int $serialProductId): void
+    {
+        $sale = Sale::query()->sole();
+        $this->assertEquals($context['source_setting']->id, (int) $sale->setting_id, 'Sale must belong to the source owner.');
+
+        $this->assertDatabaseHas('dispatches', ['sale_id' => $sale->id]);
+        $this->assertDatabaseHas('product_stocks', [
+            'product_id' => $context['product']->id,
+            'location_id' => $context['source_location']->id,
+            'quantity' => 9,
+        ]);
+        $this->assertDatabaseHas('product_stocks', [
+            'product_id' => $context['child']->id,
+            'location_id' => $context['source_location']->id,
+            'quantity' => 19,
+        ]);
+
+        $serial->refresh();
+        $this->assertSame('SOLD', $serial->status);
+        $this->assertSame($serialProductId, (int) $serial->product_id);
+        $this->assertNotNull($serial->dispatch_detail_id);
+
+        $detail = DB::table('dispatch_details')->where('id', $serial->dispatch_detail_id)->first();
+        $this->assertEquals($sale->id, $detail->sale_id);
+        $this->assertEquals($context['source_location']->id, $detail->location_id);
+
+        $history = DB::table('serial_number_histories')
+            ->where('product_serial_number_id', $serial->id)
+            ->where('event_type', 'SOLD')
+            ->get();
+        $this->assertCount(1, $history);
+        $this->assertEquals($context['source_location']->id, $history->first()->location_id);
+    }
+
+    public function test_parent_serial_enabled_for_pos_business_but_disabled_for_owner_posts_to_owner(): void
+    {
+        [$context, $serial] = $this->prepareOriginAuthorizedSerialCheckout(false);
+
+        $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-ORIGIN-AUTH-PARENT-001',
+            'payment' => ['payment_method_id' => $context['methods']['cash']->id, 'amount_paid' => 200000],
+        ])->assertStatus(201);
+
+        $this->assertOriginAuthorizedSerialPosted($context, $serial, $context['product']->id);
+    }
+
+    public function test_component_serial_enabled_for_pos_business_but_disabled_for_owner_posts_to_owner(): void
+    {
+        [$context, $serial] = $this->prepareOriginAuthorizedSerialCheckout(true);
+
+        $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-ORIGIN-AUTH-COMP-001',
+            'payment' => ['payment_method_id' => $context['methods']['cash']->id, 'amount_paid' => 200000],
+        ])->assertStatus(201);
+
+        $this->assertOriginAuthorizedSerialPosted($context, $serial, $context['child']->id);
+    }
+
+    public function test_parent_serial_moved_to_owner_only_location_before_posting_is_rejected(): void
+    {
+        $this->assertOwnerOnlyLocationRejected(false, 'K-ORIGIN-REJECT-PARENT-001');
+    }
+
+    public function test_component_serial_moved_to_owner_only_location_before_posting_is_rejected(): void
+    {
+        $this->assertOwnerOnlyLocationRejected(true, 'K-ORIGIN-REJECT-COMP-001');
+    }
+
+    private function assertOwnerOnlyLocationRejected(bool $componentSerial, string $idempotencyKey): void
+    {
+        [$context, $serial] = $this->prepareOriginAuthorizedSerialCheckout($componentSerial);
+
+        // A location the source owner permits for its own POS, but which the
+        // originating POS business does not allow.
+        $ownerOnlyLocation = Location::create([
+            'name' => 'OWNER ONLY LOC ' . $this->sequence++,
+            'setting_id' => $context['source_setting']->id,
+        ]);
+        $this->setSaleLocationEnabled($context['source_setting'], $ownerOnlyLocation, true, 2);
+        $this->setSaleLocationEnabled($context['setting'], $ownerOnlyLocation, false, 3);
+
+        // Serial moves after earlier checkout validation but before the final
+        // locked serial check: the posting boundary's Sale creation runs
+        // inside the posting transaction ahead of serial locking.
+        $serialId = $serial->id;
+        $ownerOnlyLocationId = $ownerOnlyLocation->id;
+        Sale::creating(function () use ($serialId, $ownerOnlyLocationId) {
+            DB::table('product_serial_numbers')->where('id', $serialId)->update(['location_id' => $ownerOnlyLocationId]);
+        });
+
+        $stocksBefore = ProductStock::query()->orderBy('id')->pluck('quantity', 'id')->all();
+
+        $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => $idempotencyKey,
+            'payment' => ['payment_method_id' => $context['methods']['cash']->id, 'amount_paid' => 200000],
+        ])->assertStatus(422)
+            ->assertJsonPath('code', 'SERIAL_INVALID');
+
+        $this->assertDatabaseCount('sales', 0);
+        $this->assertDatabaseCount('sale_details', 0);
+        $this->assertDatabaseCount('sale_payments', 0);
+        $this->assertDatabaseCount('dispatches', 0);
+        $this->assertDatabaseCount('dispatch_details', 0);
+        $this->assertSame($stocksBefore, ProductStock::query()->orderBy('id')->pluck('quantity', 'id')->all());
+        $this->assertDatabaseHas('product_serial_numbers', [
+            'id' => $serial->id,
+            'status' => 'ACTIVE',
+            'dispatch_detail_id' => null,
+        ]);
+        $this->assertDatabaseMissing('serial_number_histories', [
+            'product_serial_number_id' => $serial->id,
+            'event_type' => 'SOLD',
+        ]);
+        $this->assertDatabaseMissing('pos_checkouts', [
+            'idempotency_key' => strtolower($idempotencyKey),
+            'status' => 'POSTED',
+        ]);
+    }
 }
