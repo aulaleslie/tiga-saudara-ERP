@@ -49,6 +49,25 @@ class ConsignmentBuyoutScreensTest extends TestCase
     }
 
     /** @test */
+    public function serialized_draft_details_render_validation_errors_with_lazy_loading_disabled(): void
+    {
+        [$buyout] = $this->mixed();
+        // An incomplete serialized draft must show its blockers instead of crashing while checking sold returns.
+        \DB::table('consignment_buyouts')->where('id', $buyout->id)->update(['status' => 'DRAFT']);
+        \DB::table('products')->where('id', $this->product->id)->update(['serial_number_required' => true]);
+
+        $previous = \Illuminate\Database\Eloquent\Model::preventsLazyLoading();
+        \Illuminate\Database\Eloquent\Model::preventLazyLoading(true);
+        try {
+            $this->withoutExceptionHandling();
+            $this->as($this->viewer)->get(route('consignments.buyouts.show', $buyout->id))
+                ->assertOk()->assertSee('exact serial selection');
+        } finally {
+            \Illuminate\Database\Eloquent\Model::preventLazyLoading($previous);
+        }
+    }
+
+    /** @test */
     public function read_screens_need_the_access_permission_and_render_for_permitted_users(): void
     {
         [$b] = $this->mixed(null, 120.0);
@@ -58,6 +77,7 @@ class ConsignmentBuyoutScreensTest extends TestCase
         $this->as($this->viewer)->get(route('consignments.buyouts.index', ['status' => 'REVERSED']))->assertOk()->assertDontSee($b->reference);
         $this->as($this->viewer)->get(route('consignments.buyouts.show', $b->id))->assertOk()
             ->assertSee($b->reference)->assertSee('DISETUJUI')->assertSee('Terjual belum ditagih')->assertSee('Belum terjual (dibeli)')
+            ->assertSeeInOrder(['Penerimaan: ', 'Produk: ' . $this->product->product_name, 'Belum terjual (dibeli)', 'Terjual belum ditagih'])
             ->assertDontSee('Setujui &amp; Cadangkan', false);                       // no actions while disabled
         $this->as(User::factory()->create())->get(route('consignments.buyouts.show', $b->id))->assertForbidden();
     }
@@ -72,7 +92,7 @@ class ConsignmentBuyoutScreensTest extends TestCase
         $html = $this->as($this->viewer)->get(route('consignments.buyouts.create', ['supplier_id' => $this->supplier->id]))
             ->assertOk()->assertSee('Barang yang belum dapat dipilih')->getContent();
         $this->assertStringContainsString('belum dihubungkan (diatribusikan) ke penerimaan supplier', $html);
-        $this->assertStringContainsString('Pilih semua yang tersedia', $html);
+        $this->assertStringNotContainsString('Pilih semua yang tersedia', $html);
         $this->assertStringNotContainsString('name="lines[', $html, 'no draft form while the feature is disabled');
     }
 

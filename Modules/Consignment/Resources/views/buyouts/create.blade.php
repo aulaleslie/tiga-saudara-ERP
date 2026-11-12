@@ -17,6 +17,7 @@
     $fmt = fn ($v) => rtrim(rtrim(number_format((float) $v, 3, ',', '.'), '0'), ',') ?: '0';
     $oldLines = (array) old('lines', []);
     $prepData = [
+        'supplierId' => $supplierId,
         'rows' => $prep['rows'] ?? [],
         'pools' => $prep['pools'] ?? [],
         'poolOrder' => $prep['pool_order'] ?? [],
@@ -66,9 +67,6 @@
                         'selectedText' => $selectedSupplierText ?? null, 'placeholder' => '-- Pilih Supplier --',
                     ])
                 </div>
-                <div class="col-md-3">
-                    <button class="btn btn-secondary" type="submit"><i class="bi bi-search"></i> Tampilkan barang</button>
-                </div>
                 <div class="col-12 small text-muted mt-1">Mengganti supplier memuat ulang daftar barang supplier tersebut.</div>
             </form>
 
@@ -104,15 +102,7 @@
         {{-- ================= STEP 2 ================= --}}
         <div class="card border-0 shadow-sm mb-3" x-show="step === 2">
             <div class="card-body">
-                <div class="d-flex flex-wrap justify-content-between align-items-center mb-2">
-                    <h5 class="mb-2">2. Pilih barang</h5>
-                    <div class="mb-2">
-                        <button type="submit" form="buyout-populate-form" class="btn btn-secondary btn-sm"><i class="bi bi-search"></i> Tampilkan barang</button>
-                        <button type="button" class="btn btn-outline-primary btn-sm" @click="selectAll()"><i class="bi bi-check2-all"></i> Pilih semua yang tersedia</button>
-                        <button type="button" class="btn btn-outline-secondary btn-sm" @click="clearAll()"><i class="bi bi-x-lg"></i> Batalkan semua pilihan</button>
-                    </div>
-                </div>
-                <p class="small text-muted">Tampilkan barang memuat ulang ketersediaan dan mengosongkan pilihan barang. Lokasi tujuan tetap tersimpan.</p>
+                <h5 class="mb-3">2. Pilih barang</h5>
                 <p class="small text-muted">Belum terjual = stok titipan yang dibeli dan dipindahkan ke stok milik. Terjual belum ditagih = sudah terjual ke pelanggan, hanya ditagih ke supplier (stok tidak berpindah). Jumlah pajak/non-pajak dihitung otomatis dari stok yang dipilih.</p>
 
                 @php($rowsBy = $prep['rows'])
@@ -159,7 +149,7 @@
                                                         <input type="hidden" {{ $n("lines[{$key}][{$field}]") }} value="{{ $value }}" :disabled="!isOn('{{ $key }}')">
                                                     @endforeach
                                                     @php($doc = $r['document'] ?? null)
-                                                    @php($docHtml = $doc ? ($doc['url'] ? '<a href="' . e($doc['url']) . '" target="_blank" rel="noopener">' . e($doc['label']) . '</a>' : e($doc['label'])) . ($doc['secondary'] ? ' <span class="text-muted">(' . e($doc['secondary']) . ')</span>' : '') . ($doc['selling_business'] ? ' <span class="badge badge-light">dijual oleh ' . e($doc['selling_business']) . '</span>' : '') : '')
+                                                    @php($docHtml = $doc ? ($doc['url'] ? '<a href="' . e($doc['url']) . '" target="_blank" rel="noopener">' . e($doc['label']) . '</a>' : e($doc['label'])) . ($doc['secondary'] ? ' <span class="text-muted">(' . e($doc['secondary']) . ')</span>' : '') . (! empty($doc['pos_business']) ? ' <span class="badge badge-light">POS: ' . e($doc['pos_business']) . '</span>' : '') . ($doc['selling_business'] ? ' <span class="badge badge-light">Penjualan: ' . e($doc['selling_business']) . '</span>' : '') : '')
                                                     @if($r['serialized'])
                                                         @foreach($r['serials'] as $sn)
                                                             <label class="d-block mb-1 buyout-serial" data-serial="{{ $sn['label'] }}">
@@ -217,6 +207,12 @@
                         </div>
                     </div>
                 @endif
+                @if($prep['empty_stock'])
+                    <details class="mt-2 small text-muted" id="empty-stock-summary">
+                        <summary>Tidak ada stok tersisa di lokasi ini ({{ count($prep['empty_stock']) }} baris produk/lokasi)</summary>
+                        <ul class="mb-0">@foreach($prep['empty_stock'] as $empty)<li>{{ $empty['receipt'] }} — {{ $empty['product'] }} — {{ $empty['location'] }}</li>@endforeach</ul>
+                    </details>
+                @endif
                 @if($prep['settled'])
                     <details class="mt-2 small text-muted">
                         <summary>{{ count($prep['settled']) }} penjualan sudah ditagih atau sedang dalam dokumen lain (tidak perlu dipilih)</summary>
@@ -245,23 +241,40 @@
 
                 <div class="table-responsive">
                 <table class="table table-bordered table-sm">
-                    <thead class="thead-light"><tr><th>Barang / Penerimaan</th><th>Jenis</th><th class="text-right">Jumlah</th><th>Serial</th><th class="text-right">Harga</th><th class="text-right">Pajak</th><th class="text-right">Total</th><th>Milik / tujuan</th></tr></thead>
-                    <tbody>
-                        <template x-for="r in selectedRows()" :key="r.key">
+                    <thead class="thead-light"><tr><th>Dokumen penjualan / Lokasi</th><th>Jenis</th><th class="text-right">Jumlah</th><th>Serial</th><th class="text-right">Harga</th><th class="text-right">Pajak</th><th class="text-right">Total</th><th>Milik / tujuan</th></tr></thead>
+                    @foreach($prep['tree'] as $reviewReceipt)
+                        @php($receiptKeys = collect($reviewReceipt['products'])->flatMap(fn ($p) => array_merge(collect($p['unsold'])->flatMap(fn ($g) => $g['keys'])->all(), $p['sold']))->values()->all())
+                        <tbody x-show="hasSelected(@js($receiptKeys))">
+                            <tr class="table-primary"><th colspan="8">Penerimaan: {{ $reviewReceipt['receipt'] }}</th></tr>
+                        </tbody>
+                        @foreach($reviewReceipt['products'] as $reviewProduct)
+                            @php($productKeys = array_merge(collect($reviewProduct['unsold'])->flatMap(fn ($g) => $g['keys'])->all(), $reviewProduct['sold']))
+                            <tbody x-show="hasSelected(@js($productKeys))">
+                                <tr class="table-light"><th colspan="8">Produk: {{ $reviewProduct['product'] }}</th></tr>
+                            </tbody>
+                            @foreach(['unsold' => 'Belum terjual', 'sold' => 'Terjual belum ditagih'] as $reviewKind => $reviewLabel)
+                                @php($reviewKeys = $reviewKind === 'unsold' ? collect($reviewProduct['unsold'])->flatMap(fn ($g) => $g['keys'])->values()->all() : $reviewProduct['sold'])
+                                @continue(! $reviewKeys)
+                    <tbody x-show="hasSelected(@js($reviewKeys))">
+                        <tr><th colspan="8" class="text-muted">{{ $reviewLabel }}</th></tr>
+                        <template x-for="r in selectedRows().filter(row => @js($reviewKeys).includes(row.key))" :key="r.key">
                             <tr>
-                                <td><span x-text="r.product"></span> <span class="small text-muted d-block" x-text="r.receipt + (r.document ? ' · ' + r.document.label : (r.sale_reference ? ' · Penjualan ' + r.sale_reference : '')) + (r.document && r.document.selling_business ? ' · dijual oleh ' + r.document.selling_business : '')"></span></td>
+                                <td><span x-text="r.kind === 'unsold' ? r.location : (r.document ? r.document.label : (r.sale_reference ? 'Penjualan ' + r.sale_reference : '—'))"></span><span class="small text-muted d-block" x-show="r.document && r.document.pos_business" x-text="r.document && r.document.pos_business ? 'POS: ' + r.document.pos_business : ''"></span><span class="small text-muted d-block" x-text="r.document && r.document.selling_business ? 'Penjualan: ' + r.document.selling_business : ''"></span></td>
                                 <td x-text="r.kind === 'sold' ? 'Terjual belum ditagih' : 'Belum terjual'"></td>
                                 <td class="text-right"><span x-text="fmt(qtyOf(r.key))"></span>
                                     <template x-if="r.kind === 'unsold' && !r.serialized"><span class="small text-muted d-block" x-text="bucketText(r.key)"></span></template></td>
-                                <td class="small" x-text="serialLabels(r) || '—'"></td>
+                                <td class="small"><template x-for="sn in r.serials.filter(sn => sel[r.key].serials.includes(String(sn.id)))" :key="sn.id"><div class="text-monospace" x-text="sn.label"></div></template><span x-show="!r.serialized">—</span></td>
                                 <td class="text-right" x-text="money(r.unit_price)"></td>
                                 <td class="text-right" x-text="money(r.unit_tax * qtyOf(r.key))"></td>
                                 <td class="text-right" x-text="money(rowTotal(r))"></td>
                                 <td class="small"><span x-text="r.kind === 'sold' ? '— (hanya tagihan)' : r.owner"></span> <span class="d-block text-muted" x-text="destName(r.owner_setting_id)"></span></td>
                             </tr>
                         </template>
-                        <tr x-show="!selectedRows().length"><td colspan="8" class="text-center text-muted">Belum ada barang dipilih.</td></tr>
                     </tbody>
+                            @endforeach
+                        @endforeach
+                    @endforeach
+                    <tbody x-show="!selectedRows().length"><tr><td colspan="8" class="text-center text-muted">Belum ada barang dipilih.</td></tr></tbody>
                     <tfoot>
                         <tr><th colspan="6" class="text-right">Subtotal belum terjual</th><th class="text-right" x-text="money(subtotal('unsold'))"></th><th></th></tr>
                         <tr><th colspan="6" class="text-right">Subtotal terjual belum ditagih</th><th class="text-right" x-text="money(subtotal('sold'))"></th><th></th></tr>
@@ -341,6 +354,11 @@
                 rows: cfg.rows, sel, dest, error: '',
                 discount: { type: cfg.oldDiscount.type || 'fixed', value: parseFloat(cfg.oldDiscount.value) || 0 },
 
+                init() {
+                    if (this.step > 1 && this.validateSetup()) this.step = 1;
+                    else if (this.step > 2 && this.validateGoods()) this.step = 2;
+                },
+
                 setSerials(key, ids) { this.sel[key].serials = ids.map(String); },
                 isOn(key) { return this.rows[key].serialized ? this.sel[key].serials.length > 0 : !!this.sel[key].on; },
                 // Group state over units: each serial is one unit; a quantity row counts as one selectable unit.
@@ -399,13 +417,8 @@
                         : m(cfg.soldLimits[r.source_key]);
                     return Math.max(0, Math.min(cap, shared - used)) / 1000;
                 },
-                selectAll() {
-                    this.clearAll();
-                    Object.keys(this.rows).forEach(k => this.fill(k));
-                    this.error = '';
-                },
-                clearAll() { Object.values(this.rows).forEach(r => { this.sel[r.key].on = false; this.sel[r.key].qty = ''; this.setSerials(r.key, []); }); },
                 selectedRows() { return Object.values(this.rows).filter(r => this.isOn(r.key) && this.qtyOf(r.key) > 0); },
+                hasSelected(keys) { return this.selectedRows().some(r => keys.includes(r.key)); },
                 totalQty(kind) { return this.selectedRows().filter(r => r.kind === kind).reduce((a, r) => a + m(this.qtyOf(r.key)), 0) / 1000; },
 
                 validateGoods() {
@@ -425,22 +438,27 @@
                     for (const k in sources) if (sources[k] > m(cfg.soldLimits[k])) return 'Total satu penjualan yang dipilih melebihi jumlah yang dapat ditagih.';
                     return '';
                 },
-                validateDestinations() {
-                    for (const r of this.selectedRows()) {
-                        if (!this.dest[r.owner_setting_id]) return 'Pilih lokasi tujuan untuk ' + (cfg.holdings[r.owner_setting_id]?.name || 'bisnis pemegang') + ' di langkah 1.';
+                validateSetup() {
+                    if (!cfg.supplierId) return 'Pilih supplier terlebih dahulu di langkah 1.';
+                    for (const [sid, holding] of Object.entries(cfg.holdings)) {
+                        const selected = parseInt(this.dest[sid], 10);
+                        if (!(holding.destinations || []).some(d => parseInt(d.id, 10) === selected)) {
+                            return 'Pilih lokasi tujuan untuk ' + holding.name + ' di langkah 1.';
+                        }
                     }
                     return '';
                 },
+                validateDestinations() { return this.validateSetup(); },
                 go(n) {
                     this.error = '';
-                    if (n === 3) {
-                        this.error = this.validateGoods() || this.validateDestinations();
+                    if (n > this.step) {
+                        this.error = this.validateSetup() || (n === 3 ? this.validateGoods() : '');
                         if (this.error) return;
                     }
                     this.step = n;
                 },
                 submit(e) {
-                    this.error = this.validateGoods() || this.validateDestinations();
+                    this.error = this.validateSetup() || this.validateGoods();
                     if (this.error) { e.preventDefault(); return false; }
                     return true;
                 },

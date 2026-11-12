@@ -868,6 +868,7 @@ class ConsignmentBillingConfirmationLifecycleService
 
     public function computeCanonicalLiveHash(ConsignmentSoldSource $soldSource, bool $requireLockedProduct = false): string
     {
+        $soldSource->loadMissing('dispatchDetail');
         $detail = $soldSource->dispatchDetail;
         if (! $detail) {
             return $soldSource->source_hash ?? '';
@@ -1016,7 +1017,32 @@ class ConsignmentBillingConfirmationLifecycleService
                 : (bool) $detail->is_inventory_managed,
         ]);
 
-        return hash('sha256', json_encode($hashPayload));
+        $liveHash = hash('sha256', json_encode($hashPayload));
+        if (strcasecmp($liveHash, (string) $soldSource->source_hash) === 0) {
+            return $liveHash;
+        }
+
+        // Some historical captures formatted UTC database timestamps in the explicit offset recorded in
+        // the snapshot. Reproduce that spelling only for the SAME instant and only if every hashed field
+        // still matches the immutable source. Never substitute a stored timestamp for changed live evidence.
+        $capturedAt = $soldSource->source_snapshot['dispatched_at'] ?? null;
+        if (is_string($capturedAt) && preg_match('/(?:Z|[+-]\d{2}:\d{2})$/', $capturedAt) && $dispatchedAtStr) {
+            try {
+                $capturedTime = \Carbon\Carbon::parse($capturedAt);
+                if ($capturedTime->copy()->utc()->format('Y-m-d H:i:s') === $dispatchedAtStr) {
+                    $compatiblePayload = $hashPayload;
+                    $compatiblePayload['dispatched_at'] = $capturedTime->format('Y-m-d H:i:s');
+                    $compatibleHash = hash('sha256', json_encode($compatiblePayload));
+                    if (strcasecmp($compatibleHash, (string) $soldSource->source_hash) === 0) {
+                        return $compatibleHash;
+                    }
+                }
+            } catch (\Carbon\Exceptions\InvalidFormatException $e) {
+                // Malformed historical evidence stays a mismatch; do not bypass the live check.
+            }
+        }
+
+        return $liveHash;
     }
 
     /**

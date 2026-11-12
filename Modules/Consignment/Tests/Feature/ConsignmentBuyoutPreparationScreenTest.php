@@ -80,13 +80,18 @@ class ConsignmentBuyoutPreparationScreenTest extends TestCase
 
         $html = $this->page($this->maker())->assertOk()
             ->assertSee('Supplier &amp; Tujuan', false)->assertSee('Pilih Barang')->assertSee('Tinjau &amp; Simpan Draft', false)
-            ->assertSee('Pilih semua yang tersedia')->assertSee('Batalkan semua pilihan')->assertSee('Simpan Draft')
+            ->assertDontSee('Pilih semua yang tersedia')->assertDontSee('Batalkan semua pilihan')->assertSee('Simpan Draft')
             ->assertSee('Tagihan supplier diterbitkan untuk')->assertSee($this->setting->company_name)
             ->assertSeeInOrder(['Penerimaan: ' . $receiptNo, 'Produk: ' . $this->product->product_name, 'Belum terjual', 'Terjual belum ditagih', 'Penjualan ' . $src->sale->reference])
             ->assertDontSee('pisah koma')->assertDontSee('Sumber terjual #')->assertDontSee('Cari nomor serial')
             ->getContent();
 
-        $this->assertSame(1, substr_count($html, 'Produk: ' . e($this->product->product_name)), 'one product heading per receipt, not per row');
+        [$selectionHtml, $reviewHtml] = explode('3. Tinjau dan simpan draft', $html, 2);
+        $this->assertSame(1, substr_count($selectionHtml, 'Produk: ' . e($this->product->product_name)), 'one selection product heading per receipt, not per row');
+        $this->assertSame(1, substr_count($reviewHtml, 'Produk: ' . e($this->product->product_name)), 'review groups the product once under its receipt');
+        $this->assertStringContainsString('Penerimaan: ' . e($receiptNo), $reviewHtml);
+        $this->assertStringContainsString('Belum terjual', $reviewHtml);
+        $this->assertStringContainsString('Terjual belum ditagih', $reviewHtml);
         $this->assertStringContainsString('name="lines[u0][consignment_receiving_detail_id]" value="' . $r->id . '"', $html, 'identity kept as hidden line data');
         $this->assertStringContainsString('name="lines[s0][consignment_sold_source_id]" value="' . $src->id . '"', $html);
         $this->assertStringContainsString('name="destinations[' . $this->setting->id . ']"', $html);
@@ -156,7 +161,24 @@ class ConsignmentBuyoutPreparationScreenTest extends TestCase
             'source_location_id' => $this->location->id, 'tax_bucket' => 'NON_TAX', 'sale_id' => $src->sale_id, 'created_at' => now(), 'updated_at' => now()]);
 
         $this->page($this->maker())->assertOk()
-            ->assertSeeInOrder(['Terjual belum ditagih', 'POS KSR-RCP-0042', 'Penjualan ' . $src->sale->reference, 'dijual oleh ' . strtoupper('Kasir Lain')]);
+            ->assertSeeInOrder(['Terjual belum ditagih', 'POS KSR-RCP-0042', 'Penjualan ' . $src->sale->reference, 'POS: ' . strtoupper('Kasir Lain'), 'Penjualan: ' . $this->setting->company_name]);
+    }
+
+    /** @test */
+    public function zero_unsold_stock_is_an_informational_summary_while_sold_units_remain_selectable(): void
+    {
+        $receipt = $this->receipt($this->supplier, '2');
+        $source = $this->soldSource('2');
+        $this->capacity()->setAttribution($source->id, [$receipt->id => '2'], null, 'attribute');
+        $this->stock('0');
+
+        $html = $this->page($this->maker())->assertOk()
+            ->assertSee('Tidak ada stok tersisa di lokasi ini (1 baris produk/lokasi)')
+            ->assertSee('Terjual belum ditagih')
+            ->assertDontSee('Barang yang belum dapat dipilih')->getContent();
+        $this->assertStringContainsString('id="empty-stock-summary"', $html);
+        $this->assertStringContainsString('name="lines[s0][consignment_sold_source_id]" value="' . $source->id . '"', $html);
+        $this->assertSame(0, ConsignmentBuyout::count());
     }
 
     /** @test */

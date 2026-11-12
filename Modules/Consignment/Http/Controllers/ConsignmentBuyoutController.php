@@ -111,8 +111,10 @@ class ConsignmentBuyoutController extends Controller
             'auditEvents',
             'reservations',
             'lines.receivingDetail.receiving:id,receiving_number,location_id',
+            'lines.receivingDetail.product:id,product_name',
             'lines.serials.serialNumber:id,serial_number',
             'lines.soldSource:id,sale_id,dispatch_detail_id',
+            'lines.soldSource.sale:id,reference',
         ])->findOrFail($id);
 
         $open = in_array($buyout->status, [ConsignmentBuyout::STATUS_DRAFT, ConsignmentBuyout::STATUS_WAITING_APPROVAL, ConsignmentBuyout::STATUS_REJECTED], true);

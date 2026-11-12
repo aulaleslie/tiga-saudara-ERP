@@ -38,6 +38,47 @@ class ConsignmentBuyoutFinalizationTest extends TestCase
     }
 
     /** @test */
+    public function compatible_sold_and_unsold_slices_create_one_product_detail_with_separate_lineage(): void
+    {
+        [$buyout] = $this->mixed();
+        $purchase = $this->fin->finalize($buyout, $this->user);
+
+        $this->assertSame(1, $purchase->purchaseDetails()->count());
+        $detail = $purchase->purchaseDetails()->firstOrFail();
+        $this->assertEquals(5, $detail->quantity);
+        $this->assertEquals(500, $detail->sub_total);
+        $this->assertEquals(100, $detail->unit_price);
+        $links = \Modules\Consignment\Entities\ConsignmentBuyoutPurchaseLineage::where('purchase_id', $purchase->id)->get();
+        $this->assertCount(2, $links);
+        $this->assertSame([$detail->id], $links->pluck('purchase_detail_id')->unique()->values()->all());
+        $this->assertEquals(5, $links->sum('base_quantity'));
+        $this->assertSame(0, \Modules\Purchase\Entities\ReceivedNote::where('po_id', $purchase->id)->count());
+        $this->assertSame($purchase->id, $this->fin->finalize($buyout->fresh(), $this->user)->id);
+        $this->assertSame(1, $purchase->purchaseDetails()->count());
+    }
+
+    /** @test */
+    public function finalization_allows_an_omitted_supplier_invoice_number(): void
+    {
+        [$buyout] = $this->mixed(null, null, ['invoice_date' => '2026-11-10']);
+        $purchase = $this->fin->finalize($buyout, $this->user);
+
+        $this->assertNull($purchase->supplier_purchase_number);
+        $this->assertNotEmpty($purchase->reference);
+        $this->assertSame($purchase->id, $this->fin->finalize($buyout->fresh(), $this->user)->id);
+    }
+
+    /** @test */
+    public function finalization_allows_a_blank_supplier_invoice_number(): void
+    {
+        [$buyout] = $this->mixed(null, null, ['invoice_date' => '2026-11-10', 'supplier_invoice_number' => '   ']);
+        $purchase = $this->fin->finalize($buyout, $this->user);
+
+        $this->assertNull($purchase->supplier_purchase_number);
+        $this->assertNotEmpty($purchase->reference);
+    }
+
+    /** @test */
     public function mixed_finalization_bills_five_moves_three_and_replaces_the_average_once(): void
     {
         [$b, $r] = $this->mixed(null, 120.0);

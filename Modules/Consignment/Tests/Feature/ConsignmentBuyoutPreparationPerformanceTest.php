@@ -79,7 +79,7 @@ class ConsignmentBuyoutPreparationPerformanceTest extends TestCase
         });
         $this->actingAs($user)->withSession(['setting_id' => $this->setting->id])
             ->get(route('consignments.buyouts.create', ['supplier_id' => $this->supplier->id, 'destination_location_id' => $this->dest1->id]))
-            ->assertOk()->assertSee('Pilih semua yang tersedia');
+            ->assertOk()->assertSee('2. Pilih barang');
 
         [$nr, $ns] = $this->datasetSize();
         fwrite(STDERR, "\n[buyout-preparation] receipts={$nr} sources={$ns} queries={$count}\n");

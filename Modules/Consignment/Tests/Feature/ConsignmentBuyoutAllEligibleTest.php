@@ -169,7 +169,7 @@ class ConsignmentBuyoutAllEligibleTest extends TestCase
         // Every excluded row is shown with its reason instead of being silently dropped.
         $html = $this->actingAs($user)->withSession(['setting_id' => $this->setting->id])
             ->get(route('consignments.buyouts.create', ['supplier_id' => $this->supplier->id, 'destination_location_id' => $this->dest1->id]))
-            ->assertOk()->assertSee('Barang yang belum dapat dipilih')->assertSee('Pilih semua yang tersedia')
+            ->assertOk()->assertSee('Barang yang belum dapat dipilih')->assertSee('2. Pilih barang')->assertDontSee('Pilih semua yang tersedia')
             ->getContent();
         $this->assertStringContainsString('"destinations":{"' . $this->setting->id . '":' . $this->dest1->id . '}', $html);
         $this->assertStringContainsString('belum dihubungkan (diatribusikan)', $html);

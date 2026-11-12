@@ -325,7 +325,7 @@ class ConsignmentBuyoutLifecycleService
     public function validateDocument(ConsignmentBuyout $buyout): array
     {
         $errors = [];
-        $lines = $buyout->lines()->with(['serials', 'receivingDetail.receiving.receival'])->orderBy('id')->get();
+        $lines = $buyout->lines()->with(['serials', 'soldSource', 'receivingDetail.receiving.receival'])->orderBy('id')->get();
         $slices = [];
         $bucketNeeds = [];
 

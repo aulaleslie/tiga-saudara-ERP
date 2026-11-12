@@ -54,6 +54,7 @@ class ConsignmentBuyoutPreparationService
         $rows = [];
         $blocked = [];
         $settled = [];
+        $emptyStock = [];
         $seenSerials = [];
         $pools = [];
         $soldLimits = [];
@@ -95,6 +96,12 @@ class ConsignmentBuyoutPreparationService
             // A sale already fully billed / reserved elsewhere is not a blocker: it is simply not awaiting a bill.
             if ($sold && $reasons === ['Tidak ada kuantitas terjual yang tersedia untuk ditagih.'] && (float) $r['available'] <= 0) {
                 $settled[] = $base;
+                continue;
+            }
+
+            // Zero stock alone is informational. Keep any additional evidence/permission blocker actionable.
+            if (! $sold && $reasons === ['Tidak ada stok belum terjual yang tersedia.']) {
+                $emptyStock[] = $base;
                 continue;
             }
 
@@ -222,6 +229,7 @@ class ConsignmentBuyoutPreparationService
             'groups' => $groups,
             'tree' => array_values($tree),
             'settled' => $settled,
+            'empty_stock' => $emptyStock,
             'pools' => $pools,
             'pool_order' => $poolOrder,
             'sold_limits' => $soldLimits,
@@ -268,13 +276,15 @@ class ConsignmentBuyoutPreparationService
                     'secondary' => $saleRef ? 'Penjualan ' . $saleRef : null,
                     'url' => $mayPos && $p->pos_transaction_id && $posSetting === $settingId
                         ? route('pos.transactions.show', $p->pos_transaction_id) : $saleUrl,
-                    'selling_business' => $posSetting !== $settingId ? ($names[$posSetting]->company_name ?? null) : null,
+                    'pos_business' => $names[$posSetting]->company_name ?? null,
+                    'selling_business' => $names[$saleSetting]->company_name ?? null,
                 ];
             } else {
                 $out[$src->id] = [
                     'label' => $saleRef ? 'Penjualan ' . $saleRef : 'Penjualan',
                     'secondary' => null,
                     'url' => $saleUrl,
+                    'pos_business' => null,
                     'selling_business' => $saleSetting !== $settingId ? ($names[$saleSetting]->company_name ?? null) : null,
                 ];
             }

@@ -65,7 +65,7 @@ trait BuildsFinalizedBuyout
      * Mixed scenario: receipt 10, 5 sold & attributed, buyout bills 2 sold + N unsold. Q=10 (5 at the consignment
      * location + 5 elsewhere), A=100. $unitPrice (optional) raises the unsold invoice price.
      */
-    protected function mixed(?array $unsoldLines = null, ?float $unitPrice = null): array
+    protected function mixed(?array $unsoldLines = null, ?float $unitPrice = null, ?array $invoiceMetadata = null): array
     {
         $r = $this->receipt($this->supplier, '10');
         $this->price($r, 100);
@@ -82,7 +82,11 @@ trait BuildsFinalizedBuyout
         foreach ($unsoldLines as $u) {
             $lines[] = ['line_type' => 'UNSOLD_BUYOUT', 'consignment_receiving_detail_id' => $r->id] + $u;
         }
-        $b = $this->life->createDraft($this->setting->id, $this->supplier->id, '2026-11-10', $lines, $this->user, $this->meta());
+        $meta = $this->meta();
+        if ($invoiceMetadata !== null) {
+            $meta['invoice_metadata'] = $invoiceMetadata;
+        }
+        $b = $this->life->createDraft($this->setting->id, $this->supplier->id, '2026-11-10', $lines, $this->user, $meta);
         if ($unitPrice !== null) {
             $rows = [];
             foreach ($b->lines()->where('line_type', 'UNSOLD_BUYOUT')->get() as $l) {

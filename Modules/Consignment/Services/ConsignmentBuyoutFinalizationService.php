@@ -303,7 +303,7 @@ class ConsignmentBuyoutFinalizationService
     protected function metadata(ConsignmentBuyout $b): array
     {
         $m = $b->invoice_metadata ?? [];
-        foreach (['invoice_date', 'supplier_invoice_number'] as $required) {
+        foreach (['invoice_date'] as $required) {
             if (empty($m[$required]) || trim((string) $m[$required]) === '') {
                 throw new InvalidArgumentException("Invoice metadata [{$required}] is required to finalize.");
             }
@@ -327,6 +327,7 @@ class ConsignmentBuyoutFinalizationService
         }
         $t = $pricing['totals'];
         $zero = abs($t['total_amount']) < 0.005;
+        $supplierInvoiceNumber = trim((string) ($meta['supplier_invoice_number'] ?? ''));
 
         return Purchase::create([
             'setting_id' => $b->setting_id,
@@ -336,7 +337,7 @@ class ConsignmentBuyoutFinalizationService
             'due_date' => $due,
             'payment_term_id' => $termId,
             'reference' => Purchase::generateReference((int) $b->setting_id, $invoiceDate),
-            'supplier_purchase_number' => trim($meta['supplier_invoice_number']),
+            'supplier_purchase_number' => $supplierInvoiceNumber !== '' ? $supplierInvoiceNumber : null,
             'tax_ref_no' => $meta['tax_ref_no'] ?? null,
             'total_amount' => $t['total_amount'],
             'sub_total' => $t['sub_total'],
@@ -358,40 +359,62 @@ class ConsignmentBuyoutFinalizationService
     protected function createDetailsAndLineage(ConsignmentBuyout $b, Purchase $purchase, array $pricing, $lines): array
     {
         $out = [];
-        foreach ($lines as $line) {
-            $slice = collect($pricing['slices'])->firstWhere('line_id', $line->id);
-            $product = Product::find($line->product_id);
+        $slices = collect($pricing['slices'])->keyBy('line_id');
+        // Match ordinary consignment billing: combine compatible product commercial terms,
+        // independently of sold source, receipt, serial, destination or inventory owner.
+        $groups = $lines->groupBy(function ($line) use ($slices) {
+            $accepted = $slices[$line->id]['accepted'];
+            $qty = (float) $line->base_quantity;
+
+            return json_encode([
+                (int) $line->product_id,
+                number_format((float) $accepted['unit_price'], 6, '.', ''),
+                $accepted['tax_id'],
+                $accepted['discount_type'] ?? 'fixed',
+                number_format((float) ($accepted['discount_amount'] ?? 0) / $qty, 6, '.', ''),
+                number_format((float) $accepted['tax_amount'] / $qty, 6, '.', ''),
+            ]);
+        });
+        foreach ($groups as $group) {
+            $first = $group->first();
+            $accepted = $slices[$first->id]['accepted'];
+            $product = Product::find($first->product_id);
+            $sum = fn ($field) => round($group->sum(fn ($line) => (float) ($slices[$line->id]['accepted'][$field] ?? 0)), 2);
+            $quantity = round($group->sum(fn ($line) => (float) $line->base_quantity), 3);
             $detail = PurchaseDetail::create([
                 'purchase_id' => $purchase->id,
-                'product_id' => $line->product_id,
+                'product_id' => $first->product_id,
                 'product_name' => $product->product_name,
                 'product_code' => $product->product_code,
-                'quantity' => $line->base_quantity,
-                'price' => $slice['accepted']['unit_price'],
-                'unit_price' => $slice['accepted']['unit_price'],
+                'quantity' => $quantity,
+                'price' => $accepted['unit_price'],
+                'unit_price' => $accepted['unit_price'],
                 // Ordinary Purchase convention: PKP detail sub_total is the gross, tax-inclusive amount.
-                'sub_total' => $pricing['is_pkp'] ? $slice['accepted']['total'] : $slice['accepted']['sub_total'],
-                'tax_id' => $slice['accepted']['tax_id'],
-                'product_tax_amount' => $slice['accepted']['tax_amount'],
-                'product_discount_type' => $slice['accepted']['discount_type'] ?? 'fixed',
-                'product_discount_amount' => $slice['accepted']['discount_amount'] ?? 0.0,
+                'sub_total' => $sum($pricing['is_pkp'] ? 'total' : 'sub_total'),
+                'tax_id' => $accepted['tax_id'],
+                'product_tax_amount' => $sum('tax_amount'),
+                'product_discount_type' => $accepted['discount_type'] ?? 'fixed',
+                'product_discount_amount' => round($sum('discount_amount') / $quantity, 6),
                 'pricing_source' => 'consignment_buyout',
             ]);
-            ConsignmentBuyoutPurchaseLineage::create([
-                'consignment_buyout_id' => $b->id,
-                'consignment_buyout_line_id' => $line->id,
-                'inventory_owner_setting_id' => $line->inventory_owner_setting_id,
-                'purchase_id' => $purchase->id,
-                'purchase_detail_id' => $detail->id,
-                'consignment_receiving_detail_id' => $line->consignment_receiving_detail_id,
-                'product_id' => $line->product_id,
-                'base_quantity' => $line->base_quantity,
-                'original_amount' => $slice['original']['total'],
-                'accepted_amount' => $slice['payable'],
-                'inventory_cost_amount' => (float) ($slice['inventory_cost'] ?? 0),
-                'allocation_snapshot' => ['document_discount' => $slice['document_discount'], 'line_type' => $line->line_type],
-            ]);
-            $out[$line->id] = $detail;
+            foreach ($group as $line) {
+                $slice = $slices[$line->id];
+                ConsignmentBuyoutPurchaseLineage::create([
+                    'consignment_buyout_id' => $b->id,
+                    'consignment_buyout_line_id' => $line->id,
+                    'inventory_owner_setting_id' => $line->inventory_owner_setting_id,
+                    'purchase_id' => $purchase->id,
+                    'purchase_detail_id' => $detail->id,
+                    'consignment_receiving_detail_id' => $line->consignment_receiving_detail_id,
+                    'product_id' => $line->product_id,
+                    'base_quantity' => $line->base_quantity,
+                    'original_amount' => $slice['original']['total'],
+                    'accepted_amount' => $slice['payable'],
+                    'inventory_cost_amount' => (float) ($slice['inventory_cost'] ?? 0),
+                    'allocation_snapshot' => ['document_discount' => $slice['document_discount'], 'line_type' => $line->line_type],
+                ]);
+                $out[$line->id] = $detail;
+            }
         }
 
         return $out;

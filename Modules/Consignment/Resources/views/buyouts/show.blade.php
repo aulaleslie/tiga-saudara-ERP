@@ -49,25 +49,36 @@
                     <div class="table-responsive">
                         <table class="table table-bordered table-sm mb-0">
                             <thead class="thead-light">
-                                <tr><th>Jenis</th><th>Penerimaan</th><th>Dari</th><th>Tujuan</th><th>Menjadi milik</th><th class="text-right">Kuantitas</th><th>Serial</th>
+                                <tr><th>Dokumen penjualan</th><th>Jenis</th><th>Dari</th><th>Tujuan</th><th>Menjadi milik</th><th class="text-right">Kuantitas</th><th>Serial</th>
                                     <th class="text-right">Nilai asli</th><th class="text-right">Faktur</th><th class="text-right">Biaya persediaan</th></tr>
                             </thead>
                             <tbody>
-                                @foreach($buyout->lines as $line)
+                                @foreach($buyout->lines->groupBy(fn ($l) => $l->receivingDetail->consignment_receiving_id) as $receiptLines)
+                                    <tr class="table-primary"><th colspan="10">Penerimaan: {{ $receiptLines->first()->receivingDetail->receiving->receiving_number ?? '-' }}</th></tr>
+                                    @foreach($receiptLines->groupBy('product_id') as $productLines)
+                                        <tr class="table-light"><th colspan="10">Produk: {{ $productLines->first()->receivingDetail->product->product_name ?? '-' }}</th></tr>
+                                        @foreach(['UNSOLD_BUYOUT' => 'Belum terjual (dibeli)', 'SOLD_UNBILLED' => 'Terjual belum ditagih'] as $kind => $kindLabel)
+                                            @php($kindLines = $productLines->where('line_type', $kind))
+                                            @continue($kindLines->isEmpty())
+                                            <tr><th colspan="10" class="text-muted">{{ $kindLabel }}</th></tr>
+                                @foreach($kindLines as $line)
                                     @php($snap = $line->accepted_snapshot)
                                     @php($slice = $pricing ? collect($pricing['slices'])->firstWhere('line_id', $line->id) : null)
                                     <tr>
-                                        <td>{{ $line->line_type === 'SOLD_UNBILLED' ? 'Terjual belum ditagih' : 'Belum terjual (dibeli)' }}</td>
-                                        <td>{{ $line->receivingDetail->receiving->receiving_number ?? '#' . $line->consignment_receiving_detail_id }}</td>
+                                        <td>{{ $line->soldSource?->sale?->reference ?? '-' }}</td>
+                                        <td>{{ $kindLabel }}</td>
                                         <td>{{ $locations[$line->source_location_id] ?? '-' }}</td>
                                         <td>{{ $locations[$line->destination_location_id] ?? '-' }}@if($line->line_type === 'SOLD_UNBILLED') <small class="text-muted">(tujuan retur)</small>@endif</td>
                                         <td class="small">@if($line->line_type === 'SOLD_UNBILLED')—@else{{ $owners[$line->inventoryOwnerSettingId()] ?? '-' }}@if($line->inventory_owner_setting_id && (int) $line->inventory_owner_setting_id !== (int) $buyout->setting_id) <span class="badge badge-info">bisnis lain</span>@endif @endif</td>
                                         <td class="text-right">{{ rtrim(rtrim(number_format((float) $line->base_quantity, 3, '.', ''), '0'), '.') }}</td>
-                                        <td class="small">{{ $line->serials->map(fn ($s) => $s->serialNumber->serial_number ?? $s->product_serial_number_id)->implode(', ') ?: '-' }}</td>
+                                        <td class="small">@forelse($line->serials as $serial)<div class="text-monospace">{{ $serial->serialNumber->serial_number ?? $serial->product_serial_number_id }}</div>@empty—@endforelse</td>
                                         <td class="text-right">{{ number_format((float) ($snap['original']['total'] ?? $slice['original']['total'] ?? 0), 2, ',', '.') }}</td>
                                         <td class="text-right">{{ number_format((float) ($snap['payable'] ?? $slice['payable'] ?? 0), 2, ',', '.') }}</td>
                                         <td class="text-right">{{ isset($snap['inventory_cost']) || isset($slice['inventory_cost']) ? number_format((float) ($snap['inventory_cost'] ?? $slice['inventory_cost']), 2, ',', '.') : '-' }}</td>
                                     </tr>
+                                @endforeach
+                                        @endforeach
+                                    @endforeach
                                 @endforeach
                             </tbody>
                             @if($pricing)
