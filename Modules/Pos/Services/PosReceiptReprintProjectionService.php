@@ -859,7 +859,9 @@ class PosReceiptReprintProjectionService
                     }
                 } else {
                     $unitName = null;
-                    if ($txnLine->conversion && $txnLine->conversion->unit) {
+                    if ($this->receiptService->isUnitPriceOverrideLine($txnLine)) {
+                        $unitName = $this->receiptService->resolveOverrideBaseUnitLabel($txnLine);
+                    } elseif ($txnLine->conversion && $txnLine->conversion->unit) {
                         $unitName = $txnLine->conversion->unit->short_name ?? $txnLine->conversion->unit->name;
                     } elseif ($txnLine->product) {
                         $unitName = $txnLine->product->unit->short_name

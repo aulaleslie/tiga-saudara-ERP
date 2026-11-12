@@ -89,6 +89,8 @@ class PosReceiptService
                 
                 if ($priceSource === 'PACKED' && is_array($breakdown)) {
                     $unitBreakdown = $this->buildPackedUnitBreakdown($breakdown, $line);
+                } elseif ($this->isUnitPriceOverrideLine($line)) {
+                    $unitBreakdown = $this->buildOverrideUnitBreakdown($line);
                 } elseif ($unitName) {
                     $pricePerUnit = $line->unit_price / $factor;
                     $unitBreakdown = sprintf(
@@ -561,6 +563,8 @@ class PosReceiptService
 
             if ($priceSource === 'PACKED' && is_array($breakdown)) {
                 $unitBreakdown = $this->buildPackedUnitBreakdown($breakdown, $line);
+            } elseif ($this->isUnitPriceOverrideLine($line)) {
+                $unitBreakdown = $this->buildOverrideUnitBreakdown($line);
             } elseif ($line->conversion && $line->conversion->unit) {
                 $unitName = $line->conversion->unit->short_name ?? $line->conversion->unit->name;
                 $factor = (float)($line->conversion->conversion_factor ?? 1);
@@ -655,6 +659,52 @@ class PosReceiptService
             'print_history' => $printHistory,
             'receipt_visibility' => $receiptVisibility,
         ];
+    }
+
+    public function isUnitPriceOverrideLine($line): bool
+    {
+        return strtoupper((string) (($line->line_meta ?? [])['price_source'] ?? '')) === 'LINE_UNIT_PRICE_OVERRIDE';
+    }
+
+    /**
+     * Resolve the unit label for an overridden row. Override quantities and
+     * unit prices are recorded in base units, so a retained conversion label
+     * must not be used as the quantity unit.
+     */
+    public function resolveOverrideBaseUnitLabel($line): ?string
+    {
+        $meta = $line->line_meta ?? [];
+        foreach ([
+            $meta['breakdown']['base_unit_label'] ?? null,
+            $meta['pricing_basis']['base_unit_label'] ?? null,
+        ] as $label) {
+            if (is_string($label) && trim($label) !== '') {
+                return trim($label);
+            }
+        }
+
+        return $line->conversion?->baseUnit?->short_name
+            ?? $line->conversion?->baseUnit?->name
+            ?? $line->product?->baseUnit?->short_name
+            ?? $line->product?->baseUnit?->name
+            ?? $line->product?->unit?->short_name
+            ?? $line->product?->unit?->name
+            ?? $line->product?->product_unit;
+    }
+
+    private function buildOverrideUnitBreakdown($line): ?string
+    {
+        $label = $this->resolveOverrideBaseUnitLabel($line);
+        if (! $label) {
+            return null;
+        }
+
+        return sprintf(
+            "%s %s(S) @ %s",
+            (float) $line->qty,
+            $label,
+            $this->formatReceiptCurrency((float) $line->unit_price)
+        );
     }
 
     /**
