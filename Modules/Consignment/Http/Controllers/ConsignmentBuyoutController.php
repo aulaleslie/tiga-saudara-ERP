@@ -15,6 +15,7 @@ use Modules\Consignment\Entities\ConsignmentSoldSource;
 use Modules\Consignment\Services\ConsignmentBuyoutCapacityService;
 use Modules\Consignment\Services\ConsignmentBuyoutFinalizationService;
 use Modules\Consignment\Services\ConsignmentBuyoutLifecycleService;
+use Modules\Consignment\Services\ConsignmentBuyoutPreparationService;
 use Modules\Consignment\Services\ConsignmentBuyoutPricingService;
 use Modules\Consignment\Services\ConsignmentBuyoutReturnOwnershipService;
 use Modules\Consignment\Services\ConsignmentBuyoutReversalService;
@@ -63,77 +64,40 @@ class ConsignmentBuyoutController extends Controller
         ]);
     }
 
-    /** Preparation: shows exactly what exists and what blocks; nothing is selected or substituted for the operator. */
+    /**
+     * Preparation (three steps on one page): supplier & destinations, select goods, review & save draft. Read-only:
+     * nothing is selected, reserved or substituted for the operator; evidence is reused within this request only.
+     */
     public function create(Request $request)
     {
         abort_if(Gate::denies('consignments.buyouts.access'), 403);
         $settingId = (int) session('setting_id');
         $supplierId = $request->integer('supplier_id');
 
-        $receipts = collect();
-        $poolBlockers = [];
-        $unattributed = collect();
-        $soldRows = collect();
-        $destinations = Location::where('setting_id', $settingId)->where('is_consignment', false)->orderBy('name')->get(['id', 'name']);
+        $prep = $supplierId
+            ? $this->capacity->readOnlyEvidence(fn () => (new ConsignmentBuyoutPreparationService($this->capacity))->prepare($settingId, $supplierId, $this->actor()))
+            : null;
 
-        if ($supplierId) {
-            $details = ConsignmentReceivingDetail::query()
-                ->whereHas('receiving', fn ($q) => $q->where('setting_id', $settingId)->where('status', ConsignmentReceiving::STATUS_APPROVED)
-                    ->whereHas('receival', fn ($r) => $r->where('supplier_id', $supplierId)))
-                ->with(['receiving:id,receiving_number,location_id', 'receiving.location:id,name', 'product:id,product_name,product_code,serial_number_required'])
-                ->orderBy('id')->get();
-
-            foreach ($details as $d) {
-                $cap = $this->capacity->receiptCapacity($d->id);
-                $receipts->push(['detail' => $d, 'capacity' => $cap]);
-                $key = $d->product_id . ':' . $d->receiving->location_id;
-                if (! isset($poolBlockers[$key])) {
-                    $poolBlockers[$key] = $this->capacity->poolBlockers($settingId, (int) $d->product_id, (int) $d->receiving->location_id);
-                }
-            }
-
-            // Every effective sale in an affected pool must be attributed to a receipt before unsold stock can be bought.
-            $pools = $details->map(fn ($d) => [$d->product_id, $d->receiving->location_id])->unique(fn ($p) => $p[0] . ':' . $p[1]);
-            foreach ($pools as [$productId, $locationId]) {
-                foreach (ConsignmentSoldSource::forSetting($settingId)->where('product_id', $productId)->where('location_id', $locationId)->with('product:id,product_name')->get() as $src) {
-                    $att = $this->capacity->soldAttribution($src);
-                    if (! $att['complete']) {
-                        $unattributed->push(['source' => $src, 'blockers' => $att['blockers']]);
-                        continue;
-                    }
-                    $cap = $this->capacity->soldSourceCapacity($src);
-                    foreach ($att['per_receipt'] as $crd => $qty) {
-                        if ($details->contains('id', (int) $crd)) {
-                            $soldRows->push(['source' => $src, 'receiving_detail_id' => (int) $crd, 'attributed' => $qty, 'available' => $cap['available'], 'sale_id' => $src->sale_id]);
-                        }
-                    }
-                }
+        // Initial destinations: old input (failed save) > explicit query (local + per holding business). Never guessed.
+        $destinations = (array) $request->old('destinations', []);
+        if (! $destinations) {
+            $destinations = (array) $request->input('remote_destinations', []);
+            if ($request->filled('destination_location_id')) {
+                $destinations[$settingId] = $request->integer('destination_location_id');
             }
         }
-
-        // "Buy all eligible": a read-only proposal for ONE explicitly chosen destination, shown for review before any draft exists.
-        $proposal = null;
-        $proposalError = null;
-        $destinationId = $request->integer('destination_location_id');
-        if ($supplierId && $request->query('propose') === 'all') {
-            if (! $destinations->contains('id', $destinationId)) {
-                $proposalError = 'Pilih lokasi tujuan (stok milik sendiri) sebelum mengusulkan semua yang memenuhi syarat; sistem tidak memilihnya otomatis.';
-            } else {
-                $proposal = (new \Modules\Consignment\Services\ConsignmentBuyoutProposalService($this->capacity))->allEligible($settingId, $supplierId, $destinationId);
-            }
+        if ($prep) {
+            $destinations = collect($destinations)->filter(fn ($loc, $sid) => isset($prep['holdings'][(int) $sid])
+                && collect($prep['holdings'][(int) $sid]['destinations'])->contains('id', (int) $loc))
+                ->mapWithKeys(fn ($loc, $sid) => [(int) $sid => (int) $loc])->all();
         }
 
         return view('consignment::buyouts.create', [
-            'proposal' => $proposal,
-            'proposalError' => $proposalError,
-            'destinationId' => $destinationId ?: null,
             'supplierId' => $supplierId,
             'selectedSupplierText' => Supplier::whereKey($supplierId)->value('supplier_name'),
-            'receipts' => $receipts,
-            'poolBlockers' => $poolBlockers,
-            'unattributed' => $unattributed,
-            'soldRows' => $soldRows,
-            'destinations' => $destinations,
+            'prep' => $prep,
+            'initialDestinations' => (object) $destinations,
+            'originName' => \Modules\Setting\Entities\Setting::whereKey($settingId)->value('company_name'),
             'mutationsEnabled' => self::mutationsEnabled(),
         ]);
     }
@@ -161,8 +125,12 @@ class ConsignmentBuyoutController extends Controller
         $locationIds = $buyout->lines->flatMap(fn ($l) => [$l->source_location_id, $l->destination_location_id])->filter()->unique();
         $actors = User::whereIn('id', $buyout->auditEvents->pluck('actor_id')->filter()->unique())->pluck('name', 'id');
 
+        $owners = \Modules\Setting\Entities\Setting::whereIn('id', $buyout->lines->pluck('inventory_owner_setting_id')->filter()->push($buyout->setting_id)->unique())
+            ->pluck('company_name', 'id');
+
         return view('consignment::buyouts.show', [
             'buyout' => $buyout,
+            'owners' => $owners,
             'locations' => Location::whereIn('id', $locationIds)->pluck('name', 'id'),
             'actors' => $actors,
             'documentBlockers' => $documentBlockers,
@@ -180,6 +148,7 @@ class ConsignmentBuyoutController extends Controller
     {
         return $this->mutating(function () use ($request) {
             $data = $this->validateDraft($request, true);
+            $data['lines'] = (new ConsignmentBuyoutPreparationService($this->capacity))->deriveBuckets((int) session('setting_id'), $data['lines']);
             $buyout = $this->lifecycle->createDraft((int) session('setting_id'), (int) $data['supplier_id'], $data['date'], $this->lines($data), $this->actor(), $this->meta($data));
 
             return [$buyout, 'Draft pembelian putus berhasil dibuat.'];
@@ -356,11 +325,37 @@ class ConsignmentBuyoutController extends Controller
             return $l;
         }, (array) $request->input('lines', []))]);
 
+        // Serial selector rows: the quantity is the number of serials picked (the lifecycle re-checks the equality).
+        $request->merge(['lines' => array_map(function ($l) {
+            if (is_array($l) && ! empty($l['serial_ids']) && is_array($l['serial_ids']) && trim((string) ($l['base_quantity'] ?? '')) === '') {
+                $l['base_quantity'] = (string) count($l['serial_ids']);
+            }
+
+            return $l;
+        }, (array) $request->input('lines', []))]);
+
         // Rows the operator left blank are simply not part of the document (nothing is invented for them).
         $request->merge(['lines' => array_values(array_filter((array) $request->input('lines', []),
             fn ($l) => is_array($l) && isset($l['base_quantity']) && trim((string) $l['base_quantity']) !== '' && (float) $l['base_quantity'] > 0))]);
 
+        // One owned-stock destination per holding business (step 1) applies to every line that business will own.
+        $chosen = array_filter(array_map('intval', (array) $request->input('destinations', [])));
+        if ($chosen) {
+            $request->merge(['lines' => array_map(function ($l) use ($chosen) {
+                if (is_array($l) && empty($l['destination_location_id'])) {
+                    $owner = $this->lineOwnerSetting($l);
+                    if ($owner && isset($chosen[$owner])) {
+                        $l['destination_location_id'] = $chosen[$owner];
+                    }
+                }
+
+                return $l;
+            }, (array) $request->input('lines', []))]);
+        }
+
         return $request->validate([
+            'destinations' => 'nullable|array',
+            'destinations.*' => 'nullable|integer',
             'supplier_id' => ($creating ? 'required' : 'nullable') . '|integer|exists:suppliers,id',
             'date' => 'required|date',
             'notes' => 'nullable|string|max:2000',
@@ -371,6 +366,7 @@ class ConsignmentBuyoutController extends Controller
             'lines.*.consignment_receiving_detail_id' => 'required|integer|exists:consignment_receiving_details,id',
             'lines.*.consignment_sold_source_id' => 'nullable|integer|exists:consignment_sold_sources,id',
             'lines.*.destination_location_id' => 'required|integer|exists:locations,id',
+            'lines.*.source_location_id' => 'nullable|integer|exists:locations,id',
             'lines.*.base_quantity' => 'required|numeric|gt:0',
             'lines.*.buckets' => 'nullable|array',
             'lines.*.buckets.TAXED' => 'nullable|numeric|min:0',
@@ -378,6 +374,21 @@ class ConsignmentBuyoutController extends Controller
             'lines.*.serial_ids' => 'nullable|array',
             'lines.*.serial_ids.*' => 'integer',
         ]);
+    }
+
+    /** Business that will own the line's goods: unsold = holding business of the source location; sold = selling business. */
+    private function lineOwnerSetting(array $l): ?int
+    {
+        if (($l['line_type'] ?? null) === ConsignmentBuyoutLine::TYPE_SOLD_UNBILLED) {
+            $sid = ConsignmentSoldSource::whereKey((int) ($l['consignment_sold_source_id'] ?? 0))->value('setting_id');
+
+            return $sid ? (int) $sid : null;
+        }
+        $locationId = (int) ($l['source_location_id'] ?? 0)
+            ?: (int) ConsignmentReceivingDetail::whereKey((int) ($l['consignment_receiving_detail_id'] ?? 0))->with('receiving')->first()?->receiving?->location_id;
+        $sid = $locationId ? Location::whereKey($locationId)->value('setting_id') : null;
+
+        return $sid ? (int) $sid : null;
     }
 
     private function lines(array $data): array

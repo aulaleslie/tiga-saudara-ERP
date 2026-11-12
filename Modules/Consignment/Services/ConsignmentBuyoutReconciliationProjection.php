@@ -42,9 +42,16 @@ class ConsignmentBuyoutReconciliationProjection
             ->where('status', ConsignmentBuyoutReservation::STATUS_ACTIVE)->selectRaw('consignment_receiving_detail_id as id, COUNT(DISTINCT consignment_buyout_id) as docs')
             ->groupBy('consignment_receiving_detail_id')->pluck('docs', 'id');
 
+        $prov = app(ConsignmentTransferProvenanceService::class);
+        $locs = \Modules\Setting\Entities\Location::with('setting:id,company_name')->get(['id', 'name', 'setting_id'])->keyBy('id');
+
         $rows = [];
         foreach ($details as $d) {
             $cap = $this->capacity->receiptCapacity($d->id);
+            // Receipt-rooted custody: where the supplier-owned goods actually are (local, remote, transit, held).
+            $custody = $prov->project($d);
+            $origin = (int) optional($d->consignmentReceiving ?? $d->receiving)->setting_id;
+            $remoteSold = collect($prov->derivedExits($d))->where('state', 'SOLD')->filter(fn ($x) => $x['setting_id'] && (int) $x['setting_id'] !== $origin)->sum('quantity');
             $sold = (float) $lineSums->where('id', $d->id)->where('line_type', ConsignmentBuyoutLine::TYPE_SOLD_UNBILLED)->sum('qty');
             $unsold = (float) $lineSums->where('id', $d->id)->where('line_type', ConsignmentBuyoutLine::TYPE_UNSOLD_BUYOUT)->sum('qty');
             $rows[$d->id] = [
@@ -60,7 +67,13 @@ class ConsignmentBuyoutReconciliationProjection
                 'unsold_available' => $cap['unsold_available'],
                 'financial_available' => $cap['financial_available'],
                 'conservation_errors' => $cap['conservation_errors'],
-                'blockers' => $cap['blockers'],
+                'blockers' => array_merge($cap['blockers'], $custody['blockers']),
+                'custody' => array_map(fn ($c) => $c + [
+                    'location' => $locs[$c['location_id']]->name ?? '-',
+                    'business' => optional($locs[$c['location_id']]->setting ?? null)->company_name ?? '-',
+                    'remote' => $c['setting_id'] && (int) $c['setting_id'] !== $origin,
+                ], $custody['custody']),
+                'remote_sold' => (float) $remoteSold,
             ];
         }
 

@@ -21,7 +21,8 @@ class ConsignmentReceiptAllocationService
         ProductSerialNumber $serial,
         int $settingId,
         int $locationId,
-        ?int $excludeConfirmationId = null
+        ?int $excludeConfirmationId = null,
+        ?int $soldSourceId = null
     ): array {
         $crd = null;
 
@@ -56,7 +57,10 @@ class ConsignmentReceiptAllocationService
             ];
         }
 
-        if ($receiving->setting_id != $settingId || $receiving->location_id != $locationId || $crd->product_id != $serial->product_id) {
+        // A transferred serial sold elsewhere is accepted only through a verified binding to this exact receipt.
+        $boundRemote = $soldSourceId && $receiving->setting_id == $settingId && $receiving->location_id != $locationId
+            && $this->verifiedBinding($soldSourceId, (int) $crd->id, (int) $serial->id) !== null;
+        if ($receiving->setting_id != $settingId || ($receiving->location_id != $locationId && ! $boundRemote) || $crd->product_id != $serial->product_id) {
             return [
                 'has_blocker' => true,
                 'blocker_reason' => "Serial {$serial->serial_number} receiving setting/location/product mismatch.",
@@ -115,12 +119,20 @@ class ConsignmentReceiptAllocationService
         int $supplierId,
         int $productId,
         int $locationId,
-        ?int $excludeConfirmationId = null
+        ?int $excludeConfirmationId = null,
+        ?int $soldSourceId = null
     ): array {
+        // Receipts of this business moved to the sale location and verifiably bound to this sold source.
+        $boundIds = $soldSourceId
+            ? \Modules\Consignment\Entities\ConsignmentObligationBinding::where('consignment_sold_source_id', $soldSourceId)
+                ->where('status', 'ACTIVE')->where('original_setting_id', $settingId)->where('supplier_id', $supplierId)
+                ->pluck('consignment_receiving_detail_id')->filter(fn ($id) => $this->verifiedBinding($soldSourceId, (int) $id) !== null)->all()
+            : [];
         $details = ConsignmentReceivingDetail::where('product_id', $productId)
-            ->whereHas('consignmentReceiving', function ($q) use ($settingId, $locationId, $supplierId) {
+            ->whereHas('consignmentReceiving', function ($q) use ($settingId, $locationId, $supplierId, $boundIds) {
                 $q->where('setting_id', $settingId)
-                    ->where('location_id', $locationId)
+                    ->where(fn ($l) => $l->where('location_id', $locationId)->orWhereIn('consignment_receivings.id',
+                        ConsignmentReceivingDetail::whereIn('id', $boundIds ?: [0])->select('consignment_receiving_id')))
                     ->where('status', \Modules\Consignment\Entities\ConsignmentReceiving::STATUS_APPROVED)
                     ->whereHas('receival', function ($rq) use ($supplierId) {
                         $rq->where('supplier_id', $supplierId);
@@ -160,6 +172,16 @@ class ConsignmentReceiptAllocationService
             $pendingReserved += $buyoutReserved;
 
             $remainingQty = max(0.0, $receivedQty - $approvedAllocated - $pendingReserved);
+            if (in_array($detail->id, $boundIds, true) && (int) $detail->consignmentReceiving->location_id !== $locationId) {
+                // A remote pool can never exceed the exact (sold source, receipt) bound share still unconsumed.
+                $pair = (float) app(\Modules\Consignment\Services\ConsignmentBuyoutCapacityService::class)
+                    ->soldReceiptResidual(\Modules\Consignment\Entities\ConsignmentSoldSource::findOrFail($soldSourceId), (int) $detail->id);
+                $own = $excludeConfirmationId ? (float) ConsignmentReceiptAllocation::where('consignment_receiving_detail_id', $detail->id)
+                    ->whereHas('line', fn ($l) => $l->where('consignment_sold_source_id', $soldSourceId)->where('consignment_billing_confirmation_id', $excludeConfirmationId))
+                    ->whereHas('line.confirmation', fn ($c) => $c->where('status', \Modules\Consignment\Entities\ConsignmentBillingConfirmation::STATUS_WAITING_APPROVAL))
+                    ->sum('allocated_base_quantity') : 0.0;
+                $remainingQty = min($remainingQty, $pair + $own);
+            }
 
             $pools[] = [
                 'consignment_receiving_detail_id' => $detail->id,
@@ -199,12 +221,13 @@ class ConsignmentReceiptAllocationService
         int $supplierId,
         int $productId,
         int $locationId,
-        ?int $excludeConfirmationId = null
+        ?int $excludeConfirmationId = null,
+        ?int $soldSourceId = null
     ): array {
         $allocatedSum = 0.0;
         $errors = [];
 
-        $pools = $this->getEligibleReceiptPools($settingId, $supplierId, $productId, $locationId, $excludeConfirmationId);
+        $pools = $this->getEligibleReceiptPools($settingId, $supplierId, $productId, $locationId, $excludeConfirmationId, $soldSourceId);
         $poolsById = collect($pools)->keyBy('consignment_receiving_detail_id');
 
         // Aggregate requested quantities by consignment_receiving_detail_id to prevent duplicate row exploits
@@ -240,5 +263,20 @@ class ConsignmentReceiptAllocationService
             'allocated_sum' => $allocatedSum,
             'errors' => $errors,
         ];
+    }
+
+    /** Active, hash-verified binding of a sold source to a receipt (optionally containing one serial). */
+    public function verifiedBinding(int $soldSourceId, int $receiptId, ?int $serialId = null): ?\Modules\Consignment\Entities\ConsignmentObligationBinding
+    {
+        $resolver = app(\Modules\Consignment\Services\ConsignmentRemoteSaleResolver::class);
+        $b = $resolver->activeBinding($soldSourceId, $receiptId);
+        if (! $b || $resolver->bindingBlockers($b) !== []) {
+            return null;
+        }
+        if ($serialId !== null && ! in_array($serialId, array_map('intval', (array) $b->serial_identities), true)) {
+            return null;
+        }
+
+        return $b;
     }
 }

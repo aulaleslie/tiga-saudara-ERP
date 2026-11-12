@@ -56,6 +56,10 @@
                     <noscript><style>#v3-summary-fallback[hidden] { display: block !important; }</style></noscript>
                 @endif
 
+                @if(! empty($consignmentLots))
+                    @include('consignment::transfer-lots.panel', ['transfer' => $transfer, 'rows' => $consignmentLots])
+                @endif
+
                 <form action="{{ route('transfers.v3.approval.progress', $transfer) }}" method="POST" id="v3-allocation-form">
                     @csrf
                     <input type="hidden" name="request_revision_id" value="{{ $workspace['request_revision_id'] }}">

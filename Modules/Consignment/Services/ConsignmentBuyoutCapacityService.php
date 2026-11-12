@@ -50,6 +50,112 @@ class ConsignmentBuyoutCapacityService
         return round($m / 1000, 3);
     }
 
+    /* ------------------------------------------------------------------ read-only evidence reuse */
+
+    /** @var array<string, mixed>|null request-local memo; null = disabled (always for mutation paths) */
+    private ?array $memo = null;
+
+    /**
+     * Run a READ-ONLY preparation read with evidence reuse: attribution, capacity, residual, pool and serial
+     * eligibility results are computed once per identity inside the closure. Only exclusion-free reads are reused.
+     * Never call this around a write, reservation, approval, finalization or reversal - those always read fresh.
+     */
+    public function readOnlyEvidence(\Closure $read): mixed
+    {
+        $outer = $this->memo;
+        $this->memo ??= [];
+        try {
+            return $read($this);
+        } finally {
+            $this->memo = $outer;
+        }
+    }
+
+    public function memoizing(): bool
+    {
+        return $this->memo !== null;
+    }
+
+    private function remember(string $key, \Closure $compute): mixed
+    {
+        if ($this->memo === null) {
+            return $compute();
+        }
+        if (! array_key_exists($key, $this->memo)) {
+            $this->memo[$key] = $compute();
+        }
+
+        return $this->memo[$key];
+    }
+
+    public function poolBlockers(int $settingId, int $productId, int $locationId): array
+    {
+        return $this->remember("pb:{$settingId}:{$productId}:{$locationId}", fn () => $this->computePoolBlockers($settingId, $productId, $locationId));
+    }
+
+    public function soldAttribution(ConsignmentSoldSource $source): array
+    {
+        return $this->remember("att:{$source->id}", fn () => $this->computeSoldAttribution($source));
+    }
+
+    public function receiptCapacity(int $detailId, ?int $excludeBuyoutId = null, ?int $excludeConfirmationId = null): array
+    {
+        if ($excludeBuyoutId || $excludeConfirmationId) {
+            return $this->computeReceiptCapacity($detailId, $excludeBuyoutId, $excludeConfirmationId);
+        }
+
+        return $this->remember("rc:{$detailId}", fn () => $this->computeReceiptCapacity($detailId));
+    }
+
+    public function soldSourceCapacity(ConsignmentSoldSource $source, ?int $excludeBuyoutId = null, ?int $excludeConfirmationId = null): array
+    {
+        if ($excludeBuyoutId || $excludeConfirmationId) {
+            return $this->computeSoldSourceCapacity($source, $excludeBuyoutId, $excludeConfirmationId);
+        }
+
+        return $this->remember("sc:{$source->id}", fn () => $this->computeSoldSourceCapacity($source));
+    }
+
+    public function soldReceiptResidual(ConsignmentSoldSource $source, int $detailId, ?int $excludeBuyoutId = null): float
+    {
+        if ($excludeBuyoutId) {
+            return $this->computeSoldReceiptResidual($source, $detailId, $excludeBuyoutId);
+        }
+
+        return $this->remember("sr:{$source->id}:{$detailId}", fn () => $this->computeSoldReceiptResidual($source, $detailId));
+    }
+
+    public function physicalPool(int $settingId, int $productId, int $locationId, ?int $excludeBuyoutId = null): array
+    {
+        if ($excludeBuyoutId) {
+            return $this->computePhysicalPool($settingId, $productId, $locationId, $excludeBuyoutId);
+        }
+
+        return $this->remember("pp:{$settingId}:{$productId}:{$locationId}", fn () => $this->computePhysicalPool($settingId, $productId, $locationId));
+    }
+
+    public function selectableSerialIds(int $productId, int $locationId, ?int $receivingDetailId = null): array
+    {
+        return $this->remember("ss:{$productId}:{$locationId}:" . (int) $receivingDetailId, fn () => $this->computeSelectableSerialIds($productId, $locationId, $receivingDetailId));
+    }
+
+    /** Effective customer-returned serial ids of a dispatch detail (reused only inside readOnlyEvidence). */
+    public function returnedSerialIds(?int $dispatchDetailId): array
+    {
+        return $dispatchDetailId ? $this->remember("rs:{$dispatchDetailId}", fn () => $this->returns->getEffectiveReturnedSerialIds($dispatchDetailId)) : [];
+    }
+
+    /** Effective customer-returned quantity of a dispatch detail (reused only inside readOnlyEvidence). */
+    public function returnedQuantity(?int $dispatchDetailId): float
+    {
+        return $dispatchDetailId ? (float) $this->remember("rq:{$dispatchDetailId}", fn () => $this->returns->getEffectiveReturnQuantity($dispatchDetailId)) : 0.0;
+    }
+
+    public function hasCustodyEvents(int $detailId): bool
+    {
+        return $this->remember("ce:{$detailId}", fn () => $this->computeHasCustodyEvents($detailId));
+    }
+
     /* ------------------------------------------------------------------ 2.1 pool completeness */
 
     /**
@@ -57,7 +163,7 @@ class ConsignmentBuyoutCapacityService
      *
      * @return array<int, array{type:string, reference:string, reason:string}>
      */
-    public function poolBlockers(int $settingId, int $productId, int $locationId): array
+    protected function computePoolBlockers(int $settingId, int $productId, int $locationId): array
     {
         $blockers = [];
 
@@ -107,19 +213,29 @@ class ConsignmentBuyoutCapacityService
      *
      * @return array{per_receipt: array<int,float>, attributed: float, complete: bool, blockers: string[], serialized: bool}
      */
-    public function soldAttribution(ConsignmentSoldSource $source): array
+    protected function computeSoldAttribution(ConsignmentSoldSource $source): array
     {
         $blockers = [];
         $perReceipt = [];
         $serialRows = ConsignmentSoldSourceSerial::where('consignment_sold_source_id', $source->id)->with('serialNumber')->get();
 
         if ($serialRows->isNotEmpty()) {
-            $returned = $this->returns->getEffectiveReturnedSerialIds($source->dispatch_detail_id);
+            $returned = $this->returnedSerialIds($source->dispatch_detail_id);
+            // Transfer provenance: a serial sold away from its receipt location counts only through a verified binding.
+            $remote = collect(app(ConsignmentRemoteSaleResolver::class)->verifySerials($source))->keyBy('serial_id');
             foreach ($serialRows as $row) {
                 $crd = optional($row->serialNumber)->consignment_receiving_detail_id;
                 if (! $crd) {
                     $blockers[] = "Serial #{$row->product_serial_number_id} has no receipt lineage.";
                     continue;
+                }
+                $v = $remote->get((int) $row->product_serial_number_id);
+                if ($v && ! $v['local']) {
+                    $binding = $v['blocker'] === null ? app(ConsignmentRemoteSaleResolver::class)->activeBinding($source->id, (int) $crd) : null;
+                    if (! $binding || ! in_array((int) $row->product_serial_number_id, array_map('intval', (array) $binding->serial_identities), true)) {
+                        $blockers[] = $v['blocker'] ?? "Serial #{$row->product_serial_number_id}: transferred custody is not yet bound to its receipt (run manual discovery).";
+                        continue;
+                    }
                 }
                 if (in_array((int) $row->product_serial_number_id, $returned, true)) {
                     continue;
@@ -147,7 +263,7 @@ class ConsignmentBuyoutCapacityService
                 . self::fromMilli($attributedGross) . ' of ' . self::fromMilli($original) . ').';
         }
 
-        $effectiveReturn = self::milli($this->returns->getEffectiveReturnQuantity($source->dispatch_detail_id));
+        $effectiveReturn = self::milli($this->returnedQuantity($source->dispatch_detail_id));
         if ($effectiveReturn > 0) {
             if ($rows->count() === 1) {
                 // Unambiguous: the single attributed receipt takes the whole return.
@@ -162,6 +278,12 @@ class ConsignmentBuyoutCapacityService
         foreach ($net as $crd => $m) {
             if ($m < 0) {
                 $blockers[] = "Return exceeds attribution for receipt #{$crd}.";
+            }
+        }
+        foreach ($rows as $r) {
+            foreach (app(ConsignmentRemoteSaleResolver::class)->lotBindingBlockers($source, $r) as $b) {
+                $blockers[] = $b;
+                unset($net[$r->consignment_receiving_detail_id]);
             }
         }
 
@@ -209,11 +331,11 @@ class ConsignmentBuyoutCapacityService
                     throw new \DomainException("Invalid attribution for receipt #{$crd}.");
                 }
                 $rcv = $d->receiving;
-                if (! $rcv || (int) $rcv->setting_id !== (int) $source->setting_id
-                    || (int) $rcv->location_id !== (int) $source->location_id
-                    || (int) $d->product_id !== (int) $source->product_id
-                    || $rcv->status !== ConsignmentReceiving::STATUS_APPROVED) {
-                    throw new \DomainException("Receipt #{$crd} is not an approved receipt of this sold source's product, location and business.");
+                $local = $rcv && (int) $rcv->setting_id === (int) $source->setting_id && (int) $rcv->location_id === (int) $source->location_id;
+                if (! $rcv || (int) $d->product_id !== (int) $source->product_id || $rcv->status !== ConsignmentReceiving::STATUS_APPROVED
+                    || (! $local && ! $this->remoteCustodyCovers($d, $source, $m))) {
+                    throw new \DomainException("Receipt #{$crd} is not an approved receipt of this sold source's product, location and business"
+                        . ' (or its transferred custody at the sale location does not cover the quantity).');
                 }
                 $sum += $m;
             }
@@ -287,8 +409,25 @@ class ConsignmentBuyoutCapacityService
                 $row->save();
             }
 
+            app(ConsignmentRemoteSaleResolver::class)->syncLotBindings($source->fresh(), $actorId);
+
             return $this->soldAttribution($source->fresh());
         });
+    }
+
+    /**
+     * Receipt-backed custody of a transferred receipt at the sale location as of the dispatch, net of the
+     * receipt's other attributions there, covers the requested quantity (milli).
+     */
+    protected function remoteCustodyCovers(ConsignmentReceivingDetail $d, ConsignmentSoldSource $source, int $m): bool
+    {
+        $at = app(ConsignmentRemoteSaleResolver::class)->lotCustodyAt($d, (int) $source->location_id, $source->dispatched_at);
+        $others = self::milli(ConsignmentSoldReceiptAttribution::where('consignment_receiving_detail_id', $d->id)
+            ->where('consignment_sold_source_id', '!=', $source->id)
+            ->whereIn('consignment_sold_source_id', ConsignmentSoldSource::where('location_id', $source->location_id)->select('id'))
+            ->sum('attributed_base_quantity'));
+
+        return $at - $others >= $m;
     }
 
     protected function attributedGross(int $detailId, ?int $exceptSourceId = null): int
@@ -343,7 +482,7 @@ class ConsignmentBuyoutCapacityService
     /**
      * Receipt financial and physical capacity. Throws on conservation mismatch.
      */
-    public function receiptCapacity(int $detailId, ?int $excludeBuyoutId = null, ?int $excludeConfirmationId = null): array
+    protected function computeReceiptCapacity(int $detailId, ?int $excludeBuyoutId = null, ?int $excludeConfirmationId = null): array
     {
         $detail = ConsignmentReceivingDetail::findOrFail($detailId);
         $received = self::milli($detail->received_base_quantity ?? $detail->quantity_received);
@@ -429,10 +568,10 @@ class ConsignmentBuyoutCapacityService
     /**
      * Sold-source remaining eligible quantity across legacy and buyout consumers.
      */
-    public function soldSourceCapacity(ConsignmentSoldSource $source, ?int $excludeBuyoutId = null, ?int $excludeConfirmationId = null): array
+    protected function computeSoldSourceCapacity(ConsignmentSoldSource $source, ?int $excludeBuyoutId = null, ?int $excludeConfirmationId = null): array
     {
         $original = self::milli($source->original_base_quantity);
-        $returned = self::milli($this->returns->getEffectiveReturnQuantity($source->dispatch_detail_id));
+        $returned = self::milli($this->returnedQuantity($source->dispatch_detail_id));
 
         $legacy = fn (string $status) => self::milli(ConsignmentBillingConfirmationLine::where('consignment_sold_source_id', $source->id)
             ->whereHas('confirmation', function ($q) use ($status, $excludeConfirmationId) {
@@ -479,7 +618,7 @@ class ConsignmentBuyoutCapacityService
      * Quantity of one sold source still attributable to ONE supplier receipt: the receipt's attributed share minus what
      * finalized buyouts and other active reservations already took from exactly that source/receipt pair.
      */
-    public function soldReceiptResidual(ConsignmentSoldSource $source, int $detailId, ?int $excludeBuyoutId = null): float
+    protected function computeSoldReceiptResidual(ConsignmentSoldSource $source, int $detailId, ?int $excludeBuyoutId = null): float
     {
         $att = $this->soldAttribution($source);
         $attributed = self::milli($att['per_receipt'][$detailId] ?? 0);
@@ -534,8 +673,13 @@ class ConsignmentBuyoutCapacityService
             if (! $src || ! $detail) {
                 continue;               // reported elsewhere
             }
-            if ((int) $src->product_id !== (int) $detail->product_id || (int) $src->location_id !== (int) $detail->receiving->location_id) {
-                $errors[] = "Sold source #{$sid} does not belong to the product/location of receipt #{$crd}.";
+            $remoteBound = (int) $src->location_id !== (int) $detail->receiving->location_id
+                && ($b = app(ConsignmentRemoteSaleResolver::class)->activeBinding($sid, $crd))
+                && app(ConsignmentRemoteSaleResolver::class)->bindingBlockers($b) === [];
+            if ((int) $src->product_id !== (int) $detail->product_id
+                || ((int) $src->location_id !== (int) $detail->receiving->location_id && ! $remoteBound)) {
+                $errors[] = "Sold source #{$sid} does not belong to the product/location of receipt #{$crd}"
+                    . ' and has no verified transfer binding to it.';
                 continue;
             }
             $residual = $this->soldReceiptResidual($src, $crd, $excludeBuyoutId);
@@ -617,19 +761,27 @@ class ConsignmentBuyoutCapacityService
     /**
      * Physical pool view for a product/location: receipt residuals vs good stock buckets and operational claims.
      */
-    public function physicalPool(int $settingId, int $productId, int $locationId, ?int $excludeBuyoutId = null): array
+    protected function computePhysicalPool(int $settingId, int $productId, int $locationId, ?int $excludeBuyoutId = null): array
     {
-        $details = ConsignmentReceivingDetail::where('product_id', $productId)
-            ->whereHas('receiving', fn ($q) => $q->where('setting_id', $settingId)->where('location_id', $locationId)
-                ->where('status', ConsignmentReceiving::STATUS_APPROVED))->pluck('id');
+        // Every receipt whose custody can be at this location: received here (any business) or moved here by provenance.
+        $details = app(ConsignmentTransferProvenanceService::class)->receiptsReachable($productId, $locationId)
+            ->filter(fn ($d) => optional(ConsignmentReceiving::find($d->consignment_receiving_id))->status === ConsignmentReceiving::STATUS_APPROVED)
+            ->pluck('id');
 
         $residual = 0;
         $receipts = [];
         $conservation = [];
+        $locationResidualAll = 0;
         foreach ($details as $id) {
             $cap = $this->receiptCapacity($id, $excludeBuyoutId);
+            $moved = $this->hasCustodyEvents((int) $id);
+            // Legacy (never-moved) receipts keep their exact receipt-wide numbers; moved receipts count only what is here.
+            $here = $moved ? $this->locationCustodyAvailable((int) $id, $locationId, $excludeBuyoutId) : self::milli($cap['unsold_available']);
+            $hereGross = $moved ? $this->locationCustodyAvailable((int) $id, $locationId, null, false) : self::milli($cap['physical_residual']);
+            $cap['location_unsold_available'] = self::fromMilli(max(0, min($here, self::milli($cap['unsold_available']))));
             $receipts[$id] = $cap;
-            $residual += self::milli($cap['unsold_available']);
+            $residual += self::milli($cap['location_unsold_available']);
+            $locationResidualAll += max(0, $hereGross);
             $conservation = array_merge($conservation, $cap['conservation_errors']);
         }
 
@@ -661,7 +813,7 @@ class ConsignmentBuyoutCapacityService
 
         $blockers = [];
         // Pool-wide: receipts say units are still supplier-owned here, but sellable stock cannot cover them.
-        $sumResidualAll = array_sum(array_map(fn ($c) => self::milli($c['physical_residual']), $receipts));
+        $sumResidualAll = $locationResidualAll;
         if ($good < $sumResidualAll) {
             $blockers[] = 'Sellable stock (' . self::fromMilli($good) . ') is lower than the supplier-owned residual ('
                 . self::fromMilli($sumResidualAll) . '); moved or damaged stock is ambiguous.';
@@ -715,7 +867,7 @@ class ConsignmentBuyoutCapacityService
     /**
      * Serials that may be bought out: active, sellable, unheld, unclaimed, same product/location, with receipt lineage.
      */
-    public function selectableSerialIds(int $productId, int $locationId, ?int $receivingDetailId = null): array
+    protected function computeSelectableSerialIds(int $productId, int $locationId, ?int $receivingDetailId = null): array
     {
         $q = \Modules\Product\Entities\ProductSerialNumber::query()
             ->where('product_id', $productId)->where('location_id', $locationId)
@@ -730,7 +882,66 @@ class ConsignmentBuyoutCapacityService
         $ids = $q->orderBy('id')->pluck('id')->all();
 
         // Serials in held return custody are not sellable stock even if flagged otherwise.
-        return array_values(array_filter($ids, fn ($id) => ! \App\Support\SalesReturn\HeldSerialGuard::isHeld($id)));
+        $ids = array_values(array_filter($ids, fn ($id) => ! \App\Support\SalesReturn\HeldSerialGuard::isHeld($id)));
+
+        // Transfer provenance: the serial's receipt custody must be SELLABLE at this exact location (a physically moved
+        // serial without a recorded/reconstructed custody path is never selectable).
+        $prov = app(ConsignmentTransferProvenanceService::class);
+
+        return array_values(array_filter($ids, function ($id) use ($prov, $locationId) {
+            $c = $prov->serialCustody(\Modules\Product\Entities\ProductSerialNumber::find($id));
+
+            return $c && $c['state'] === \Modules\Consignment\Entities\ConsignmentProvenanceEvent::STATE_SELLABLE && (int) $c['location_id'] === $locationId;
+        }));
+    }
+
+    /* ------------------------------------------------------------------ transfer provenance custody */
+
+    protected function computeHasCustodyEvents(int $detailId): bool
+    {
+        return \Modules\Consignment\Entities\ConsignmentProvenanceEvent::where('consignment_receiving_detail_id', $detailId)->exists();
+    }
+
+    /**
+     * Supplier-owned sellable custody of one receipt at one location (milli), net of sales, acquisitions and the
+     * unsold reservations of OTHER buyouts at that location. Rebuilt from provenance + authoritative exits.
+     */
+    public function locationCustodyAvailable(int $detailId, int $locationId, ?int $excludeBuyoutId = null, bool $netOfReservations = true): int
+    {
+        $prov = app(ConsignmentTransferProvenanceService::class);
+        $p = $prov->project(ConsignmentReceivingDetail::findOrFail($detailId));
+        $m = self::milli((new ConsignmentCustodyProjection())->quantityAt($p, \Modules\Consignment\Entities\ConsignmentProvenanceEvent::STATE_SELLABLE, $locationId));
+        if (! $netOfReservations) {
+            return $m;
+        }
+        $q = ConsignmentBuyoutReservation::where('resource_type', 'RECEIPT')->where('consignment_receiving_detail_id', $detailId)
+            ->where('status', ConsignmentBuyoutReservation::STATUS_ACTIVE)
+            ->whereHas('line', fn ($l) => $l->where('line_type', ConsignmentBuyoutLine::TYPE_UNSOLD_BUYOUT)->where('source_location_id', $locationId));
+        ConsignmentBuyoutReservationGuard::latest($q);
+        if ($excludeBuyoutId) {
+            $q->where('consignment_buyout_id', '!=', $excludeBuyoutId);
+        }
+
+        return $m - self::milli($q->sum('base_quantity'));
+    }
+
+    /** @return string[] unsold line must fit the receipt's custody at its actual (possibly remote) source location */
+    public function validateLocationCustody(ConsignmentBuyoutLine $line, string $ref, ?int $excludeBuyoutId = null): array
+    {
+        $need = self::milli(ConsignmentBuyoutLine::where('consignment_buyout_id', $line->consignment_buyout_id)
+            ->where('line_type', ConsignmentBuyoutLine::TYPE_UNSOLD_BUYOUT)
+            ->where('consignment_receiving_detail_id', $line->consignment_receiving_detail_id)
+            ->where('source_location_id', $line->source_location_id)->sum('base_quantity'));
+        $prov = app(ConsignmentTransferProvenanceService::class)->project(ConsignmentReceivingDetail::findOrFail($line->consignment_receiving_detail_id));
+        if ($prov['blockers']) {
+            return array_map(fn ($b) => "{$ref}: {$b}", $prov['blockers']);
+        }
+        $available = $this->locationCustodyAvailable((int) $line->consignment_receiving_detail_id, (int) $line->source_location_id, $excludeBuyoutId);
+        if ($need > $available) {
+            return ["{$ref}: receipt custody at the source location is only " . self::fromMilli(max(0, $available)) . '; requested ' . self::fromMilli($need) . '.'];
+        }
+
+        return [];
     }
 
     /** Buyout financial/physical consumption of a receipt (finalized + active reservations) for legacy checks. */

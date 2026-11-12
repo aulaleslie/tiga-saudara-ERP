@@ -33,16 +33,21 @@ class ConsignmentSoldSourceDiscoveryService
      *
      * @param int $settingId
      * @param bool $previewOnly If true, do not persist any changes.
+     * @param bool $includeRemote Also reach consignment locations of other businesses that hold this
+     *                            business's receipt custody (transfer provenance). Manual only.
      * @return array Summary of discovery results.
      */
-    public function discoverForSetting(int $settingId, bool $previewOnly = false): array
+    public function discoverForSetting(int $settingId, bool $previewOnly = false, bool $includeRemote = true): array
     {
         $consignmentLocationIds = Location::where('setting_id', $settingId)
             ->where('is_consignment', true)
             ->pluck('id')
             ->toArray();
 
-        if (empty($consignmentLocationIds)) {
+        // Remote custody reached by this business's own receipt provenance (never every foreign sale).
+        $remote = $includeRemote ? app(ConsignmentRemoteSaleResolver::class)->reachableRemoteLocations($settingId) : [];
+
+        if (empty($consignmentLocationIds) && $remote === []) {
             return [
                 'created' => 0,
                 'existing' => 0,
@@ -59,6 +64,21 @@ class ConsignmentSoldSourceDiscoveryService
             ->with(['dispatch', 'sale', 'product', 'location'])
             ->get();
 
+        foreach ($remote as $locationId => $products) {
+            $remoteDetails = DispatchDetail::whereHas('dispatch', fn ($q) => $q->where('status', Dispatch::STATUS_APPROVED))
+                ->where('location_id', $locationId)
+                ->whereIn('product_id', array_keys($products))
+                ->with(['dispatch', 'sale', 'product', 'location'])
+                ->get()
+                ->filter(function (DispatchDetail $d) use ($products) {
+                    $at = $d->dispatch->approved_at ?? $d->dispatch->created_at ?? $d->created_at;
+
+                    return $at && \Carbon\Carbon::parse($at)->gte($products[(int) $d->product_id]);
+                });
+            $dispatchDetails = $dispatchDetails->merge($remoteDetails);
+        }
+        $dispatchDetails = $dispatchDetails->unique('id')->values();
+
         $created = 0;
         $existing = 0;
         $excluded = 0;
@@ -66,9 +86,15 @@ class ConsignmentSoldSourceDiscoveryService
         $details = [];
 
         foreach ($dispatchDetails as $detail) {
+            // The envelope always belongs to the actual selling (location) business.
+            $envelopeSettingId = (int) optional($detail->location)->setting_id;
+
             // Check if already captured
             $existingSource = ConsignmentSoldSource::where('dispatch_detail_id', $detail->id)->first();
             if ($existingSource) {
+                if (! $previewOnly) {
+                    app(ConsignmentRemoteSaleResolver::class)->bindSerializedSource($existingSource);
+                }
                 $existing++;
                 $details[] = [
                     'dispatch_detail_id' => $detail->id,
@@ -84,7 +110,8 @@ class ConsignmentSoldSourceDiscoveryService
             }
 
             if (! $previewOnly) {
-                $resultStatus = DB::transaction(function () use ($settingId, $detail) {
+                $resultStatus = DB::transaction(function () use ($envelopeSettingId, $detail) {
+                    $settingId = $envelopeSettingId;
                     $candidateLocationId = (int) $detail->location_id;
                     $candidateDispatchId = (int) $detail->dispatch_id;
                     $candidateDetailId = (int) $detail->id;
@@ -227,6 +254,9 @@ class ConsignmentSoldSourceDiscoveryService
                         }
                     }
 
+                    // Remote/transferred serialized custody: verified receipt bindings (never rewrites the envelope).
+                    app(ConsignmentRemoteSaleResolver::class)->bindSerializedSource($soldSource);
+
                     return ['created' => true, 'has_blocker' => $hasBlocker];
                 });
 
@@ -252,7 +282,7 @@ class ConsignmentSoldSourceDiscoveryService
                 $product = $detail->product;
                 $location = $detail->location;
                 $previewLocationValid = $location
-                    && (int) $location->setting_id === $settingId
+                    && (int) $location->setting_id === $envelopeSettingId
                     && $location->is_consignment
                     && $location->is_active;
                 $classification = $this->classifyInventoryEvidence($detail, $product, $previewLocationValid ? $location : null);

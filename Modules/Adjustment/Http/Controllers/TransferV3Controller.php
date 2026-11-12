@@ -44,8 +44,16 @@ class TransferV3Controller extends Controller
         $workspace = $allocations->workspace($transfer, TransferV3Access::canViewBucketDiagnostics());
         $summary = $request->boolean('review') ? $allocations->summary($transfer) : null;
 
+        // Consignment-only receipt-lot step; empty for ordinary transfers.
+        $provenance = app(\Modules\Consignment\Services\ConsignmentTransferProvenanceService::class);
+        $consignmentLots = $provenance->preparationView($transfer);
+        if ($summary && $consignmentLots !== []) {
+            $summary['errors'] = array_merge($summary['errors'], $provenance->preparationErrors($transfer));
+        }
+
         return view('adjustment::transfers.v3.approval', [
             'transfer'     => $transfer,
+            'consignmentLots' => $consignmentLots,
             'workspace'    => $workspace,
             'summary'      => $summary,
             'operationKey' => (string) Str::uuid(),

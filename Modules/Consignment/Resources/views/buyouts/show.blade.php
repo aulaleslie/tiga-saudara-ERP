@@ -49,7 +49,7 @@
                     <div class="table-responsive">
                         <table class="table table-bordered table-sm mb-0">
                             <thead class="thead-light">
-                                <tr><th>Jenis</th><th>Penerimaan</th><th>Dari</th><th>Tujuan</th><th class="text-right">Kuantitas</th><th>Serial</th>
+                                <tr><th>Jenis</th><th>Penerimaan</th><th>Dari</th><th>Tujuan</th><th>Menjadi milik</th><th class="text-right">Kuantitas</th><th>Serial</th>
                                     <th class="text-right">Nilai asli</th><th class="text-right">Faktur</th><th class="text-right">Biaya persediaan</th></tr>
                             </thead>
                             <tbody>
@@ -61,6 +61,7 @@
                                         <td>{{ $line->receivingDetail->receiving->receiving_number ?? '#' . $line->consignment_receiving_detail_id }}</td>
                                         <td>{{ $locations[$line->source_location_id] ?? '-' }}</td>
                                         <td>{{ $locations[$line->destination_location_id] ?? '-' }}@if($line->line_type === 'SOLD_UNBILLED') <small class="text-muted">(tujuan retur)</small>@endif</td>
+                                        <td class="small">@if($line->line_type === 'SOLD_UNBILLED')—@else{{ $owners[$line->inventoryOwnerSettingId()] ?? '-' }}@if($line->inventory_owner_setting_id && (int) $line->inventory_owner_setting_id !== (int) $buyout->setting_id) <span class="badge badge-info">bisnis lain</span>@endif @endif</td>
                                         <td class="text-right">{{ rtrim(rtrim(number_format((float) $line->base_quantity, 3, '.', ''), '0'), '.') }}</td>
                                         <td class="small">{{ $line->serials->map(fn ($s) => $s->serialNumber->serial_number ?? $s->product_serial_number_id)->implode(', ') ?: '-' }}</td>
                                         <td class="text-right">{{ number_format((float) ($snap['original']['total'] ?? $slice['original']['total'] ?? 0), 2, ',', '.') }}</td>
@@ -71,8 +72,8 @@
                             </tbody>
                             @if($pricing)
                                 <tfoot>
-                                    <tr><th colspan="7" class="text-right">Diskon dokumen</th><th class="text-right">{{ number_format($pricing['totals']['global_discount_amount'], 2, ',', '.') }}</th><th></th></tr>
-                                    <tr><th colspan="7" class="text-right">Total faktur</th><th class="text-right">{{ number_format($pricing['totals']['total_amount'], 2, ',', '.') }}</th><th class="text-right">{{ number_format($pricing['totals']['inventory_cost_total'], 2, ',', '.') }}</th></tr>
+                                    <tr><th colspan="8" class="text-right">Diskon dokumen</th><th class="text-right">{{ number_format($pricing['totals']['global_discount_amount'], 2, ',', '.') }}</th><th></th></tr>
+                                    <tr><th colspan="8" class="text-right">Total faktur <small class="text-muted">(ditagih ke {{ $owners[$buyout->setting_id] ?? '-' }} saja)</small></th><th class="text-right">{{ number_format($pricing['totals']['total_amount'], 2, ',', '.') }}</th><th class="text-right">{{ number_format($pricing['totals']['inventory_cost_total'], 2, ',', '.') }}</th></tr>
                                 </tfoot>
                             @endif
                         </table>

@@ -12,6 +12,7 @@
  *   legacy   <actorId> <settingId> <confirmationId> <barrier>   (legacy ConsignmentBillingConfirmationLifecycleService::submitConfirmation)
  *   attribute <actorId> <settingId> <soldSourceId> <json receiptId=>qty> <barrier>   (real ConsignmentBuyoutCapacityService::setAttribution)
  *   declare  <actorId> <settingId> <saleReturnDetailId> <acquiredQty> <barrier>   (real ConsignmentBuyoutReturnOwnershipService::declare)
+ *   discover <actorId> <settingId> <originSettingId> <barrier>   (manual ConsignmentSoldSourceDiscoveryService::discoverForSetting)
  *   http     <actorId> <settingId> <POST path> [<json params>] <barrier>   (full HTTP kernel, e.g. dispatch / receiving cancellation)
  * Prints RESULT:<outcome> (ok[:detail] | refused:<class>:<message>).
  */
@@ -136,6 +137,10 @@ try {
             $row = app(Modules\Consignment\Services\ConsignmentBuyoutReturnOwnershipService::class)
                 ->declare(Modules\SalesReturn\Entities\SaleReturnDetail::findOrFail($id), (float) $argv[5], $actor);
             echo 'RESULT:ok:declared=' . $row->acquired_quantity . "\n";
+            break;
+        case 'discover':
+            $r = app(Modules\Consignment\Services\ConsignmentSoldSourceDiscoveryService::class)->discoverForSetting($id);
+            echo 'RESULT:ok:created=' . $r['created'] . ':existing=' . $r['existing'] . "\n";
             break;
         case 'attribute':
             app(Modules\Consignment\Services\ConsignmentBuyoutCapacityService::class)

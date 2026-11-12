@@ -56,12 +56,15 @@ trait InventoryReplaySupport
         $consignmentLocations = \Modules\Setting\Entities\Location::whereIn('id', $movements->pluck('location_id')->unique())
             ->pluck('is_consignment', 'id');
         $events = \Modules\Consignment\Entities\ConsignmentBuyoutCostEvent::whereIn('consignment_buyout_id', $movements->pluck('consignment_buyout_id')->unique())->get()
-            ->keyBy(fn ($e) => $e->consignment_buyout_id . ':' . $e->product_id . ':' . $e->kind);
+            ->keyBy(fn ($e) => $e->consignment_buyout_id . ':' . $e->setting_id . ':' . $e->product_id . ':' . $e->kind);
+        // Movement owner: explicit inventory owner (remote acquisition) or, for legacy rows, the buyout header business.
+        $headers = \Modules\Consignment\Entities\ConsignmentBuyout::whereIn('id', $movements->pluck('consignment_buyout_id')->unique())->pluck('setting_id', 'id');
 
         $out = [];
         foreach ($movements as $m) {
             $nonOwned = (bool) ($consignmentLocations[$m->location_id] ?? false);
-            $event = $events->get($m->consignment_buyout_id . ':' . $m->product_id . ':' . $m->kind);
+            $owner = $m->inventory_owner_setting_id ?? $headers[$m->consignment_buyout_id] ?? null;
+            $event = $events->get($m->consignment_buyout_id . ':' . $owner . ':' . $m->product_id . ':' . $m->kind);
             $out[$m->transaction_id] = [
                 'ignore' => $nonOwned,
                 'average' => ! $nonOwned && $event ? (float) $event->average_after : null,

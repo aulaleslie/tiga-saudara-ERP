@@ -5,6 +5,7 @@ use Modules\Consignment\Http\Controllers\ConsignmentReceivalController;
 use Modules\Consignment\Http\Controllers\ConsignmentReceivingController;
 use Modules\Consignment\Http\Controllers\ConsignmentReconciliationController;
 use Modules\Consignment\Http\Controllers\ConsignmentSelectSearchController;
+use Modules\Consignment\Http\Controllers\ConsignmentTransferLotController;
 
 Route::group(['middleware' => ['auth', 'role.setting'], 'prefix' => 'consignments', 'as' => 'consignments.'], function () {
 
@@ -13,6 +14,9 @@ Route::group(['middleware' => ['auth', 'role.setting'], 'prefix' => 'consignment
     Route::get('select/products', [ConsignmentSelectSearchController::class, 'products'])->name('select.products');
     Route::get('select/locations', [ConsignmentSelectSearchController::class, 'locations'])->name('select.locations');
     Route::get('select/sold-sources', [ConsignmentSelectSearchController::class, 'soldSources'])->name('select.sold-sources');
+
+    // Receipt-lot confirmation for consignment stock transfers (V3 approval workspace)
+    Route::post('transfers/{transfer}/lots', [ConsignmentTransferLotController::class, 'confirm'])->name('transfer-lots.confirm');
 
     // Consignment Receivals
     Route::get('receival-suppliers/search', [ConsignmentReceivalController::class, 'searchSuppliers'])->name('receival-suppliers.search');

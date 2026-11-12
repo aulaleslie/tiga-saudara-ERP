@@ -29,7 +29,13 @@ class ConsignmentSoldSourceController extends Controller
         abort_if(Gate::denies('consignments.allocations.access'), 403);
         $settingId = (int) session('setting_id');
 
-        $query = ConsignmentSoldSource::forSetting($settingId)
+        // Internal drill-down: foreign-selling envelopes bound to THIS business's receipts, for reconciliation staff only.
+        $remoteIds = Gate::allows('consignments.provenance.reconcile')
+            ? \Modules\Consignment\Entities\ConsignmentObligationBinding::where('original_setting_id', $settingId)->where('status', 'ACTIVE')
+                ->pluck('consignment_sold_source_id')->unique()->all()
+            : [];
+        $query = ConsignmentSoldSource::query()
+            ->where(fn ($q) => $q->where('setting_id', $settingId)->orWhereIn('id', $remoteIds ?: [0]))
             ->with(['sale', 'product', 'location', 'serials.serialNumber']);
 
         if ($request->filled('product_id')) {
@@ -67,7 +73,7 @@ class ConsignmentSoldSourceController extends Controller
         $settingId = (int) session('setting_id');
 
         $previewOnly = $request->boolean('preview');
-        $result = $this->discoveryService->discoverForSetting($settingId, $previewOnly);
+        $result = $this->discoveryService->discoverForSetting($settingId, $previewOnly, Gate::allows('consignments.provenance.reconcile'));
 
         $msg = "Discovery completed: {$result['created']} created, {$result['existing']} existing, {$result['excluded']} excluded, {$result['blocked']} blocked.";
         toast($msg, 'info');

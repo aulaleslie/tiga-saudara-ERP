@@ -87,7 +87,12 @@
                                         </div>
                                         <small class="text-muted">Dispatch #{{ $src->dispatch_detail_id }}</small>
                                     </td>
-                                    <td>{{ $src->location->name ?? '-' }}</td>
+                                    <td>
+                                        {{ $src->location->name ?? '-' }}
+                                        @if((int) $src->setting_id !== (int) session('setting_id'))
+                                            <div><span class="badge badge-info" title="Dijual oleh bisnis lain dari penerimaan konsinyasi bisnis ini">Penjualan bisnis lain (transfer)</span></div>
+                                        @endif
+                                    </td>
                                     <td>
                                         <div class="font-weight-bold">{{ $src->product->product_name ?? '-' }}</div>
                                         <small class="text-muted">{{ $src->product->product_code ?? '-' }}</small>

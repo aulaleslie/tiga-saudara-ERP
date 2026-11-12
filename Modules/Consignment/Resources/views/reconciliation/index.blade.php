@@ -326,7 +326,7 @@
                         <thead class="thead-light">
                             <tr><th>Penerimaan</th><th class="text-right">Diterima</th><th class="text-right">Terjual (atribusi)</th><th class="text-right">Cadangan finansial</th>
                                 <th class="text-right">Cadangan fisik</th><th class="text-right">Ditagih (terjual)</th><th class="text-right">Dibeli (milik)</th>
-                                <th class="text-right">Sisa fisik supplier</th><th class="text-right">Tersedia dibeli</th><th>Catatan</th></tr>
+                                <th class="text-right">Sisa fisik supplier</th><th class="text-right">Tersedia dibeli</th><th>Kustodi penerimaan</th><th>Catatan</th></tr>
                         </thead>
                         <tbody>
                             @foreach($details as $d)
@@ -342,6 +342,12 @@
                                     <td class="text-right">{{ $r['acquired_unsold'] }}</td>
                                     <td class="text-right">{{ $r['physical_residual'] }}</td>
                                     <td class="text-right font-weight-bold">{{ $r['unsold_available'] }}</td>
+                                    <td class="small">
+                                        @foreach($r['custody'] ?? [] as $c)
+                                            <div>{{ ['SELLABLE' => 'Tersedia', 'HELD' => 'Ditahan', 'TRANSIT' => 'Transit'][$c['state']] ?? $c['state'] }} {{ $c['quantity'] }} · {{ $c['location'] }} ({{ $c['business'] }})@if($c['remote']) <span class="badge badge-info">bisnis lain</span>@endif</div>
+                                        @endforeach
+                                        @if(($r['remote_sold'] ?? 0) > 0)<div>Terjual di bisnis lain {{ $r['remote_sold'] }}</div>@endif
+                                    </td>
                                     <td class="small text-danger">{{ implode(' ', array_merge($r['conservation_errors'], $r['blockers'])) }}</td>
                                 </tr>
                             @endforeach

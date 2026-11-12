@@ -72,7 +72,10 @@ class ConsignmentBillingConfirmationController extends Controller
 
         // Eligible sources are Consignment evidence: setting-scoped, searchable and
         // paginated so the page never loads every source at once.
-        $soldSources = ConsignmentSoldSource::forSetting($settingId)
+        // Own-business evidence plus foreign-selling envelopes bound to this business's receipts (transfer provenance).
+        $soldSources = ConsignmentSoldSource::query()
+            ->where(fn ($q) => $q->where('setting_id', $settingId)->orWhereIn('id',
+                \Modules\Consignment\Entities\ConsignmentObligationBinding::where('original_setting_id', $settingId)->where('status', 'ACTIVE')->select('consignment_sold_source_id')))
             ->where('has_reconstruction_blocker', false)
             ->when($request->filled('filter_product_id'), fn ($q) => $q->where('product_id', $request->integer('filter_product_id')))
             ->when($request->filled('filter_location_id'), fn ($q) => $q->where('location_id', $request->integer('filter_location_id')))
@@ -94,7 +97,9 @@ class ConsignmentBillingConfirmationController extends Controller
                         $settingId,
                         $selectedSupplierId,
                         $src->product_id,
-                        $src->location_id
+                        $src->location_id,
+                        null,
+                        (int) $src->id
                     );
 
                     $returnedSerialIds = $this->eligibilityService->getEffectiveReturnedSerialIds($src->dispatch_detail_id);
@@ -106,7 +111,9 @@ class ConsignmentBillingConfirmationController extends Controller
                             $lineage = $this->receiptAllocationService->resolveSerialLineage(
                                 $psn,
                                 $settingId,
-                                $src->location_id
+                                $src->location_id,
+                                null,
+                                (int) $src->id
                             );
                             if (! $lineage['has_blocker'] && $lineage['supplier_id'] == $selectedSupplierId) {
                                 $resolvedSerials[] = [
@@ -286,7 +293,10 @@ class ConsignmentBillingConfirmationController extends Controller
         $selectedFilterProductText = Product::whereKey($request->integer('filter_product_id'))->value('product_name');
         $selectedFilterLocationText = Location::whereKey($request->integer('filter_location_id'))->value('name');
 
-        $soldSources = ConsignmentSoldSource::forSetting($settingId)
+        // Own-business evidence plus foreign-selling envelopes bound to this business's receipts (transfer provenance).
+        $soldSources = ConsignmentSoldSource::query()
+            ->where(fn ($q) => $q->where('setting_id', $settingId)->orWhereIn('id',
+                \Modules\Consignment\Entities\ConsignmentObligationBinding::where('original_setting_id', $settingId)->where('status', 'ACTIVE')->select('consignment_sold_source_id')))
             ->where('has_reconstruction_blocker', false)
             ->when($request->filled('filter_product_id'), fn ($q) => $q->where('product_id', $request->integer('filter_product_id')))
             ->when($request->filled('filter_location_id'), fn ($q) => $q->where('location_id', $request->integer('filter_location_id')))
@@ -307,7 +317,8 @@ class ConsignmentBillingConfirmationController extends Controller
                     $selectedSupplierId,
                     $src->product_id,
                     $src->location_id,
-                    $confirmation->id
+                    $confirmation->id,
+                    (int) $src->id
                 );
 
                 $returnedSerialIds = $this->eligibilityService->getEffectiveReturnedSerialIds($src->dispatch_detail_id);
@@ -320,7 +331,8 @@ class ConsignmentBillingConfirmationController extends Controller
                             $psn,
                             $settingId,
                             $src->location_id,
-                            $confirmation->id
+                            $confirmation->id,
+                            (int) $src->id
                         );
                         if (! $lineage['has_blocker'] && $lineage['supplier_id'] == $selectedSupplierId) {
                             $resolvedSerials[] = [

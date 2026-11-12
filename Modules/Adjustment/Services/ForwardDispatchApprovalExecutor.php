@@ -105,6 +105,9 @@ class ForwardDispatchApprovalExecutor
                 throw new RuntimeException("Forward dispatch cannot be approved: physical count does not match the approved transfer request.");
             }
 
+            // Legacy workflows have no consignment receipt-provenance posting; refuse instead of bypassing it.
+            \Modules\Consignment\Services\ConsignmentTransferProvenanceService::assertLegacyDispatchAllowed((int) $lockedMovement->origin_location_id);
+
             // Load lines and serials
             $lockedMovement->load(['lines.serials', 'lines.product']);
 

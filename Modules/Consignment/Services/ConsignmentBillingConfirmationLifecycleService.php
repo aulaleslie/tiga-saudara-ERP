@@ -197,8 +197,16 @@ class ConsignmentBillingConfirmationLifecycleService
     /** @return array<int, array{0:int,1:int}> read-only (business, product) discovery for the lock planner */
     protected function confirmationPairs(ConsignmentBillingConfirmation $confirmation): array
     {
-        return ConsignmentBillingConfirmationLine::where('consignment_billing_confirmation_id', $confirmation->id)
-            ->pluck('product_id')->unique()->map(fn ($p) => [(int) $confirmation->setting_id, (int) $p])->all();
+        $lines = ConsignmentBillingConfirmationLine::where('consignment_billing_confirmation_id', $confirmation->id)->get(['product_id', 'consignment_sold_source_id']);
+        $pairs = $lines->pluck('product_id')->unique()->map(fn ($p) => [(int) $confirmation->setting_id, (int) $p])->all();
+        // Remote (transfer-bound) sources: also the selling business's key, which serializes their attribution changes.
+        $sellers = ConsignmentSoldSource::whereIn('id', $lines->pluck('consignment_sold_source_id')->filter()->all())
+            ->where('setting_id', '!=', $confirmation->setting_id)->get(['setting_id', 'product_id']);
+        foreach ($sellers as $src) {
+            $pairs[] = [(int) $src->setting_id, (int) $src->product_id];
+        }
+
+        return array_values(array_unique($pairs, SORT_REGULAR));
     }
 
     public function submitConfirmation(ConsignmentBillingConfirmation $confirmation, ?int $userId = null): ConsignmentBillingConfirmation
@@ -345,7 +353,8 @@ class ConsignmentBillingConfirmationLifecycleService
                     $header->supplier_id,
                     $line->product_id,
                     $line->location_id,
-                    $header->id
+                    $header->id,
+                    (int) $line->consignment_sold_source_id
                 );
 
                 if (! $valResult['is_valid']) {
@@ -359,7 +368,7 @@ class ConsignmentBillingConfirmationLifecycleService
                         throw new Exception("Serial #{$sa->product_serial_number_id} not found.");
                     }
 
-                    $lineage = $this->receiptAllocationService->resolveSerialLineage($serial, $header->setting_id, $line->location_id);
+                    $lineage = $this->receiptAllocationService->resolveSerialLineage($serial, $header->setting_id, $line->location_id, null, (int) $line->consignment_sold_source_id);
                     if ($lineage['has_blocker']) {
                         throw new Exception("Serial #{$serial->serial_number} lineage error: {$lineage['blocker_reason']}");
                     }
@@ -517,7 +526,8 @@ class ConsignmentBillingConfirmationLifecycleService
                     $header->supplier_id,
                     $line->product_id,
                     $line->location_id,
-                    $header->id
+                    $header->id,
+                    (int) $line->consignment_sold_source_id
                 );
 
                 if (! $valResult['is_valid']) {
@@ -569,7 +579,7 @@ class ConsignmentBillingConfirmationLifecycleService
                         throw new Exception("Approval failed: serial #{$sa->product_serial_number_id} not found.");
                     }
 
-                    $lineage = $this->receiptAllocationService->resolveSerialLineage($serial, $header->setting_id, $line->location_id, $header->id);
+                    $lineage = $this->receiptAllocationService->resolveSerialLineage($serial, $header->setting_id, $line->location_id, $header->id, (int) $line->consignment_sold_source_id);
                     if ($lineage['has_blocker']) {
                         throw new Exception("Approval failed for serial #{$serial->serial_number}: {$lineage['blocker_reason']}");
                     }
@@ -746,7 +756,8 @@ class ConsignmentBillingConfirmationLifecycleService
         foreach ($linesData as $lineData) {
             $soldSource = ConsignmentSoldSource::findOrFail($lineData['consignment_sold_source_id']);
 
-            if ($soldSource->setting_id != $confirmation->setting_id) {
+            // A foreign-selling envelope is billable by the original business only through a verified receipt binding.
+            if ($soldSource->setting_id != $confirmation->setting_id && ! $this->hasVerifiedOriginBinding($soldSource, $confirmation)) {
                 throw new InvalidArgumentException("Sold source #{$soldSource->id} does not belong to confirmation setting #{$confirmation->setting_id}.");
             }
 
@@ -845,6 +856,16 @@ class ConsignmentBillingConfirmationLifecycleService
      *   the sold source's DispatchDetail, and a missing one fails closed rather than
      *   falling back to an unlocked read. Read-only callers leave this false.
      */
+    protected function hasVerifiedOriginBinding(ConsignmentSoldSource $soldSource, ConsignmentBillingConfirmation $confirmation): bool
+    {
+        $alloc = $this->receiptAllocationService;
+
+        return \Modules\Consignment\Entities\ConsignmentObligationBinding::where('consignment_sold_source_id', $soldSource->id)
+            ->where('status', 'ACTIVE')->where('original_setting_id', $confirmation->setting_id)->where('supplier_id', $confirmation->supplier_id)
+            ->pluck('consignment_receiving_detail_id')
+            ->contains(fn ($crd) => $alloc->verifiedBinding((int) $soldSource->id, (int) $crd) !== null);
+    }
+
     public function computeCanonicalLiveHash(ConsignmentSoldSource $soldSource, bool $requireLockedProduct = false): string
     {
         $detail = $soldSource->dispatchDetail;

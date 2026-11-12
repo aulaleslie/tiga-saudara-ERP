@@ -160,22 +160,25 @@ class ConsignmentBuyoutAllEligibleTest extends TestCase
         $user = $this->viewer();
         $before = $this->tables();
 
+        // The destination is an explicit step-1 choice: nothing is preselected without one.
         $none = $this->actingAs($user)->withSession(['setting_id' => $this->setting->id])
-            ->get(route('consignments.buyouts.create', ['supplier_id' => $this->supplier->id, 'propose' => 'all']))
-            ->assertOk()->assertSee('Pilih lokasi tujuan')->assertDontSee('Tinjauan: semua yang memenuhi syarat');
-        $this->assertNotNull($none);
+            ->get(route('consignments.buyouts.create', ['supplier_id' => $this->supplier->id]))
+            ->assertOk()->assertSee('Pilih lokasi tujuan')->getContent();
+        $this->assertStringContainsString('"destinations":{}', $none);
 
+        // Every excluded row is shown with its reason instead of being silently dropped.
         $html = $this->actingAs($user)->withSession(['setting_id' => $this->setting->id])
-            ->get(route('consignments.buyouts.create', ['supplier_id' => $this->supplier->id, 'propose' => 'all', 'destination_location_id' => $this->dest1->id]))
-            ->assertOk()->assertSee('Tinjauan: semua yang memenuhi syarat')->assertSee('Dikecualikan')->assertSee('Usulkan semua yang memenuhi syarat')
+            ->get(route('consignments.buyouts.create', ['supplier_id' => $this->supplier->id, 'destination_location_id' => $this->dest1->id]))
+            ->assertOk()->assertSee('Barang yang belum dapat dipilih')->assertSee('Pilih semua yang tersedia')
             ->getContent();
-        $this->assertStringContainsString('belum diatribusikan', $html);
+        $this->assertStringContainsString('"destinations":{"' . $this->setting->id . '":' . $this->dest1->id . '}', $html);
+        $this->assertStringContainsString('belum dihubungkan (diatribusikan)', $html);
         $this->assertStringNotContainsString('name="lines[', $html, 'no draft form while the feature is disabled');
         $this->assertSame($before, $this->tables());
     }
 
     /** @test */
-    public function with_the_ui_enabled_the_review_prefills_the_draft_and_an_unticked_row_is_an_explicit_exclusion(): void
+    public function with_the_ui_enabled_rows_offer_their_maximum_and_an_unticked_reviewed_row_is_an_explicit_exclusion(): void
     {
         config(['consignment.buyouts.ui_enabled' => true]);
         $a = $this->receipt($this->supplier, '4');
@@ -189,8 +192,8 @@ class ConsignmentBuyoutAllEligibleTest extends TestCase
         $html = $this->actingAs($user)->withSession(['setting_id' => $this->setting->id])
             ->get(route('consignments.buyouts.create', ['supplier_id' => $this->supplier->id, 'propose' => 'all', 'destination_location_id' => $this->dest1->id]))
             ->assertOk()->getContent();
-        $this->assertStringContainsString('name="lines[u0][include]"', $html);
-        $this->assertMatchesRegularExpression('/name="lines\[u0\]\[base_quantity\]"[^>]*value="4"/', $html, 'quantity prefilled from the review');
+        $this->assertStringContainsString('name="lines[u0][base_quantity]"', $html);
+        $this->assertMatchesRegularExpression('/max="4"[^>]*name="lines\[u0\]\[base_quantity\]"/', $html, '"Pilih semua yang tersedia" takes the row maximum');
 
         // Unticked => reviewed but not included => dropped; nothing remains, so validation (not a silent default) answers.
         $this->actingAs($user)->withSession(['setting_id' => $this->setting->id])->post(route('consignments.buyouts.store'), [

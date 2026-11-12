@@ -191,6 +191,8 @@ class ConsignmentBuyoutReversalService
         if (Gate::forUser($actor)->denies('consignments.buyouts.reverse')) {
             throw new AuthorizationException('Missing permission consignments.buyouts.reverse.');
         }
+        // Undoing a remote acquisition changes the holding business's stock and cost: same delegation as acquiring it.
+        (new ConsignmentBuyoutLifecycleService())->authorizeCustody($actor, $buyout);
 
         $purchaseId = ConsignmentBuyout::whereKey($buyout->id)->value('purchase_id');
         $purchase = null;
@@ -216,7 +218,8 @@ class ConsignmentBuyoutReversalService
                 ->keyBy(fn ($s) => $s->product_id . ':' . $s->location_id);
             $serialIds = $lines->flatMap(fn ($l) => $l->serials->pluck('product_serial_number_id'))->unique()->sort()->values()->all();
             $serials = $serialIds ? ProductSerialNumber::whereIn('id', $serialIds)->orderBy('id')->lockForUpdate()->get()->keyBy('id') : collect();
-            ProductPrice::whereIn('product_id', $productIds)->where('setting_id', $locked->setting_id)->orderBy('id')->lockForUpdate()->get();
+            $owners = $lines->map(fn ($l) => $l->inventoryOwnerSettingId())->push((int) $locked->setting_id)->unique()->all();
+            ProductPrice::whereIn('product_id', $productIds)->whereIn('setting_id', $owners)->orderBy('id')->lockForUpdate()->get();
 
             // 4. Payment and dependency evidence, read after the locks above.
             if ($purchaseId) {
@@ -255,14 +258,14 @@ class ConsignmentBuyoutReversalService
                 }
                 if ($line->serials->isEmpty()) {
                     ConsignmentBuyoutOwnershipEvent::create([
-                        'consignment_buyout_id' => $locked->id, 'consignment_buyout_line_id' => $line->id, 'product_serial_number_id' => null,
+                        'consignment_buyout_id' => $locked->id, 'consignment_buyout_line_id' => $line->id, 'inventory_owner_setting_id' => $line->inventory_owner_setting_id, 'product_serial_number_id' => null,
                         'consignment_receiving_detail_id' => $line->consignment_receiving_detail_id, 'kind' => 'REVERSAL',
                         'base_quantity' => $line->base_quantity, 'occurred_at' => $now,
                     ]);
                 }
                 foreach ($line->serials as $bs) {
                     ConsignmentBuyoutOwnershipEvent::create([
-                        'consignment_buyout_id' => $locked->id, 'consignment_buyout_line_id' => $line->id, 'product_serial_number_id' => $bs->product_serial_number_id,
+                        'consignment_buyout_id' => $locked->id, 'consignment_buyout_line_id' => $line->id, 'inventory_owner_setting_id' => $line->inventory_owner_setting_id, 'product_serial_number_id' => $bs->product_serial_number_id,
                         'consignment_receiving_detail_id' => $line->consignment_receiving_detail_id, 'kind' => 'REVERSAL',
                         'base_quantity' => 1, 'occurred_at' => $now,
                     ]);
@@ -315,8 +318,10 @@ class ConsignmentBuyoutReversalService
         $tax = $sign * abs((float) $leg->quantity_tax);
         $non = $sign * abs((float) $leg->quantity_non_tax);
         $product = $products->get($leg->product_id);
+        // The compensating leg stays in the business that owned the acquisition (holding business for remote slices).
+        $owner = (int) ($leg->inventory_owner_setting_id ?? $b->setting_id);
         $settingQty = (float) ProductStock::where('product_id', $leg->product_id)
-            ->whereIn('location_id', DB::table('locations')->where('setting_id', $b->setting_id)->select('id'))->sum('quantity');
+            ->whereIn('location_id', DB::table('locations')->where('setting_id', $owner)->select('id'))->sum('quantity');
         $before = (float) $stock->quantity;
 
         $stock->quantity_tax = round((float) $stock->quantity_tax + $tax, 3);
@@ -329,7 +334,7 @@ class ConsignmentBuyoutReversalService
         $stock->save();
 
         $txn = Transaction::create([
-            'product_id' => $leg->product_id, 'setting_id' => $b->setting_id, 'type' => 'CONSIGNMENT_BUYOUT_REVERSAL',
+            'product_id' => $leg->product_id, 'setting_id' => $owner, 'type' => 'CONSIGNMENT_BUYOUT_REVERSAL',
             'quantity' => round($tax + $non, 3), 'current_quantity' => (float) $product->product_quantity, 'broken_quantity' => 0,
             'location_id' => $leg->location_id, 'user_id' => $actor->id,
             'reason' => "Reversal pembelian putus konsinyasi {$b->reference}",
@@ -339,6 +344,7 @@ class ConsignmentBuyoutReversalService
         ]);
         ConsignmentBuyoutMovement::create([
             'consignment_buyout_id' => $b->id, 'consignment_buyout_line_id' => $leg->consignment_buyout_line_id,
+            'inventory_owner_setting_id' => $leg->inventory_owner_setting_id,
             'direction' => $leg->direction === 'OUT' ? 'IN' : 'OUT', 'kind' => 'REVERSAL', 'location_id' => $leg->location_id,
             'product_id' => $leg->product_id, 'transaction_id' => $txn->id, 'base_quantity' => round($tax + $non, 3),
             'quantity_tax' => $tax, 'quantity_non_tax' => $non, 'balance_before' => $before, 'balance_after' => (float) $stock->quantity,

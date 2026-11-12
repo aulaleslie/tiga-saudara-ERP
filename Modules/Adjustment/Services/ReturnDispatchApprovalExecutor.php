@@ -131,6 +131,9 @@ class ReturnDispatchApprovalExecutor
                 ->get()
                 ->groupBy('transfer_movement_return_obligation_id');
 
+            // Legacy workflows have no consignment receipt-provenance posting; refuse instead of bypassing it.
+            \Modules\Consignment\Services\ConsignmentTransferProvenanceService::assertLegacyDispatchAllowed((int) $lockedMovement->origin_location_id);
+
             // Lock destination-side ProductStock and Product rows
             $stocks = ProductStock::whereIn('product_id', $productIds)
                 ->where('location_id', $lockedMovement->origin_location_id)

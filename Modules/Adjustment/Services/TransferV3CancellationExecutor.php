@@ -140,7 +140,7 @@ class TransferV3CancellationExecutor
                     sprintf('Pembatalan pengiriman transfer %s (Transfer #%d): %s', $locked->document_number, $locked->id, $reason)
                 );
 
-                TransferMovementAllocation::create(array_merge(TransferV3ReceiptExecutor::copyRoute($allocation), [
+                $settlement = TransferMovementAllocation::create(array_merge(TransferV3ReceiptExecutor::copyRoute($allocation), [
                     'transfer_movement_id'            => $cancellation->id,
                     'transfer_movement_line_id'       => $lines[(int) $allocation->product_id]->id,
                     'dispatch_allocation_id'          => $allocation->id,
@@ -154,6 +154,9 @@ class TransferV3CancellationExecutor
                     'inventory_transaction_id'        => $trx->id,
                     'actor_id'                        => $actor->id,
                 ]));
+
+                // Consignment-only receipt provenance; ordinary transfers have no events and are skipped.
+                app(\Modules\Consignment\Services\ConsignmentTransferProvenanceService::class)->onCancellation($allocation, $settlement, $actor);
             }
 
             TransferMovementHistory::create([

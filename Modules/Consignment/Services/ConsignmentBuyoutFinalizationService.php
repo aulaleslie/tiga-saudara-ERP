@@ -70,6 +70,7 @@ class ConsignmentBuyoutFinalizationService
         }
         $hasUnsold = $buyout->lines()->where('line_type', ConsignmentBuyoutLine::TYPE_UNSOLD_BUYOUT)->exists();
         $this->authorize($actor, $buyout->setting_id, $hasUnsold);
+        $this->lifecycle->authorizeCustody($actor, $buyout);
 
         return ConsignmentLockPlanner::run(fn () => $this->lifecycle->pairsOf($buyout), function ($cover) use ($buyout, $actor) {
             $locked = ConsignmentBuyout::whereKey($buyout->id)->lockForUpdate()->firstOrFail();
@@ -117,7 +118,7 @@ class ConsignmentBuyoutFinalizationService
             $costPlan = $this->costing->plan($locked, $pricing['slices']);
             foreach ($costPlan as $plan) {
                 if ($plan['blocker']) {
-                    throw new InvalidArgumentException("Carrying-value blocker for product #{$plan['product_id']}: {$plan['blocker']}");
+                    throw new InvalidArgumentException("Carrying-value blocker for product #{$plan['product_id']} in business #{$plan['setting_id']}: {$plan['blocker']}");
                 }
             }
 
@@ -129,8 +130,8 @@ class ConsignmentBuyoutFinalizationService
             $this->stage('purchase');
 
             // ---- Ownership movements (non-serialized) + sold ownership evidence ---------------------------
-            $setting = (int) $locked->setting_id;
-            $settingTotalBefore = $this->settingTotal($setting);
+            $owners = $lines->map(fn ($l) => $l->inventoryOwnerSettingId())->push((int) $locked->setting_id)->unique()->values();
+            $settingTotalBefore = $owners->mapWithKeys(fn ($o) => [$o => $this->settingTotal($o)])->all();
             $globalBefore = $this->globalTotals($lines);
             $this->postMovements($locked, $lines, $res, $actor, $now);
             $this->stage('movement');
@@ -139,7 +140,7 @@ class ConsignmentBuyoutFinalizationService
             $this->postSerials($locked, $lines, $res, $actor, $now);
             $this->stage('serial');
 
-            if ($this->settingTotal($setting) !== $settingTotalBefore || $this->globalTotals($lines) !== $globalBefore) {
+            if ($owners->mapWithKeys(fn ($o) => [$o => $this->settingTotal($o)])->all() !== $settingTotalBefore || $this->globalTotals($lines) !== $globalBefore) {
                 throw new \RuntimeException('Ownership acquisition must not change physical quantity; posting aborted.');
             }
 
@@ -168,7 +169,7 @@ class ConsignmentBuyoutFinalizationService
                     'purchase_id' => $purchase->id,
                     'totals' => $pricing['totals'],
                     'cost_events' => array_values(array_map(fn ($p) => [
-                        'product_id' => $p['product_id'], 'average_before' => $p['average_before'], 'average_after' => $p['average_after'],
+                        'product_id' => $p['product_id'], 'setting_id' => $p['setting_id'], 'average_before' => $p['average_before'], 'average_after' => $p['average_after'],
                     ], $costPlan)),
                 ],
             ]);
@@ -240,7 +241,8 @@ class ConsignmentBuyoutFinalizationService
             ? ProductSerialNumber::whereIn('id', $serialIds)->orderBy('id')->lockForUpdate()->get()->keyBy('id')
             : collect();
 
-        ProductPrice::whereIn('product_id', $productIds)->where('setting_id', $buyout->setting_id)->orderBy('id')->lockForUpdate()->get();
+        $ownerSettings = $lines->map(fn ($l) => $l->inventoryOwnerSettingId())->push((int) $buyout->setting_id)->unique()->all();
+        ProductPrice::whereIn('product_id', $productIds)->whereIn('setting_id', $ownerSettings)->orderBy('id')->lockForUpdate()->get();
 
         return ['stocks' => $stocks, 'products' => $products, 'serials' => $serials, 'locations' => $locations];
     }
@@ -378,6 +380,7 @@ class ConsignmentBuyoutFinalizationService
             ConsignmentBuyoutPurchaseLineage::create([
                 'consignment_buyout_id' => $b->id,
                 'consignment_buyout_line_id' => $line->id,
+                'inventory_owner_setting_id' => $line->inventory_owner_setting_id,
                 'purchase_id' => $purchase->id,
                 'purchase_detail_id' => $detail->id,
                 'consignment_receiving_detail_id' => $line->consignment_receiving_detail_id,
@@ -402,7 +405,7 @@ class ConsignmentBuyoutFinalizationService
             if ($line->line_type === ConsignmentBuyoutLine::TYPE_SOLD_UNBILLED) {
                 if ($line->serials->isEmpty()) {
                     ConsignmentBuyoutOwnershipEvent::create([
-                        'consignment_buyout_id' => $b->id, 'consignment_buyout_line_id' => $line->id, 'product_serial_number_id' => null,
+                        'consignment_buyout_id' => $b->id, 'consignment_buyout_line_id' => $line->id, 'inventory_owner_setting_id' => $line->inventory_owner_setting_id, 'product_serial_number_id' => null,
                         'consignment_receiving_detail_id' => $line->consignment_receiving_detail_id, 'kind' => 'ACQUISITION',
                         'base_quantity' => $line->base_quantity, 'occurred_at' => $occurred,
                     ]);
@@ -419,7 +422,7 @@ class ConsignmentBuyoutFinalizationService
             ];
             $this->moveStock($b, $line, $res, $buckets, $actor, $now, null);
             ConsignmentBuyoutOwnershipEvent::create([
-                'consignment_buyout_id' => $b->id, 'consignment_buyout_line_id' => $line->id, 'product_serial_number_id' => null,
+                'consignment_buyout_id' => $b->id, 'consignment_buyout_line_id' => $line->id, 'inventory_owner_setting_id' => $line->inventory_owner_setting_id, 'product_serial_number_id' => null,
                 'consignment_receiving_detail_id' => $line->consignment_receiving_detail_id, 'kind' => 'ACQUISITION',
                 'base_quantity' => $line->base_quantity, 'occurred_at' => $occurred,
             ]);
@@ -435,7 +438,7 @@ class ConsignmentBuyoutFinalizationService
             if ($line->line_type === ConsignmentBuyoutLine::TYPE_SOLD_UNBILLED) {
                 foreach ($line->serials as $s) {
                     ConsignmentBuyoutOwnershipEvent::create([
-                        'consignment_buyout_id' => $b->id, 'consignment_buyout_line_id' => $line->id, 'product_serial_number_id' => $s->product_serial_number_id,
+                        'consignment_buyout_id' => $b->id, 'consignment_buyout_line_id' => $line->id, 'inventory_owner_setting_id' => $line->inventory_owner_setting_id, 'product_serial_number_id' => $s->product_serial_number_id,
                         'consignment_receiving_detail_id' => $line->consignment_receiving_detail_id, 'kind' => 'ACQUISITION',
                         'base_quantity' => 1, 'occurred_at' => $now,
                     ]);
@@ -460,7 +463,7 @@ class ConsignmentBuyoutFinalizationService
                     "Consignment buyout {$b->reference}", $actor->id
                 );
                 ConsignmentBuyoutOwnershipEvent::create([
-                    'consignment_buyout_id' => $b->id, 'consignment_buyout_line_id' => $line->id, 'product_serial_number_id' => $serial->id,
+                    'consignment_buyout_id' => $b->id, 'consignment_buyout_line_id' => $line->id, 'inventory_owner_setting_id' => $line->inventory_owner_setting_id, 'product_serial_number_id' => $serial->id,
                     'consignment_receiving_detail_id' => $line->consignment_receiving_detail_id, 'kind' => 'ACQUISITION',
                     'base_quantity' => 1, 'occurred_at' => $now,
                 ]);
@@ -492,7 +495,8 @@ class ConsignmentBuyoutFinalizationService
             }
         }
 
-        $settingId = (int) $b->setting_id;
+        // Both legs stay inside the holding (inventory-owner) business; the billing business is untouched for remote slices.
+        $settingId = $line->inventoryOwnerSettingId();
         $globalQty = (float) $product->product_quantity;
         $settingQty = $this->settingProductTotal($settingId, (int) $line->product_id);
 
@@ -528,6 +532,7 @@ class ConsignmentBuyoutFinalizationService
             ConsignmentBuyoutMovement::create([
                 'consignment_buyout_id' => $b->id,
                 'consignment_buyout_line_id' => $line->id,
+                'inventory_owner_setting_id' => $line->inventory_owner_setting_id,
                 'direction' => $direction,
                 'kind' => 'ACQUISITION',
                 'location_id' => $locId,
@@ -546,13 +551,15 @@ class ConsignmentBuyoutFinalizationService
 
     protected function applyCost(ConsignmentBuyout $b, array $plan, Carbon $now): void
     {
-        foreach ($plan as $productId => $p) {
-            $price = ProductPrice::where('product_id', $productId)->where('setting_id', $b->setting_id)->lockForUpdate()->firstOrFail();
+        foreach ($plan as $p) {
+            $productId = (int) $p['product_id'];
+            $owner = (int) $p['setting_id'];
+            $price = ProductPrice::where('product_id', $productId)->where('setting_id', $owner)->lockForUpdate()->firstOrFail();
             $price->update(['average_purchase_price' => $p['average_after']]);   // last_purchase_price is never written
-            $ledgerId = DB::table('product_price_cost_events')->where('product_id', $productId)->where('setting_id', $b->setting_id)->max('id');
+            $ledgerId = DB::table('product_price_cost_events')->where('product_id', $productId)->where('setting_id', $owner)->max('id');
             ConsignmentBuyoutCostEvent::create([
                 'consignment_buyout_id' => $b->id,
-                'setting_id' => $b->setting_id,
+                'setting_id' => $owner,
                 'product_id' => $productId,
                 'kind' => 'ACQUISITION',
                 'total_quantity' => $p['total_quantity'],

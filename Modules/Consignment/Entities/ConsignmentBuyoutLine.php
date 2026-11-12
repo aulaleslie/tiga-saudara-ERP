@@ -21,6 +21,13 @@ class ConsignmentBuyoutLine extends BaseModel
     public const TYPE_SOLD_UNBILLED = 'SOLD_UNBILLED';
     public const TYPE_UNSOLD_BUYOUT = 'UNSOLD_BUYOUT';
 
+    /** Inventory owner after acquisition; legacy rows (NULL) are owned by the header billing business. */
+    public function inventoryOwnerSettingId(): int
+    {
+        return (int) ($this->inventory_owner_setting_id
+            ?? ConsignmentBuyout::whereKey($this->consignment_buyout_id)->value('setting_id'));
+    }
+
     protected static function booted(): void
     {
         // Approved/final evidence is immutable; only the accepted pricing snapshot may be written while approved.

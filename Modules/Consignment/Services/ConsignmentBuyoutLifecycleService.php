@@ -61,6 +61,16 @@ class ConsignmentBuyoutLifecycleService
         return $base;
     }
 
+    /** Remote custody/owner businesses of unsold lines need delegated acquisition authority (no global foreign access). */
+    public function authorizeCustody(User $actor, ConsignmentBuyout $buyout): void
+    {
+        $owners = $buyout->lines()->where('line_type', ConsignmentBuyoutLine::TYPE_UNSOLD_BUYOUT)->whereNotNull('inventory_owner_setting_id')
+            ->pluck('inventory_owner_setting_id')->map(fn ($i) => (int) $i)->unique()->values()->all();
+        if (array_diff($owners, [(int) $buyout->setting_id]) !== []) {
+            app(ConsignmentProvenanceAuthorizer::class)->authorizeAcquisition($actor, (int) $buyout->setting_id, $owners);
+        }
+    }
+
     protected function authorize(User $actor, string $action, int $settingId, bool $hasUnsold): void
     {
         if (! $actor->hasRole('Super Admin') && ! $actor->settings()->where('settings.id', $settingId)->exists()) {
@@ -94,6 +104,7 @@ class ConsignmentBuyoutLifecycleService
                 'created_by' => $actor->id,
             ]);
             $this->replaceLines($buyout, $lines);
+            $this->authorizeCustody($actor, $buyout);
             $this->audit($buyout, 'DRAFT_CREATED', null, $actor, 'Draft created.');
 
             return $buyout->fresh();
@@ -108,6 +119,7 @@ class ConsignmentBuyoutLifecycleService
             $locked = $this->lockHeader($buyout, [ConsignmentBuyout::STATUS_DRAFT, ConsignmentBuyout::STATUS_REJECTED], $expectedRevision);
             $from = $locked->status;
             $this->replaceLines($locked, $lines);
+            $this->authorizeCustody($actor, $locked);
             $locked->update([
                 'status' => ConsignmentBuyout::STATUS_DRAFT,
                 'revision' => $locked->revision + 1,
@@ -132,6 +144,7 @@ class ConsignmentBuyoutLifecycleService
         return DB::transaction(function () use ($buyout, $actor, $expectedRevision) {
             $locked = $this->lockHeader($buyout, [ConsignmentBuyout::STATUS_DRAFT], $expectedRevision);
             $this->assertHasLines($locked);
+            $this->authorizeCustody($actor, $locked);
             $errors = $this->validateDocument($locked);
             if ($errors) {
                 throw new InvalidArgumentException('Buyout cannot be submitted: ' . implode(' ', $errors));
@@ -179,6 +192,7 @@ class ConsignmentBuyoutLifecycleService
             $locked = $this->lockHeader($buyout, [ConsignmentBuyout::STATUS_WAITING_APPROVAL], $expectedRevision);
             $lines = $locked->lines()->with('serials')->orderBy('id')->get();
             $cover($this->pairsOfLines($locked, $lines));
+            $this->authorizeCustody($actor, $locked);
             $this->lockResources($lines);
 
             $errors = $this->validateDocument($locked);
@@ -251,7 +265,7 @@ class ConsignmentBuyoutLifecycleService
     /** Canonical hash over identities, quantities, destinations, snapshots and commercial intent. */
     public function revisionHash(ConsignmentBuyout $buyout): string
     {
-        $lines = $buyout->lines()->with('serials')->orderBy('id')->get()->map(function (ConsignmentBuyoutLine $l) {
+        $lines = $buyout->lines()->with('serials')->orderBy('id')->get()->map(function (ConsignmentBuyoutLine $l) use ($buyout) {
             $snap = $l->original_snapshot ?? [];
             ksort($snap);
 
@@ -264,7 +278,8 @@ class ConsignmentBuyoutLifecycleService
                 'qty' => number_format((float) $l->base_quantity, 3, '.', ''),
                 'serials' => $l->serials->pluck('product_serial_number_id')->map(fn ($x) => (int) $x)->sort()->values()->all(),
                 'snapshot' => $snap,
-            ];
+            ] + ($l->inventory_owner_setting_id && (int) $l->inventory_owner_setting_id !== (int) $buyout->setting_id
+                ? ['owner' => (int) $l->inventory_owner_setting_id] : []);
         })->sortBy(fn ($r) => json_encode([$r['type'], $r['crd'], $r['source'], $r['from']]))->values()->all();
 
         $payload = [
@@ -327,9 +342,20 @@ class ConsignmentBuyoutLifecycleService
                 continue;
             }
 
+            // Unsold goods become owned by their holding business: the destination is a standard location of THAT business.
+            $ownerSetting = $line->inventoryOwnerSettingId();
             $dest = $line->destination_location_id ? Location::find($line->destination_location_id) : null;
-            if (! $dest || (int) $dest->setting_id !== (int) $buyout->setting_id || $dest->is_consignment || ! $dest->is_active) {
-                $errors[] = "{$ref}: destination must be an active standard location of the same business.";
+            if (! $dest || (int) $dest->setting_id !== $ownerSetting || $dest->is_consignment || ! $dest->is_active) {
+                $errors[] = "{$ref}: destination must be an active standard location of the business holding the goods.";
+            }
+            if ($line->line_type === ConsignmentBuyoutLine::TYPE_UNSOLD_BUYOUT) {
+                $remoteSource = (int) $receiving->location_id !== (int) $line->source_location_id;
+                $src = Location::find($line->source_location_id);
+                if ($remoteSource && (! $src || ! $src->is_consignment || (int) $src->setting_id !== $ownerSetting)) {
+                    $errors[] = "{$ref}: source must be a consignment location of the holding business.";
+                } elseif ($remoteSource || $this->capacity->hasCustodyEvents((int) $detail->id)) {
+                    $errors = array_merge($errors, $this->capacity->validateLocationCustody($line, $ref, $buyout->id));
+                }
             }
 
             $product = Product::find($line->product_id);
@@ -359,7 +385,9 @@ class ConsignmentBuyoutLifecycleService
 
             if ($line->line_type === ConsignmentBuyoutLine::TYPE_SOLD_UNBILLED) {
                 $source = ConsignmentSoldSource::find($line->consignment_sold_source_id);
-                if (! $source || (int) $source->setting_id !== (int) $buyout->setting_id) {
+                $bound = $source && (int) $source->setting_id !== (int) $buyout->setting_id
+                    && app(ConsignmentReceiptAllocationService::class)->verifiedBinding((int) $source->id, (int) $line->consignment_receiving_detail_id) !== null;
+                if (! $source || ((int) $source->setting_id !== (int) $buyout->setting_id && ! $bound)) {
                     $errors[] = "{$ref}: sold source not available.";
                 } else {
                     $errors = array_merge($errors, $this->validateSoldEvidence($line, $source, $ref));
@@ -373,7 +401,8 @@ class ConsignmentBuyoutLifecycleService
 
         foreach ($bucketNeeds as $key => $needs) {
             [$productId, $locationId] = array_map('intval', explode(':', $key));
-            $errors = array_merge($errors, $this->capacity->validateBuckets($buyout->setting_id, $productId, $locationId, [
+            $poolSetting = (int) (Location::whereKey($locationId)->value('setting_id') ?? $buyout->setting_id);
+            $errors = array_merge($errors, $this->capacity->validateBuckets($poolSetting, $productId, $locationId, [
                 'taxed' => ConsignmentBuyoutCapacityService::fromMilli($needs['TAXED'] ?? 0),
                 'non_taxed' => ConsignmentBuyoutCapacityService::fromMilli($needs['NON_TAXED'] ?? 0),
             ], $buyout->id));
@@ -511,18 +540,26 @@ class ConsignmentBuyoutLifecycleService
     /** @return array<int, array{0:int,1:int}> read-only discovery of the (business, product) set */
     public function pairsOf(ConsignmentBuyout $buyout): array
     {
-        return $buyout->lines()->pluck('product_id')->unique()->map(fn ($p) => [(int) $buyout->setting_id, (int) $p])->all();
+        return $this->pairsOfLines($buyout, $buyout->lines()->get());
     }
 
+    /** Origin (billing) business plus every holding business of a remote unsold slice, per product. */
     public function pairsOfLines(ConsignmentBuyout $buyout, $lines): array
     {
-        return $lines->pluck('product_id')->unique()->map(fn ($p) => [(int) $buyout->setting_id, (int) $p])->all();
+        $pairs = [];
+        foreach ($lines as $l) {
+            $pairs[(int) $buyout->setting_id . ':' . (int) $l->product_id] = [(int) $buyout->setting_id, (int) $l->product_id];
+            if ($l->inventory_owner_setting_id) {
+                $pairs[(int) $l->inventory_owner_setting_id . ':' . (int) $l->product_id] = [(int) $l->inventory_owner_setting_id, (int) $l->product_id];
+            }
+        }
+
+        return array_values($pairs);
     }
 
     protected function lockCoordination(ConsignmentBuyout $buyout): void
     {
-        $pairs = $buyout->lines()->pluck('product_id')->unique()->map(fn ($p) => [(int) $buyout->setting_id, (int) $p])->all();
-        ConsignmentInventoryCoordination::lockMany($pairs);
+        ConsignmentInventoryCoordination::lockMany($this->pairsOf($buyout));
     }
 
     protected function lockResources($lines): void
@@ -589,13 +626,35 @@ class ConsignmentBuyoutLifecycleService
                 $snapshot['sold_source'] = $src ? ['version' => ConsignmentSoldSourceDiscoveryService::resolveSnapshotVersion($src->source_snapshot),
                     'hash' => $src->source_hash] : null;
             }
+            // Unsold stock may be bought where it actually is (receipt-backed custody), owned by that holding business.
+            $sourceLocationId = (int) $detail->receiving->location_id;
+            $owner = null;
+            // Acquired remote SOLD units belong to the actual selling business: future customer returns route there.
+            if (($data['line_type'] ?? null) === ConsignmentBuyoutLine::TYPE_SOLD_UNBILLED && ! empty($data['consignment_sold_source_id'])) {
+                $sellerSetting = (int) ConsignmentSoldSource::whereKey($data['consignment_sold_source_id'])->value('setting_id');
+                if ($sellerSetting && $sellerSetting !== (int) $buyout->setting_id) {
+                    $owner = $sellerSetting;
+                }
+            }
+            if (($data['line_type'] ?? null) === ConsignmentBuyoutLine::TYPE_UNSOLD_BUYOUT && ! empty($data['source_location_id'])
+                && (int) $data['source_location_id'] !== $sourceLocationId) {
+                $custody = Location::find((int) $data['source_location_id']);
+                if (! $custody || ! $custody->is_consignment) {
+                    throw new InvalidArgumentException('Unsold source must be a consignment location holding the receipt.');
+                }
+                $sourceLocationId = (int) $custody->id;
+                if ((int) $custody->setting_id !== (int) $buyout->setting_id) {
+                    $owner = (int) $custody->setting_id;
+                }
+            }
             $line = ConsignmentBuyoutLine::create([
                 'consignment_buyout_id' => $buyout->id,
                 'line_type' => $data['line_type'] ?? null,
                 'consignment_receiving_detail_id' => $detail->id,
                 'product_id' => $detail->product_id,
                 'consignment_sold_source_id' => $data['consignment_sold_source_id'] ?? null,
-                'source_location_id' => $detail->receiving->location_id,
+                'inventory_owner_setting_id' => $owner,
+                'source_location_id' => $sourceLocationId,
                 'destination_location_id' => $data['destination_location_id'] ?? null,
                 'base_quantity' => $data['base_quantity'],
                 'original_snapshot' => $snapshot,

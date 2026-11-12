@@ -308,7 +308,8 @@ class ConsignmentBillingPreviewService
             if (!$soldSource) {
                 $blockers[] = "Confirmation line #{$line->id} is missing its sold source evidence.";
             } else {
-                if ((int) $soldSource->setting_id !== (int) $confirmation->setting_id) {
+                if ((int) $soldSource->setting_id !== (int) $confirmation->setting_id
+                    && ! $this->originBindingVerified($soldSource, $confirmation)) {
                     $blockers[] = "Sold source #{$soldSource->id} setting [#{$soldSource->setting_id}] does not match confirmation setting [#{$confirmation->setting_id}].";
                 }
                 if ((int) $soldSource->product_id !== (int) $line->product_id) {
@@ -361,7 +362,8 @@ class ConsignmentBillingPreviewService
                     $blockers[] = "Receiving #{$receiving->id} supplier [#{$recSupplierId}] does not match confirmation supplier [#{$confirmation->supplier_id}].";
                 }
 
-                if ((int) $receiving->location_id !== (int) $line->location_id) {
+                if ((int) $receiving->location_id !== (int) $line->location_id
+                    && ! ($soldSource && app(\Modules\Consignment\Services\ConsignmentReceiptAllocationService::class)->verifiedBinding((int) $soldSource->id, (int) $crd->id))) {
                     $blockers[] = "Receiving #{$receiving->id} location [#{$receiving->location_id}] does not match confirmation line location [#{$line->location_id}].";
                 }
 
@@ -813,5 +815,16 @@ class ConsignmentBillingPreviewService
                 'due_amount' => 0.0,
             ],
         ];
+    }
+
+    /** A foreign-selling envelope is part of this original-business bill only through a verified receipt binding. */
+    protected function originBindingVerified($soldSource, $confirmation): bool
+    {
+        $alloc = app(\Modules\Consignment\Services\ConsignmentReceiptAllocationService::class);
+
+        return \Modules\Consignment\Entities\ConsignmentObligationBinding::where('consignment_sold_source_id', $soldSource->id)
+            ->where('status', 'ACTIVE')->where('original_setting_id', $confirmation->setting_id)->where('supplier_id', $confirmation->supplier_id)
+            ->pluck('consignment_receiving_detail_id')
+            ->contains(fn ($crd) => $alloc->verifiedBinding((int) $soldSource->id, (int) $crd) !== null);
     }
 }

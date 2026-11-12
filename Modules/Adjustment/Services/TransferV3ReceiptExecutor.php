@@ -146,7 +146,7 @@ class TransferV3ReceiptExecutor
                     sprintf('Penerimaan transfer %s (Transfer #%d) di %s dari %s', $locked->document_number, $locked->id, $destination?->name ?? '-', $source?->name ?? '-')
                 );
 
-                TransferMovementAllocation::create(array_merge(self::copyRoute($allocation), [
+                $settlement = TransferMovementAllocation::create(array_merge(self::copyRoute($allocation), [
                     'transfer_movement_id'            => $receipt->id,
                     'transfer_movement_line_id'       => $lines[(int) $allocation->product_id]->id,
                     'dispatch_allocation_id'          => $allocation->id,
@@ -160,6 +160,9 @@ class TransferV3ReceiptExecutor
                     'inventory_transaction_id'        => $trx->id,
                     'actor_id'                        => $actor->id,
                 ]));
+
+                // Consignment-only receipt provenance; ordinary transfers have no events and are skipped.
+                app(\Modules\Consignment\Services\ConsignmentTransferProvenanceService::class)->onReceipt($allocation, $settlement, $actor);
             }
 
             TransferMovementHistory::create([

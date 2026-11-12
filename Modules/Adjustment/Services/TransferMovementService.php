@@ -39,6 +39,9 @@ class TransferMovementService
      */
     public function dispatch(Transfer $transfer, ?string $acknowledgedHash = null): array
     {
+        // Legacy workflow: no consignment receipt-provenance posting, so consignment sources are refused.
+        \Modules\Consignment\Services\ConsignmentTransferProvenanceService::assertLegacyDispatchAllowed((int) $transfer->origin_location_id);
+
         $transfer->loadMissing(['products.product', 'originLocation.setting', 'destinationLocation.setting']);
         
         $productIds = $transfer->products->pluck('product_id')->sort()->values()->all();
@@ -269,6 +272,9 @@ class TransferMovementService
 
     public function dispatchReturn(Transfer $transfer): void
     {
+        // Legacy workflow: no consignment receipt-provenance posting, so consignment sources are refused.
+        \Modules\Consignment\Services\ConsignmentTransferProvenanceService::assertLegacyDispatchAllowed((int) $transfer->destination_location_id);
+
         $transfer->loadMissing(['products.product', 'originLocation.setting', 'destinationLocation.setting', 'returnObligations']);
         
         foreach ($transfer->products as $transferProduct) {

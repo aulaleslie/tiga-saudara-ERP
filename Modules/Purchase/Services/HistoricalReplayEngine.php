@@ -305,7 +305,8 @@ class HistoricalReplayEngine
                 'kind' => $ev->kind,
                 'order' => 1,
                 'id' => 'buyout-cost-' . str_pad((string) $ev->id, 12, '0', STR_PAD_LEFT),
-                'acquisition_key' => 'buyout:' . $ev->consignment_buyout_id . ':' . $ev->product_id,
+                // Per inventory owner: one buyout can replace the carrying value in several businesses.
+                'acquisition_key' => 'buyout:' . $ev->consignment_buyout_id . ':' . $ev->setting_id . ':' . $ev->product_id,
                 'date' => Carbon::parse($ev->effective_at)->format('Y-m-d H:i:s'),
                 'quantity' => 0,                       // no physical quantity: never a receipt
                 'q' => (float) $ev->acquired_quantity,

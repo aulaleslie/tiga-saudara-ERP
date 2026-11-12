@@ -484,6 +484,8 @@ return [
         'consignments.buyouts.finalize' => 'Finalisasi Pembelian Putus Konsinyasi',
         'consignments.buyouts.reverse' => 'Reversal Pembelian Putus Konsinyasi',
         'consignments.buyouts.acquire_unsold' => 'Ambil Alih Stok Konsinyasi Belum Terjual',
+        'consignments.provenance.reconcile' => 'Rekonsiliasi Asal Penerimaan Konsinyasi',
+        'consignments.buyouts.acquire_remote' => 'Ambil Alih Stok Konsinyasi di Bisnis Lain (Delegasi)',
     ],
 
     'Notifications' => [

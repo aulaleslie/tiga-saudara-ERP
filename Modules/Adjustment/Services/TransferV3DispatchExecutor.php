@@ -273,6 +273,11 @@ class TransferV3DispatchExecutor
                     );
                 }
 
+                // Consignment-only receipt provenance (no effect for ordinary sources); throws to roll back everything.
+                if (\Modules\Consignment\Services\ConsignmentTransferProvenanceService::appliesTo($source)) {
+                    app(\Modules\Consignment\Services\ConsignmentTransferProvenanceService::class)->onDispatch($locked, $allocation, $serialRows, $actor);
+                }
+
                 foreach ($buckets as $bucket => $value) {
                     $lineBuckets[(int) $product->id][$bucket] = ($lineBuckets[(int) $product->id][$bucket] ?? 0) + $value;
                 }

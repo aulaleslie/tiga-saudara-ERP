@@ -70,9 +70,9 @@ class ConsignmentBuyoutScreensTest extends TestCase
         $this->soldSource('4');     // an effective sale in the pool that nobody attributed yet
 
         $html = $this->as($this->viewer)->get(route('consignments.buyouts.create', ['supplier_id' => $this->supplier->id]))
-            ->assertOk()->assertSee('Penjualan belum diatribusikan')->getContent();
-        $this->assertStringContainsString('fully attributed', $html);
-        $this->assertStringContainsString('Tersedia untuk dibeli', $html);
+            ->assertOk()->assertSee('Barang yang belum dapat dipilih')->getContent();
+        $this->assertStringContainsString('belum dihubungkan (diatribusikan) ke penerimaan supplier', $html);
+        $this->assertStringContainsString('Pilih semua yang tersedia', $html);
         $this->assertStringNotContainsString('name="lines[', $html, 'no draft form while the feature is disabled');
     }
 

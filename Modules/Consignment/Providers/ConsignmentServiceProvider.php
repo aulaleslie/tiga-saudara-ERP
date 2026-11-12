@@ -28,6 +28,7 @@ class ConsignmentServiceProvider extends ServiceProvider
         $this->loadMigrationsFrom(module_path($this->moduleName, 'Database/Migrations'));
         $this->commands([
             \Modules\Consignment\Console\DiscoverConsignmentSoldSourcesCommand::class,
+            \Modules\Consignment\Console\ReconstructConsignmentProvenanceCommand::class,
         ]);
     }
 
