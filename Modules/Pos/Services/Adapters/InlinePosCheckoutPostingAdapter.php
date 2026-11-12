@@ -29,6 +29,9 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
     public function post(array $context): array
     {
         $settingId = (int) ($context['setting_id'] ?? 0);
+        // Business whose enabled sales locations authorize serial sources.
+        // Split posting passes the originating POS business separately.
+        $serialAuthorizationSettingId = (int) ($context['pos_setting_id'] ?? 0) ?: $settingId;
         $cashierUserId = (int) ($context['cashier_user_id'] ?? 0);
         $customerId = (int) ($context['customer_id'] ?? 0);
         $checkoutId = (int) ($context['checkout_id'] ?? 0);
@@ -243,7 +246,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                     if (! isset($serialRecords[$normalizedSn])) {
                         throw new PosCheckoutValidationException('SERIAL_INVALID', "Seri $sn tidak ditemukan untuk produk $productId.");
                     }
-                    $this->assertSerialCurrentlyPostable($serialRecords[$normalizedSn], $settingId);
+                    $this->assertSerialCurrentlyPostable($serialRecords[$normalizedSn], $serialAuthorizationSettingId);
                     $serialIds[] = (int) $serialRecords[$normalizedSn]->id;
                 }
             }
@@ -492,7 +495,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
                             if (! isset($childSerialRecords[$normalizedSn])) {
                                 throw new PosCheckoutValidationException('SERIAL_INVALID', "Seri $sn tidak ditemukan untuk komponen $childProductLabel.");
                             }
-                            $this->assertSerialCurrentlyPostable($childSerialRecords[$normalizedSn], $settingId);
+                            $this->assertSerialCurrentlyPostable($childSerialRecords[$normalizedSn], $serialAuthorizationSettingId);
                         }
                     }
 
@@ -796,7 +799,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
      * serial's state at that moment; other checkouts, transfers, returns, or
      * dispatch activity can make it stale before this transaction locks it.
      */
-    private function assertSerialCurrentlyPostable(ProductSerialNumber $record, int $settingId): void
+    private function assertSerialCurrentlyPostable(ProductSerialNumber $record, int $authorizationSettingId): void
     {
         if (! $record->isSellable() || $record->dispatch_detail_id !== null) {
             throw new PosCheckoutValidationException(
@@ -812,7 +815,7 @@ class InlinePosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             );
         }
 
-        $allowedLocationIds = SalesLocationResolver::resolveLocationIds($settingId)->all();
+        $allowedLocationIds = SalesLocationResolver::resolveLocationIds($authorizationSettingId)->all();
         if (! in_array((int) $record->location_id, $allowedLocationIds, true)) {
             throw new PosCheckoutValidationException(
                 'SERIAL_INVALID',

@@ -27,6 +27,7 @@ use Modules\Sale\Entities\Sale;
 use Modules\Setting\Entities\Location;
 use Modules\Setting\Entities\PaymentMethod;
 use Modules\Setting\Entities\Setting;
+use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Setting\Entities\Unit;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -870,6 +871,70 @@ class POSSerialValidationCheckoutTest extends TestCase
         $this->assertDatabaseCount('dispatch_details', 0);
 
         // Product stock quantity remains unchanged (20)
+        $this->assertDatabaseHas('product_stocks', [
+            'product_id' => $product->id,
+            'location_id' => $context['location']->id,
+            'quantity' => 20,
+        ]);
+    }
+
+    public function test_inline_finalize_rejects_serial_moved_to_disabled_location_before_locked_posting(): void
+    {
+        // Inline (non-split) posting carries no separate pos_setting_id, so the
+        // final locked check must fall back to the posting context's business.
+        $context = $this->createCheckoutContext('POS SERIAL INLINE LOCATION FALLBACK');
+        $methods = $this->seedPaymentMethods($context['setting']);
+        $customer = $this->assignDefaultWalkInCustomer($context['setting']);
+        $product = $this->createStockedProduct($context['setting'], $context['location'], 'PROD-SER-LOC-FB', 100000, true);
+        $sn = $this->createSerialNumber($product, $context['location'], 'SN-LOC-FB01');
+
+        $disabledLocation = Location::create([
+            'name' => 'POS SERIAL DISABLED LOC ' . $this->sequence++,
+            'setting_id' => $context['setting']->id,
+        ]);
+        SettingSaleLocation::updateOrCreate(
+            ['setting_id' => $context['setting']->id, 'location_id' => $disabledLocation->id],
+            ['is_enabled' => false, 'position' => 99]
+        );
+        SalesLocationResolver::forget($context['setting']->id);
+
+        $this->addCartLine($context['cashier'], $context['setting'], $product->id, 1);
+        $this->selectCustomerInCart($context['cashier'], $context['setting'], $customer);
+        $lineId = $this->cartSnapshot($context['cashier'], $context['setting'])['lines'][0]['line_id'];
+
+        $this->actingAs($context['cashier'])
+            ->withSession(['setting_id' => $context['setting']->id])
+            ->postJson(route('pos.sell.cart.lines.serials.store', ['lineId' => $lineId]), [
+                'serial_numbers' => ['SN-LOC-FB01'],
+            ])
+            ->assertOk();
+
+        // Move the serial inside the posting transaction, after earlier
+        // validation but before the locked serial check.
+        $serialId = $sn->id;
+        $disabledLocationId = $disabledLocation->id;
+        Sale::creating(function () use ($serialId, $disabledLocationId) {
+            DB::table('product_serial_numbers')->where('id', $serialId)->update(['location_id' => $disabledLocationId]);
+        });
+
+        $this->finalize($context['cashier'], $context['setting'], [
+            'idempotency_key' => 'K-SERIAL-INLINE-LOC-FB',
+            'payment' => [
+                'payment_method_id' => $methods['cash']->id,
+                'amount_paid' => 100000,
+            ],
+        ])->assertStatus(422)
+            ->assertJsonPath('code', 'SERIAL_INVALID');
+
+        $this->assertDatabaseCount('sales', 0);
+        $this->assertDatabaseCount('sale_payments', 0);
+        $this->assertDatabaseCount('dispatch_details', 0);
+        $this->assertDatabaseHas('product_serial_numbers', [
+            'id' => $sn->id,
+            'status' => 'ACTIVE',
+            'location_id' => $context['location']->id,
+            'dispatch_detail_id' => null,
+        ]);
         $this->assertDatabaseHas('product_stocks', [
             'product_id' => $product->id,
             'location_id' => $context['location']->id,

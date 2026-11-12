@@ -164,6 +164,9 @@ class SplitPosCheckoutPostingAdapter implements PosCheckoutPostingAdapter
             $selectedCustomerId = (int) ($context['customer_id'] ?? 0);
 
             $groupContext = $context;
+            // Preserve the originating POS business for serial location
+            // authorization; setting_id becomes the source owner below.
+            $groupContext['pos_setting_id'] = $terminalSettingId;
             $groupContext['setting_id'] = $sourceSettingId;
             $groupContext['customer_id'] = $this->groupCustomerResolver->resolve(
                 $terminalSettingId,
