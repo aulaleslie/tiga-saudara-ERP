@@ -1025,11 +1025,19 @@ class ConsignmentBillingConfirmationLifecycleService
         // Some historical captures formatted UTC database timestamps in the explicit offset recorded in
         // the snapshot. Reproduce that spelling only for the SAME instant and only if every hashed field
         // still matches the immutable source. Never substitute a stored timestamp for changed live evidence.
+        // The snapshot-to-live offset comparison alone is not evidence: a genuine edit of the live time
+        // by exactly the offset reproduces it. Compatibility therefore also requires the immutable
+        // capture column (consignment_sold_sources.dispatched_at, written from the same raw value the
+        // capture read) to equal BOTH the live time and the snapshot's UTC instant. A historical capture
+        // satisfies this; an edited live dispatch time no longer matches the immutable column.
         $capturedAt = $soldSource->source_snapshot['dispatched_at'] ?? null;
-        if (is_string($capturedAt) && preg_match('/(?:Z|[+-]\d{2}:\d{2})$/', $capturedAt) && $dispatchedAtStr) {
+        $immutableSourceAt = $soldSource->getAttribute('dispatched_at');
+        $immutableSourceAtStr = $immutableSourceAt ? \Carbon\Carbon::parse($immutableSourceAt)->format('Y-m-d H:i:s') : null;
+        if (is_string($capturedAt) && preg_match('/(?:Z|[+-]\d{2}:\d{2})$/', $capturedAt) && $dispatchedAtStr
+            && $immutableSourceAtStr !== null && $immutableSourceAtStr === $dispatchedAtStr) {
             try {
                 $capturedTime = \Carbon\Carbon::parse($capturedAt);
-                if ($capturedTime->copy()->utc()->format('Y-m-d H:i:s') === $dispatchedAtStr) {
+                if ($capturedTime->copy()->utc()->format('Y-m-d H:i:s') === $immutableSourceAtStr) {
                     $compatiblePayload = $hashPayload;
                     $compatiblePayload['dispatched_at'] = $capturedTime->format('Y-m-d H:i:s');
                     $compatibleHash = hash('sha256', json_encode($compatiblePayload));

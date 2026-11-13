@@ -29,6 +29,7 @@ class ConsignmentServiceProvider extends ServiceProvider
         $this->commands([
             \Modules\Consignment\Console\DiscoverConsignmentSoldSourcesCommand::class,
             \Modules\Consignment\Console\ReconstructConsignmentProvenanceCommand::class,
+            \Modules\Consignment\Console\VerifyCostLedgerTriggersCommand::class,
         ]);
     }
 

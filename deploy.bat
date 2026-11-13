@@ -11,7 +11,8 @@ echo.
 
 REM Step 1: Enable maintenance mode
 echo [1/10] Enabling maintenance mode...
-php artisan down --message="Sedang dalam proses update. Silakan tunggu beberapa menit."
+php artisan down --retry=60
+if errorlevel 1 goto :maintenance_failed
 
 REM Step 2: Pull latest code (uncomment if using git)
 REM echo [2/10] Pulling latest code from repository...
@@ -84,8 +85,26 @@ php artisan route:cache
 php artisan view:cache
 
 REM Step 8: Run database migrations
+REM Migration 2026_11_10_000004 DROPS and recreates the product cost-ledger triggers
+REM (trg_ppce_insert / trg_ppce_update). Every writer of product costs must be stopped
+REM first and must stay stopped until both triggers are verified below.
+echo.
+echo [7/10] COST WRITERS MUST BE STOPPED BEFORE MIGRATING:
+echo   - every queue worker on every node (stop the service/supervisor, not only queue:restart)
+echo   - the Laravel scheduler (Task Scheduler / cron entry for "schedule:run")
+echo   - imports, cost replays and any manual SQL touching product_prices
+echo   - confirm nothing is mid-transaction
+set "COST_WRITERS_STOPPED="
+set /p COST_WRITERS_STOPPED="Type YES to confirm all cost writers are stopped: "
+if /I not "%COST_WRITERS_STOPPED%"=="YES" goto :deployment_failed
+
 echo [7/10] Running database migrations...
 php artisan migrate --force
+if errorlevel 1 goto :deployment_failed
+
+REM Gate: both cost-ledger triggers must exist and record cost changes (read-only probe).
+echo [7/10] Verifying cost-ledger triggers...
+php artisan consignment:verify-cost-ledger-triggers
 if errorlevel 1 goto :deployment_failed
 
 REM Seed permissions required by deployed modules
@@ -101,9 +120,14 @@ REM Step 10: Restart queue workers (if using queues)
 echo [9/10] Restarting queue workers...
 php artisan queue:restart
 
-REM Step 12: Disable maintenance mode
+REM Step 12: Re-verify the cost-ledger triggers, then disable maintenance mode
+echo [10/10] Re-verifying cost-ledger triggers before reopening...
+php artisan consignment:verify-cost-ledger-triggers
+if errorlevel 1 goto :deployment_failed
 echo [10/10] Disabling maintenance mode...
 php artisan up
+if errorlevel 1 goto :deployment_failed
+echo Restart the queue worker services and the scheduler that were stopped before migrating.
 
 echo.
 echo ============================================
@@ -114,10 +138,34 @@ echo.
 pause
 goto :eof
 
+:maintenance_failed
+echo.
+echo ============================================
+echo   DEPLOYMENT ABORTED - MAINTENANCE MODE COULD NOT BE ENABLED
+echo ============================================
+echo   "php artisan down" failed, so nothing was changed. Do NOT install, build or migrate
+echo   while the application is serving requests. Fix the error above and re-run deploy.bat.
+echo ============================================
+pause
+exit /b 1
+
 :deployment_failed
 echo.
 echo ============================================
-echo   Deployment failed. Disabling maintenance mode...
+echo   DEPLOYMENT FAILED - APPLICATION LEFT IN MAINTENANCE MODE
 echo ============================================
-php artisan up
+echo   Maintenance mode is intentionally kept ON. Do NOT run "php artisan up" yet.
+echo   Keep queue workers, the scheduler, imports and manual SQL on product_prices STOPPED:
+echo   a failed migration can leave product_prices with zero or one cost-ledger trigger.
+echo.
+echo   Recovery:
+echo     1. Read the error above and fix the cause (for MySQL error 1419: grant SUPER/SET_USER_ID
+echo        or set log_bin_trust_function_creators=1 for the migration window).
+echo     2. php artisan migrate --force          (2026_11_10_000004 is safe to re-run)
+echo     3. php artisan consignment:verify-cost-ledger-triggers   (must print OK)
+echo     4. Re-run deploy.bat, or finish the remaining steps manually, and only then
+echo        run "php artisan up" and restart queue workers and the scheduler.
+echo   Guide: openspec\changes\buy-out-unsold-consignment-stock\uat-and-deployment.md
+echo ============================================
+pause
 exit /b 1
