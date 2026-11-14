@@ -79,6 +79,9 @@ class StockOpnameLifecycleService
                 ]);
             }
 
+            // Physical-zero safeguard: validated before any transition or notification.
+            app(StockOpnameZeroConfirmationGuard::class)->assertForSubmission($locked);
+
             $locked->update([
                 'status' => AdjustmentStatus::WaitingApproval,
                 'submitted_by' => $actor->id,

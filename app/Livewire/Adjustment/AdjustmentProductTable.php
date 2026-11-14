@@ -369,6 +369,11 @@ class AdjustmentProductTable extends Component
                 'quantity' => is_numeric($rawGoodCount) ? (int) $rawGoodCount : 0,
                 'quantity_tax' => (int) ($row['tax_allocation']['good_tax'] ?? 0),
                 'quantity_non_tax' => (int) ($row['tax_allocation']['good_non_tax'] ?? 0),
+                'zero_confirmed' => ($row['zero_confirmed'] ?? false) === true,
+                'zero_confirmed_by' => isset($row['zero_confirmed_by']) ? (int) $row['zero_confirmed_by'] : null,
+                'zero_confirmed_at' => $row['zero_confirmed_at'] ?? null,
+                'zero_confirmation_scope' => $row['zero_confirmation_scope'] ?? null,
+                'zero_confirmation_token' => $row['zero_confirmation_token'] ?? null,
             ];
 
             $this->quantities[$index] = [
@@ -854,6 +859,11 @@ class AdjustmentProductTable extends Component
             'quantity' => 0,
             'quantity_tax' => 0,
             'quantity_non_tax' => 0,
+            'zero_confirmed' => false,
+            'zero_confirmed_by' => null,
+            'zero_confirmed_at' => null,
+            'zero_confirmation_scope' => null,
+            'zero_confirmation_token' => null,
         ];
 
         $newIndex = count($this->products);
@@ -885,6 +895,83 @@ class AdjustmentProductTable extends Component
         }
 
         $this->products[$index]['quantity'] = (int) $this->products[$index]['good_count'];
+        $this->clearZeroConfirmation($index);
+    }
+
+    /**
+     * Invalidate a row's explicit physical-zero confirmation and attribution.
+     * Called from every count, serial, and scope mutation path.
+     */
+    protected function clearZeroConfirmation(int $index): void
+    {
+        if (!isset($this->products[$index])) {
+            return;
+        }
+
+        $this->products[$index]['zero_confirmed'] = false;
+        $this->products[$index]['zero_confirmed_by'] = null;
+        $this->products[$index]['zero_confirmed_at'] = null;
+        $this->products[$index]['zero_confirmation_scope'] = null;
+        $this->products[$index]['zero_confirmation_token'] = null;
+    }
+
+    /**
+     * Livewire hook: any direct edit of a row's counts or serials clears its
+     * zero confirmation. The confirmation flag itself is only set through
+     * toggleZeroConfirmation().
+     */
+    public function updatedProducts(mixed $value, ?string $key = null): void
+    {
+        if ($key === null) {
+            return;
+        }
+
+        $parts = explode('.', $key);
+        $index = (int) ($parts[0] ?? -1);
+        $field = $parts[1] ?? '';
+
+        if (in_array($field, ['zero_confirmed', 'zero_confirmed_by', 'zero_confirmed_at', 'zero_confirmation_scope', 'zero_confirmation_token'], true)) {
+            // Confirmation fields are not client-writable; reset to the unconfirmed state.
+            $this->clearZeroConfirmation($index);
+            return;
+        }
+
+        if (in_array($field, ['good_count', 'bad_count', 'serial_numbers'], true)) {
+            $this->clearZeroConfirmation($index);
+        }
+    }
+
+    /**
+     * Explicit physical-zero confirmation ("Saya sudah menghitung: stok fisik kosong")
+     * for a zero-total row. Attribution is re-derived by the server on save.
+     */
+    public function toggleZeroConfirmation(int $index, mixed $checked = true): void
+    {
+        if (!isset($this->products[$index])) {
+            return;
+        }
+
+        $checked = filter_var($checked, FILTER_VALIDATE_BOOLEAN);
+        $row = $this->products[$index];
+        $good = is_numeric($row['good_count'] ?? 0) ? (int) $row['good_count'] : -1;
+        $bad = is_numeric($row['bad_count'] ?? 0) ? (int) $row['bad_count'] : -1;
+
+        if (!$checked || $good !== 0 || $bad !== 0 || empty($this->locationIds)) {
+            $this->clearZeroConfirmation($index);
+            return;
+        }
+
+        $this->products[$index]['zero_confirmed'] = true;
+        $this->products[$index]['zero_confirmation_token'] = (string) \Illuminate\Support\Str::uuid();
+        $this->products[$index]['zero_confirmed_by'] = auth()->id();
+        $this->products[$index]['zero_confirmed_at'] = now()->toIso8601String();
+        $this->products[$index]['zero_confirmation_scope'] = CountDraftService::zeroConfirmationScope(
+            (int) $row['id'],
+            $this->locationIds,
+            0,
+            0,
+            (array) ($row['serial_numbers'] ?? [])
+        );
     }
 
     /**
@@ -908,6 +995,7 @@ class AdjustmentProductTable extends Component
         $this->products[$index]['good_count'] = $good;
         $this->products[$index]['bad_count'] = $bad;
         $this->products[$index]['quantity'] = $good;
+        $this->clearZeroConfirmation($index);
     }
 
     /**
@@ -1144,6 +1232,9 @@ class AdjustmentProductTable extends Component
                 'serials' => $product['serial_numbers'] ?? [],
                 'location_baselines' => $product['location_baselines'] ?? [],
                 'baseline' => $this->sanitizeBaseline($product['baseline'] ?? []),
+                'zero_confirmed' => ($product['zero_confirmed'] ?? false) === true,
+                'zero_confirmation_scope' => $product['zero_confirmation_scope'] ?? null,
+                'zero_confirmation_token' => $product['zero_confirmation_token'] ?? null,
             ];
         }
 

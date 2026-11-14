@@ -281,6 +281,211 @@ class StockOpnameSerialClassifier
     }
 
     /**
+     * Whether a serial record still represents a unit held in its location's
+     * stock bucket. Sold, dispatched, missing, cancelled-receipt and returned
+     * records no longer consume stock; protected states (return custody,
+     * in-transit claims, consignment claims) still do and are never treated
+     * as unmatched quantity.
+     */
+    public function isStockBearing(ProductSerialNumber $serial): bool
+    {
+        if ($serial->dispatch_detail_id !== null) {
+            return false;
+        }
+
+        return !in_array($serial->status, [
+            ProductSerialNumber::STATUS_SOLD,
+            ProductSerialNumber::STATUS_MISSING,
+            ProductSerialNumber::STATUS_RECEIVING_CANCELLED,
+            ProductSerialNumber::STATUS_RETURNED,
+        ], true);
+    }
+
+    /**
+     * Pure planning of serialized quantity not represented by stock-bearing
+     * serials ("unmatched") within the selected pool, independently per
+     * location, condition and tax bucket. Shared by preview and locked
+     * approval so both explain the same effects.
+     *
+     * - New entered serials first account for eligible unmatched units of
+     *   their physical condition (deterministic location ordering), so an
+     *   existing unit is registered rather than duplicated.
+     * - Unmatched quantity not represented by the complete physical serial
+     *   count is removed.
+     *
+     * @param Collection<int, Location> $selectedLocations
+     * @param Collection $locationStocks ProductStock keyed by "{$locationId}_{$productId}"
+     * @param Collection<int, ProductSerialNumber> $poolSerials This product's serials located in the selected pool
+     * @param SerialClassification[] $enteredClassifications
+     */
+    public function planUnmatched(
+        Product $product,
+        Collection $selectedLocations,
+        Collection $locationStocks,
+        Collection $poolSerials,
+        array $enteredClassifications,
+    ): array {
+        $productId = (int) $product->id;
+        $buckets = [];
+        $remaining = [];
+
+        $coverage = [];
+        foreach ($poolSerials as $serial) {
+            if ((int) $serial->product_id !== $productId || !$this->isStockBearing($serial)) {
+                continue;
+            }
+            $key = (int) $serial->location_id . ':' . ($serial->is_broken ? 'bad' : 'good') . ':' . ($serial->tax_id !== null ? 'tax' : 'non_tax');
+            $coverage[$key] = ($coverage[$key] ?? 0) + 1;
+        }
+
+        $unmatchedBefore = ['good' => 0, 'bad' => 0];
+        $conflicts = [];
+        foreach ($selectedLocations as $loc) {
+            $locId = (int) $loc->id;
+            $stock = $locationStocks->get("{$locId}_{$productId}");
+            foreach (['good', 'bad'] as $condition) {
+                foreach (['tax', 'non_tax'] as $taxKey) {
+                    $field = ($condition === 'bad' ? 'broken_quantity_' : 'quantity_') . $taxKey;
+                    $quantity = $stock ? (int) round((float) $stock->{$field}) : 0;
+                    $key = "{$locId}:{$condition}:{$taxKey}";
+                    $covered = $coverage[$key] ?? 0;
+                    $unmatched = $quantity - $covered;
+
+                    $buckets[] = [
+                        'location_id' => $locId,
+                        'location_name' => (string) $loc->name,
+                        'condition' => $condition,
+                        'is_tax' => $taxKey === 'tax',
+                        'quantity' => $quantity,
+                        'serial_coverage' => $covered,
+                        'unmatched' => max(0, $unmatched),
+                        'coverage_exceeds_quantity' => $unmatched < 0,
+                    ];
+
+                    if ($unmatched < 0) {
+                        $conflicts[] = sprintf(
+                            'Produk %s: jumlah nomor seri tercatat (%s, %s) di %s melebihi stok lokasi. Data stok dan nomor seri tidak konsisten; perbaiki sebelum menyetujui.',
+                            $product->product_name,
+                            $condition === 'bad' ? 'rusak' : 'baik',
+                            $taxKey === 'tax' ? 'kena pajak' : 'tidak kena pajak',
+                            $loc->name
+                        );
+                    }
+
+                    if ($unmatched > 0) {
+                        $remaining[$key] = $unmatched;
+                        $unmatchedBefore[$condition] += $unmatched;
+                    }
+                }
+            }
+        }
+
+        $selectedById = $selectedLocations->keyBy(fn ($l) => (int) $l->id);
+        $assignments = [];
+        $accounted = ['good' => 0, 'bad' => 0];
+        $surplus = ['good' => 0, 'bad' => 0];
+
+        foreach ($enteredClassifications as $serial) {
+            if ($serial->status !== SerialClassification::STATUS_NEW) {
+                continue;
+            }
+            $condition = $serial->enteredCondition === 'bad' ? 'bad' : 'good';
+
+            $candidateLocations = $selectedLocations->filter(function ($loc) use ($remaining, $condition) {
+                $locId = (int) $loc->id;
+                return ($remaining["{$locId}:{$condition}:tax"] ?? 0) > 0
+                    || ($remaining["{$locId}:{$condition}:non_tax"] ?? 0) > 0;
+            })->values();
+
+            if ($candidateLocations->isEmpty()) {
+                $surplus[$condition]++;
+                continue;
+            }
+
+            $target = $this->determineSurplusDestination($candidateLocations, $locationStocks, $productId, $condition);
+            $locId = (int) $target->id;
+            $destIsTax = (bool) ($target->setting?->is_pkp ?? false);
+            $preferred = $destIsTax ? 'tax' : 'non_tax';
+            $other = $destIsTax ? 'non_tax' : 'tax';
+            $sourceTaxKey = ($remaining["{$locId}:{$condition}:{$preferred}"] ?? 0) > 0 ? $preferred : $other;
+            $remaining["{$locId}:{$condition}:{$sourceTaxKey}"]--;
+            $accounted[$condition]++;
+
+            $assignments[$serial->serialNumber] = [
+                'location_id' => $locId,
+                'location_name' => (string) ($selectedById->get($locId)?->name ?? $target->name),
+                'is_bad' => $condition === 'bad',
+                'source_is_tax' => $sourceTaxKey === 'tax',
+                'destination_is_tax' => $destIsTax,
+            ];
+        }
+
+        $removals = [];
+        $removed = ['good' => 0, 'bad' => 0];
+        foreach ($remaining as $key => $qty) {
+            if ($qty <= 0) {
+                continue;
+            }
+            [$locId, $condition, $taxKey] = explode(':', $key);
+            $removals[] = [
+                'location_id' => (int) $locId,
+                'location_name' => (string) ($selectedById->get((int) $locId)?->name ?? ''),
+                'is_bad' => $condition === 'bad',
+                'is_tax' => $taxKey === 'tax',
+                'quantity' => $qty,
+            ];
+            $removed[$condition] += $qty;
+        }
+
+        return [
+            'buckets' => $buckets,
+            'unmatched_before' => $unmatchedBefore,
+            'new_serial_assignments' => $assignments,
+            'existing_quantity_accounted_for_by_new_serials' => $accounted,
+            'new_serial_surplus' => $surplus,
+            'removals' => $removals,
+            'unmatched_removed' => $removed,
+            'net_quantity_delta' => ($surplus['good'] + $surplus['bad']) - ($removed['good'] + $removed['bad']),
+            'conflicts' => $conflicts,
+        ];
+    }
+
+    /**
+     * Rewrite NEW serial classifications assigned to an existing unmatched
+     * unit so preview shows the same registration location and tax
+     * classification that approval applies.
+     *
+     * @param SerialClassification[] $entered
+     * @return SerialClassification[]
+     */
+    public function withUnmatchedAssignments(array $entered, array $unmatchedPlan): array
+    {
+        $assignments = $unmatchedPlan['new_serial_assignments'] ?? [];
+
+        return array_map(function (SerialClassification $s) use ($assignments) {
+            $a = $assignments[$s->serialNumber] ?? null;
+            if ($s->status !== SerialClassification::STATUS_NEW || $a === null) {
+                return $s;
+            }
+
+            return new SerialClassification(
+                serialNumber: $s->serialNumber,
+                status: $s->status,
+                sourceSerialId: null,
+                sourceLocationId: null,
+                sourceLocationName: null,
+                sourceCondition: null,
+                sourceIsTax: null,
+                enteredCondition: $s->enteredCondition,
+                destinationIsTax: (bool) $a['destination_is_tax'],
+                sameTextOtherProduct: $s->sameTextOtherProduct,
+                label: sprintf('Baru: didaftarkan untuk unit stok yang sudah ada di %s (tanpa menambah stok).', $a['location_name']),
+                statuses: $s->statuses,
+            );
+        }, $entered);
+    }
+
+    /**
      * Deterministically determine surplus destination for new or outside serials.
      * Order: (is_pkp ASC, relevant condition stock ASC, location_id ASC).
      */

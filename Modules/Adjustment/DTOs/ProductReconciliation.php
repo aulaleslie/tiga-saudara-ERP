@@ -50,6 +50,15 @@ class ProductReconciliation
         public readonly array $locationCurrentStocks = [],
         public readonly array $goodAllocationPlan = [],
         public readonly array $badAllocationPlan = [],
+
+        // Serialized quantity not represented by stock-bearing serials (reviewer-only).
+        public readonly array $unmatchedReconciliation = [],
+
+        // Entered explicit physical-zero confirmation (counter-safe entered evidence).
+        public readonly bool $zeroConfirmed = false,
+        public readonly ?int $zeroConfirmedBy = null,
+        public readonly ?string $zeroConfirmedByName = null,
+        public readonly ?string $zeroConfirmedAt = null,
     ) {
     }
 
@@ -111,6 +120,8 @@ class ProductReconciliation
             ],
             'serials' => array_map(fn (SerialClassification $s) => $s->toReviewerArray(), $this->serials),
             'omitted_serials' => array_map(fn (SerialClassification $s) => $s->toReviewerArray(), $this->omittedSerials),
+            'unmatched_reconciliation' => $this->unmatchedReconciliation,
+            'zero_confirmation' => $this->zeroConfirmationArray(),
         ];
     }
 
@@ -132,6 +143,17 @@ class ProductReconciliation
                 'bad' => $this->enteredBad,
             ],
             'serials' => array_map(fn (SerialClassification $s) => $s->toCounterArray(), $this->serials),
+            'zero_confirmation' => $this->zeroConfirmationArray(),
+        ];
+    }
+
+    public function zeroConfirmationArray(): array
+    {
+        return [
+            'confirmed' => $this->zeroConfirmed,
+            'confirmed_by' => $this->zeroConfirmedBy,
+            'confirmed_by_name' => $this->zeroConfirmedByName,
+            'confirmed_at' => $this->zeroConfirmedAt,
         ];
     }
 }

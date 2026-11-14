@@ -211,6 +211,16 @@ class StockOpnameReconciliationService
                 ->unique();
         }
 
+        $confirmerIds = collect($rows)
+            ->filter(fn ($r) => CountDraftService::hasValidZeroConfirmation((array) $r, $selectedLocationIds))
+            ->pluck('zero_confirmed_by')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+        $confirmerNames = $confirmerIds->isNotEmpty()
+            ? \App\Models\User::whereIn('id', $confirmerIds)->pluck('name', 'id')
+            : collect();
+
         $products = [];
         $documentWarnings = [];
         $documentConflicts = [];
@@ -369,8 +379,23 @@ class StockOpnameReconciliationService
             $serialConflicts = $classification['conflicts'];
             $newSerialCount = $classification['newSerialCount'];
 
+            $unmatchedReconciliation = [];
             if ($isSerialized) {
-                $projectedGlobalTotal = $allLocationCurrentTotal + $newSerialCount;
+                $unmatchedReconciliation = $this->serialClassifier->planUnmatched(
+                    $product,
+                    $selectedLocations,
+                    $stocksByLocationAndProduct,
+                    $destinationSerialsByProduct->get($productId, collect()),
+                    $serialClassifications,
+                );
+                $serialClassifications = $this->serialClassifier->withUnmatchedAssignments($serialClassifications, $unmatchedReconciliation);
+                $serialConflicts = array_merge($serialConflicts, $unmatchedReconciliation['conflicts']);
+                // Same effects approval applies: true new-serial surplus, minus
+                // removed unmatched quantity and omitted stock-bearing serials.
+                $projectedGlobalTotal = $allLocationCurrentTotal
+                    + ($newSerialCount - array_sum($unmatchedReconciliation['existing_quantity_accounted_for_by_new_serials']))
+                    - array_sum($unmatchedReconciliation['unmatched_removed'])
+                    - count($omittedSerials);
             } else {
                 $projectedGlobalTotal = $allLocationCurrentTotal + ($enteredTotal - $currentTotal);
             }
@@ -405,6 +430,11 @@ class StockOpnameReconciliationService
                 locationCurrentStocks: $locationCurrentStocks,
                 goodAllocationPlan: $goodAllocationPlan,
                 badAllocationPlan: $badAllocationPlan,
+                unmatchedReconciliation: $unmatchedReconciliation,
+                zeroConfirmed: $zeroConfirmed = CountDraftService::hasValidZeroConfirmation((array) $row, $selectedLocationIds),
+                zeroConfirmedBy: $zeroConfirmed ? (int) $row['zero_confirmed_by'] : null,
+                zeroConfirmedByName: $zeroConfirmed ? ($confirmerNames->get((int) $row['zero_confirmed_by']) ?? null) : null,
+                zeroConfirmedAt: $zeroConfirmed ? (string) $row['zero_confirmed_at'] : null,
             );
         }
 

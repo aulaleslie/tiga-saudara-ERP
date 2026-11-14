@@ -296,6 +296,37 @@
                                     <td>
                                         <div class="font-weight-bold">{{ $product['product_name'] }}</div>
                                         <div class="small text-muted">{{ $product['product_code'] ?? '' }} @if(!empty($product['base_unit'])) &middot; {{ $product['base_unit'] }} @endif</div>
+                                        @php
+                                            $zeroConfirmation = $product['zero_confirmation'] ?? [];
+                                            $unmatchedEvidence = $canViewSystemStock ? ($product['unmatched_reconciliation'] ?? []) : [];
+                                            $unmatchedBefore = array_sum($unmatchedEvidence['unmatched_before'] ?? []);
+                                            $unmatchedAccounted = array_sum($unmatchedEvidence['existing_quantity_accounted_for_by_new_serials'] ?? []);
+                                            $unmatchedRemoved = array_sum($unmatchedEvidence['unmatched_removed'] ?? []);
+                                        @endphp
+                                        @if(!empty($zeroConfirmation['confirmed']))
+                                            <div class="mt-1">
+                                                <span class="badge badge-dark">Stok fisik dikonfirmasi kosong</span>
+                                                <div class="small text-muted">
+                                                    oleh {{ $zeroConfirmation['confirmed_by_name'] ?? '-' }}
+                                                    @if(!empty($zeroConfirmation['confirmed_at']))
+                                                        &middot; {{ \Illuminate\Support\Carbon::parse($zeroConfirmation['confirmed_at'])->format('d/m/Y H:i') }}
+                                                    @endif
+                                                </div>
+                                            </div>
+                                        @endif
+                                        @if($canViewSystemStock && $unmatchedBefore > 0)
+                                            <div class="small mt-1 text-warning">
+                                                Stok tanpa nomor seri: {{ $unmatchedBefore }}
+                                                &middot; dicatat oleh nomor seri baru: {{ $unmatchedAccounted }}
+                                                &middot; dikurangi: {{ $unmatchedRemoved }}
+                                                @foreach(($unmatchedEvidence['removals'] ?? []) as $removal)
+                                                    <div class="text-muted">
+                                                        {{ $removal['location_name'] ?: ('Lokasi #' . $removal['location_id']) }}
+                                                        ({{ $removal['is_bad'] ? 'rusak' : 'bagus' }}, {{ $removal['is_tax'] ? 'kena pajak' : 'tidak kena pajak' }}): -{{ $removal['quantity'] }}
+                                                    </div>
+                                                @endforeach
+                                            </div>
+                                        @endif
                                         @if($isConditionOnly)
                                             <span class="badge badge-info mt-1">Reklasifikasi kondisi, total tidak berubah</span>
                                         @endif

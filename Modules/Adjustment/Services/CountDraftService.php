@@ -30,6 +30,150 @@ class CountDraftService
     }
 
     /**
+     * Deterministic scope binding for an explicit physical-zero confirmation:
+     * the product, the canonical selected-location set, and the confirmed
+     * (zero) counts/serial list. A confirmation whose scope no longer matches
+     * the submitted row is stale and is never carried forward.
+     *
+     * @param array<int> $locationIds
+     * @param array<int, array{serial_number?: string, condition?: string}> $serials
+     */
+    public static function zeroConfirmationScope(int $productId, array $locationIds, int $goodCount, int $badCount, array $serials = []): string
+    {
+        $serialKeys = [];
+        foreach ($serials as $serial) {
+            $text = ProductSerialNumber::normalize((string) ($serial['serial_number'] ?? ''));
+            if ($text !== '') {
+                $serialKeys[] = $text . '#' . strtolower((string) ($serial['condition'] ?? 'good'));
+            }
+        }
+        sort($serialKeys, SORT_STRING);
+
+        return hash('sha256', implode('|', [
+            'zero-confirmation',
+            $productId,
+            self::locationSetFingerprint($locationIds),
+            $goodCount,
+            $badCount,
+            implode(',', $serialKeys),
+        ]));
+    }
+
+    /**
+     * Whether a persisted row carries a valid explicit physical-zero
+     * confirmation for its unchanged zero count and the given location pool.
+     * Missing properties (legacy rows) are always treated as unconfirmed.
+     *
+     * @param array<int> $locationIds
+     */
+    public static function hasValidZeroConfirmation(array $row, array $locationIds): bool
+    {
+        if (($row['zero_confirmed'] ?? false) !== true || empty($row['zero_confirmed_by']) || empty($row['zero_confirmed_at'])) {
+            return false;
+        }
+
+        $good = (int) ($row['good_count'] ?? 0);
+        $bad = (int) ($row['bad_count'] ?? 0);
+        if ($good + $bad !== 0) {
+            return false;
+        }
+
+        $expected = self::zeroConfirmationScope((int) ($row['product_id'] ?? 0), $locationIds, $good, $bad, (array) ($row['serials'] ?? []));
+
+        return hash_equals($expected, (string) ($row['zero_confirmation_scope'] ?? ''));
+    }
+
+    /**
+     * Resolve the dedicated zero-confirmation properties for one validated
+     * row. The client only expresses intent (`zero_confirmed` plus the scope
+     * it confirmed); actor and time are derived server-side and preserved
+     * from the saved row when the confirmed scope is unchanged.
+     *
+     * @param array<int> $locationIds
+     * @param array<int, array> $savedRowsByProduct
+     */
+    private function resolveZeroConfirmation(
+        array $row,
+        int $productId,
+        int $goodCount,
+        int $badCount,
+        array $validatedSerials,
+        array $locationIds,
+        array $savedRowsByProduct
+    ): array {
+        $unconfirmed = [
+            'zero_confirmed' => false,
+            'zero_confirmed_by' => null,
+            'zero_confirmed_at' => null,
+            'zero_confirmation_scope' => null,
+            'zero_confirmation_token' => null,
+        ];
+
+        $requested = filter_var($row['zero_confirmed'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        if (!$requested || $goodCount + $badCount !== 0) {
+            return $unconfirmed;
+        }
+
+        $expectedScope = self::zeroConfirmationScope($productId, $locationIds, $goodCount, $badCount, $validatedSerials);
+        $clientScope = (string) ($row['zero_confirmation_scope'] ?? '');
+        if (!hash_equals($expectedScope, $clientScope)) {
+            // Confirmation was given for a different count or location scope.
+            return $unconfirmed;
+        }
+
+        // Each explicit checkbox action carries a fresh token; only an unchanged
+        // save (same token as persisted) keeps the original confirmer/time.
+        $clientToken = isset($row['zero_confirmation_token']) && $row['zero_confirmation_token'] !== ''
+            ? (string) $row['zero_confirmation_token']
+            : null;
+
+        $saved = $savedRowsByProduct[$productId] ?? null;
+        if (is_array($saved) && self::hasValidZeroConfirmation($saved, $locationIds)
+            && hash_equals($expectedScope, (string) ($saved['zero_confirmation_scope'] ?? ''))
+            && ($saved['zero_confirmation_token'] ?? null) === $clientToken) {
+            return [
+                'zero_confirmed' => true,
+                'zero_confirmed_by' => (int) $saved['zero_confirmed_by'],
+                'zero_confirmed_at' => (string) $saved['zero_confirmed_at'],
+                'zero_confirmation_scope' => $expectedScope,
+                'zero_confirmation_token' => $clientToken,
+            ];
+        }
+
+        $actorId = auth()->id();
+        if ($actorId === null) {
+            return $unconfirmed;
+        }
+
+        return [
+            'zero_confirmed' => true,
+            'zero_confirmed_by' => (int) $actorId,
+            'zero_confirmed_at' => now()->toIso8601String(),
+            'zero_confirmation_scope' => $expectedScope,
+            'zero_confirmation_token' => $clientToken,
+        ];
+    }
+
+    /**
+     * @return array<int, array> Saved draft rows keyed by product ID.
+     */
+    private function savedRowsByProduct(?\Modules\Adjustment\Entities\Adjustment $existingAdjustment): array
+    {
+        $saved = [];
+        $draft = $existingAdjustment?->count_draft;
+        if (is_array($draft)) {
+            foreach ((array) ($draft['rows'] ?? []) as $savedRow) {
+                $pId = (int) ($savedRow['product_id'] ?? 0);
+                if ($pId > 0) {
+                    $saved[$pId] = $savedRow;
+                }
+            }
+        }
+
+        return $saved;
+    }
+
+    /**
      * Consolidate validation for count draft creation/updating.
      * Validates header and draft rules using clear Indonesian messages.
      * Supports both schema version 1 (single location) and version 2 (multi-location).
@@ -225,6 +369,7 @@ class CountDraftService
         $validatedRows = [];
         $seenProductIds = [];
         $seenProductSerials = []; // [productId => [serialText => true]]
+        $savedRowsByProduct = $this->savedRowsByProduct($existingAdjustment);
 
         // Eager load products for performance
         $productIds = array_map(fn($r) => (int) ($r['product_id'] ?? 0), $rawRows);
@@ -465,7 +610,7 @@ class CountDraftService
                 ],
                 'serials' => $validatedSerials,
                 'baseline' => $baseline,
-            ];
+            ] + $this->resolveZeroConfirmation($row, $productId, $goodCount, $badCount, $validatedSerials, [$locationId], $savedRowsByProduct);
         }
 
         $result = [
@@ -584,6 +729,7 @@ class CountDraftService
         $validatedRows = [];
         $seenProductIds = [];
         $seenProductSerials = [];
+        $savedRowsByProduct = $this->savedRowsByProduct($existingAdjustment);
 
         foreach ($rawRows as $row) {
             $productId = (int) ($row['product_id'] ?? 0);
@@ -826,7 +972,7 @@ class CountDraftService
                     'signature' => $primaryLb['signature'] ?? null,
                     'captured_at' => $primaryLb['captured_at'] ?? $baselineCapturedAt,
                 ],
-            ];
+            ] + $this->resolveZeroConfirmation($row, $productId, $goodCount, $badCount, $validatedSerials, $locationIds, $savedRowsByProduct);
         }
 
         $result = [

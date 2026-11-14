@@ -142,6 +142,25 @@ class StockOpnameApprovalTest extends TestCase
         ]);
     }
 
+    /**
+     * A zero row with a valid explicit physical-zero confirmation for the default location.
+     */
+    private function confirmedZeroRow(int $productId, ?Location $location = null): array
+    {
+        $location ??= $this->location;
+
+        return [
+            'product_id' => $productId,
+            'good_count' => 0,
+            'bad_count' => 0,
+            'serials' => [],
+            'zero_confirmed' => true,
+            'zero_confirmed_by' => $this->approver->id,
+            'zero_confirmed_at' => now()->toIso8601String(),
+            'zero_confirmation_scope' => \Modules\Adjustment\Services\CountDraftService::zeroConfirmationScope($productId, [(int) $location->id], 0, 0),
+        ];
+    }
+
     private function service(): StockOpnameApprovalService
     {
         return app(StockOpnameApprovalService::class);
@@ -455,7 +474,7 @@ class StockOpnameApprovalTest extends TestCase
         $product->update(['product_quantity' => 1]);
 
         $adjustment = $this->makeWaitingApprovalAdjustment([
-            ['product_id' => $product->id, 'good_count' => 0, 'bad_count' => 0, 'serials' => []],
+            $this->confirmedZeroRow($product->id),
         ]);
 
         $this->service()->approve($adjustment, $this->approver);
@@ -488,7 +507,7 @@ class StockOpnameApprovalTest extends TestCase
         ]);
 
         $adjustment = $this->makeWaitingApprovalAdjustment([
-            ['product_id' => $product->id, 'good_count' => 0, 'bad_count' => 0, 'serials' => []],
+            $this->confirmedZeroRow($product->id),
         ]);
 
         $this->service()->approve($adjustment, $this->approver);
@@ -949,7 +968,7 @@ class StockOpnameApprovalTest extends TestCase
         $product->update(['product_quantity' => 1, 'broken_quantity' => 1]);
 
         $adjustment = $this->makeWaitingApprovalAdjustment([
-            ['product_id' => $product->id, 'good_count' => 0, 'bad_count' => 0, 'serials' => []],
+            $this->confirmedZeroRow($product->id),
         ]);
 
         $this->service()->approve($adjustment, $this->approver);
@@ -1710,7 +1729,7 @@ class StockOpnameApprovalTest extends TestCase
         $sharedProduct->update(['product_quantity' => 5 + 42]);
 
         $adjustment = $this->makeWaitingApprovalAdjustment([
-            ['product_id' => $sharedProduct->id, 'good_count' => 0, 'bad_count' => 0, 'serials' => []],
+            $this->confirmedZeroRow($sharedProduct->id),
         ]);
 
         $this->service()->approve($adjustment, $this->approver);

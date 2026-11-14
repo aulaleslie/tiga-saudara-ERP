@@ -136,6 +136,19 @@
                                     <span class="badge badge-info ml-1"><i class="bi bi-upc"></i> Nomor Seri</span>
                                 @endif
                             </div>
+                            @if($goodCount === 0 && $badCount === 0)
+                                <div class="custom-control custom-checkbox mt-1 small">
+                                    <input type="checkbox"
+                                           class="custom-control-input opname-zero-confirmed"
+                                           id="opname-zero-confirmed-{{ $product['id'] }}"
+                                           data-index="{{ $key }}"
+                                           wire:click="toggleZeroConfirmation({{ $key }}, $event.target.checked)"
+                                           @checked(!empty($product['zero_confirmed']))>
+                                    <label class="custom-control-label" for="opname-zero-confirmed-{{ $product['id'] }}">
+                                        Saya sudah menghitung: stok fisik kosong
+                                    </label>
+                                </div>
+                            @endif
                         </td>
 
                         {{-- Baseline System Stock (Protected) --}}
@@ -542,6 +555,11 @@
                         const idx = parseInt(input.getAttribute('data-index'), 10);
                         if (!isNaN(idx) && draft.rows[idx] !== undefined) {
                             const val = parseStrictNonNegativeInteger(input.value);
+                            if (String(draft.rows[idx].good_count) !== String(val)) {
+                                // A count edited after confirmation invalidates the physical-zero confirmation.
+                                draft.rows[idx].zero_confirmed = false;
+                                draft.rows[idx].zero_confirmation_scope = null;
+                            }
                             draft.rows[idx].good_count = val;
                             modified = true;
                         }
@@ -551,6 +569,10 @@
                         const idx = parseInt(input.getAttribute('data-index'), 10);
                         if (!isNaN(idx) && draft.rows[idx] !== undefined) {
                             const val = parseStrictNonNegativeInteger(input.value);
+                            if (String(draft.rows[idx].bad_count) !== String(val)) {
+                                draft.rows[idx].zero_confirmed = false;
+                                draft.rows[idx].zero_confirmation_scope = null;
+                            }
                             draft.rows[idx].bad_count = val;
                             modified = true;
                         }

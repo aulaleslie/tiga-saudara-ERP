@@ -699,6 +699,13 @@ class StockOpnameReconciliationServiceTest extends TestCase
                             'condition' => 'good',
                         ],
                     ],
+                    // Entered physical-zero confirmation evidence is counter-safe.
+                    'zero_confirmation' => [
+                        'confirmed' => false,
+                        'confirmed_by' => null,
+                        'confirmed_by_name' => null,
+                        'confirmed_at' => null,
+                    ],
                 ],
             ],
         ], $counterArray);

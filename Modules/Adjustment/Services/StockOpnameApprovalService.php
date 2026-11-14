@@ -246,6 +246,25 @@ class StockOpnameApprovalService
                 lockedLocationsById: $lockedLocationsById,
             );
 
+            // ---- Physical-zero safeguard against locked authoritative stock (before any mutation) ----
+            $zeroMessages = app(StockOpnameZeroConfirmationGuard::class)->missingConfirmations(
+                $rows,
+                $selectedLocationIds,
+                function (int $productId) use ($selectedLocationIds, $stocksByProductAndLocation): int {
+                    $total = 0;
+                    foreach ($selectedLocationIds as $locId) {
+                        $total += StockOpnameZeroConfirmationGuard::stockTotal(
+                            $stocksByProductAndLocation->get($productId . ':' . $locId, collect())->first()
+                        );
+                    }
+                    return $total;
+                },
+                StockOpnameZeroConfirmationGuard::STAGE_APPROVAL,
+            );
+            if (!empty($zeroMessages)) {
+                throw ValidationException::withMessages(['count_draft' => $zeroMessages]);
+            }
+
             // ---- Step 8: revalidate serial locations against discovery ----
             $this->assertSerialLocationsUnchanged(
                 matchingSerials: $matchingSerials,
@@ -338,7 +357,13 @@ class StockOpnameApprovalService
                         locationStocks: $stocksByLocationAndProduct,
                     );
 
-                    $plan = $this->planSerializedRow($product, $classification, $lockedSelectedLocations, $stocksByLocationAndProduct);
+                    $plan = $this->planSerializedRow(
+                        $product,
+                        $classification,
+                        $lockedSelectedLocations,
+                        $stocksByLocationAndProduct,
+                        $selectedSerialsByProduct->get($productId, collect()),
+                    );
                     $conflicts = array_merge($conflicts, $plan['conflicts']);
                     $conflicts = array_merge($conflicts, $this->validateBucketAvailability($product, $plan, $stocksByProductAndLocation));
                     $plans[$productId] = $plan;
@@ -361,6 +386,16 @@ class StockOpnameApprovalService
             }
 
             // ---- Pass 2: apply every planned mutation ----
+            $zeroConfirmerIds = collect($rows)
+                ->filter(fn ($r) => CountDraftService::hasValidZeroConfirmation((array) $r, $selectedLocationIds))
+                ->pluck('zero_confirmed_by')
+                ->map(fn ($id) => (int) $id)
+                ->unique()
+                ->values();
+            $zeroConfirmerNames = $zeroConfirmerIds->isNotEmpty()
+                ? User::whereIn('id', $zeroConfirmerIds)->pluck('name', 'id')
+                : collect();
+
             $appliedProducts = [];
             $stockNotificationChecks = [];
             $now = now();
@@ -399,6 +434,14 @@ class StockOpnameApprovalService
                         stockNotificationChecks: $stockNotificationChecks,
                     );
                 }
+
+                $zeroConfirmed = CountDraftService::hasValidZeroConfirmation((array) $row, $selectedLocationIds);
+                $applied['zero_confirmation'] = [
+                    'confirmed' => $zeroConfirmed,
+                    'confirmed_by' => $zeroConfirmed ? (int) $row['zero_confirmed_by'] : null,
+                    'confirmed_by_name' => $zeroConfirmed ? ($zeroConfirmerNames->get((int) $row['zero_confirmed_by']) ?? null) : null,
+                    'confirmed_at' => $zeroConfirmed ? (string) $row['zero_confirmed_at'] : null,
+                ];
 
                 $totals = $allLocationTotalsByProduct->get($productId);
                 $applied['all_location_current_total_before'] = $totals
@@ -853,10 +896,20 @@ class StockOpnameApprovalService
         array $classification,
         Collection $selectedLocations,
         Collection $locationStocks,
+        ?Collection $poolSerials = null,
     ): array {
-        $conflicts = $classification['conflicts'];
         $entries = [];
         $bucketDebits = [];
+
+        // Quantity not represented by stock-bearing serials in the selected pool.
+        $unmatched = $this->serialClassifier->planUnmatched(
+            $product,
+            $selectedLocations,
+            $locationStocks,
+            $poolSerials ?? collect(),
+            $classification['entered'],
+        );
+        $conflicts = array_merge($classification['conflicts'], $unmatched['conflicts']);
 
         foreach ($classification['entered'] as $serial) {
             /** @var \Modules\Adjustment\DTOs\SerialClassification $serial */
@@ -867,7 +920,15 @@ class StockOpnameApprovalService
             $isBad = $serial->enteredCondition === 'bad';
 
             if ($serial->status === \Modules\Adjustment\DTOs\SerialClassification::STATUS_NEW) {
-                $targetLoc = $this->serialClassifier->determineSurplusDestination($selectedLocations, $locationStocks, (int) $product->id, $serial->enteredCondition);
+                $assignment = $unmatched['new_serial_assignments'][$serial->serialNumber] ?? null;
+                if ($assignment !== null) {
+                    // Registers the identity of an existing unmatched unit: no new quantity.
+                    $targetLoc = $selectedLocations->firstWhere('id', $assignment['location_id']);
+                    $absorbKey = $assignment['location_id'] . ':' . ($isBad ? 'bad' : 'good') . ':' . ($assignment['source_is_tax'] ? 'tax' : 'non_tax');
+                    $bucketDebits[$absorbKey] = ($bucketDebits[$absorbKey] ?? 0) + 1;
+                } else {
+                    $targetLoc = $this->serialClassifier->determineSurplusDestination($selectedLocations, $locationStocks, (int) $product->id, $serial->enteredCondition);
+                }
                 $targetIsTax = (bool) ($targetLoc->setting?->is_pkp ?? false);
 
                 $entries[] = [
@@ -881,7 +942,11 @@ class StockOpnameApprovalService
                     'is_bad' => $isBad,
                     'entered_condition' => $serial->enteredCondition,
                     'same_text_other_product' => $serial->sameTextOtherProduct,
-                    'label' => $serial->label,
+                    'label' => $assignment !== null
+                        ? sprintf('Baru: didaftarkan untuk unit stok yang sudah ada di %s (tanpa menambah stok).', $targetLoc->name)
+                        : $serial->label,
+                    'accounts_for_existing_unit' => $assignment !== null,
+                    'existing_unit_source_is_tax' => $assignment['source_is_tax'] ?? null,
                 ];
                 continue;
             }
@@ -943,11 +1008,17 @@ class StockOpnameApprovalService
             ];
         }
 
+        foreach ($unmatched['removals'] as $removal) {
+            $key = $removal['location_id'] . ':' . ($removal['is_bad'] ? 'bad' : 'good') . ':' . ($removal['is_tax'] ? 'tax' : 'non_tax');
+            $bucketDebits[$key] = ($bucketDebits[$key] ?? 0) + (int) $removal['quantity'];
+        }
+
         return [
             'type' => 'serialized',
             'product_id' => (int) $product->id,
             'entries' => $entries,
             'omissions' => $omissions,
+            'unmatched' => $unmatched,
             'bucket_debits' => $bucketDebits,
             'conflicts' => $conflicts,
             'warnings' => $classification['warnings'],
@@ -1041,6 +1112,11 @@ class StockOpnameApprovalService
 
             if ($entry['action'] === 'create') {
                 $destStock = $touchStock($destLocId);
+                $accountsForExisting = !empty($entry['accounts_for_existing_unit']);
+                if ($accountsForExisting) {
+                    // The serial identifies an existing unmatched unit: move it between tax buckets only if needed.
+                    $this->incrementBucket($destStock, $entry['is_bad'], (bool) $entry['existing_unit_source_is_tax'], -1);
+                }
                 $this->incrementBucket($destStock, $entry['is_bad'], $destIsPkp, 1);
 
                 $serial = ProductSerialNumber::create([
@@ -1057,7 +1133,9 @@ class StockOpnameApprovalService
                     SerialNumberHistory::EVENT_STATUS_CHANGED,
                     $destLocId,
                     $adjustment,
-                    "Stock opname disetujui ({$adjustment->reference}): nomor seri baru terdaftar."
+                    $accountsForExisting
+                        ? "Stock opname disetujui ({$adjustment->reference}): nomor seri baru terdaftar untuk unit stok yang sudah ada."
+                        : "Stock opname disetujui ({$adjustment->reference}): nomor seri baru terdaftar."
                 );
 
                 $newSerialCount++;
@@ -1075,6 +1153,8 @@ class StockOpnameApprovalService
                     'applied_is_tax' => $destIsPkp,
                     'same_text_other_product' => $entry['same_text_other_product'] ?? false,
                     'label' => $entry['label'] ?? '',
+                    'accounts_for_existing_unit' => $accountsForExisting,
+                    'existing_unit_source_is_tax' => $accountsForExisting ? (bool) $entry['existing_unit_source_is_tax'] : null,
                 ];
                 continue;
             }
@@ -1162,6 +1242,22 @@ class StockOpnameApprovalService
                 'previous_is_tax' => $omission['is_tax'],
                 'disposition' => 'status_set_to_missing_location_retained_as_provenance',
                 'label' => $omission['label'] ?? '',
+            ];
+        }
+
+        $appliedUnmatchedRemovals = [];
+        foreach ($plan['unmatched']['removals'] ?? [] as $removal) {
+            $stock = $touchStock((int) $removal['location_id']);
+            $before = $this->bucketValue($stock, $removal['is_bad'], $removal['is_tax']);
+            if ($before < (int) $removal['quantity']) {
+                throw ValidationException::withMessages([
+                    'count_draft' => ["Produk {$product->product_name}: stok tanpa nomor seri di lokasi #{$removal['location_id']} tidak konsisten dengan rencana rekonsiliasi."],
+                ]);
+            }
+            $this->incrementBucket($stock, $removal['is_bad'], $removal['is_tax'], -(int) $removal['quantity']);
+            $appliedUnmatchedRemovals[] = $removal + [
+                'bucket_before' => $before,
+                'bucket_after' => $before - (int) $removal['quantity'],
             ];
         }
 
@@ -1292,6 +1388,14 @@ class StockOpnameApprovalService
             'locations' => $locationsEvidence,
             'serials' => $appliedEntries,
             'omitted_serials' => $appliedOmissions,
+            'unmatched_reconciliation' => [
+                'unmatched_before' => $plan['unmatched']['unmatched_before'] ?? ['good' => 0, 'bad' => 0],
+                'existing_quantity_accounted_for_by_new_serials' => $plan['unmatched']['existing_quantity_accounted_for_by_new_serials'] ?? ['good' => 0, 'bad' => 0],
+                'new_serial_surplus' => $plan['unmatched']['new_serial_surplus'] ?? ['good' => 0, 'bad' => 0],
+                'unmatched_removed' => $plan['unmatched']['unmatched_removed'] ?? ['good' => 0, 'bad' => 0],
+                'removals' => $appliedUnmatchedRemovals,
+                'buckets' => $plan['unmatched']['buckets'] ?? [],
+            ],
             'warnings' => $plan['warnings'],
         ];
     }

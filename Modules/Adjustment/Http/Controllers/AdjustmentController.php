@@ -760,6 +760,11 @@ class AdjustmentController extends Controller
                     'serial_count' => $product['entered']['serial_count'] ?? null,
                 ],
                 'serials' => $serials,
+                'zero_confirmation' => [
+                    'confirmed' => (bool) ($product['zero_confirmation']['confirmed'] ?? false),
+                    'confirmed_by_name' => $product['zero_confirmation']['confirmed_by_name'] ?? null,
+                    'confirmed_at' => $product['zero_confirmation']['confirmed_at'] ?? null,
+                ],
             ];
         })->values()->all();
 
