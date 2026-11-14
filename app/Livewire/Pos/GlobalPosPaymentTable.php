@@ -209,8 +209,12 @@ class GlobalPosPaymentTable extends Component
     }
 
     #[On('pos-filter')]
-    public function applyCardFilter($type = null)
+    public function applyCardFilter($type = null, $workspace = null, $seq = null)
     {
+        if ($workspace !== null && $workspace !== $this->workspaceKey()) {
+            return;
+        }
+
         $this->selectedCardFilter = $type;
         $this->resetPage();
 
@@ -220,7 +224,12 @@ class GlobalPosPaymentTable extends Component
         // morph. Dispatched as a browser event so the sibling PosSummaryCards component
         // (which started the overlay on click, before either component's Livewire
         // request began) does not need any direct reference to this component.
-        $this->dispatch('pos-card-filter-applied');
+        $this->dispatch('pos-card-filter-applied', workspace: $this->workspaceKey(), seq: $seq);
+    }
+
+    public function workspaceKey(): string
+    {
+        return $this->customerId ? 'customer-' . $this->customerId : 'standalone';
     }
 
     public function sortBy($field)

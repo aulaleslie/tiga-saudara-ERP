@@ -52,10 +52,10 @@
             <!-- Action Buttons -->
             <div class="row g-2 mt-2">
                 <div class="col-12">
-                    <button type="button" class="btn btn-primary" wire:click="applyGlobalFilters">
+                    <button type="button" class="btn btn-primary" wire:click="applyGlobalFilters" wire:loading.attr="disabled">
                         <i class="bi bi-check2-circle"></i> Terapkan Filter
                     </button>
-                    <button type="button" class="btn btn-outline-secondary" wire:click="resetGlobalFilters">
+                    <button type="button" class="btn btn-outline-secondary" wire:click="resetGlobalFilters" wire:loading.attr="disabled">
                         <i class="bi bi-arrow-counterclockwise"></i> Reset semua filter
                     </button>
                 </div>
@@ -118,7 +118,14 @@
         </form>
     </div>
 
-    <div class="table-responsive global-payment-table-scroll">
+    <div class="table-responsive global-payment-table-scroll{{ $globalMode ? ' position-relative' : '' }}">
+        @if ($globalMode)
+        <div wire:loading.flex wire:cloak data-sale-table-loading class="col-12 position-absolute justify-content-center align-items-center" style="top:0;right:0;left:0;bottom:0;background-color: rgba(255,255,255,0.5);z-index: 99;display: none;">
+            <div class="spinner-border text-primary" role="status">
+                <span class="sr-only">Memuat data...</span>
+            </div>
+        </div>
+        @endif
         <table class="table table-bordered table-hover align-middle">
             <thead>
             <tr>

@@ -8,6 +8,7 @@ use Livewire\Attributes\On;
 use Livewire\Component;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SalePayment;
+use Modules\Sale\Services\GlobalSaleSummaryQuery;
 
 class SaleSummaryCards extends Component
 {
@@ -32,6 +33,14 @@ class SaleSummaryCards extends Component
     // Durable summary card selection (stored server-side, restored across refreshes)
     public ?string $selectedCardFilter = null;
 
+    // Global mode: deferred summary state. Totals are calculated by loadSummary() (wire:init),
+    // never during the initial render, and retained per normalized summary inputs.
+    /** @var array{outstanding: array, overdue: array, recent: array}|null */
+    public ?array $summary = null;
+    public ?string $summaryInputsHash = null;
+    public bool $summaryInitialized = false;
+    public ?string $summaryError = null;
+
     public function mount(bool $globalMode = false, ?array $globalBusinessFilters = null, ?string $documentDateFrom = null, ?string $documentDateTo = null, ?string $dueDateFrom = null, ?string $dueDateTo = null, ?string $selectedCardFilter = null, ?int $customerId = null)
     {
         abort_if($globalMode && !\auth()->user()->can('salePayments.global.access'), 403);
@@ -48,19 +57,120 @@ class SaleSummaryCards extends Component
     }
 
     #[On('global-sale-filters-changed')]
-    public function handleFiltersChanged($globalBusinessFilters = null, $documentDateFrom = null, $documentDateTo = null, $dueDateFrom = null, $dueDateTo = null, $selectedCardFilter = null)
+    public function handleFiltersChanged($globalBusinessFilters = null, $documentDateFrom = null, $documentDateTo = null, $dueDateFrom = null, $dueDateTo = null, $selectedCardFilter = null, bool $forceRefresh = false)
     {
-        if ($this->globalMode) {
-            $this->globalBusinessFilters = $globalBusinessFilters ?? [];
-            $this->documentDateFrom = $documentDateFrom;
-            $this->documentDateTo = $documentDateTo;
-            $this->dueDateFrom = $dueDateFrom;
-            $this->dueDateTo = $dueDateTo;
-            $this->selectedCardFilter = $selectedCardFilter;
+        if (!$this->globalMode) {
+            return;
+        }
+
+        $this->authorizeGlobal();
+
+        $this->globalBusinessFilters = $globalBusinessFilters ?? [];
+        $this->documentDateFrom = $documentDateFrom;
+        $this->documentDateTo = $documentDateTo;
+        $this->dueDateFrom = $dueDateFrom;
+        $this->dueDateTo = $dueDateTo;
+        $this->selectedCardFilter = $selectedCardFilter;
+
+        // Before initialization the pending loadSummary() call will use these latest inputs.
+        if (!$this->summaryInitialized) {
+            return;
+        }
+
+        $this->refreshSummary($forceRefresh);
+    }
+
+    /** Deferred initial summary load (wire:init). */
+    public function loadSummary(): void
+    {
+        if (!$this->globalMode) {
+            return;
+        }
+
+        $this->authorizeGlobal();
+        $this->summaryInitialized = true;
+        $this->refreshSummary(false);
+    }
+
+    /** Recalculate with the current applied inputs after a failure. */
+    public function retrySummary(?array $filters = null): void
+    {
+        if (!$this->globalMode) {
+            return;
+        }
+
+        $this->authorizeGlobal();
+        // A failed filter request never reached PHP: replay the latest applied inputs the
+        // client retained, so the retry calculates the scope the table already shows. The client
+        // omits selectedCardFilter when a newer card selection superseded the failed event.
+        if (is_array($filters)) {
+            $this->globalBusinessFilters = $filters['globalBusinessFilters'] ?? [];
+            $this->documentDateFrom = $filters['documentDateFrom'] ?? null;
+            $this->documentDateTo = $filters['documentDateTo'] ?? null;
+            $this->dueDateFrom = $filters['dueDateFrom'] ?? null;
+            $this->dueDateTo = $filters['dueDateTo'] ?? null;
+            if (array_key_exists('selectedCardFilter', $filters)) {
+                $this->selectedCardFilter = $filters['selectedCardFilter'];
+            }
+        }
+        $this->summaryInitialized = true;
+        $this->refreshSummary(true);
+    }
+
+    protected function authorizeGlobal(): void
+    {
+        abort_unless(\auth()->user()?->can('salePayments.global.access'), 403);
+    }
+
+    protected function refreshSummary(bool $force): void
+    {
+        $hash = $this->computeInputsHash();
+
+        if (!$force && $this->summary !== null && $this->summaryError === null && $this->summaryInputsHash === $hash) {
+            return;
+        }
+
+        try {
+            $this->summary = app(GlobalSaleSummaryQuery::class)->summarize(
+                $this->customerId,
+                $this->globalBusinessFilters ?? [],
+                $this->documentDateFrom,
+                $this->documentDateTo,
+                $this->dueDateFrom,
+                $this->dueDateTo
+            );
+            $this->summaryInputsHash = $hash;
+            $this->summaryError = null;
+        } catch (\Throwable $e) {
+            report($e);
+            // Never present previous totals as current for the new inputs.
+            $this->summary = null;
+            $this->summaryInputsHash = null;
+            $this->summaryError = 'Ringkasan gagal dimuat.';
         }
     }
 
-    public function toggleCardFilter(?string $type = null)
+    public function workspaceKey(): string
+    {
+        return $this->customerId ? 'customer-' . $this->customerId : 'standalone';
+    }
+
+    protected function computeInputsHash(): string
+    {
+        $business = array_map('intval', $this->globalBusinessFilters ?? []);
+        sort($business);
+
+        return md5(json_encode([
+            'customer_id' => $this->customerId,
+            'business' => array_values(array_unique($business)),
+            'doc_from' => $this->documentDateFrom ?: null,
+            'doc_to' => $this->documentDateTo ?: null,
+            'due_from' => $this->dueDateFrom ?: null,
+            'due_to' => $this->dueDateTo ?: null,
+        ]));
+    }
+
+    public function toggleCardFilter(?string $type = null, $seq = null)
     {
         // Toggle: clicking the same card clears it, clicking different card selects it
         if ($this->selectedCardFilter === $type) {
@@ -70,7 +180,7 @@ class SaleSummaryCards extends Component
         }
 
         // Dispatch to table to apply the card filter
-        $this->dispatch('sale-filter', type: $this->selectedCardFilter);
+        $this->dispatch('sale-filter', type: $this->selectedCardFilter, workspace: $this->workspaceKey(), seq: $seq);
     }
 
     public function render()
@@ -81,45 +191,7 @@ class SaleSummaryCards extends Component
     public function getPiutangBelumTertagihProperty()
     {
         if ($this->globalMode) {
-            $query = Sale::query()
-                ->globalPaymentEligible()
-                ->whereLiveDueAmountGreaterThan(0)
-                ->whereNull('archived_at');
-
-            if (!empty($this->customerId)) {
-                $query->where('customer_id', $this->customerId);
-            }
-
-            // Apply business filter if set (empty array means all businesses)
-            if (!empty($this->globalBusinessFilters)) {
-                $query->whereIn('setting_id', $this->globalBusinessFilters);
-            }
-
-            // Apply document date range filter if set
-            if (!empty($this->documentDateFrom)) {
-                $query->where('date', '>=', $this->documentDateFrom);
-            }
-            if (!empty($this->documentDateTo)) {
-                $query->where('date', '<=', $this->documentDateTo);
-            }
-
-            // Apply due date range filter if set
-            if (!empty($this->dueDateFrom)) {
-                $query->where('due_date', '>=', $this->dueDateFrom);
-            }
-            if (!empty($this->dueDateTo)) {
-                $query->where('due_date', '<=', $this->dueDateTo);
-            }
-
-            $sales = $query->get();
-            $total = $sales->sum(function ($sale) {
-                return $sale->live_due_amount;
-            });
-
-            return [
-                'count' => $sales->count(),
-                'total' => (float) $total,
-            ];
+            return $this->summary['outstanding'] ?? null;
         }
 
         $query = Sale::query()
@@ -139,46 +211,7 @@ class SaleSummaryCards extends Component
     public function getPiutangTelatProperty()
     {
         if ($this->globalMode) {
-            $query = Sale::query()
-                ->globalPaymentEligible()
-                ->where('due_date', '<', Carbon::today())
-                ->whereLiveDueAmountGreaterThan(0)
-                ->whereNull('archived_at');
-
-            if (!empty($this->customerId)) {
-                $query->where('customer_id', $this->customerId);
-            }
-
-            // Apply business filter if set (empty array means all businesses)
-            if (!empty($this->globalBusinessFilters)) {
-                $query->whereIn('setting_id', $this->globalBusinessFilters);
-            }
-
-            // Apply document date range filter if set
-            if (!empty($this->documentDateFrom)) {
-                $query->where('date', '>=', $this->documentDateFrom);
-            }
-            if (!empty($this->documentDateTo)) {
-                $query->where('date', '<=', $this->documentDateTo);
-            }
-
-            // Apply due date range filter if set
-            if (!empty($this->dueDateFrom)) {
-                $query->where('due_date', '>=', $this->dueDateFrom);
-            }
-            if (!empty($this->dueDateTo)) {
-                $query->where('due_date', '<=', $this->dueDateTo);
-            }
-
-            $sales = $query->get();
-            $total = $sales->sum(function ($sale) {
-                return $sale->live_due_amount;
-            });
-
-            return [
-                'count' => $sales->count(),
-                'total' => (float) $total,
-            ];
+            return $this->summary['overdue'] ?? null;
         }
 
         $query = Sale::query()
@@ -201,60 +234,7 @@ class SaleSummaryCards extends Component
         $thirtyDaysAgo = Carbon::today()->subDays(30)->format('Y-m-d');
 
         if ($this->globalMode) {
-            // Global mode: fully paid sales with active payment in past 30 days
-            // Count and sum active payment amounts
-            $query = SalePayment::query()
-                ->where('date', '>=', $thirtyDaysAgo)
-                ->where('date', '<=', Carbon::today()->endOfDay())
-                ->where('status', SalePayment::STATUS_ACTIVE)
-                ->whereHas('sale', function ($sq) {
-                    $sq->whereNull('archived_at')
-                       ->globalPaymentEligible()
-                       ->whereLiveDueAmountLessThanOrEqual(0);
-
-                    if (!empty($this->customerId)) {
-                        $sq->where('customer_id', $this->customerId);
-                    }
-                });
-
-            // Apply business filter if set (empty array means all businesses)
-            if (!empty($this->globalBusinessFilters)) {
-                $query->whereHas('sale', function ($sq) {
-                    $sq->whereIn('setting_id', $this->globalBusinessFilters);
-                });
-            }
-
-            // Apply document date range filter if set
-            if (!empty($this->documentDateFrom)) {
-                $query->whereHas('sale', function ($sq) {
-                    $sq->where('date', '>=', $this->documentDateFrom);
-                });
-            }
-            if (!empty($this->documentDateTo)) {
-                $query->whereHas('sale', function ($sq) {
-                    $sq->where('date', '<=', $this->documentDateTo);
-                });
-            }
-
-            // Apply due date range filter if set
-            if (!empty($this->dueDateFrom)) {
-                $query->whereHas('sale', function ($sq) {
-                    $sq->where('due_date', '>=', $this->dueDateFrom);
-                });
-            }
-            if (!empty($this->dueDateTo)) {
-                $query->whereHas('sale', function ($sq) {
-                    $sq->where('due_date', '<=', $this->dueDateTo);
-                });
-            }
-
-            $result = $query->selectRaw('COUNT(DISTINCT sale_id) as cnt, SUM(amount) as total')
-                           ->first();
-
-            return [
-                'count' => (int) ($result->cnt ?? 0),
-                'total' => (float) ($result->total ?? 0),
-            ];
+            return $this->summary['recent'] ?? null;
         }
 
         // Non-global mode: keep existing behavior (use approvedUp for normal workflow)

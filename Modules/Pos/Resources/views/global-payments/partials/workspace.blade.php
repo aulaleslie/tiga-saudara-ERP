@@ -3,58 +3,62 @@
     $keyPrefix = $keyPrefix ?? ($customerId ? "customer-{$customerId}" : 'standalone');
 @endphp
 
+@include('livewire.partials.livewire-transport-guard')
+
 <div data-global-pos-payments-workspace
+     data-workspace-key="{{ $keyPrefix }}"
      x-data="{
+        workspaceKey: @js($keyPrefix),
         cardFilterLoading: false,
-        cardFilterLoadingTimeout: null,
-        startCardFilterLoading() {
+        cardFilterSeq: 0,
+        commitHookCleanup: null,
+        beginPosCardFilter() {
+            // Pending starts on click and ends only when this workspace's table reports the
+            // latest selection applied (pos-card-filter-applied) or one of this workspace's
+            // own component requests fails. No fixed timer marks completion.
+            this.cardFilterSeq++;
             this.cardFilterLoading = true;
-            clearTimeout(this.cardFilterLoadingTimeout);
-            // Last-resort error recovery only, not the normal completion path (that is
-            // pos-card-filter-applied, released one animation frame after Livewire's DOM
-            // morph). Summary calculation and projection filtering scan full result sets,
-            // so a legitimate slow request on a large database can take longer than a
-            // short timeout would allow; 60s is chosen to stay well clear of realistic
-            // request durations while still recovering from a request that failed
-            // silently (network error, uncaught exception) without ever dispatching
-            // pos-card-filter-applied or a Livewire navigation event.
-            this.cardFilterLoadingTimeout = setTimeout(() => { this.cardFilterLoading = false; }, 60000);
+            return this.cardFilterSeq;
+        },
+        finishPosCardFilter(detail) {
+            detail = detail || {};
+            if (detail.workspace !== this.workspaceKey) return;
+            if (detail.seq !== null && detail.seq !== undefined && Number(detail.seq) !== this.cardFilterSeq) return;
+            requestAnimationFrame(() => { this.cardFilterLoading = false; });
         },
         stopCardFilterLoading() {
             this.cardFilterLoading = false;
-            clearTimeout(this.cardFilterLoadingTimeout);
         },
-        livewireRequestHookCleanup: null,
-        initCardFilterLoadingFailureRecovery() {
-            // Explicit error-recovery path: reset immediately when any Livewire request on
-            // the page fails (network error, 4xx/5xx response, uncaught exception server
-            // side), rather than waiting on the timeout safeguard below. This does not
-            // distinguish which component's request failed, but any in-flight failure
-            // means the card-filter sequence cannot complete normally, so releasing the
-            // overlay is correct.
+        failedCommitSeqs(commit) {
+            // The card sequence travels in toggleCardFilter(type, seq) and in the
+            // sale-filter/pos-filter dispatch params. Livewire can batch queued selections
+            // into one commit, so collect every sequence the commit carries.
+            const seqs = [];
+            for (const call of (commit && commit.calls) || []) {
+                if (call.method === 'toggleCardFilter' && call.params && call.params[1] != null) seqs.push(Number(call.params[1]));
+                if (call.method === '__dispatch' && call.params && call.params[1] && call.params[1].seq != null) seqs.push(Number(call.params[1].seq));
+            }
+            return seqs;
+        },
+        init() {
+            // Release only when this workspace's commit for the CURRENT card sequence fails
+            // (including transport failures, see livewire-transport-guard).
             if (window.Livewire && typeof window.Livewire.hook === 'function') {
-                this.livewireRequestHookCleanup = window.Livewire.hook('request', ({ fail }) => {
-                    fail(() => this.stopCardFilterLoading());
+                this.commitHookCleanup = window.Livewire.hook('commit', ({ component, commit, fail }) => {
+                    if (!component || !component.el || !this.$el.contains(component.el)) return;
+                    const seqs = this.failedCommitSeqs(commit);
+                    if (seqs.length === 0) return;
+                    fail(() => { if (seqs.includes(this.cardFilterSeq)) this.stopCardFilterLoading(); });
                 });
             }
         },
         destroy() {
-            // Livewire.hook() registers globally and is never automatically released, so
-            // without explicitly invoking the cleanup function it returns, repeated
-            // mounting of this component (wire:navigate, re-rendering the workspace)
-            // would accumulate one closure per mount, each still holding a reference to
-            // its now-removed Alpine component and each firing on every future request
-            // failure.
-            clearTimeout(this.cardFilterLoadingTimeout);
-
-            if (typeof this.livewireRequestHookCleanup === 'function') {
-                this.livewireRequestHookCleanup();
-            }
+            // Livewire.hook() registers globally; release it so remounts do not accumulate closures.
+            if (typeof this.commitHookCleanup === 'function') this.commitHookCleanup();
+            this.commitHookCleanup = null;
         }
      }"
-     x-init="initCardFilterLoadingFailureRecovery()"
-     x-on:pos-card-filter-loading.window="startCardFilterLoading()"
-     x-on:pos-card-filter-applied.window="requestAnimationFrame(() => stopCardFilterLoading())"
+     x-on:pos-card-filter-applied.window="finishPosCardFilter($event.detail)"
      x-on:livewire:navigating.window="stopCardFilterLoading()"
 >
     <!-- Summary Cards -->

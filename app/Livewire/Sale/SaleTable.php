@@ -199,6 +199,7 @@ class SaleTable extends Component
             dueDateFrom: null,
             dueDateTo: null,
             selectedCardFilter: null,
+            forceRefresh: true,
         );
     }
 
@@ -229,11 +230,26 @@ class SaleTable extends Component
     }
 
     #[On('sale-filter')]
-    public function applySaleFilter($type = null)
+    public function applySaleFilter($type = null, $workspace = null, $seq = null)
     {
+        if ($workspace !== null && $this->globalMode && $workspace !== $this->workspaceKey()) {
+            return;
+        }
+
         $this->applyCardFilterType($type);
         $this->incrementRefreshId();
         $this->resetPage();
+
+        // Completion signal for the workspace card-to-table pending state. Scoped by workspace
+        // and carrying the client sequence so an older completion cannot end newer work.
+        if ($this->globalMode) {
+            $this->dispatch('sale-card-filter-applied', workspace: $this->workspaceKey(), seq: $seq);
+        }
+    }
+
+    public function workspaceKey(): string
+    {
+        return $this->customerId ? 'customer-' . $this->customerId : 'standalone';
     }
 
     private function applyCardFilterType(?string $type)

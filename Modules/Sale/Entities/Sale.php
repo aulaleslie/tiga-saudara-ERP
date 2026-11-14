@@ -399,7 +399,12 @@ class Sale extends BaseModel implements HasMedia
                             ->orWhere('sp_orig_out.status', SalePayment::STATUS_ACTIVE);
                     })
                     ->selectRaw('COALESCE(SUM(popt_out.amount), 0)');
-            }, 'outgoing_owner_transfers_sum');
+            }, 'outgoing_owner_transfers_sum')
+            ->selectSub(function ($sub) {
+                $sub->from('sale_return_adjustments as sra')
+                    ->whereColumn('sra.sale_id', 'sales.id')
+                    ->selectRaw('COALESCE(SUM(sra.debt_reduction), 0)');
+            }, 'committed_debt_reduction_sum');
     }
 
     /**
@@ -518,6 +523,11 @@ class Sale extends BaseModel implements HasMedia
      */
     public function getCommittedDebtReduction(): float
     {
+        // Read shortcut from withLiveSettlementAggregates(); a loaded zero/null is a known zero.
+        if (array_key_exists('committed_debt_reduction_sum', $this->attributes)) {
+            return round((float) ($this->attributes['committed_debt_reduction_sum'] ?: 0), 2);
+        }
+
         return round((float) DB::table('sale_return_adjustments')->where('sale_id', $this->id)->sum('debt_reduction'), 2);
     }
 
@@ -560,7 +570,7 @@ class Sale extends BaseModel implements HasMedia
             $this->unsetRelation($relation);
         }
 
-        foreach (['active_payments_sum', 'active_credits_sum', 'incoming_owner_transfers_sum', 'outgoing_owner_transfers_sum'] as $attribute) {
+        foreach (['active_payments_sum', 'active_credits_sum', 'incoming_owner_transfers_sum', 'outgoing_owner_transfers_sum', 'committed_debt_reduction_sum'] as $attribute) {
             unset($this->attributes[$attribute]);
         }
     }

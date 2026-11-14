@@ -26,6 +26,8 @@ class PosSummaryCards extends Component
 
     public ?array $summary = null;
     public ?string $summaryInputsHash = null;
+    public bool $summaryInitialized = false;
+    public ?string $summaryError = null;
 
     public function mount(
         bool $globalMode = true,
@@ -47,15 +49,70 @@ class PosSummaryCards extends Component
         $this->dueDateFrom = $dueDateFrom;
         $this->dueDateTo = $dueDateTo;
         $this->selectedCardFilter = $selectedCardFilter;
+        // Summary projection is deferred to loadSummary() (wire:init) so the initial render stays cheap.
+    }
 
-        $this->summary = $this->calculateSummary();
-        $this->summaryInputsHash = $this->computeInputsHash(
-            $this->globalBusinessFilters,
+    public function loadSummary(): void
+    {
+        $this->authorizeGlobal();
+        $this->summaryInitialized = true;
+        $this->refreshSummary(false);
+    }
+
+    public function retrySummary(?array $filters = null): void
+    {
+        $this->authorizeGlobal();
+        // A failed filter request never reached PHP: replay the latest applied inputs the
+        // client retained, so the retry calculates the scope the table already shows. The client
+        // omits selectedCardFilter when a newer card selection superseded the failed event.
+        if (is_array($filters)) {
+            $this->globalBusinessFilters = $filters['globalBusinessFilters'] ?? [];
+            $this->transactionDateFrom = $filters['transactionDateFrom'] ?? null;
+            $this->transactionDateTo = $filters['transactionDateTo'] ?? null;
+            $this->dueDateFrom = $filters['dueDateFrom'] ?? null;
+            $this->dueDateTo = $filters['dueDateTo'] ?? null;
+            if (array_key_exists('selectedCardFilter', $filters)) {
+                $this->selectedCardFilter = $filters['selectedCardFilter'];
+            }
+        }
+        $this->summaryInitialized = true;
+        $this->refreshSummary(true);
+    }
+
+    protected function authorizeGlobal(): void
+    {
+        abort_unless(\auth()->user()?->can('posPayments.global.access'), 403);
+    }
+
+    protected function currentInputsHash(): string
+    {
+        return $this->computeInputsHash(
+            $this->globalBusinessFilters ?? [],
             $this->transactionDateFrom,
             $this->transactionDateTo,
             $this->dueDateFrom,
             $this->dueDateTo
         );
+    }
+
+    protected function refreshSummary(bool $force): void
+    {
+        $hash = $this->currentInputsHash();
+
+        if (!$force && $this->summary !== null && $this->summaryError === null && $this->summaryInputsHash === $hash) {
+            return;
+        }
+
+        try {
+            $this->summary = $this->calculateSummary();
+            $this->summaryInputsHash = $hash;
+            $this->summaryError = null;
+        } catch (\Throwable $e) {
+            report($e);
+            $this->summary = null;
+            $this->summaryInputsHash = null;
+            $this->summaryError = 'Ringkasan gagal dimuat.';
+        }
     }
 
     #[On('global-pos-filters-changed')]
@@ -68,29 +125,24 @@ class PosSummaryCards extends Component
         $selectedCardFilter = null,
         bool $forceRefresh = false
     ) {
-        $newBusinessFilters = $globalBusinessFilters ?? [];
-        $newInputsHash = $this->computeInputsHash(
-            $newBusinessFilters,
-            $transactionDateFrom,
-            $transactionDateTo,
-            $dueDateFrom,
-            $dueDateTo
-        );
+        $this->authorizeGlobal();
 
-        $this->globalBusinessFilters = $newBusinessFilters;
+        $this->globalBusinessFilters = $globalBusinessFilters ?? [];
         $this->transactionDateFrom = $transactionDateFrom;
         $this->transactionDateTo = $transactionDateTo;
         $this->dueDateFrom = $dueDateFrom;
         $this->dueDateTo = $dueDateTo;
         $this->selectedCardFilter = $selectedCardFilter;
 
-        if ($forceRefresh || $this->summary === null || $this->summaryInputsHash !== $newInputsHash) {
-            $this->summaryInputsHash = $newInputsHash;
-            $this->summary = $this->calculateSummary();
+        // Before initialization the pending loadSummary() call uses these latest inputs.
+        if (!$this->summaryInitialized) {
+            return;
         }
+
+        $this->refreshSummary($forceRefresh);
     }
 
-    public function toggleCardFilter(?string $type = null)
+    public function toggleCardFilter(?string $type = null, $seq = null)
     {
         if ($this->selectedCardFilter === $type) {
             $this->selectedCardFilter = null;
@@ -98,7 +150,12 @@ class PosSummaryCards extends Component
             $this->selectedCardFilter = $type;
         }
 
-        $this->dispatch('pos-filter', type: $this->selectedCardFilter);
+        $this->dispatch('pos-filter', type: $this->selectedCardFilter, workspace: $this->workspaceKey(), seq: $seq);
+    }
+
+    public function workspaceKey(): string
+    {
+        return $this->customerId ? 'customer-' . $this->customerId : 'standalone';
     }
 
     protected function computeInputsHash(
@@ -136,24 +193,14 @@ class PosSummaryCards extends Component
         );
     }
 
-    public function getSummaryDataProperty(): array
+    public function getSummaryDataProperty(): ?array
     {
-        return $this->summary ?? $this->calculateSummary();
+        // Never calculate during render; unknown totals stay null until loadSummary() completes.
+        return $this->summary;
     }
 
     public function render()
     {
-        if ($this->summary === null) {
-            $this->summary = $this->calculateSummary();
-            $this->summaryInputsHash = $this->computeInputsHash(
-                $this->globalBusinessFilters ?? [],
-                $this->transactionDateFrom,
-                $this->transactionDateTo,
-                $this->dueDateFrom,
-                $this->dueDateTo
-            );
-        }
-
         return view('livewire.pos.pos-summary-cards', [
             'summary' => $this->summary,
         ]);
