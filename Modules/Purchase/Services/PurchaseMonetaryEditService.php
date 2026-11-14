@@ -23,6 +23,16 @@ class PurchaseMonetaryEditService extends AbstractMonetaryEditService
     /** Cart metadata key carrying the persisted purchase_details.id. */
     public const DETAIL_ID_OPTION = 'purchase_detail_id';
 
+    /**
+     * Generated consignment Purchases run inside the model-level monetary scope so their source guards accept
+     * the monetary columns only. All validation (mode, authorization, row identity, payment floor) still runs
+     * inside the parent transaction before anything is written.
+     */
+    public function apply(Model $document, iterable $cartItems, array $input, bool $isGlobal = false): Model
+    {
+        return Purchase::withMonetaryEditScope((int) $document->getKey(), fn () => parent::apply($document, $cartItems, $input, $isGlobal));
+    }
+
     protected function lockDetails(Model $document): Collection
     {
         return PurchaseDetail::query()

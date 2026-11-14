@@ -1,21 +1,30 @@
 @extends('layouts.app')
 
-@section('title', 'Persiapan Pembelian Putus Konsinyasi')
+@section('title', isset($buyout) ? 'Ubah Pembelian Putus ' . $buyout->reference : 'Persiapan Pembelian Putus Konsinyasi')
 
 @section('breadcrumb')
     <ol class="breadcrumb border-0 m-0">
         <li class="breadcrumb-item"><a href="{{ route('home') }}">Beranda</a></li>
         <li class="breadcrumb-item"><a href="{{ route('consignments.buyouts.index') }}">Pembelian Putus</a></li>
-        <li class="breadcrumb-item active">Persiapan</li>
+        <li class="breadcrumb-item active">{{ isset($buyout) ? 'Ubah ' . $buyout->reference : 'Persiapan' }}</li>
     </ol>
 @endsection
 
 @php
-    $canSave = $mutationsEnabled && \Illuminate\Support\Facades\Gate::allows('consignments.buyouts.create');
+    $editing = isset($buyout);
+    $canSave = $mutationsEnabled && \Illuminate\Support\Facades\Gate::allows($editing ? 'consignments.buyouts.edit' : 'consignments.buyouts.create');
+    $savedInvoice = $editing ? ($buyout->invoice_metadata ?? []) : [];
+    // Product intent as saved, or the product projection of a legacy per-line intent (conflicts need explicit entry).
+    $savedIntent = $editing ? (\Modules\Consignment\Services\ConsignmentBuyoutPricingService::isProductIntent($buyout->pricing_intent) ? $buyout->pricing_intent : ($legacyIntent ?? [])) : [];
+    $legacyConflicts = $legacyIntent['conflicts'] ?? [];
+    $hasOld = (bool) old('lines');
+    $inv = fn (string $k, $default = null) => old("invoice_metadata.{$k}", $savedInvoice[$k] ?? $default);
+    $savedAttachments = $editing ? $buyout->getMedia(\Modules\Consignment\Entities\ConsignmentBuyout::ATTACHMENT_COLLECTION) : collect();
     // Field names exist only when a draft can actually be saved: otherwise the screen is inspection-only.
     $n = fn (string $name) => $canSave ? new \Illuminate\Support\HtmlString('name="' . e($name) . '"') : '';
     $fmt = fn ($v) => rtrim(rtrim(number_format((float) $v, 3, ',', '.'), '0'), ',') ?: '0';
-    $oldLines = (array) old('lines', []);
+    $oldLines = (array) old('lines', $savedLines ?? []);
+    $oldIntent = $hasOld ? (array) old('pricing_intent', []) : $savedIntent;
     $prepData = [
         'supplierId' => $supplierId,
         'rows' => $prep['rows'] ?? [],
@@ -25,7 +34,22 @@
         'holdings' => $prep['holdings'] ?? [],
         'destinations' => $initialDestinations,
         'old' => $oldLines,
-        'oldDiscount' => ['type' => old('pricing_intent.global_discount_type', 'fixed'), 'value' => old('pricing_intent.global_discount_value', 0)],
+        'oldDiscount' => ['type' => $oldIntent['global_discount_type'] ?? 'fixed', 'value' => $oldIntent['global_discount_value'] ?? 0],
+        'terms' => (object) ($oldIntent['products'] ?? []),
+        'taxIncluded' => (bool) filter_var($oldIntent['is_tax_included'] ?? true, FILTER_VALIDATE_BOOLEAN),
+        'isPkp' => (bool) ($isPkp ?? false),
+        'previewUrl' => route('consignments.buyouts.preview'),
+        'paymentTerms' => ($paymentTerms ?? collect())->mapWithKeys(fn ($t) => [$t->id => (int) $t->longevity]),
+        'invoice' => [
+            'invoice_date' => $inv('invoice_date', now()->toDateString()),
+            'payment_term_id' => (string) ($inv('payment_term_id') ?? ''),
+            'due_date' => $inv('due_date', ''),
+            'due_date_manual' => (bool) filter_var($inv('due_date_manual', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+        'unavailable' => $unavailable ?? [],
+        'canSave' => $canSave,
+        'conflicts' => array_values($legacyConflicts),
+        'taxRates' => (object) ($activeTaxes ?? collect())->mapWithKeys(fn ($t) => [$t->id => (float) $t->value])->all(),
         'startStep' => $oldLines ? 3 : (request()->integer('step') === 1 ? 1 : ($supplierId ? 2 : 1)),
     ];
 @endphp
@@ -62,10 +86,15 @@
                 @endforeach
                 <div class="col-md-6">
                     <label class="mb-1">Supplier</label>
+                    @if($editing)
+                        <div class="form-control-plaintext font-weight-bold">{{ $selectedSupplierText }}</div>
+                        <div class="small text-muted">Supplier dokumen tidak dapat diganti saat mengubah draft.</div>
+                    @else
                     @include('consignment::partials.ajax-select', [
                         'name' => 'supplier_id', 'url' => route('consignments.select.suppliers'), 'selectedId' => $supplierId ?: null,
                         'selectedText' => $selectedSupplierText ?? null, 'placeholder' => '-- Pilih Supplier --',
                     ])
+                    @endif
                 </div>
                 <div class="col-12 small text-muted mt-1">Mengganti supplier memuat ulang daftar barang supplier tersebut.</div>
             </form>
@@ -96,8 +125,12 @@
     </div>
 
     @if($prep)
-    <form method="POST" action="{{ $canSave ? route('consignments.buyouts.store') : '#' }}" id="buyout-draft-form" @submit="submit($event)">
-        @if($canSave) @csrf <input type="hidden" name="supplier_id" value="{{ $supplierId }}"> @endif
+    <form method="POST" enctype="multipart/form-data" id="buyout-draft-form" @submit="submit($event)"
+          action="{{ $canSave ? ($editing ? route('consignments.buyouts.update', $buyout->id) : route('consignments.buyouts.store')) : '#' }}">
+        @if($canSave)
+            @csrf <input type="hidden" name="supplier_id" value="{{ $supplierId }}">
+            @if($editing) @method('PUT') <input type="hidden" name="revision" value="{{ $buyout->revision }}"> @endif
+        @endif
 
         {{-- ================= STEP 2 ================= --}}
         <div class="card border-0 shadow-sm mb-3" x-show="step === 2">
@@ -227,10 +260,11 @@
             </div>
         </div>
 
+        <div hidden x-effect="schedulePreview(JSON.stringify(previewPayload()))"></div>
         {{-- ================= STEP 3 ================= --}}
-        <div class="card border-0 shadow-sm mb-3" x-show="step === 3">
+        <div class="card border-0 shadow-sm mb-3" x-show="step === 3" id="buyout-step3">
             <div class="card-body">
-                <h5 class="mb-3">3. Tinjau dan simpan draft</h5>
+                <h5 class="mb-3">3. Faktur supplier dan simpan draft</h5>
                 <div class="row mb-3">
                     <div class="col-md-6"><div class="alert alert-light border py-2 mb-2">Tagihan supplier: <strong>{{ $prep['billing_business'] }}</strong></div></div>
                     <div class="col-md-6"><div class="alert alert-light border py-2 mb-2">Pemilik stok yang dibeli:
@@ -239,71 +273,172 @@
                     </div></div>
                 </div>
 
+                @if(! empty($unavailable))
+                    <div class="alert alert-warning" id="buyout-unavailable">
+                        <strong>Sebagian barang pada draft ini tidak lagi tersedia</strong> dan tidak dipilih ulang secara otomatis:
+                        <ul class="mb-1">@foreach($unavailable as $u)<li>{{ $u['receipt'] ?? '—' }} — {{ $u['product'] ?? '—' }} ({{ $u['kind'] === 'sold' ? 'terjual belum ditagih' : 'belum terjual' }}, {{ $fmt($u['quantity']) }})</li>@endforeach</ul>
+                        <label class="mb-0"><input type="checkbox" x-model="ackUnavailable"> Saya memahami barang tersebut tidak lagi menjadi bagian draft saat disimpan.</label>
+                    </div>
+                @endif
+
+                @if($isPkp ?? false)
+                    <div class="custom-control custom-switch mb-2">
+                        <input type="hidden" {{ $n('pricing_intent[is_tax_included]') }} :value="taxIncluded ? 1 : 0">
+                        <input type="checkbox" class="custom-control-input" id="buyout-tax-included" x-model="taxIncluded">
+                        <label class="custom-control-label" for="buyout-tax-included">Harga termasuk pajak</label>
+                    </div>
+                @endif
+
                 <div class="table-responsive">
-                <table class="table table-bordered table-sm">
-                    <thead class="thead-light"><tr><th>Dokumen penjualan / Lokasi</th><th>Jenis</th><th class="text-right">Jumlah</th><th>Serial</th><th class="text-right">Harga</th><th class="text-right">Pajak</th><th class="text-right">Total</th><th>Milik / tujuan</th></tr></thead>
-                    @foreach($prep['tree'] as $reviewReceipt)
-                        @php($receiptKeys = collect($reviewReceipt['products'])->flatMap(fn ($p) => array_merge(collect($p['unsold'])->flatMap(fn ($g) => $g['keys'])->all(), $p['sold']))->values()->all())
-                        <tbody x-show="hasSelected(@js($receiptKeys))">
-                            <tr class="table-primary"><th colspan="8">Penerimaan: {{ $reviewReceipt['receipt'] }}</th></tr>
-                        </tbody>
-                        @foreach($reviewReceipt['products'] as $reviewProduct)
-                            @php($productKeys = array_merge(collect($reviewProduct['unsold'])->flatMap(fn ($g) => $g['keys'])->all(), $reviewProduct['sold']))
-                            <tbody x-show="hasSelected(@js($productKeys))">
-                                <tr class="table-light"><th colspan="8">Produk: {{ $reviewProduct['product'] }}</th></tr>
-                            </tbody>
-                            @foreach(['unsold' => 'Belum terjual', 'sold' => 'Terjual belum ditagih'] as $reviewKind => $reviewLabel)
-                                @php($reviewKeys = $reviewKind === 'unsold' ? collect($reviewProduct['unsold'])->flatMap(fn ($g) => $g['keys'])->values()->all() : $reviewProduct['sold'])
-                                @continue(! $reviewKeys)
-                    <tbody x-show="hasSelected(@js($reviewKeys))">
-                        <tr><th colspan="8" class="text-muted">{{ $reviewLabel }}</th></tr>
-                        <template x-for="r in selectedRows().filter(row => @js($reviewKeys).includes(row.key))" :key="r.key">
+                <table class="table table-bordered table-sm" id="buyout-product-table">
+                    <thead class="thead-light"><tr>
+                        <th>Produk</th><th class="text-right">Jumlah</th><th style="min-width:9rem">Harga satuan</th><th style="min-width:11rem">Diskon / unit</th>
+                        @if($isPkp ?? false)<th style="min-width:9rem">Pajak</th>@endif
+                        <th style="min-width:10rem">Total baris</th>
+                    </tr></thead>
+                    <template x-for="p in products()" :key="p.product_id">
+                        <tbody class="buyout-product-row" :data-product="p.product_id">
                             <tr>
-                                <td><span x-text="r.kind === 'unsold' ? r.location : (r.document ? r.document.label : (r.sale_reference ? 'Penjualan ' + r.sale_reference : '—'))"></span><span class="small text-muted d-block" x-show="r.document && r.document.pos_business" x-text="r.document && r.document.pos_business ? 'POS: ' + r.document.pos_business : ''"></span><span class="small text-muted d-block" x-text="r.document && r.document.selling_business ? 'Penjualan: ' + r.document.selling_business : ''"></span></td>
-                                <td x-text="r.kind === 'sold' ? 'Terjual belum ditagih' : 'Belum terjual'"></td>
-                                <td class="text-right"><span x-text="fmt(qtyOf(r.key))"></span>
-                                    <template x-if="r.kind === 'unsold' && !r.serialized"><span class="small text-muted d-block" x-text="bucketText(r.key)"></span></template></td>
-                                <td class="small"><template x-for="sn in r.serials.filter(sn => sel[r.key].serials.includes(String(sn.id)))" :key="sn.id"><div class="text-monospace" x-text="sn.label"></div></template><span x-show="!r.serialized">—</span></td>
-                                <td class="text-right" x-text="money(r.unit_price)"></td>
-                                <td class="text-right" x-text="money(r.unit_tax * qtyOf(r.key))"></td>
-                                <td class="text-right" x-text="money(rowTotal(r))"></td>
-                                <td class="small"><span x-text="r.kind === 'sold' ? '— (hanya tagihan)' : r.owner"></span> <span class="d-block text-muted" x-text="destName(r.owner_setting_id)"></span></td>
+                                <td>
+                                    <button type="button" class="btn btn-link btn-sm p-0 mr-1" @click="expanded[p.product_id] = !expanded[p.product_id]" :aria-expanded="!!expanded[p.product_id]">
+                                        <i class="bi" :class="expanded[p.product_id] ? 'bi-chevron-down' : 'bi-chevron-right'"></i></button>
+                                    <span class="font-weight-bold" x-text="p.name"></span>
+                                    <span class="d-block small text-muted" x-text="p.rows.length + ' sumber · ' + p.receipts.join(', ')"></span>
+                                    <span class="badge badge-warning buyout-needs-price" x-show="needsPrice(p)" x-text="conflicts.includes(p.product_id) ? 'Harga tersimpan berbeda — isi satu harga atau total' : 'Harga penerimaan berbeda — isi harga atau total'"></span>
+                                    <span class="badge badge-warning" x-show="serverProduct(p.product_id) && serverProduct(p.product_id).needs_tax">Pajak penerimaan berbeda — pilih pajak</span>
+                                </td>
+                                <td class="text-right" x-text="fmt(p.qty)"></td>
+                                <td>
+                                    <input type="text" inputmode="decimal" class="form-control form-control-sm buyout-unit-price nominal-field"
+                                           :class="{ 'is-invalid': invalid['price' + p.product_id] !== undefined }"
+                                           :value="fieldText('price' + p.product_id, term(p.product_id).unit_price, 6, 2)"
+                                           @focus="focusField('price' + p.product_id, term(p.product_id).unit_price, 6)"
+                                           @blur="blurField('price' + p.product_id, $event.target.value, 6, term(p.product_id).unit_price, v => editTerm(p.product_id, 'unit_price', v))"
+                                           :placeholder="defaultPrice(p) !== null ? nominal.format(defaultPrice(p), 2) : 'Wajib diisi'">
+                                    <input type="hidden" :name="canSave && term(p.product_id).unit_price !== '' ? 'pricing_intent[products][' + p.product_id + '][unit_price]' : null" :value="term(p.product_id).unit_price">
+                                    <span class="small text-muted d-block" x-show="term(p.product_id).row_total_override !== '' && serverProduct(p.product_id)"
+                                          x-text="'Harga hasil total: ' + money(serverProduct(p.product_id) ? serverProduct(p.product_id).accepted.unit_price : 0)"></span>
+                                </td>
+                                <td>
+                                    <div class="input-group input-group-sm">
+                                        <select class="form-control" :name="canSave ? 'pricing_intent[products][' + p.product_id + '][discount_type]' : null"
+                                                :value="term(p.product_id).discount_type" @change="editTerm(p.product_id, 'discount_type', $event.target.value)">
+                                            <option value="fixed">Rp</option><option value="percentage">%</option></select>
+                                        <input type="text" inputmode="decimal" class="form-control nominal-field"
+                                               :class="{ 'is-invalid': invalid['disc' + p.product_id] !== undefined }"
+                                               :value="fieldText('disc' + p.product_id, term(p.product_id).discount_value, 2, 2)"
+                                               @focus="focusField('disc' + p.product_id, term(p.product_id).discount_value, 2)"
+                                               @blur="blurField('disc' + p.product_id, $event.target.value, 2, term(p.product_id).discount_value, v => editTerm(p.product_id, 'discount_value', v))">
+                                        <input type="hidden" :name="canSave && term(p.product_id).discount_value !== '' ? 'pricing_intent[products][' + p.product_id + '][discount_value]' : null" :value="term(p.product_id).discount_value">
+                                    </div>
+                                </td>
+                                @if($isPkp ?? false)
+                                <td>
+                                    <select class="form-control form-control-sm" :name="canSave && term(p.product_id).tax_id !== '' ? 'pricing_intent[products][' + p.product_id + '][tax_id]' : null"
+                                            :value="term(p.product_id).tax_id" @change="editTerm(p.product_id, 'tax_id', $event.target.value)">
+                                        <option value="">Ikuti penerimaan</option>
+                                        <option value="{{ \Modules\Consignment\Services\ConsignmentBuyoutPricingService::NO_TAX }}">Tanpa pajak</option>
+                                        @foreach($activeTaxes ?? [] as $tax)<option value="{{ $tax->id }}">{{ $tax->name }} ({{ rtrim(rtrim(number_format($tax->value, 2, '.', ''), '0'), '.') }}%)</option>@endforeach
+                                    </select>
+                                </td>
+                                @endif
+                                <td>
+                                    <input type="text" inputmode="decimal" class="form-control form-control-sm buyout-row-total nominal-field"
+                                           :class="{ 'border-primary': term(p.product_id).row_total_override !== '', 'is-invalid': invalid['total' + p.product_id] !== undefined }"
+                                           :value="fieldText('total' + p.product_id, rowTotal(p.product_id), 2, 2)"
+                                           @focus="focusField('total' + p.product_id, rowTotal(p.product_id), 2)"
+                                           @blur="blurField('total' + p.product_id, $event.target.value, 2, rowTotal(p.product_id), v => editTotal(p.product_id, v))">
+                                    <input type="hidden" :name="canSave && term(p.product_id).row_total_override !== '' ? 'pricing_intent[products][' + p.product_id + '][row_total_override]' : null" :value="term(p.product_id).row_total_override">
+                                    <span class="small text-muted" x-show="term(p.product_id).row_total_override !== ''">total manual</span>
+                                </td>
                             </tr>
-                        </template>
-                    </tbody>
-                            @endforeach
-                        @endforeach
-                    @endforeach
-                    <tbody x-show="!selectedRows().length"><tr><td colspan="8" class="text-center text-muted">Belum ada barang dipilih.</td></tr></tbody>
+                            <tr x-show="expanded[p.product_id]" class="buyout-product-sources">
+                                <td colspan="{{ ($isPkp ?? false) ? 6 : 5 }}" class="bg-light">
+                                    <table class="table table-sm mb-0 small">
+                                        <thead><tr><th>Penerimaan</th><th>Jenis</th><th>Dokumen / Lokasi</th><th class="text-right">Jumlah</th><th>Serial</th><th class="text-right">Harga asli</th><th>Milik / tujuan</th></tr></thead>
+                                        <tbody>
+                                            <template x-for="r in p.rows" :key="r.key">
+                                                <tr>
+                                                    <td x-text="r.receipt"></td>
+                                                    <td x-text="r.kind === 'sold' ? 'Terjual belum ditagih' : 'Belum terjual'"></td>
+                                                    <td x-text="r.kind === 'unsold' ? r.location : (r.document ? r.document.label : (r.sale_reference ? 'Penjualan ' + r.sale_reference : '—'))"></td>
+                                                    <td class="text-right"><span x-text="fmt(qtyOf(r.key))"></span>
+                                                        <template x-if="r.kind === 'unsold' && !r.serialized"><span class="d-block text-muted" x-text="bucketText(r.key)"></span></template></td>
+                                                    <td><span x-text="serialLabels(r) || '—'"></span></td>
+                                                    <td class="text-right" x-text="money(r.unit_price)"></td>
+                                                    <td><span x-text="r.kind === 'sold' ? '— (hanya tagihan)' : r.owner"></span> <span class="d-block text-muted" x-text="r.kind === 'sold' ? '' : destName(r.owner_setting_id)"></span></td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </template>
+                    <tbody x-show="!products().length"><tr><td colspan="6" class="text-center text-muted">Belum ada barang dipilih.</td></tr></tbody>
                     <tfoot>
-                        <tr><th colspan="6" class="text-right">Subtotal belum terjual</th><th class="text-right" x-text="money(subtotal('unsold'))"></th><th></th></tr>
-                        <tr><th colspan="6" class="text-right">Subtotal terjual belum ditagih</th><th class="text-right" x-text="money(subtotal('sold'))"></th><th></th></tr>
-                        <tr><th colspan="6" class="text-right">Diskon dokumen</th><th class="text-right" x-text="'- ' + money(discountAmount())"></th><th></th></tr>
-                        <tr><th colspan="6" class="text-right">Perkiraan utang ke supplier</th><th class="text-right" x-text="money(payable())"></th><th></th></tr>
+                        <tr><th colspan="{{ ($isPkp ?? false) ? 5 : 4 }}" class="text-right">Total baris</th><th class="text-right" x-text="money(preview ? preview.totals.gross_total : 0)"></th></tr>
+                        @if($isPkp ?? false)<tr><th colspan="5" class="text-right">Termasuk pajak</th><th class="text-right" x-text="money(preview ? preview.totals.tax_amount : 0)"></th></tr>@endif
+                        <tr><th colspan="{{ ($isPkp ?? false) ? 5 : 4 }}" class="text-right align-middle">Diskon dokumen
+                                <div class="d-inline-flex ml-2" style="max-width:14rem">
+                                    <select {{ $n('pricing_intent[global_discount_type]') }} class="form-control form-control-sm" x-model="discount.type"><option value="fixed">Rp</option><option value="percentage">%</option></select>
+                                    <input type="text" inputmode="decimal" class="form-control form-control-sm nominal-field" id="buyout-global-discount"
+                                           :class="{ 'is-invalid': invalid.global !== undefined }"
+                                           :value="fieldText('global', discount.value, 2, 2)" @focus="focusField('global', discount.value, 2)"
+                                           @blur="blurField('global', $event.target.value, 2, discount.value, v => discount.value = v === '' ? '0' : v)">
+                                    <input type="hidden" {{ $n('pricing_intent[global_discount_value]') }} :value="discount.value">
+                                </div></th>
+                            <th class="text-right" x-text="'- ' + money(preview ? preview.totals.global_discount_amount : 0)"></th></tr>
+                        <tr><th colspan="{{ ($isPkp ?? false) ? 5 : 4 }}" class="text-right">Utang ke supplier</th><th class="text-right" id="buyout-payable" x-text="money(preview ? preview.totals.total_amount : 0)"></th></tr>
                     </tfoot>
                 </table>
                 </div>
-                <p class="small text-muted">Harga dari penerimaan titipan. Angka ini perkiraan; harga, pajak, dan ketersediaan dihitung ulang dan divalidasi server saat disimpan, diajukan, dan disetujui.</p>
-
-                <div class="form-row mb-3">
-                    <div class="col-md-3"><label>Tanggal</label><input type="date" {{ $n('date') }} class="form-control" value="{{ old('date', now()->toDateString()) }}"></div>
-                    <div class="col-md-3"><label>No. Faktur Supplier</label><input {{ $n('invoice_metadata[supplier_invoice_number]') }} class="form-control" value="{{ old('invoice_metadata.supplier_invoice_number') }}"></div>
-                    <div class="col-md-3"><label>Tanggal Faktur</label><input type="date" {{ $n('invoice_metadata[invoice_date]') }} class="form-control" value="{{ old('invoice_metadata.invoice_date', now()->toDateString()) }}"></div>
-                    <div class="col-md-3"><label>Diskon Dokumen</label>
-                        <div class="input-group">
-                            <select {{ $n('pricing_intent[global_discount_type]') }} class="form-control" x-model="discount.type"><option value="fixed">Rp</option><option value="percentage">%</option></select>
-                            <input type="number" step="0.01" min="0" {{ $n('pricing_intent[global_discount_value]') }} class="form-control" x-model.number="discount.value">
-                        </div>
-                    </div>
-                    <div class="col-12 mt-2"><label>Catatan</label><textarea {{ $n('notes') }} class="form-control" rows="2">{{ old('notes') }}</textarea></div>
+                <div class="small text-muted mb-2" x-show="previewLoading">Menghitung ulang…</div>
+                <div class="alert alert-warning py-2" x-show="preview && preview.blockers.length" id="buyout-preview-blockers">
+                    <template x-for="b in (preview ? preview.blockers : [])"><div x-text="b"></div></template>
                 </div>
+                <p class="small text-muted">Satu harga, diskon, dan pajak per produk untuk seluruh sumber. Harga kosong memakai harga penerimaan bila semua sumber sama. Mengubah total baris menghitung ulang harga satuan; mengubah harga, diskon, atau pajak menghapus total manual. Angka dihitung oleh server.</p>
+
+                <h6 class="mt-3">Informasi faktur</h6>
+                <div class="form-row mb-3">
+                    <div class="col-md-3"><label>No. Faktur Supplier</label><input {{ $n('invoice_metadata[supplier_invoice_number]') }} class="form-control" value="{{ $inv('supplier_invoice_number') }}"></div>
+                    <div class="col-md-3"><label>Tanggal Faktur <span class="text-danger">*</span></label>
+                        <input type="date" {{ $n('invoice_metadata[invoice_date]') }} class="form-control" x-model="invoice.invoice_date" @change="recomputeDue()" required></div>
+                    <div class="col-md-3"><label>No. Faktur Pajak</label><input {{ $n('invoice_metadata[tax_ref_no]') }} class="form-control" value="{{ $inv('tax_ref_no') }}"></div>
+                    <div class="col-md-3 mt-2"><label>Syarat Pembayaran</label>
+                        <select {{ $n('invoice_metadata[payment_term_id]') }} class="form-control" x-model="invoice.payment_term_id" @change="recomputeDue()">
+                            <option value="">— Tanpa termin —</option>
+                            @foreach($paymentTerms ?? [] as $term)<option value="{{ $term->id }}">{{ $term->name }} ({{ $term->longevity }} hari)</option>@endforeach
+                        </select></div>
+                    <div class="col-md-3 mt-2"><label>Jatuh Tempo</label>
+                        <input type="date" {{ $n('invoice_metadata[due_date]') }} class="form-control" x-model="invoice.due_date" @input="invoice.due_date_manual = true" id="buyout-due-date">
+                        <input type="hidden" {{ $n('invoice_metadata[due_date_manual]') }} :value="invoice.due_date_manual ? 1 : 0">
+                        <span class="small text-muted" x-show="invoice.due_date_manual">diubah manual · <a href="#" @click.prevent="invoice.due_date_manual = false; recomputeDue()">ikuti termin</a></span></div>
+                    <div class="col-md-6 mt-2"><label>Catatan</label><textarea {{ $n('notes') }} class="form-control" rows="2">{{ old('notes', $editing ? $buyout->notes : '') }}</textarea></div>
+                </div>
+
+                <h6>Lampiran faktur</h6>
+                <div class="mb-3">
+                    @foreach($savedAttachments as $media)
+                        <label class="d-block small mb-1"><input type="checkbox" {{ $n('keep_attachments[]') }} value="{{ $media->id }}" {{ in_array($media->id, (array) old('keep_attachments', $hasOld ? [] : $savedAttachments->pluck('id')->all())) ? 'checked' : '' }}>
+                            Simpan {{ $media->getCustomProperty('original_name') ?: $media->file_name }}</label>
+                    @endforeach
+                    <input type="file" {{ $n('attachments[]') }} class="form-control-file" multiple accept=".pdf,.jpg,.jpeg,.png,.webp">
+                    <span class="small text-muted d-block">PDF/JPG/PNG/WEBP, maks. 10 MB per file, maks. 10 lampiran.</span>
+                    @if($hasOld)<span class="small text-warning d-block" id="buyout-reselect-attachments">Penyimpanan sebelumnya gagal: pilih ulang lampiran baru (berkas tidak dapat dipulihkan oleh browser).</span>@endif
+                    @error('attachments')<span class="small text-danger d-block">{{ $message }}</span>@enderror
+                    @error('attachments.*')<span class="small text-danger d-block">{{ $message }}</span>@enderror
+                </div>
+                @if($errors->any())
+                    <div class="alert alert-danger py-2">@foreach($errors->all() as $e)<div>{{ $e }}</div>@endforeach</div>
+                @endif
 
                 <button type="button" class="btn btn-outline-secondary" @click="go(2)"><i class="bi bi-arrow-left"></i> Kembali</button>
                 @if($canSave)
-                    <button type="submit" class="btn btn-primary"><i class="bi bi-save"></i> Simpan Draft</button>
-                    <span class="small text-muted ml-2">Hanya membuat draft: belum ada cadangan, pergerakan stok, atau tagihan.</span>
+                    <button type="submit" class="btn btn-primary" id="buyout-save"><i class="bi bi-save"></i> Simpan Draft</button>
+                    <span class="small text-muted ml-2">Hanya {{ $editing ? 'merevisi' : 'membuat' }} draft: belum ada cadangan, pergerakan stok, atau tagihan.</span>
                 @elseif($mutationsEnabled)
-                    <span class="small text-muted ml-2">Anda tidak memiliki izin membuat draft pembelian putus.</span>
+                    <span class="small text-muted ml-2">Anda tidak memiliki izin {{ $editing ? 'mengubah' : 'membuat' }} draft pembelian putus.</span>
                 @endif
             </div>
         </div>
@@ -318,6 +453,7 @@
 
 @push('page_scripts')
     @include('consignment::partials.ajax-select-scripts')
+    @include('consignment::partials.nominal-format-scripts')
     <script>
         $(function () {
             const form = document.getElementById('buyout-populate-form');
@@ -349,10 +485,164 @@
             const dest = {};
             Object.keys(cfg.holdings).forEach(sid => dest[sid] = cfg.destinations[sid] ?? '');
 
+            const blankTerm = () => ({ unit_price: '', discount_type: 'fixed', discount_value: '', tax_id: '', row_total_override: '' });
+            const terms = {};
+            Object.entries(cfg.terms || {}).forEach(([pid, t]) => {
+                const b = blankTerm();
+                Object.keys(b).forEach(k => { if (t && t[k] !== undefined && t[k] !== null) b[k] = String(t[k]); });
+                terms[pid] = b;
+            });
+
             return {
                 step: cfg.startStep,
                 rows: cfg.rows, sel, dest, error: '',
-                discount: { type: cfg.oldDiscount.type || 'fixed', value: parseFloat(cfg.oldDiscount.value) || 0 },
+                canSave: !!cfg.canSave,
+                conflicts: (cfg.conflicts || []).map(Number),
+                discount: { type: cfg.oldDiscount.type || 'fixed', value: cfg.oldDiscount.value ?? 0 },
+                terms, expanded: {}, taxIncluded: cfg.taxIncluded,
+                invoice: Object.assign({}, cfg.invoice),
+                ackUnavailable: !(cfg.unavailable || []).length,
+                nominal: window.consignmentNominal, invalid: {}, focused: null, focusText: null,
+                preview: null, previewLoading: false, previewSeq: 0, previewTimer: null, lastPreviewKey: '',
+
+                // ---- tab 3: one financial row per product -------------------------------------------------
+                products() {
+                    const by = {};
+                    this.selectedRows().forEach(r => {
+                        const g = by[r.product_id] ??= { product_id: r.product_id, name: r.product, qty: 0, rows: [], receipts: [] };
+                        g.qty = (m(g.qty) + m(this.qtyOf(r.key))) / 1000;
+                        g.rows.push(r);
+                        if (r.receipt && !g.receipts.includes(r.receipt)) g.receipts.push(r.receipt);
+                    });
+                    return Object.values(by).sort((a, b) => a.product_id - b.product_id);
+                },
+                term(pid) { return this.terms[pid] || blankTerm(); },
+                // ---- nominal fields (same rules as consignment billing): formatted when idle, raw while editing,
+                // canonical value committed on blur; unparsable text stays visible, flagged, and blocks saving.
+                fieldText(key, canonical, precision, display) {
+                    if (this.invalid[key] !== undefined) return this.invalid[key];
+                    return this.focused === key ? this.editText(canonical, precision) : this.nominal.format(canonical, display);
+                },
+                // Editing text uses the Indonesian decimal comma ("1,234"), so re-parsing it can never read a decimal
+                // as thousands grouping.
+                editText(canonical, precision) { return this.nominal.raw(canonical, precision).replace('.', ','); },
+                focusField(key, canonical, precision) {
+                    if (this.invalid[key] !== undefined) return;
+                    this.focused = key;
+                    this.focusText = this.editText(canonical, precision);
+                },
+                blurField(key, text, precision, current, commit) {
+                    // Untouched since focus: keep the exact canonical value (no re-parse, no rounding, no edit).
+                    if (this.focused === key && text === this.focusText && this.invalid[key] === undefined) { this.focused = null; return; }
+                    const canonical = this.nominal.parse(text, precision);
+                    if (canonical === null) { this.invalid[key] = text; this.focused = null; return; }
+                    delete this.invalid[key];
+                    this.focused = null;
+                    const same = canonical === '' ? String(current ?? '') === '' : (String(current ?? '') !== '' && parseFloat(current) === parseFloat(canonical));
+                    if (!same) commit(canonical);
+                },
+                rowTotal(pid) {
+                    const t = this.term(pid), sp = this.serverProduct(pid);
+                    return t.row_total_override !== '' ? t.row_total_override : (sp ? String(sp.accepted.total) : '');
+                },
+                ensureTerm(pid) { if (!this.terms[pid]) this.terms[pid] = blankTerm(); return this.terms[pid]; },
+                // Price, discount or tax edits clear a manual total; a total edit makes it authoritative.
+                editTerm(pid, key, value) {
+                    const t = this.ensureTerm(pid);
+                    // Leaving a manual total: first carry its derived unit price into the price field, so a following
+                    // discount or tax edit applies to the agreed amount rather than the stale pre-override price.
+                    if (key !== 'unit_price' && t.row_total_override !== '') t.unit_price = Number(this.derivedUnitPrice(pid)).toFixed(6);
+                    t[key] = value;
+                    t.row_total_override = '';
+                },
+                editTotal(pid, value) { this.ensureTerm(pid).row_total_override = value; },
+                // Unit price implied by the manual total: the server's back-solved value when the preview reflects the
+                // current inputs, otherwise the same back-solve locally (tax-inclusive or untaxed basis).
+                derivedUnitPrice(pid) {
+                    const t = this.term(pid), sp = this.serverProduct(pid);
+                    if (sp && this.previewCurrent()) return sp.accepted.unit_price;
+                    const p = this.products().find(x => x.product_id === pid), qty = p ? p.qty : 0;
+                    if (!(qty > 0)) return t.unit_price;
+                    // Tax-exclusive PKP prices are net of tax: remove the row's tax from the total before dividing.
+                    const rate = cfg.isPkp && !this.taxIncluded ? this.taxRate(pid) : 0;
+                    const eff = (parseFloat(t.row_total_override) || 0) / (1 + rate / 100) / qty, d = parseFloat(t.discount_value) || 0;
+                    const unit = t.discount_type === 'percentage' ? (d >= 100 ? 0 : eff / (1 - d / 100)) : eff + d;
+                    return Math.round(unit * 1e6) / 1e6;
+                },
+                // Rate of the row's current tax choice: explicit "no tax", an explicit active tax, else the receipt tax
+                // rate reported by the server for this product.
+                taxRate(pid) {
+                    const t = this.term(pid), sp = this.serverProduct(pid);
+                    if (t.tax_id === '{{ \Modules\Consignment\Services\ConsignmentBuyoutPricingService::NO_TAX }}') return 0;
+                    if (t.tax_id !== '') return cfg.taxRates[t.tax_id] ?? 0;
+                    // "Ikuti penerimaan": the receipt's own rate, never the rate of an earlier invoice tax choice.
+                    return sp ? (parseFloat(sp.default_tax_rate) || 0) : 0;
+                },
+                previewCurrent() { return !this.previewLoading && this.preview && this.preview.key === this.lastPreviewKey; },
+                serverProduct(pid) { return this.preview ? (this.preview.products.find(p => p.product_id === pid) || null) : null; },
+                defaultPrice(p) {
+                    const sp = this.serverProduct(p.product_id);
+                    if (sp) return sp.default_unit_price;
+                    const prices = [...new Set(p.rows.map(r => Number(r.unit_price).toFixed(6)))];
+                    return prices.length === 1 ? parseFloat(prices[0]) : null;
+                },
+                needsPrice(p) {
+                    const t = this.term(p.product_id);
+                    const conflict = this.conflicts.includes(p.product_id);   // reopened legacy draft with differing saved terms
+                    return (conflict || this.defaultPrice(p) === null) && t.unit_price === '' && t.row_total_override === '';
+                },
+                intentPayload() {
+                    const products = {};
+                    this.products().forEach(p => {
+                        const t = this.term(p.product_id), out = {};
+                        Object.keys(t).forEach(k => { if (t[k] !== '' && t[k] !== null) out[k] = t[k]; });
+                        if (!cfg.isPkp) delete out.tax_id;
+                        products[p.product_id] = out;
+                    });
+                    return { version: 2, products, global_discount_type: this.discount.type, global_discount_value: this.discount.value || 0, is_tax_included: this.taxIncluded ? 1 : 0 };
+                },
+                previewPayload() {
+                    return {
+                        supplier_id: cfg.supplierId,
+                        lines: this.selectedRows().map(r => ({ line_type: r.fields.line_type, consignment_receiving_detail_id: r.fields.consignment_receiving_detail_id, base_quantity: this.qtyOf(r.key) })),
+                        pricing_intent: this.intentPayload(),
+                    };
+                },
+                // Debounced authoritative server preview; only the response to the latest request is applied.
+                schedulePreview(key) {
+                    if (key === this.lastPreviewKey) return;
+                    this.lastPreviewKey = key;
+                    clearTimeout(this.previewTimer);
+                    // Invalidate immediately: any in-flight response now belongs to superseded inputs.
+                    const seq = ++this.previewSeq;
+                    if (!this.selectedRows().length) { this.preview = null; this.previewLoading = false; return; }
+                    this.previewLoading = true;
+                    this.previewTimer = setTimeout(() => this.runPreview(key, seq), 250);
+                },
+                async runPreview(key, seq) {
+                    if (seq !== this.previewSeq) return;
+                    try {
+                        const token = document.querySelector('meta[name="csrf-token"]')?.content || '';
+                        const res = await fetch(cfg.previewUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+                            body: JSON.stringify(Object.assign(JSON.parse(key), { seq })) });
+                        const data = await res.json();
+                        if (seq !== this.previewSeq) return;            // a newer input superseded this response
+                        if (res.ok) data.key = key;
+                        this.preview = res.ok ? data : { valid: false, blockers: [data.message || 'Pratinjau gagal.'], products: [], totals: { gross_total: 0, tax_amount: 0, global_discount_amount: 0, total_amount: 0 } };
+                    } catch (e) {
+                        if (seq === this.previewSeq) this.preview = null;
+                    } finally {
+                        if (seq === this.previewSeq) this.previewLoading = false;
+                    }
+                },
+                recomputeDue() {
+                    if (this.invoice.due_date_manual) return;
+                    const days = cfg.paymentTerms[this.invoice.payment_term_id];
+                    if (days === undefined || !this.invoice.invoice_date) return;
+                    const d = new Date(this.invoice.invoice_date + 'T00:00:00');
+                    d.setDate(d.getDate() + days);
+                    this.invoice.due_date = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+                },
 
                 init() {
                     if (this.step > 1 && this.validateSetup()) this.step = 1;
@@ -458,8 +748,12 @@
                     this.step = n;
                 },
                 submit(e) {
-                    this.error = this.validateSetup() || this.validateGoods();
-                    if (this.error) { e.preventDefault(); return false; }
+                    this.error = this.validateSetup() || this.validateGoods()
+                        || (Object.keys(this.invalid).length ? 'Perbaiki nilai nominal yang tidak valid (format contoh: 1.250.000,50).' : '')
+                        || (!this.ackUnavailable ? 'Konfirmasi barang draft yang tidak lagi tersedia sebelum menyimpan.' : '')
+                        || (this.products().some(p => this.needsPrice(p)) ? 'Isi harga satuan atau total baris untuk produk dengan harga penerimaan berbeda.' : '')
+                        || (this.preview && !this.previewLoading && !this.preview.valid ? 'Periksa kembali harga faktur: ' + this.preview.blockers.join(' ') : '');
+                    if (this.error) { e.preventDefault(); window.scrollTo(0, 0); return false; }
                     return true;
                 },
 
@@ -480,13 +774,6 @@
                     const ids = this.sel[r.key].serials;
                     return r.serials.filter(s => ids.includes(String(s.id))).map(s => s.label).join(', ');
                 },
-                rowTotal(r) { const q = this.qtyOf(r.key); return Math.round((q * r.unit_price + q * r.unit_tax) * 100) / 100; },
-                subtotal(kind) { return this.selectedRows().filter(r => r.kind === kind).reduce((a, r) => a + this.rowTotal(r), 0); },
-                discountAmount() {
-                    const sum = this.subtotal('sold') + this.subtotal('unsold'), v = parseFloat(this.discount.value) || 0;
-                    return Math.min(sum, this.discount.type === 'percentage' ? Math.round(sum * v) / 100 : v);
-                },
-                payable() { return Math.max(0, this.subtotal('sold') + this.subtotal('unsold') - this.discountAmount()); },
                 owners() {
                     const seen = {};
                     this.selectedRows().filter(r => r.kind === 'unsold').forEach(r => seen[r.owner_setting_id] = { sid: r.owner_setting_id, name: r.owner, dest: this.destName(r.owner_setting_id) });

@@ -105,6 +105,7 @@ class ConsignmentBuyoutLifecycleService
             ]);
             $this->replaceLines($buyout, $lines);
             $this->authorizeCustody($actor, $buyout);
+            $this->assertProductPricing($buyout);
             $this->audit($buyout, 'DRAFT_CREATED', null, $actor, 'Draft created.');
 
             return $buyout->fresh();
@@ -128,6 +129,7 @@ class ConsignmentBuyoutLifecycleService
                 'notes' => $meta['notes'] ?? $locked->notes,
                 'rejection_reason' => null,
             ]);
+            $this->assertProductPricing($locked);
             $this->audit($locked, 'REVISED', $from, $actor, 'Revised.');
             $this->notify('resolve_revision', $locked);
 
@@ -149,6 +151,7 @@ class ConsignmentBuyoutLifecycleService
             if ($errors) {
                 throw new InvalidArgumentException('Buyout cannot be submitted: ' . implode(' ', $errors));
             }
+            $this->assertProductPricing($locked);
             $locked->update([
                 'status' => ConsignmentBuyout::STATUS_WAITING_APPROVAL,
                 'submitted_by' => $actor->id,
@@ -258,6 +261,23 @@ class ConsignmentBuyoutLifecycleService
         }
         $locked->reservations()->where('status', ConsignmentBuyoutReservation::STATUS_ACTIVE)
             ->update(['status' => ConsignmentBuyoutReservation::STATUS_CONSUMED, 'consumed_at' => now()]);
+    }
+
+    /**
+     * Product-level invoice terms (tab 3) are validated with the same server calculation used by preview, approval and
+     * finalization; a failure rolls back the whole save, so no partial draft is written. Legacy intents keep their
+     * existing (approval-time) validation.
+     */
+    protected function assertProductPricing(ConsignmentBuyout $buyout): void
+    {
+        $buyout = $buyout->fresh();
+        if (! ConsignmentBuyoutPricingService::isProductIntent($buyout->pricing_intent)) {
+            return;
+        }
+        $result = (new ConsignmentBuyoutPricingService())->calculate($buyout);
+        if (! $result['valid']) {
+            throw new InvalidArgumentException('Harga faktur belum valid: ' . implode(' ', $result['blockers']));
+        }
     }
 
     /* ----------------------------------------------------------------- hash */

@@ -21,6 +21,13 @@
         </div>
         @endif
 
+        @if($purchase->isConsignmentFinancial())
+            <div class="alert alert-info mb-0" id="consignment-monetary-notice">
+                Pembelian ini berasal dari {{ $purchase->isConsignmentBuyout() ? 'pembelian putus' : 'tagihan' }} konsinyasi.
+                Hanya harga, diskon, pajak, dan biaya yang dapat diubah. Produk, kuantitas, supplier, serta bukti sumber dan nilai perolehan stok tetap terkunci.
+            </div>
+        @endif
+
         <!-- Purchase Form -->
         <div class="row mt-4">
             <div class="col-md-12">

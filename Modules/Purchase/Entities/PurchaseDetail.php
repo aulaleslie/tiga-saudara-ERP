@@ -58,6 +58,11 @@ class PurchaseDetail extends BaseModel
 
     protected $with = ['product', 'tax'];
 
+    /** Detail fields the standard monetary editor may write (see PurchaseMonetaryEditService). */
+    public const MONETARY_FIELDS = [
+        'unit_price', 'price', 'product_discount_type', 'product_discount_amount', 'sub_total', 'product_tax_amount', 'tax_id', 'updated_at',
+    ];
+
     protected static function boot()
     {
         parent::boot();
@@ -67,6 +72,14 @@ class PurchaseDetail extends BaseModel
         // must not be mutated by any unguarded service or direct Eloquent write. Creation is
         // permitted so the conversion service can build the detail rows in the first place.
         static::updating(function (PurchaseDetail $detail) {
+            // The authorized standard monetary editor may reprice existing rows in place; identity, product,
+            // quantity and unit fields remain immutable even inside that scope.
+            if (Purchase::inMonetaryEditScope($detail->getOriginal('purchase_id') !== null ? (int) $detail->getOriginal('purchase_id') : null)) {
+                $forbidden = array_diff(array_keys($detail->getDirty()), self::MONETARY_FIELDS);
+                if ($forbidden === []) {
+                    return;
+                }
+            }
             $detail->assertMutableSource('updated');
         });
 

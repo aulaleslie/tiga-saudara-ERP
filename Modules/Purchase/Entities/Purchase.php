@@ -115,13 +115,24 @@ class Purchase extends BaseModel implements HasMedia
      */
     public function resolveEditMode(?\Illuminate\Contracts\Auth\Authenticatable $user = null): string
     {
-        if ($this->isConsignmentFinancial()) {
-            return self::EDIT_MODE_NONE;
-        }
-
         $user = $user ?? auth()->user();
         if (!$user) {
             return self::EDIT_MODE_NONE;
+        }
+
+        // Generated consignment Purchases (billing and buyout) never allow full editing. They expose only the
+        // standard monetary editor, under the same received-status and permission rules as ordinary Purchases;
+        // a cancelled (reversed) or archived document stays read-only.
+        if ($this->isConsignmentFinancial()) {
+            if ($this->isCancelled() || $this->archived_at !== null) {
+                return self::EDIT_MODE_NONE;
+            }
+
+            return in_array($this->status, [self::STATUS_RECEIVED_PARTIALLY, self::STATUS_RECEIVED], true)
+                && $user->can('purchases.update')
+                && $user->can('purchases.received.monetary.edit')
+                ? self::EDIT_MODE_MONETARY_ONLY
+                : self::EDIT_MODE_NONE;
         }
 
         if (in_array($this->status, [self::STATUS_DRAFTED, self::STATUS_WAITING_APPROVAL, self::STATUS_REJECTED])) {
@@ -224,6 +235,39 @@ class Purchase extends BaseModel implements HasMedia
         } finally {
             unset(self::$buyoutReversalScope[$purchaseId]);
         }
+    }
+
+    /** @var array<int,bool> purchase ids currently inside the authorized standard monetary edit */
+    protected static array $monetaryEditScope = [];
+
+    /** Header fields the standard monetary editor may write on a generated consignment Purchase. */
+    public const CONSIGNMENT_MONETARY_HEADER_FIELDS = [
+        'discount_percentage', 'discount_amount', 'shipping_amount', 'tax_amount', 'total_amount', 'is_tax_included',
+    ];
+
+    /**
+     * Run $callback with the narrow permission to write monetary fields on THIS Purchase and its details. Entered
+     * only by PurchaseMonetaryEditService after its protected-field, authorization and payment validation. Supplier,
+     * business, source identity, products, quantities, row membership and deletion stay immutable.
+     */
+    public static function withMonetaryEditScope(int $purchaseId, \Closure $callback): mixed
+    {
+        $previous = self::$monetaryEditScope[$purchaseId] ?? false;
+        self::$monetaryEditScope[$purchaseId] = true;
+        try {
+            return $callback();
+        } finally {
+            if ($previous) {
+                self::$monetaryEditScope[$purchaseId] = true;
+            } else {
+                unset(self::$monetaryEditScope[$purchaseId]);
+            }
+        }
+    }
+
+    public static function inMonetaryEditScope(?int $purchaseId): bool
+    {
+        return $purchaseId !== null && (self::$monetaryEditScope[$purchaseId] ?? false);
     }
 
     public function isCancelled(): bool {
@@ -351,6 +395,9 @@ class Purchase extends BaseModel implements HasMedia
                     if ($model->isDirty('status') && $model->status !== self::STATUS_CANCELLED) {
                         throw new \DomainException("Buyout Purchase #{$model->id} can only move to CANCELLED through its dedicated reversal.");
                     }
+                }
+                if (self::inMonetaryEditScope((int) $model->id)) {
+                    $allowed = array_merge($allowed, self::CONSIGNMENT_MONETARY_HEADER_FIELDS);
                 }
                 $forbidden = array_diff($dirty, $allowed);
 

@@ -86,6 +86,7 @@
                                     @endcan
                                 @endif
                                 — barang belum terjual dipindahkan ke stok milik tanpa penerimaan barang baru; barang terjual dibayar tanpa pergerakan stok.
+                                <span class="d-block small mt-1">Produk, kuantitas, supplier, dan bukti sumber terkunci. Harga, diskon, pajak, dan biaya dapat diubah melalui Ubah Nilai (Moneter) tanpa mengubah stok, nilai perolehan, atau dokumen pembelian putus.</span>
                                 @if($purchase->isCancelled())<strong class="d-block mt-1">Dokumen ini telah dibatalkan melalui reversal; sisa tagihan nol.</strong>@endif
                             </div>
                         @endif
@@ -98,7 +99,7 @@
                                     #{{ $purchase->consignmentBillingConfirmation->confirmation_number }}
                                 </a>
                                 pada {{ $purchase->consignmentBillingConfirmation->billed_at?->format('d/m/Y H:i') }}.
-                                Item dan nilai komersial bersifat read-only, sedangkan informasi administratif (tanggal, referensi, catatan, dan lampiran) dapat dikelola.
+                                Produk, kuantitas, supplier, dan bukti sumber konsinyasi bersifat terkunci. Nilai harga, diskon, pajak, dan biaya dapat diubah melalui Ubah Nilai (Moneter) tanpa mengubah stok, HPP, atau bukti konversi; informasi administratif (tanggal, referensi, catatan, dan lampiran) dapat dikelola.
                             </div>
                         @endif
 

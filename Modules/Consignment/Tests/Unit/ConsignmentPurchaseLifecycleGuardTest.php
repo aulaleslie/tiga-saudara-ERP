@@ -256,9 +256,9 @@ class ConsignmentPurchaseLifecycleGuardTest extends TestCase
     }
 
     /** @test */
-    public function it_returns_edit_mode_none_for_consignment_billing_purchase()
+    public function it_never_returns_full_edit_mode_for_consignment_billing_purchase()
     {
-        $this->assertEquals(Purchase::EDIT_MODE_NONE, $this->consignmentPurchase->resolveEditMode($this->user));
+        $this->assertNotEquals(Purchase::EDIT_MODE_FULL, $this->consignmentPurchase->resolveEditMode($this->user));
     }
 
     /** @test */

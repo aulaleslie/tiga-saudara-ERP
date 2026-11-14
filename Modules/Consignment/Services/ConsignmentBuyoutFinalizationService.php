@@ -72,6 +72,20 @@ class ConsignmentBuyoutFinalizationService
         $this->authorize($actor, $buyout->setting_id, $hasUnsold);
         $this->lifecycle->authorizeCustody($actor, $buyout);
 
+        $this->copiedMedia = [];
+        try {
+            return $this->run($buyout, $actor);
+        } catch (\Throwable $e) {
+            $this->purgeCopiedMedia();
+            throw $e;
+        }
+    }
+
+    /** @var array<int, \Spatie\MediaLibrary\MediaCollections\Models\Media> media copied to the Purchase in this attempt */
+    private array $copiedMedia = [];
+
+    private function run(ConsignmentBuyout $buyout, User $actor): Purchase
+    {
         return ConsignmentLockPlanner::run(fn () => $this->lifecycle->pairsOf($buyout), function ($cover) use ($buyout, $actor) {
             $locked = ConsignmentBuyout::whereKey($buyout->id)->lockForUpdate()->firstOrFail();
             $cover($this->lifecycle->pairsOfLines($locked, $locked->lines()->get()));
@@ -127,6 +141,7 @@ class ConsignmentBuyoutFinalizationService
             // ---- Purchase, details, lineage -------------------------------------------------------------
             $purchase = $this->createPurchase($locked, $pricing, $meta);
             $detailByLine = $this->createDetailsAndLineage($locked, $purchase, $pricing, $lines);
+            $this->attachInvoiceFiles($locked, $purchase, $meta);
             $this->stage('purchase');
 
             // ---- Ownership movements (non-serialized) + sold ownership evidence ---------------------------
@@ -180,6 +195,49 @@ class ConsignmentBuyoutFinalizationService
 
             return $purchase->fresh();
         });
+    }
+
+    /* ----------------------------------------------------------------------------------- attachments */
+
+    /**
+     * Copy the approved draft invoice files to the Purchase. Only references frozen in the approved invoice metadata
+     * are used, and each must still be the same stored file (hash) on this buyout; nothing new is accepted here.
+     */
+    protected function attachInvoiceFiles(ConsignmentBuyout $b, Purchase $purchase, array $meta): void
+    {
+        foreach ((array) ($meta['attachments'] ?? []) as $ref) {
+            $media = $b->media()->where('collection_name', ConsignmentBuyout::ATTACHMENT_COLLECTION)->whereKey((int) ($ref['media_id'] ?? 0))->first();
+            if (! $media) {
+                throw new InvalidArgumentException('An approved invoice attachment is missing; cancel and re-approve the buyout.');
+            }
+            $path = $media->getPath();
+            if (! empty($ref['sha256']) && (! is_file($path) || ! hash_equals((string) $ref['sha256'], hash_file('sha256', $path)))) {
+                throw new InvalidArgumentException("Approved invoice attachment {$media->file_name} changed after approval.");
+            }
+            $copy = $media->copy($purchase, 'attachments');
+            $this->copiedMedia[] = $copy;
+            $copy->setCustomProperty('source', 'CONSIGNMENT_BUYOUT');
+            $copy->setCustomProperty('consignment_buyout_id', $b->id);
+            $copy->setCustomProperty('original_name', $ref['original_name'] ?? $media->file_name);
+            $copy->setCustomProperty('file_hash', $ref['sha256'] ?? null);
+            $copy->save();
+        }
+    }
+
+    private function purgeCopiedMedia(): void
+    {
+        foreach ($this->copiedMedia as $media) {
+            try {
+                $path = $media->getPath();
+                if ($path && file_exists($path)) {
+                    @unlink($path);
+                }
+                $media->delete();
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::error('Failed to clean up a copied buyout attachment after a failed finalization.', ['error' => $e->getMessage()]);
+            }
+        }
+        $this->copiedMedia = [];
     }
 
     /* ----------------------------------------------------------------------------------- authorization */
@@ -333,7 +391,9 @@ class ConsignmentBuyoutFinalizationService
             'setting_id' => $b->setting_id,
             'supplier_id' => $b->supplier_id,
             'date' => $invoiceDate,
-            'reporting_date' => ! empty($meta['reporting_date']) ? Carbon::parse($meta['reporting_date']) : $invoiceDate,
+            // Product-intent documents always start reporting on the invoice date (later changes use the Purchase date
+            // adjustment); legacy approved documents keep the reporting date they were approved with.
+            'reporting_date' => empty($pricing['product_intent']) && ! empty($meta['reporting_date']) ? Carbon::parse($meta['reporting_date']) : $invoiceDate,
             'due_date' => $due,
             'payment_term_id' => $termId,
             'reference' => Purchase::generateReference((int) $b->setting_id, $invoiceDate),
@@ -360,7 +420,10 @@ class ConsignmentBuyoutFinalizationService
     {
         $out = [];
         $slices = collect($pricing['slices'])->keyBy('line_id');
-        // Match ordinary consignment billing: combine compatible product commercial terms,
+        if (! empty($pricing['product_intent'])) {
+            return $this->createProductDetailsAndLineage($b, $purchase, $pricing, $lines, $slices);
+        }
+        // Legacy intent (documents approved before product-level terms). Match ordinary consignment billing: combine compatible product commercial terms,
         // independently of sold source, receipt, serial, destination or inventory owner.
         $groups = $lines->groupBy(function ($line) use ($slices) {
             $accepted = $slices[$line->id]['accepted'];
@@ -412,6 +475,68 @@ class ConsignmentBuyoutFinalizationService
                     'accepted_amount' => $slice['payable'],
                     'inventory_cost_amount' => (float) ($slice['inventory_cost'] ?? 0),
                     'allocation_snapshot' => ['document_discount' => $slice['document_discount'], 'line_type' => $line->line_type],
+                ]);
+                $out[$line->id] = $detail;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Product-intent documents: exactly one Purchase detail per product, its financial fields taken from the approved
+     * aggregate product row. Every source slice (receipt, sold/unsold, location, owner) links to that detail through
+     * its own lineage row; per-slice rounding never splits the group.
+     *
+     * @return array<int, PurchaseDetail> line id => detail
+     */
+    protected function createProductDetailsAndLineage(ConsignmentBuyout $b, Purchase $purchase, array $pricing, $lines, $slices): array
+    {
+        $out = [];
+        $rows = collect($pricing['products'])->keyBy('product_id');
+        foreach ($lines->groupBy(fn ($line) => (int) $line->product_id)->sortKeys() as $productId => $group) {
+            $row = $rows->get($productId);
+            if (! $row) {
+                throw new InvalidArgumentException("Approved pricing has no product row for product #{$productId}.");
+            }
+            $accepted = $row['accepted'];
+            $sliceSum = fn ($field) => round($group->sum(fn ($line) => (float) $slices[$line->id]['accepted'][$field]), 2);
+            if (abs($sliceSum('total') - (float) $accepted['total']) > 0.005 || abs($sliceSum('tax_amount') - (float) $accepted['tax_amount']) > 0.005) {
+                throw new \RuntimeException("Product #{$productId}: source slices do not reconcile with the approved product row.");
+            }
+            $product = Product::find($productId);
+            $detail = PurchaseDetail::create([
+                'purchase_id' => $purchase->id,
+                'product_id' => $productId,
+                'product_name' => $product->product_name,
+                'product_code' => $product->product_code,
+                'quantity' => $row['quantity'],
+                'price' => $accepted['unit_price'],
+                'unit_price' => $accepted['unit_price'],
+                // Ordinary Purchase convention: PKP detail sub_total is the gross, tax-inclusive amount.
+                'sub_total' => $pricing['is_pkp'] ? $accepted['total'] : $accepted['sub_total'],
+                'tax_id' => $accepted['tax_id'],
+                'product_tax_amount' => $accepted['tax_amount'],
+                'product_discount_type' => $accepted['discount_type'] ?? 'fixed',
+                'product_discount_amount' => (float) ($accepted['discount_amount'] ?? 0),
+                'pricing_source' => 'consignment_buyout',
+            ]);
+            foreach ($group->sortBy('id') as $line) {
+                $slice = $slices[$line->id];
+                ConsignmentBuyoutPurchaseLineage::create([
+                    'consignment_buyout_id' => $b->id,
+                    'consignment_buyout_line_id' => $line->id,
+                    'inventory_owner_setting_id' => $line->inventory_owner_setting_id,
+                    'purchase_id' => $purchase->id,
+                    'purchase_detail_id' => $detail->id,
+                    'consignment_receiving_detail_id' => $line->consignment_receiving_detail_id,
+                    'product_id' => $line->product_id,
+                    'base_quantity' => $line->base_quantity,
+                    'original_amount' => $slice['original']['total'],
+                    'accepted_amount' => $slice['payable'],
+                    'inventory_cost_amount' => (float) ($slice['inventory_cost'] ?? 0),
+                    'allocation_snapshot' => ['document_discount' => $slice['document_discount'], 'line_type' => $line->line_type,
+                        'accepted_total' => $slice['accepted']['total'], 'accepted_tax' => $slice['accepted']['tax_amount']],
                 ]);
                 $out[$line->id] = $detail;
             }

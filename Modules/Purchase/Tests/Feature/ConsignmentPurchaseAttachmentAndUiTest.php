@@ -413,17 +413,17 @@ class ConsignmentPurchaseAttachmentAndUiTest extends TestCase
     }
 
     /**
-     * Task 3.2: Full and monetary edit actions remain unavailable for consignment Purchases.
+     * Full editing stays unavailable; only the standard monetary mode is resolved for an authorized user.
      */
-    public function test_full_and_monetary_edit_actions_remain_unavailable_for_consignment_purchases(): void
+    public function test_full_edit_remains_unavailable_for_consignment_purchases(): void
     {
-        $this->assertEquals(Purchase::EDIT_MODE_NONE, $this->consignmentPurchase->resolveEditMode($this->authorizedUser));
+        $this->assertEquals(Purchase::EDIT_MODE_MONETARY_ONLY, $this->consignmentPurchase->resolveEditMode($this->authorizedUser));
+        $this->assertEquals(Purchase::EDIT_MODE_NONE, $this->consignmentPurchase->resolveEditMode($this->unauthorizedUser));
 
         $this->actingAs($this->authorizedUser);
-
-        // Ordinary edit route rejects commercial edit for consignment billing
-        $response = $this->get(route('purchases.edit', $this->consignmentPurchase));
-        $response->assertRedirect();
+        $this->get(route('purchases.edit', $this->consignmentPurchase))
+            ->assertOk()
+            ->assertSee('id="consignment-monetary-notice"', false);
 
         // Direct assertion that commercial editing is guarded
         $this->expectException(\Modules\Purchase\Exceptions\PurchaseSourceOperationNotAllowedException::class);
@@ -431,15 +431,17 @@ class ConsignmentPurchaseAttachmentAndUiTest extends TestCase
     }
 
     /**
-     * Task 3.2: Global monetary edit route aborts 403 because edit mode is EDIT_MODE_NONE.
+     * The global monetary editor opens for an authorized global user, and stays denied without monetary authority.
      */
-    public function test_global_monetary_edit_action_aborts_403_for_consignment_purchases(): void
+    public function test_global_monetary_edit_follows_standard_authority_for_consignment_purchases(): void
     {
         $this->actingAs($this->globalUser);
         session(['setting_id' => $this->setting2->id]);
 
-        $responseGlobal = $this->get(route('purchases.global-payments.edit-monetary', $this->consignmentPurchase->id));
-        $responseGlobal->assertForbidden();
+        $this->get(route('purchases.global-payments.edit-monetary', $this->consignmentPurchase->id))->assertOk();
+
+        $this->actingAs($this->unauthorizedUser);
+        $this->get(route('purchases.global-payments.edit-monetary', $this->consignmentPurchase->id))->assertForbidden();
     }
 
     /**
@@ -455,10 +457,11 @@ class ConsignmentPurchaseAttachmentAndUiTest extends TestCase
         $response->assertOk();
         // Informational alert explaining locked commercial vs editable administrative data
         $response->assertSee('Dokumen Pembelian Hasil Konversi Tagihan Konsinyasi');
-        $response->assertSee('Item dan nilai komersial bersifat read-only, sedangkan informasi administratif (tanggal, referensi, catatan, dan lampiran) dapat dikelola.');
-        
-        // Header edit button should NOT be present
-        $response->assertDontSee('id="purchase-header-edit"', false);
+        $response->assertSee('Produk, kuantitas, supplier, dan bukti sumber konsinyasi bersifat terkunci.');
+
+        // Only the monetary editor is offered from the header.
+        $response->assertSee('id="purchase-header-edit"', false);
+        $response->assertSee('Ubah Nilai (Moneter)');
 
         // Attachment delete form is present
         $response->assertSee(route('purchases.attachments.destroy', [$this->consignmentPurchase->id, $this->consignmentPurchase->getFirstMedia('attachments')->id]));

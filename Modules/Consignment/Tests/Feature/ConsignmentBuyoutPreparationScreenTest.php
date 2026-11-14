@@ -86,10 +86,11 @@ class ConsignmentBuyoutPreparationScreenTest extends TestCase
             ->assertDontSee('pisah koma')->assertDontSee('Sumber terjual #')->assertDontSee('Cari nomor serial')
             ->getContent();
 
-        [$selectionHtml, $reviewHtml] = explode('3. Tinjau dan simpan draft', $html, 2);
+        [$selectionHtml, $reviewHtml] = explode('3. Faktur supplier dan simpan draft', $html, 2);
         $this->assertSame(1, substr_count($selectionHtml, 'Produk: ' . e($this->product->product_name)), 'one selection product heading per receipt, not per row');
-        $this->assertSame(1, substr_count($reviewHtml, 'Produk: ' . e($this->product->product_name)), 'review groups the product once under its receipt');
-        $this->assertStringContainsString('Penerimaan: ' . e($receiptNo), $reviewHtml);
+        // Tab 3: one product financial row (rendered client-side) with expandable read-only sources.
+        $this->assertStringContainsString('id="buyout-product-table"', $reviewHtml);
+        $this->assertStringContainsString('buyout-product-sources', $reviewHtml);
         $this->assertStringContainsString('Belum terjual', $reviewHtml);
         $this->assertStringContainsString('Terjual belum ditagih', $reviewHtml);
         $this->assertStringContainsString('name="lines[u0][consignment_receiving_detail_id]" value="' . $r->id . '"', $html, 'identity kept as hidden line data');
@@ -284,7 +285,7 @@ class ConsignmentBuyoutPreparationScreenTest extends TestCase
         $r = $this->receipt($this->supplier, '10');
         $this->stock('10');
         $res = $this->save($this->maker(), ['u0' => ['row_key' => 'u0', 'line_type' => 'UNSOLD_BUYOUT', 'consignment_receiving_detail_id' => $r->id,
-            'source_location_id' => $this->location->id, 'base_quantity' => '3']], ['date' => '']);
+            'source_location_id' => $this->location->id, 'base_quantity' => '3']], ['date' => '', 'invoice_metadata' => ['invoice_date' => '']]);
 
         $res->assertRedirect()->assertSessionHasErrors('date');
         $this->assertSame(0, ConsignmentBuyout::count());

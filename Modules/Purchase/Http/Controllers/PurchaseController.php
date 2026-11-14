@@ -447,9 +447,12 @@ class PurchaseController extends Controller
 
         $this->ensurePurchaseBelongsToCurrentSetting($purchase);
 
-        \Modules\Purchase\Services\PurchaseSourceGuard::assertCommercialEditAllowed($purchase);
-
         $editMode = $purchase->resolveEditMode();
+
+        // Generated consignment Purchases may open only the standard monetary editor; any other edit stays blocked.
+        if ($editMode !== Purchase::EDIT_MODE_MONETARY_ONLY) {
+            \Modules\Purchase\Services\PurchaseSourceGuard::assertCommercialEditAllowed($purchase);
+        }
         if ($editMode === Purchase::EDIT_MODE_NONE) {
             abort(403, 'Anda tidak memiliki akses untuk mengubah pembelian ini pada status saat ini.');
         }

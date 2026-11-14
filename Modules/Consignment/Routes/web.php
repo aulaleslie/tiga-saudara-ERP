@@ -54,6 +54,8 @@ Route::group(['middleware' => ['auth', 'role.setting'], 'prefix' => 'consignment
     Route::get('buyouts', [$buyouts, 'index'])->name('buyouts.index');
     Route::get('buyouts/create', [$buyouts, 'create'])->name('buyouts.create');
     Route::get('buyouts/{id}', [$buyouts, 'show'])->name('buyouts.show')->whereNumber('id');
+    Route::get('buyouts/{id}/edit', [$buyouts, 'edit'])->name('buyouts.edit')->whereNumber('id');
+    Route::post('buyouts/preview', [$buyouts, 'preview'])->name('buyouts.preview');
     Route::post('buyouts', [$buyouts, 'store'])->name('buyouts.store');
     Route::put('buyouts/{id}', [$buyouts, 'update'])->name('buyouts.update')->whereNumber('id');
     Route::post('buyouts/{id}/submit', [$buyouts, 'submit'])->name('buyouts.submit')->whereNumber('id');

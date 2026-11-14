@@ -5,9 +5,16 @@ namespace Modules\Consignment\Entities;
 use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Spatie\MediaLibrary\HasMedia;
+use Spatie\MediaLibrary\InteractsWithMedia;
 
-class ConsignmentBuyout extends BaseModel
+class ConsignmentBuyout extends BaseModel implements HasMedia
 {
+    use InteractsWithMedia;
+
+    /** Draft supplier-invoice files; referenced (and so frozen by the approval hash) from invoice_metadata.attachments. */
+    public const ATTACHMENT_COLLECTION = 'invoice_attachments';
+
     protected $table = 'consignment_buyouts';
 
     protected $guarded = ['id'];
@@ -32,6 +39,12 @@ class ConsignmentBuyout extends BaseModel
     public const STATUS_CANCELLED = 'CANCELLED';
     public const STATUS_FINALIZED = 'FINALIZED';
     public const STATUS_REVERSED = 'REVERSED';
+
+    public function registerMediaCollections(): void
+    {
+        $this->addMediaCollection(self::ATTACHMENT_COLLECTION)
+            ->acceptsMimeTypes(['application/pdf', 'image/jpeg', 'image/png', 'image/webp']);
+    }
 
     public function scopeForSetting($query, int $settingId)
     {

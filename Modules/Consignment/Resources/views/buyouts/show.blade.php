@@ -101,6 +101,38 @@
                     </div>
                 @endif
 
+                @php($inv = $buyout->invoice_metadata ?? [])
+                <div class="card border-0 shadow-sm mb-3" id="buyout-invoice">
+                    <div class="card-header">Faktur supplier @if(! in_array($status, ['DRAFT', 'REJECTED']))<span class="badge badge-light">terkunci</span>@endif</div>
+                    <div class="card-body small">
+                        <div class="row">
+                            <div class="col-md-4">No. faktur: <strong>{{ $inv['supplier_invoice_number'] ?? '—' }}</strong></div>
+                            <div class="col-md-4">Tanggal faktur: <strong>{{ $inv['invoice_date'] ?? '—' }}</strong></div>
+                            @if(! empty($inv['reporting_date']))<div class="col-md-4">Tanggal laporan: <strong>{{ $inv['reporting_date'] }}</strong></div>@endif
+                            <div class="col-md-4">Jatuh tempo: <strong>{{ $inv['due_date'] ?? '—' }}</strong></div>
+                            <div class="col-md-4">No. faktur pajak: <strong>{{ $inv['tax_ref_no'] ?? '—' }}</strong></div>
+                        </div>
+                        @if(! empty($inv['attachments']))
+                            <div class="mt-2">Lampiran:
+                                @foreach($inv['attachments'] as $att)<span class="badge badge-light border mr-1">{{ $att['original_name'] ?? ('#' . $att['media_id']) }}</span>@endforeach
+                            </div>
+                        @endif
+                        @if($pricing && ! empty($pricing['products']))
+                            <table class="table table-sm table-bordered mt-2 mb-0" id="buyout-product-rows">
+                                <thead class="thead-light"><tr><th>Produk</th><th class="text-right">Jumlah</th><th class="text-right">Harga satuan</th><th class="text-right">Pajak</th><th class="text-right">Total baris</th></tr></thead>
+                                <tbody>
+                                @foreach($pricing['products'] as $pr)
+                                    <tr><td>{{ $pr['product_name'] }}</td><td class="text-right">{{ rtrim(rtrim(number_format($pr['quantity'], 3, ',', '.'), '0'), ',') }}</td>
+                                        <td class="text-right">{{ number_format($pr['accepted']['unit_price'], 2, ',', '.') }}</td>
+                                        <td class="text-right">{{ number_format($pr['accepted']['tax_amount'], 2, ',', '.') }}</td>
+                                        <td class="text-right">{{ number_format($pr['accepted']['total'], 2, ',', '.') }}</td></tr>
+                                @endforeach
+                                </tbody>
+                            </table>
+                        @endif
+                    </div>
+                </div>
+
                 @if($buyout->purchase)
                     <div class="card border-0 shadow-sm mb-3">
                         <div class="card-header">Pembayaran</div>
@@ -146,6 +178,10 @@
                     <div class="card-header">Aksi</div>
                     <div class="card-body">
                         @php($hidden = '<input type="hidden" name="revision" value="' . $buyout->revision . '">')
+                        @if(in_array($status, ['DRAFT', 'REJECTED']) && $can('consignments.buyouts.edit'))
+                            <a href="{{ route('consignments.buyouts.edit', $buyout->id) }}" class="btn btn-outline-primary btn-block mb-2" id="buyout-edit">
+                                <i class="bi bi-pencil"></i> Ubah Draft (barang &amp; faktur)</a>
+                        @endif
                         @if(in_array($status, ['DRAFT', 'REJECTED']) && $can('consignments.buyouts.submit'))
                             <form method="POST" action="{{ route('consignments.buyouts.submit', $buyout->id) }}" class="mb-2" onsubmit="return confirm('Ajukan dokumen ini untuk persetujuan?')">
                                 @csrf {!! $hidden !!}<button class="btn btn-primary btn-block">Ajukan Persetujuan</button></form>

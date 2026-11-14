@@ -103,7 +103,7 @@ class ConsignmentBuyoutPurchaseProtectionTest extends TestCase
                     $this->assertTrue(true);
                 }
             }
-            $this->assertSame(Purchase::EDIT_MODE_NONE, $purchase->resolveEditMode($this->user));
+            $this->assertNotSame(Purchase::EDIT_MODE_FULL, $purchase->resolveEditMode($this->user));
             // Payments and reporting-date maintenance stay allowed.
             PurchaseSourceGuard::assertPaymentAllowed($purchase);
             PurchaseSourceGuard::assertReportingDateOverrideAllowed($purchase);
