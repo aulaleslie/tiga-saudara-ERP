@@ -155,7 +155,7 @@ Receiving approval SHALL calculate the weighted average from the receiving setti
 - **THEN** product-level and setting-level last purchase prices SHALL remain unchanged
 
 ### Requirement: Approved receiving supports a controlled full reversal
-The system SHALL allow only an authorized user to fully reverse an approved Consignment Receiving Note with a required reason when every affected product, location stock, serial, average-cost state, and transaction remains eligible for exact reversal and no later dependent movement, sale, transfer, return, adjustment, allocation, bill, or incompatible cost event exists. Partial reversal and direct editing SHALL be prohibited.
+The system SHALL allow only an authorized user to fully reverse an approved Consignment Receiving Note with a required reason when every affected product, location stock, serial, average-cost state, and transaction remains eligible for exact reversal and no later dependent movement, sale, transfer, return, adjustment, allocation, bill, or incompatible cost event exists. Active sold-receipt attribution, approved buyout reservations, and non-reversed acquisition evidence SHALL be included in these dependency checks even when current stock equals a historical balance. Partial reversal and direct editing SHALL be prohibited.
 
 #### Scenario: Eligible receipt is fully reversed
 - **WHEN** an authorized user confirms reversal of an eligible approved receipt
@@ -170,6 +170,18 @@ The system SHALL allow only an authorized user to fully reverse an approved Cons
 #### Scenario: Partial reversal is attempted
 - **WHEN** a request attempts to reverse only selected lines, quantities, or serials
 - **THEN** the system SHALL reject it without mutation
+
+#### Scenario: Buyout reserves the receipt
+- **WHEN** an approved unfinalized buyout reserves any quantity or serial from a receiving detail
+- **THEN** reversal of its receiving note SHALL be rejected with the buyout reference and no state change
+
+#### Scenario: Ownership acquisition consumed the receipt
+- **WHEN** a finalized non-reversed buyout depends on the receipt, including sold-only slices with no physical movement
+- **THEN** receiving reversal SHALL remain blocked even if location balances happen to match the original receiving snapshot
+
+#### Scenario: Buyout cancellation removes its reservation
+- **WHEN** an unfinalized buyout is cancelled and releases its reservations
+- **THEN** receiving reversal SHALL be evaluated against all remaining dependencies rather than treating the released reservation as active
 
 ### Requirement: Lifecycle mutations are tenant-safe, permissioned, and concurrency-safe
 Create, edit, delete, submit, approve, reject, receive, approve receiving, reject receiving, and reverse actions SHALL enforce dedicated permissions and the active document setting boundary. Edit, deletion, approval, rejection, receiving approval, and reversal SHALL lock authoritative headers and affected state and revalidate lifecycle eligibility inside one database transaction. Read surfaces and filter options SHALL expose only records and master data belonging to the active setting.
@@ -208,4 +220,3 @@ Phase 1 SHALL support only inbound custody for existing stock-managed non-bundle
 #### Scenario: Unsupported operation is attempted
 - **WHEN** a request attempts a Phase 1-excluded operation against consignment records or locations
 - **THEN** the system SHALL reject it without mutation
-

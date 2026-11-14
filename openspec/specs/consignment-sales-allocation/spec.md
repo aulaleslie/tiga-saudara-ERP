@@ -4,7 +4,7 @@
 TBD - created by archiving change add-consignment-sales-allocation. Update Purpose after archive.
 ## Requirements
 ### Requirement: Approved dispatch evidence governs consignment sale eligibility
-The system SHALL identify billable consignment sale quantities only from approved dispatch details whose persisted source location belongs to the active setting and is classified as consignment. Ordinary Sales and POS-generated Sales SHALL use the same dispatch-detail authority, and the system SHALL NOT rerun current stock selection or POS location priority during discovery. Bundle association alone SHALL NOT make an authoritative stock-managed dispatch detail unsupported.
+The system SHALL identify billable consignment sale quantities only from approved dispatch details whose persisted source location is classified as consignment and whose local receipt or verified transfer provenance establishes supplier responsibility. The original receipt business SHALL govern supplier-billing eligibility even when the dispatch location and selling business differ. Ordinary Sales and POS-generated Sales SHALL use the same dispatch-detail authority, and the system SHALL NOT rerun current stock selection or POS location priority during discovery. Bundle association alone SHALL NOT make an authoritative stock-managed dispatch detail unsupported.
 
 #### Scenario: Ordinary sale is dispatched from a consignment location
 - **WHEN** an approved ordinary Sales dispatch detail records a supported stock-managed product and a consignment source location
@@ -36,12 +36,22 @@ The system SHALL identify billable consignment sale quantities only from approve
 - **AND** an eligible row SHALL be reported as eligible by both operations
 
 #### Scenario: Source location no longer qualifies at persistence time
-- **WHEN** a dispatch detail's source location is deactivated or reclassified so it is no longer an active consignment location of the setting
+- **WHEN** a dispatch detail's source location is deactivated or reclassified so it is no longer an active consignment location of its persisted custody business
 - **THEN** both preview and persistence SHALL classify the evidence as an invalid source location
 - **AND** preview SHALL expose it as a blocker while persistence SHALL exclude it without creating a sold source
 
+#### Scenario: Discovery remains manually invoked
+- **WHEN** an ordinary Sales or POS transaction posts
+- **THEN** consignment sold-source discovery SHALL not run automatically or add cashier steps
+- **AND** later authorized manual discovery SHALL read the existing dispatch without changing its location, quantity, owner, tax, revenue, or payment records
+
+#### Scenario: Remote sale is manually discovered by the original receipt business
+- **WHEN** TOP IT runs discovery for its receipt and verified provenance links a PERDANA dispatch to that receipt
+- **THEN** internal reconciliation SHALL retain PERDANA as the seller and TOP IT as supplier-billing business
+- **AND** that quantity SHALL not become another PERDANA supplier obligation
+
 ### Requirement: Sold-source evidence is immutable and idempotent
-The system SHALL create at most one immutable consignment sold-source record per eligible dispatch detail and SHALL snapshot its original product, setting, sale, optional POS checkout, source location, base quantity, dispatch time, tax context, serial identities, source references, bundle identity, inventory classification, snapshot version, and canonical source hash. Discovery SHALL support future and historical eligible dispatches without rewriting an existing sold source, and live validation SHALL use the canonical payload associated with the stored snapshot version. Where a snapshot version defines classification evidence, live validation SHALL require that evidence to be present and valid and SHALL re-verify it against the live classification rather than trusting the persisted value alone.
+The system SHALL create at most one immutable consignment sold-source record per eligible dispatch detail and SHALL snapshot its original product, setting, sale, optional POS checkout, source location, base quantity, dispatch time, tax context, serial identities, source references, bundle identity, inventory classification, snapshot version, and canonical source hash. Discovery SHALL support future and historical eligible dispatches without rewriting an existing sold source, and live validation SHALL use the canonical payload associated with the stored snapshot version. Where a snapshot version defines classification evidence, live validation SHALL require that evidence to be present and valid and SHALL re-verify it against the live classification rather than trusting the persisted value alone. New transfer-aware evidence SHALL distinguish actual selling/custody identity from receipt-billing responsibility. One dispatch SHALL remain one sold occurrence even when separate receipt-backed obligation slices belong to different suppliers or businesses. Additional provenance SHALL NOT rewrite historical sold-source snapshots.
 
 #### Scenario: Eligible dispatch is discovered repeatedly
 - **WHEN** discovery processes the same eligible bundle or non-bundle dispatch detail more than once
@@ -83,8 +93,16 @@ The system SHALL create at most one immutable consignment sold-source record per
 - **THEN** lifecycle validation SHALL block the operation because the live classification no longer matches the captured classification
 - **AND** the original sold-source evidence SHALL remain unchanged
 
+#### Scenario: Two businesses discover the same transferred sale
+- **WHEN** origin and selling businesses manually discover the same remote dispatch
+- **THEN** the physical sold occurrence SHALL exist once and original-receipt obligation slices SHALL not duplicate billed or available quantities
+
+#### Scenario: Existing snapshot gains verified transfer provenance
+- **WHEN** a historical sold source needs additional transfer/receipt attribution
+- **THEN** the original snapshot and canonical hash SHALL remain unchanged and versioned supplementary provenance SHALL record the new decision
+
 ### Requirement: Serialized ownership resolves from approved receipt lineage
-For every serialized sold unit, the system SHALL resolve exactly one approved, non-reversed Consignment Receiving detail for the same product and source location using immutable receiving pivots and serial history. The resolved supplier and receipt lot SHALL be non-editable, and a serialized unit SHALL have at most one active or approved allocation claim.
+For every serialized sold unit, the system SHALL resolve exactly one approved, non-reversed Consignment Receiving detail for the same product using immutable receiving pivots, serial history, and verified transfer paths to the persisted sale location. A different receipt location/business SHALL be accepted only through complete transfer evidence, not by disabling tenant or location checks. The resolved supplier and receipt lot SHALL be non-editable, and a serialized unit SHALL have at most one active or approved allocation claim.
 
 #### Scenario: Sold serial has valid consignment lineage
 - **WHEN** a sold serial maps unambiguously to an approved consignment receiving detail matching its sold product and location
@@ -99,8 +117,13 @@ For every serialized sold unit, the system SHALL resolve exactly one approved, n
 - **WHEN** an effective return cleared a serial's current dispatch pointer
 - **THEN** the system SHALL retain its original sold and supplier identity through immutable sold-source, receiving-pivot, and history evidence
 
+#### Scenario: Sold serial was transferred across businesses
+- **WHEN** a PERDANA sold serial traces through completed consignment transfers to an approved TOP IT receipt
+- **THEN** its supplier and financial receipt identity SHALL resolve to TOP IT while preserving the actual PERDANA dispatch location
+- **AND** original-location mismatch alone SHALL not block its verified lineage
+
 ### Requirement: Non-serialized quantities are manually allocated to same-location supplier receipt lots
-An authorized user SHALL allocate non-serialized sold base quantity explicitly among approved, non-reversed Consignment Receiving details belonging to the confirmation supplier, product, setting, and exact sold source location. The system SHALL permit multiple receipt lots for that supplier but SHALL NOT automatically substitute, pool across locations, or apply FIFO/LIFO.
+An authorized user SHALL allocate non-serialized sold base quantity explicitly among approved, non-reversed Consignment Receiving details belonging to the confirmation supplier, product, and original receipt business, with sufficient receipt-backed custody at the exact sold source location established by direct receiving or verified transfer allocations. The system SHALL permit multiple receipt lots for that supplier but SHALL NOT automatically substitute, pool across locations, or apply FIFO/LIFO.
 
 #### Scenario: User allocates across eligible receipt lots
 - **WHEN** a supplier has multiple eligible receiving-detail lots for the sold product at the source location
@@ -108,15 +131,24 @@ An authorized user SHALL allocate non-serialized sold base quantity explicitly a
 - **AND** each selected quantity and commercial snapshot SHALL be retained separately
 
 #### Scenario: User selects another location or supplier
-- **WHEN** an allocation references a receipt lot from a different supplier, setting, product, or location
+- **WHEN** an allocation references a receipt lot from a different supplier, product, billing business, or without sufficient direct/transfer-backed custody at the sold location
 - **THEN** validation SHALL reject it without reserving or approving quantity
 
 #### Scenario: Allocation does not cover the selected sold quantity
 - **WHEN** receipt-lot allocations do not sum exactly to the sold base quantity selected for confirmation
 - **THEN** submission SHALL fail with no reservation change
 
+#### Scenario: Remote non-serialized sale has several eligible receipts
+- **WHEN** manual discovery finds a completed remote sale that could consume multiple receipt lots
+- **THEN** back-office staff SHALL explicitly allocate the quantity among eligible custody-backed lots before billing or buyout
+- **AND** checkout SHALL not be changed, deferred, or require receipt selection
+
+#### Scenario: Sole eligible lot is proposed
+- **WHEN** only one receipt-backed lot can cover the sale
+- **THEN** reconciliation SHALL propose it for authorized confirmation without silently reserving or billing quantity
+
 ### Requirement: Sold and receipt capacities are enforced atomically
-Submission and approval SHALL atomically ensure that each requested quantity does not exceed both the sold source's remaining eligible quantity and each receiving detail's remaining supplier-owned quantity after effective returns, reversals, approved allocations, and other active reservations. Locks SHALL be acquired in a stable order, and over-allocation SHALL be rejected rather than reassigned.
+Submission and approval SHALL atomically ensure that each requested quantity does not exceed both the sold source's remaining eligible quantity and each receiving detail's remaining supplier-owned quantity after effective returns, reversals, approved allocations, and other active reservations. Locks SHALL be acquired in a stable order, and over-allocation SHALL be rejected rather than reassigned. Capacity SHALL include active legacy reservations/allocations and approved or finalized non-reversed buyout consumption exactly once. Unsold physical availability SHALL additionally exclude explicitly attributed outstanding sales and incompatible physical reservations; financial receipt residual alone SHALL NOT establish physical availability.
 
 #### Scenario: Two submissions compete for the same sold quantity
 - **WHEN** concurrent confirmations attempt to reserve more than the remaining quantity of one sold source
@@ -132,8 +164,22 @@ Submission and approval SHALL atomically ensure that each requested quantity doe
 - **WHEN** an effective return reduces capacity after submission but before approval
 - **THEN** approval SHALL fail atomically and require the confirmation to be revised
 
+#### Scenario: Legacy confirmation competes with a buyout
+- **WHEN** sold-only confirmation submission and buyout approval compete for the same receipt or sold-source balance
+- **THEN** shared authoritative capacity SHALL permit at most the available quantity across both workflows
+- **AND** the losing transaction SHALL create no partial allocation or claim
+
+#### Scenario: A buyout is finalized or reversed
+- **WHEN** an approved buyout is finalized or an eligible finalized buyout is fully reversed
+- **THEN** its reservation SHALL become consumed capacity or released capacity respectively without counting both the reservation and its posting
+
+#### Scenario: Transfers and remote billing share one receipt balance
+- **WHEN** local or remote billing, buyout, transfer, or return operations target the same original receipt
+- **THEN** physical custody SHALL be checked at its actual location and financial consumption SHALL be checked globally against the original receipt and exact sold-receipt attribution
+- **AND** no transfer, reservation, or mirrored business view SHALL consume supplier capacity twice
+
 ### Requirement: Physically effective pre-billing returns reduce eligibility
-The system SHALL deduct a Sales Return detail from allocatable sold quantity only when its parent return has been physically received and is in `AWAITING SETTLEMENT` or `COMPLETED`, including POS Returns executed through linked Sales Returns. Pending, rejected, unreceived, cancelled without execution, or archived-only return requests SHALL NOT reduce eligibility.
+The system SHALL deduct a Sales Return detail from allocatable sold quantity only when its parent return has been physically received and is in `AWAITING SETTLEMENT` or `COMPLETED`, including POS Returns executed through linked Sales Returns. Pending, rejected, unreceived, cancelled without execution, or archived-only return requests SHALL NOT reduce eligibility. Return quantities covered by a finalized buyout SHALL retain company ownership and SHALL NOT reopen supplier capacity or invalidate the acquired quantity as a pre-billing return; mixed quantities SHALL be explicitly apportioned. Legacy billed-source behavior SHALL remain unchanged.
 
 #### Scenario: Return is physically received before confirmation
 - **WHEN** a return linked to a consignment dispatch detail reaches `AWAITING SETTLEMENT` or `COMPLETED`
@@ -147,6 +193,20 @@ The system SHALL deduct a Sales Return detail from allocatable sold quantity onl
 - **WHEN** effective return evidence conflicts with existing pending or approved quantities
 - **THEN** the affected source SHALL be flagged for reconciliation
 - **AND** no new approval SHALL proceed against the conflicting quantity
+
+#### Scenario: Return follows buyout acquisition
+- **WHEN** a physically received return contains quantity acquired through a finalized buyout
+- **THEN** only its unacquired portion SHALL participate in pre-billing eligibility deductions
+- **AND** its acquired portion SHALL retain original supplier consumption and retain company ownership through recorded return lineage and the existing custody/release policy
+
+#### Scenario: Mixed return split has a fractional ownership portion
+- **WHEN** an operator declares a fractional acquired quantity of a returned non-serialized quantity within its bounds
+- **THEN** receiving (Sales Return custody and POS-linked posting) SHALL post each ownership portion exactly to three decimals without rounding, preserving existing decimal stock balances, product totals and transaction snapshots
+- **AND** the units posted per destination SHALL total the returned quantity and equal the applied apportionment
+
+#### Scenario: Different returns of one sale are received concurrently
+- **WHEN** two returns of the same sold source are received or declared at the same time
+- **THEN** each SHALL decide against the latest committed received returns, and their applied unacquired quantities SHALL NOT exceed the sold quantity minus the acquired quantity
 
 ### Requirement: One-supplier confirmations govern reservation and approval
 The system SHALL provide setting-scoped consignment billing confirmations belonging to exactly one supplier with allocation lifecycle `DRAFT`, `WAITING_APPROVAL`, `APPROVED`, or `REJECTED`. Drafts SHALL NOT reserve quantity; successful submission SHALL reserve it; approval SHALL convert reservations into immutable allocations and mark the confirmation ready for billing; rejection SHALL release reservations while preserving audit evidence. A successful Phase 3 conversion SHALL retain the `APPROVED` allocation state, link exactly one Purchase, clear further billing readiness, and preserve all earlier allocation evidence.
@@ -207,7 +267,7 @@ Approving a Phase 2 confirmation SHALL record only supplier allocation and audit
 - **THEN** every confirmation, reservation, and allocation mutation from that attempt SHALL roll back
 
 ### Requirement: Reconciliation exposes custody-to-allocation balances
-The consignment reconciliation SHALL expose approved received, reversed, sold-from-consignment, physically returned-before-billing, waiting-reserved, approved-allocated, and remaining receipt-pool quantities with filters for setting, supplier, product, location, source transaction, confirmation status, and serial. Totals SHALL derive from immutable source and allocation events rather than mutable available-balance counters. Supported inventory-managed bundle movements SHALL participate in these totals using their physical DispatchDetail product and quantity.
+The consignment reconciliation SHALL expose approved received, reversed, sold-from-consignment, physically returned-before-billing, waiting-reserved, approved-allocated, and remaining receipt-pool quantities with filters for setting, supplier, product, location, source transaction, confirmation status, and serial. Totals SHALL derive from immutable source and allocation events rather than mutable available-balance counters. Supported inventory-managed bundle movements SHALL participate in these totals using their physical DispatchDetail product and quantity. Reconciliation SHALL additionally distinguish non-financial sold receipt attribution, active buyout reservations, acquired sold/unsold quantities, ownership movements, and reversals without treating the same goods as both available consignment and acquired stock.
 
 #### Scenario: Reconciliation includes allocated and remaining quantities
 - **WHEN** a supplier receipt pool has sold sources, a waiting confirmation, and an approved confirmation
@@ -224,6 +284,20 @@ The consignment reconciliation SHALL expose approved received, reversed, sold-fr
 #### Scenario: Unsupported or ambiguous evidence exists
 - **WHEN** discovery encounters missing lineage, non-stock content, unreconstructable historical quantity, unknown hash version, or conflicting return/allocation evidence
 - **THEN** reconciliation SHALL expose a blocker with its source reference rather than silently omitting or allocating it
+
+#### Scenario: Sold attribution is not supplier billing
+- **WHEN** staff attribute pooled sales to supplier receipts before preparing an unsold buyout
+- **THEN** reconciliation SHALL show that attribution separately from payable creation and financial allocation
+- **AND** those sold quantities SHALL no longer appear as physically unsold for the attributed receipts
+
+#### Scenario: Proven transfers explain the apparent local shortage
+- **WHEN** a receipt's remainder is distributed across local stock, remote stock, transit, and remote sales
+- **THEN** reconciliation SHALL show those categories and source transfer/sale references separately instead of comparing its whole residual only with the original warehouse
+- **AND** only unexplained shortages SHALL block affected quantities
+
+#### Scenario: Internal and supplier-facing views differ
+- **WHEN** remote activity contributes to an original-business supplier obligation
+- **THEN** authorized internal reconciliation SHALL show the selling/custody businesses while supplier-facing documents SHALL retain only the original business identity
 
 ### Requirement: Bundle serial and receipt provenance remains product-specific
 The system SHALL resolve an eligible serialized bundle movement from the DispatchDetail's physical `product_id`, source location, and serial identities, and SHALL allocate it only to matching approved Consignment Receiving provenance. Bundle membership SHALL NOT permit supplier, product, location, or serial lineage substitution. Every captured serial identity SHALL resolve to exactly one live product serial record belonging to that DispatchDetail's product, resolved under lock in deterministic order after the product lock using the composite `(product_id, serial_number)` identity; serial provenance SHALL be recorded completely or not at all.
@@ -251,4 +325,3 @@ The system SHALL resolve an eligible serialized bundle movement from the Dispatc
 - **WHEN** the product or existence of a captured serial changes after discovery selects a candidate but before it persists the sold source
 - **THEN** discovery SHALL re-resolve serial authority under lock and classify from the locked state
 - **AND** SHALL NOT link provenance based on the selection-time state
-

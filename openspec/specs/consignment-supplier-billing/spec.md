@@ -114,7 +114,7 @@ The generated Purchase SHALL establish the supplier payable using existing Purch
 - **AND** no ordinary or consignment receiving note SHALL be created
 
 ### Requirement: Source-typed Purchases prohibit incompatible lifecycle operations
-The system SHALL visibly identify a Purchase generated from consignment billing and SHALL prohibit ordinary receiving, full commercial editing, deletion, archival, correction, return, or other operations that would break immutable consignment provenance unless a later explicitly specified workflow authorizes them. Payment creation, payment invalidation, read-only reporting, and balance reconciliation SHALL continue through existing permissioned Purchase behavior. Administrative date, note, invoice-reference, and attachment maintenance SHALL follow standard Purchase capabilities as specified below and SHALL NOT be classified as full commercial editing.
+The system SHALL visibly identify a Purchase generated from sold-only consignment billing or dedicated consignment buyout and SHALL prohibit ordinary receiving, full commercial editing, deletion, archival, correction, return, or other operations that would break immutable consignment provenance unless a later explicitly specified workflow authorizes them. Payment creation, payment invalidation, read-only reporting, and balance reconciliation SHALL continue through existing permissioned Purchase behavior. Administrative date, note, invoice-reference, and attachment maintenance SHALL follow standard Purchase capabilities as specified below and SHALL NOT be classified as full commercial editing. Buyout Purchases SHALL retain equivalent administrative and payment eligibility and lossless source presentation through their own lineage. Only the dedicated eligible buyout reversal SHALL cancel a finalized buyout liability; ordinary status actions SHALL NOT bypass source protections.
 
 #### Scenario: User attempts ordinary receiving
 - **WHEN** a user invokes a Purchase receiving action for a consignment-billing Purchase
@@ -128,6 +128,18 @@ The system SHALL visibly identify a Purchase generated from consignment billing 
 - **WHEN** an authorized user pays all or part of an eligible consignment-billing Purchase
 - **THEN** the existing Purchase payment workflow SHALL update active payment evidence and live outstanding balance
 - **AND** no Consignment allocation or inventory evidence SHALL change
+
+#### Scenario: Buyout Purchase is paid
+- **WHEN** an authorized user records a partial or full payment against a finalized non-reversed buyout Purchase
+- **THEN** existing individual or global Purchase payment rules SHALL update paid and due balances without another stock movement or allocation
+
+#### Scenario: Ordinary lifecycle action targets a buyout
+- **WHEN** a user attempts ordinary receiving, commercial editing, deletion, archival, correction, or supplier return on a buyout Purchase
+- **THEN** the action SHALL be rejected without changing its commercial, financial, or ownership evidence
+
+#### Scenario: Unauthorized status change is submitted
+- **WHEN** an unauthorized user attempts a status change on a consignment-generated Purchase
+- **THEN** the system SHALL return HTTP 403 without changing the Purchase or converting the authorization denial into a successful redirect
 
 ### Requirement: Billing access, audit, and reconciliation are tenant-safe
 Billing preparation, conversion, viewing, and reconciliation SHALL enforce dedicated permissions and active-setting boundaries in controllers and domain services. Successful and failed lifecycle decisions SHALL retain actionable audit evidence, and Consignment reconciliation SHALL expose billing readiness, billed Purchase reference, invoice identity, billed amount, paid amount, and outstanding amount without double counting allocation quantities.
@@ -146,11 +158,19 @@ Billing preparation, conversion, viewing, and reconciliation SHALL enforce dedic
 - **THEN** its existing receiving, payment, correction, and reporting behavior SHALL remain unchanged
 
 ### Requirement: Phase 3 excludes post-billing adjustment workflows
-Phase 3 SHALL NOT consolidate multiple confirmations into one Purchase, split one confirmation across Purchases, automatically create payments, or implement post-billing supplier returns, debit notes, credit notes, commissions, agreements, ownership conversion, or tax-platform submission.
+Legacy sold-only Phase 3 conversion SHALL NOT consolidate multiple confirmations into one Purchase, split one confirmation across Purchases, automatically create payments, or implement post-billing supplier returns, debit notes, credit notes, commissions, agreements, ownership conversion, or tax-platform submission. Dedicated receipt-backed buyout finalization and its constrained full reversal SHALL be provided only through the separately specified buyout workflow; they SHALL NOT extend legacy conversion or permit supplier advances, cross-business acquisition, post-payment supplier returns, or credits.
 
 #### Scenario: Unsupported billing adjustment is attempted
 - **WHEN** a request attempts consolidation, splitting, automatic settlement, post-billing return, or supplier credit against consignment billing evidence
 - **THEN** the system SHALL reject the operation without changing the confirmation, Purchase, payment, allocation, or inventory state
+
+#### Scenario: Dedicated buyout is finalized
+- **WHEN** an approved receipt-backed buyout is finalized through its dedicated workflow
+- **THEN** it SHALL follow buyout ownership and stock posting rules without changing the inventory-inert contract of legacy confirmation conversion
+
+#### Scenario: Existing sold-only conversion is repeated after deployment
+- **WHEN** a historical sold-only confirmation is validated or converted after buyout support is deployed
+- **THEN** its snapshot contract, single-Purchase linkage, pricing semantics, and inventory-inert behavior SHALL remain compatible
 
 ### Requirement: Generated Purchases display grouped consignment source evidence
 For a Purchase generated from consignment billing, the detail page SHALL show the consignment receival reference and receiving number for contributing lineage within each existing Purchase product row. It SHALL group lineage by source receival and receiving identity, sum the billed base quantity within each group, and show each billed serial number associated with that group. This presentation SHALL leave Purchase details and immutable lineage records unchanged. It SHALL NOT present internal database IDs as document numbers or a bare `SN` marker as serial evidence.
@@ -245,3 +265,31 @@ Administrative maintenance SHALL be available on existing and future consignment
 - **THEN** commercial values, consignment source evidence, inventory, serials, and payment records SHALL remain unchanged
 - **AND** standard permissioned payment creation, invalidation, and reconciliation SHALL remain available separately
 
+### Requirement: Supplier liability follows the original receipt business
+Consignment confirmation, supplier Purchase, invoice tax policy, payment, and due balance SHALL belong to the original approved receipt business and supplier even when another business sells or holds the goods. A supplier document SHALL not combine receipts belonging to different billing businesses or reassign the selling business's sales or customer payments.
+
+#### Scenario: CANDRA goods sell at PERDANA
+- **WHEN** a verified PERDANA dispatch consumes goods from TOP IT's CANDRA receipt
+- **THEN** any supplier confirmation and Purchase SHALL belong to TOP IT with its supplier identity and invoice policy
+- **AND** PERDANA's sale, revenue, customer payment, dispatch tax, and historical amounts SHALL remain unchanged
+
+#### Scenario: Mixed original businesses contribute to one dispatch
+- **WHEN** a remote dispatch contains goods attributed to two original receipt businesses
+- **THEN** supplier billing SHALL separate obligations by original business and supplier without splitting or rewriting the actual customer transaction
+
+#### Scenario: Existing bills are inspected after reconstruction
+- **WHEN** verified transfer provenance is added around a receipt with historical billing
+- **THEN** existing Purchase identity, paid/due balances, supplier allocations, snapshots, and payments SHALL remain unchanged
+- **AND** later billing SHALL exclude all previously consumed receipt and serial quantities
+
+### Requirement: Supplier-facing documents exclude remote internal identity
+Supplier-facing consignment bill, payment, print, and export surfaces SHALL identify the original receipt business as the supplier's counterparty. They SHALL not expose remote business names, customer-sale references, internal transfer references, or inter-business settlement. Authorized internal lineage and reconciliation SHALL retain these references separately.
+
+#### Scenario: Supplier receives a document for transferred goods
+- **WHEN** TOP IT issues supplier-facing billing or payment evidence covering PERDANA-held or PERDANA-sold goods
+- **THEN** the document SHALL identify TOP IT and the supplier without exposing PERDANA or its internal transactions
+- **AND** internal users with the required permissions SHALL still be able to trace each quantity to its actual custody and sale
+
+#### Scenario: Financial settlement remains external to provenance
+- **WHEN** transfer reconstruction, sold allocation, or remote acquisition succeeds
+- **THEN** no automatic TOP IT-to-PERDANA invoice, payable, commission, stock-debt settlement, or payment SHALL be generated
