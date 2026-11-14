@@ -830,4 +830,155 @@ class GlobalSalePaymentFiltersTest extends TestCase
         // Verify the event was dispatched (would include selectedCardFilter in real usage)
         $component->assertDispatched('global-sale-filters-changed');
     }
+
+    public function test_window_count_financial_pagination_visible_only_hydration_and_out_of_range_fallback()
+    {
+        // Seed 7 unpaid/overdue sales across varied reporting_date overrides and tied dates
+        $s1 = $this->createSale([
+            'reference' => 'FIN-PG-01',
+            'date' => '2026-10-01',
+            'reporting_date' => '2026-10-10',
+            'due_date' => now()->subDays(10),
+            'note' => 'AlphaBatch',
+        ]);
+        $s2 = $this->createSale([
+            'reference' => 'FIN-PG-02',
+            'date' => '2026-10-09',
+            'due_date' => now()->subDays(9),
+            'note' => 'AlphaBatch',
+        ]);
+        $s3 = $this->createSale([
+            'reference' => 'FIN-PG-03',
+            'date' => '2026-10-08',
+            'due_date' => now()->subDays(8),
+            'note' => 'OtherBatch',
+        ]);
+        // Tied date pair (2026-10-07): higher id appears first on desc, lower id first on asc
+        $s4TieLow = $this->createSale([
+            'reference' => 'FIN-PG-04-LOW',
+            'date' => '2026-10-07',
+            'due_date' => now()->subDays(7),
+            'note' => 'AlphaBatch',
+        ]);
+        $s5TieHigh = $this->createSale([
+            'reference' => 'FIN-PG-05-HIGH',
+            'date' => '2026-10-07',
+            'due_date' => now()->subDays(7),
+            'note' => 'AlphaBatch',
+        ]);
+        $s6 = $this->createSale([
+            'reference' => 'FIN-PG-06',
+            'date' => '2026-10-05',
+            'due_date' => now()->addDays(5),
+            'note' => 'OtherBatch',
+        ]);
+        $s7 = $this->createSale([
+            'reference' => 'FIN-PG-07',
+            'date' => '2026-10-04',
+            'due_date' => now()->addDays(6),
+            'note' => 'AlphaBatch',
+        ]);
+
+        // Also seed 3 recently settled sales
+        $paid1 = $this->createPaidSale(['reference' => 'FIN-PAID-01', 'date' => '2026-10-12', 'note' => 'AlphaBatch']);
+        $paid2 = $this->createPaidSale(['reference' => 'FIN-PAID-02', 'date' => '2026-10-11', 'note' => 'OtherBatch']);
+        $paid3 = $this->createPaidSale(['reference' => 'FIN-PAID-03', 'date' => '2026-10-03', 'note' => 'AlphaBatch']);
+
+        // Expected desc order for unpaid (all 7): s1(10-10 via reporting_date), s2(10-09), s3(10-08), s5(10-07 high), s4(10-07 low), s6(10-05), s7(10-04)
+        $expectedUnpaidDesc = [$s1->id, $s2->id, $s3->id, $s5TieHigh->id, $s4TieLow->id, $s6->id, $s7->id];
+
+        // 1. Page 1 (perPage=3): single window-count ID query (no standalone count(*)), hydrates ONLY the 3 visible Sales
+        \Illuminate\Pagination\Paginator::currentPageResolver(fn () => 1);
+        $component = Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
+            ->set('perPage', 3);
+
+        \Illuminate\Support\Facades\DB::flushQueryLog();
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+        $component->dispatch('sale-filter', type: 'unpaid');
+        $log = \Illuminate\Support\Facades\DB::getQueryLog();
+        \Illuminate\Support\Facades\DB::disableQueryLog();
+
+        $salesPaginator = $component->viewData('sales');
+        $this->assertSame(7, $salesPaginator->total());
+        $this->assertSame(array_slice($expectedUnpaidDesc, 0, 3), $salesPaginator->getCollection()->pluck('id')->all());
+        $this->assertTrue($salesPaginator->hasMorePages());
+
+        $countQueries = collect($log)->filter(function ($entry) {
+            $sql = strtolower($entry['query']);
+            return str_contains($sql, 'count(*) as aggregate') && str_contains($sql, 'from "sales"');
+        });
+        $this->assertCount(0, $countQueries, 'Non-empty financial page must use COUNT(*) OVER() instead of a separate COUNT(*) query.');
+
+        $windowQueries = collect($log)->filter(fn ($entry) => str_contains(strtolower($entry['query']), 'count(*) over()'));
+        $this->assertCount(1, $windowQueries);
+
+        $hydrationQueries = collect($log)->filter(function ($entry) {
+            $sql = strtolower($entry['query']);
+            return str_contains($sql, 'from "sales"') && str_contains($sql, '"sales"."id" in (?, ?, ?)');
+        });
+        $this->assertCount(1, $hydrationQueries, 'Hydration must only load the 3 visible Sale IDs.');
+
+        // 2. Partial last page (page 3 -> 1 item: s7)
+        $component->set('paginators.page', 3);
+        $page3Sales = $component->viewData('sales');
+        $this->assertSame(7, $page3Sales->total());
+        $this->assertSame([$s7->id], $page3Sales->getCollection()->pluck('id')->all());
+
+        // 3. Out-of-range page > 1 triggers explicit count fallback and 0 hydration queries
+        \Illuminate\Support\Facades\DB::flushQueryLog();
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+        $component->set('paginators.page', 99);
+        $oorSales = $component->viewData('sales');
+        $oorLog = \Illuminate\Support\Facades\DB::getQueryLog();
+        \Illuminate\Support\Facades\DB::disableQueryLog();
+
+        $this->assertSame(7, $oorSales->total());
+        $this->assertSame([], $oorSales->getCollection()->pluck('id')->all());
+        $oorFallbacks = collect($oorLog)->filter(fn ($e) => str_contains(strtolower($e['query']), 'count(*) as aggregate'));
+        $this->assertCount(1, $oorFallbacks);
+
+        // 4. Empty page 1 (search miss under financial filter) runs 1 window query and 0 count fallback
+        $component->set('paginators.page', 1);
+        \Illuminate\Support\Facades\DB::flushQueryLog();
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+        $component->set('search', 'NoSuchFinancialMatchToken');
+        $emptyP1Sales = $component->viewData('sales');
+        $emptyLog = \Illuminate\Support\Facades\DB::getQueryLog();
+        \Illuminate\Support\Facades\DB::disableQueryLog();
+
+        $this->assertSame(0, $emptyP1Sales->total());
+        $this->assertSame([], $emptyP1Sales->getCollection()->all());
+        $emptyCountFallbacks = collect($emptyLog)->filter(fn ($e) => str_contains(strtolower($e['query']), 'count(*) as aggregate'));
+        $this->assertCount(0, $emptyCountFallbacks);
+
+        // 5. Overdue + search intersection + ascending reporting_date/date + id tie-breaker
+        $component->set('search', 'AlphaBatch')
+            ->dispatch('sale-filter', type: 'overdue')
+            ->set('sortField', 'date')
+            ->set('sortDirection', 'asc')
+            ->set('perPage', 10);
+        // Overdue + AlphaBatch = s4TieLow (10-07 low), s5TieHigh (10-07 high), s2 (10-09), s1 (10-10)
+        $this->assertSame(
+            [$s4TieLow->id, $s5TieHigh->id, $s2->id, $s1->id],
+            $component->viewData('sales')->getCollection()->pluck('id')->all()
+        );
+
+        // 6. Paid last 30 days + search intersection uses financial window pagination cleanly
+        $component->dispatch('sale-filter', type: 'paid')
+            ->set('sortDirection', 'desc');
+        $this->assertSame(
+            [$paid1->id, $paid3->id],
+            $component->viewData('sales')->getCollection()->pluck('id')->all()
+        );
+
+        // 7. Non-financial global page retains cheap normal pagination without COUNT(*) OVER()
+        \Illuminate\Support\Facades\DB::flushQueryLog();
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+        Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
+            ->set('perPage', 3);
+        $plainLog = \Illuminate\Support\Facades\DB::getQueryLog();
+        \Illuminate\Support\Facades\DB::disableQueryLog();
+        $plainWindow = collect($plainLog)->filter(fn ($e) => str_contains(strtolower($e['query']), 'count(*) over()'));
+        $this->assertCount(0, $plainWindow);
+    }
 }

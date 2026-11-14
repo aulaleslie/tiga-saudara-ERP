@@ -574,5 +574,61 @@ class GlobalSaleSummaryAggregateTest extends TestCase
         $this->assertStringNotContainsString('x-show="summaryRequestFailed"', $html);
         $this->assertStringContainsString("'opacity-50': summaryRequestFailed", $html);
     }
+
+    public function test_single_query_summarize_empty_scope_zero_amount_and_future_payment_boundary(): void
+    {
+        $service = app(GlobalSaleSummaryQuery::class);
+
+        // 1. Empty scope returns exact zeroed integer counts and float totals in 1 SQL query
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $empty = $service->summarize($this->customer2->id, [$this->setting2->id], null, null, null, null);
+        $emptyQueries = DB::getQueryLog();
+        DB::disableQueryLog();
+
+        $this->assertCount(1, $emptyQueries);
+        $this->assertSame([
+            'outstanding' => ['count' => 0, 'total' => 0.0],
+            'overdue' => ['count' => 0, 'total' => 0.0],
+            'recent' => ['count' => 0, 'total' => 0.0],
+        ], $empty);
+
+        // 2. Settled Sale with a 0-amount active payment in the recent window still counts toward recent.count
+        $zeroRecent = $this->sale([
+            'total_amount' => 500,
+            'customer_id' => $this->customer1->id,
+            'setting_id' => $this->setting1->id,
+            'reference' => 'AGG-ZERO-RECENT',
+        ]);
+        $this->payment($zeroRecent, 500, SalePayment::STATUS_ACTIVE, '2026-08-01');
+        $this->payment($zeroRecent, 0, SalePayment::STATUS_ACTIVE, '2026-11-12');
+
+        // 3. Preserved card-vs-table distinction: future-dated active payment counts for table paidLast30DaysOnly
+        //    but NOT for GlobalSaleSummaryQuery::summarize()['recent'] (which bounds <= today endOfDay).
+        $futureSettled = $this->sale([
+            'total_amount' => 300,
+            'customer_id' => $this->customer1->id,
+            'setting_id' => $this->setting1->id,
+            'reference' => 'AGG-FUTURE-SETTLED',
+            'payment_status' => 'PAID',
+        ]);
+        $this->payment($futureSettled, 300, SalePayment::STATUS_ACTIVE, '2026-11-20');
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $summary = $service->summarize($this->customer1->id, [$this->setting1->id], null, null, null, null);
+        $summaryQueries = DB::getQueryLog();
+        DB::disableQueryLog();
+
+        $this->assertCount(1, $summaryQueries);
+        $this->assertSame(1, $summary['recent']['count']);
+        $this->assertEquals(0.0, $summary['recent']['total']);
+
+        // SaleTable paidLast30DaysOnly includes both (no upper date bound in table predicate)
+        Livewire::test(SaleTable::class, ['globalMode' => true])
+            ->set('paidLast30DaysOnly', true)
+            ->assertSee('AGG-ZERO-RECENT')
+            ->assertSee('AGG-FUTURE-SETTLED');
+    }
 }
 

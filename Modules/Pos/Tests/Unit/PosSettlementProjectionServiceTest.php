@@ -1266,4 +1266,361 @@ class PosSettlementProjectionServiceTest extends TestCase
         $this->assertEquals($fallbackProjection['payment_status'], $eagerProjection['payment_status']);
         $this->assertCount(0, $queryLog, 'project() on eager-loaded cross-owner transfer must issue 0 extra queries.');
     }
+
+    public function test_staged_classifier_disjoint_and_exhaustive_against_resolver_diagnostics(): void
+    {
+        $readService = app(\Modules\Pos\Services\PosGlobalPaymentReadService::class);
+
+        $makeTrxWithCheckout = function (string $code, ?int $checkoutCustomerId, bool $createSplit = true, ?int $inlineSaleId = null) {
+            $trx = PosTransaction::create([
+                'setting_id' => $this->setting1->id,
+                'customer_id' => $checkoutCustomerId,
+                'created_by' => $this->user->id,
+                'owner_user_id' => $this->user->id,
+                'last_saved_by' => $this->user->id,
+                'source_pos_session_id' => $this->session->id,
+                'code' => $code,
+                'status' => PosTransaction::STATUS_COMPLETED,
+            ]);
+
+            $checkout = PosCheckout::create([
+                'setting_id' => $this->setting1->id,
+                'pos_transaction_id' => $trx->id,
+                'pos_session_id' => $this->session->id,
+                'terminal_id' => $this->terminal->id,
+                'cashier_user_id' => $this->user->id,
+                'customer_id' => $checkoutCustomerId,
+                'status' => PosCheckout::STATUS_POSTED,
+                'idempotency_key' => uniqid('cls_', true),
+                'payload_hash' => 'hash_' . $code,
+                'subtotal' => 10000,
+                'grand_total' => 10000,
+                'paid_total' => 0,
+                'payment_method_id' => $this->paymentMethod->id,
+                'receipt_number' => 'RCP-' . $code,
+                'sale_id' => $inlineSaleId,
+            ]);
+            $trx->update(['completed_checkout_id' => $checkout->id]);
+
+            return [$trx, $checkout];
+        };
+
+        $makeSale = function (string $ref, ?int $customerId, int $settingId = null): Sale {
+            return Sale::create([
+                'date' => now()->toDateString(),
+                'reference' => $ref,
+                'customer_id' => $customerId,
+                'customer_name' => $customerId ? $this->customer->customer_name : 'Walk-in Customer',
+                'tax_percentage' => 0,
+                'tax_amount' => 0,
+                'discount_percentage' => 0,
+                'discount_amount' => 0,
+                'shipping_amount' => 0,
+                'total_amount' => 10000,
+                'paid_amount' => 0,
+                'due_amount' => 10000,
+                'status' => Sale::STATUS_DISPATCHED,
+                'payment_status' => Sale::PAYMENT_STATUS_UNPAID,
+                'payment_method' => 'Cash',
+                'setting_id' => $settingId ?? $this->setting1->id,
+            ]);
+        };
+
+        // 1. Ordinary multi-owner valid split
+        [$ordMulti, $coMulti] = $makeTrxWithCheckout('CLS-ORD-MULTI', $this->customer->id);
+        $sM1 = $makeSale('SL-CLS-M1', $this->customer->id, $this->setting1->id);
+        $sM2 = $makeSale('SL-CLS-M2', $this->customer->id, $this->setting2->id);
+        PosCheckoutSale::create(['pos_checkout_id' => $coMulti->id, 'sale_id' => $sM1->id, 'split_key' => 'owner_1', 'source_setting_id' => $this->setting1->id, 'source_location_id' => $this->location1->id, 'tax_bucket' => 'NON_PKP', 'subtotal' => 10000, 'grand_total' => 10000, 'paid_total' => 0]);
+        PosCheckoutSale::create(['pos_checkout_id' => $coMulti->id, 'sale_id' => $sM2->id, 'split_key' => 'owner_2', 'source_setting_id' => $this->setting2->id, 'source_location_id' => $this->location2->id, 'tax_bucket' => 'NON_PKP', 'subtotal' => 10000, 'grand_total' => 10000, 'paid_total' => 0]);
+
+        // 2. Ordinary null-customer valid split
+        [$ordNullCust, $coNullCust] = $makeTrxWithCheckout('CLS-ORD-NULLC', null);
+        $sNC = $makeSale('SL-CLS-NC', null, $this->setting1->id);
+        PosCheckoutSale::create(['pos_checkout_id' => $coNullCust->id, 'sale_id' => $sNC->id, 'split_key' => 'main', 'source_setting_id' => $this->setting1->id, 'source_location_id' => $this->location1->id, 'tax_bucket' => 'NON_PKP', 'subtotal' => 10000, 'grand_total' => 10000, 'paid_total' => 0]);
+
+        // 3. Reversed completed return on valid split stays ordinary
+        [$ordRevRet, $coRevRet] = $makeTrxWithCheckout('CLS-ORD-REVRET', $this->customer->id);
+        $sRR = $makeSale('SL-CLS-RR', $this->customer->id, $this->setting1->id);
+        PosCheckoutSale::create(['pos_checkout_id' => $coRevRet->id, 'sale_id' => $sRR->id, 'split_key' => 'main', 'source_setting_id' => $this->setting1->id, 'source_location_id' => $this->location1->id, 'tax_bucket' => 'NON_PKP', 'subtotal' => 10000, 'grand_total' => 10000, 'paid_total' => 0]);
+        \Modules\Pos\Entities\PosReturn::create([
+            'setting_id' => $this->setting1->id, 'pos_checkout_id' => $coRevRet->id, 'pos_transaction_id' => $ordRevRet->id,
+            'transaction_code' => $ordRevRet->code, 'receipt_number' => $coRevRet->receipt_number,
+            'return_option' => 'REFUND', 'approval_status' => 'APPROVED', 'source_snapshot' => [],
+            'source_snapshot_hash' => 'rev', 'total_amount' => 1000, 'reference' => 'PR-REV',
+            'status' => \Modules\Pos\Entities\PosReturn::STATUS_COMPLETED, 'is_reversed' => true, 'created_by' => $this->user->id,
+        ]);
+
+        // 4. Exceptional: customer mismatch
+        $otherCust = Customer::create(['customer_name' => 'Other C', 'customer_phone' => '0819', 'customer_email' => 'o@e.com', 'city' => 'C', 'country' => 'ID', 'address' => 'S']);
+        [$excCustMismatch, $coCM] = $makeTrxWithCheckout('CLS-EXC-CM', $this->customer->id);
+        $sCM = $makeSale('SL-CLS-CM', $otherCust->id);
+        PosCheckoutSale::create(['pos_checkout_id' => $coCM->id, 'sale_id' => $sCM->id, 'split_key' => 'main', 'source_setting_id' => $this->setting1->id, 'source_location_id' => $this->location1->id, 'tax_bucket' => 'NON_PKP', 'subtotal' => 10000, 'grand_total' => 10000, 'paid_total' => 0]);
+
+        // 5. Exceptional: duplicate sale_id (needs FK check relaxed or direct insert with valid sale)
+        [$excDupSale, $coDS] = $makeTrxWithCheckout('CLS-EXC-DS', $this->customer->id);
+        $sDS = $makeSale('SL-CLS-DS', $this->customer->id);
+        PosCheckoutSale::create(['pos_checkout_id' => $coDS->id, 'sale_id' => $sDS->id, 'split_key' => 'k1', 'source_setting_id' => $this->setting1->id, 'source_location_id' => $this->location1->id, 'tax_bucket' => 'NON_PKP', 'subtotal' => 5000, 'grand_total' => 5000, 'paid_total' => 0]);
+        PosCheckoutSale::create(['pos_checkout_id' => $coDS->id, 'sale_id' => $sDS->id, 'split_key' => 'k2', 'source_setting_id' => $this->setting1->id, 'source_location_id' => $this->location1->id, 'tax_bucket' => 'NON_PKP', 'subtotal' => 5000, 'grand_total' => 5000, 'paid_total' => 0]);
+
+        // 6. Exceptional: case-colliding split_key ('owner_a' vs 'OWNER_A')
+        [$excCaseKey, $coCK] = $makeTrxWithCheckout('CLS-EXC-CK', $this->customer->id);
+        $sCK1 = $makeSale('SL-CLS-CK1', $this->customer->id);
+        $sCK2 = $makeSale('SL-CLS-CK2', $this->customer->id);
+        PosCheckoutSale::create(['pos_checkout_id' => $coCK->id, 'sale_id' => $sCK1->id, 'split_key' => 'owner_a', 'source_setting_id' => $this->setting1->id, 'source_location_id' => $this->location1->id, 'tax_bucket' => 'NON_PKP', 'subtotal' => 5000, 'grand_total' => 5000, 'paid_total' => 0]);
+        PosCheckoutSale::create(['pos_checkout_id' => $coCK->id, 'sale_id' => $sCK2->id, 'split_key' => 'OWNER_A', 'source_setting_id' => $this->setting1->id, 'source_location_id' => $this->location1->id, 'tax_bucket' => 'NON_PKP', 'subtotal' => 5000, 'grand_total' => 5000, 'paid_total' => 0]);
+
+        // 7. Exceptional: inline mapping (no pos_checkout_sales)
+        $sInline = $makeSale('SL-CLS-INL', $this->customer->id);
+        [$excInline, ] = $makeTrxWithCheckout('CLS-EXC-INL', $this->customer->id, false, $sInline->id);
+
+        // 8. Exceptional: checkout-linked and transaction-linked active returns
+        [$excRetCo, $coRC] = $makeTrxWithCheckout('CLS-EXC-RC', $this->customer->id);
+        $sRC = $makeSale('SL-CLS-RC', $this->customer->id);
+        PosCheckoutSale::create(['pos_checkout_id' => $coRC->id, 'sale_id' => $sRC->id, 'split_key' => 'main', 'source_setting_id' => $this->setting1->id, 'source_location_id' => $this->location1->id, 'tax_bucket' => 'NON_PKP', 'subtotal' => 10000, 'grand_total' => 10000, 'paid_total' => 0]);
+        \Modules\Pos\Entities\PosReturn::create([
+            'setting_id' => $this->setting1->id, 'pos_checkout_id' => $coRC->id, 'pos_transaction_id' => 0,
+            'transaction_code' => $excRetCo->code, 'receipt_number' => $coRC->receipt_number,
+            'return_option' => 'REFUND', 'approval_status' => 'APPROVED', 'source_snapshot' => [],
+            'source_snapshot_hash' => 'rc', 'total_amount' => 1000, 'reference' => 'PR-RC',
+            'status' => \Modules\Pos\Entities\PosReturn::STATUS_COMPLETED, 'is_reversed' => false, 'created_by' => $this->user->id,
+        ]);
+
+        [$excRetTx, $coRT] = $makeTrxWithCheckout('CLS-EXC-RT', $this->customer->id);
+        $sRT = $makeSale('SL-CLS-RT', $this->customer->id);
+        PosCheckoutSale::create(['pos_checkout_id' => $coRT->id, 'sale_id' => $sRT->id, 'split_key' => 'main', 'source_setting_id' => $this->setting1->id, 'source_location_id' => $this->location1->id, 'tax_bucket' => 'NON_PKP', 'subtotal' => 10000, 'grand_total' => 10000, 'paid_total' => 0]);
+        \Modules\Pos\Entities\PosReturn::create([
+            'setting_id' => $this->setting1->id, 'pos_checkout_id' => 0, 'pos_transaction_id' => $excRetTx->id,
+            'transaction_code' => $excRetTx->code, 'receipt_number' => $coRT->receipt_number,
+            'return_option' => 'REFUND', 'approval_status' => 'APPROVED', 'source_snapshot' => [],
+            'source_snapshot_hash' => 'rt', 'total_amount' => 1000, 'reference' => 'PR-RT',
+            'status' => \Modules\Pos\Entities\PosReturn::STATUS_COMPLETED, 'is_reversed' => false, 'created_by' => $this->user->id,
+        ]);
+
+        // 9. Exceptional: null sale_id alongside valid sibling, empty split_key, and duplicate exact split_key
+        $sRealSib1 = $makeSale('SL-CLS-SIB1', $this->customer->id);
+        [$excNullSale, $coNS] = $makeTrxWithCheckout('CLS-EXC-NS', $this->customer->id);
+        PosCheckoutSale::create(['pos_checkout_id' => $coNS->id, 'sale_id' => $sRealSib1->id, 'split_key' => 'main', 'source_setting_id' => $this->setting1->id, 'source_location_id' => $this->location1->id, 'tax_bucket' => 'NON_PKP', 'subtotal' => 5000, 'grand_total' => 5000, 'paid_total' => 0]);
+        PosCheckoutSale::create(['pos_checkout_id' => $coNS->id, 'sale_id' => null, 'split_key' => 'broken_null', 'source_setting_id' => $this->setting1->id, 'source_location_id' => $this->location1->id, 'tax_bucket' => 'NON_PKP', 'subtotal' => 5000, 'grand_total' => 5000, 'paid_total' => 0]);
+
+        $sRealSib2 = $makeSale('SL-CLS-SIB2', $this->customer->id);
+        [$excEmptyKey, $coEK] = $makeTrxWithCheckout('CLS-EXC-EK', $this->customer->id);
+        PosCheckoutSale::create(['pos_checkout_id' => $coEK->id, 'sale_id' => $sRealSib2->id, 'split_key' => '', 'source_setting_id' => $this->setting1->id, 'source_location_id' => $this->location1->id, 'tax_bucket' => 'NON_PKP', 'subtotal' => 10000, 'grand_total' => 10000, 'paid_total' => 0]);
+
+        $sRealSib3a = $makeSale('SL-CLS-SIB3A', $this->customer->id);
+        $sRealSib3b = $makeSale('SL-CLS-SIB3B', $this->customer->id);
+        [$excDupKey, $coDK] = $makeTrxWithCheckout('CLS-EXC-DK', $this->customer->id);
+        PosCheckoutSale::create(['pos_checkout_id' => $coDK->id, 'sale_id' => $sRealSib3a->id, 'split_key' => 'main', 'source_setting_id' => $this->setting1->id, 'source_location_id' => $this->location1->id, 'tax_bucket' => 'NON_PKP', 'subtotal' => 5000, 'grand_total' => 5000, 'paid_total' => 0]);
+        PosCheckoutSale::create(['pos_checkout_id' => $coDK->id, 'sale_id' => $sRealSib3b->id, 'split_key' => ' MAIN ', 'source_setting_id' => $this->setting1->id, 'source_location_id' => $this->location1->id, 'tax_bucket' => 'NON_PKP', 'subtotal' => 5000, 'grand_total' => 5000, 'paid_total' => 0]);
+
+        $allTrxIds = [
+            $ordMulti->id, $ordNullCust->id, $ordRevRet->id,
+            $excCustMismatch->id, $excDupSale->id, $excCaseKey->id,
+            $excInline->id, $excRetCo->id, $excRetTx->id,
+            $excNullSale->id, $excEmptyKey->id, $excDupKey->id,
+        ];
+
+        $query = $this->service->baseEligibleQuery()->whereIn('pos_transactions.id', $allTrxIds);
+        $classified = $readService->classifyCandidates($query, 'id', 'asc');
+
+        $ordinaryIds = array_keys($classified['ordinary']);
+        $exceptionalIds = $classified['exceptional_ids'];
+
+        $this->assertEmpty(array_intersect($ordinaryIds, $exceptionalIds), 'Classification must be strictly disjoint.');
+        $combined = array_merge($ordinaryIds, $exceptionalIds);
+        sort($combined);
+        $expectedBase = $this->service->baseEligibleQuery()->whereIn('pos_transactions.id', $allTrxIds)->pluck('id')->all();
+        sort($expectedBase);
+        $this->assertSame($expectedBase, $combined, 'Classification must exhaustively cover all eligible rows.');
+
+        $this->assertContains($ordMulti->id, $ordinaryIds);
+        $this->assertContains($ordNullCust->id, $ordinaryIds);
+        $this->assertContains($ordRevRet->id, $ordinaryIds);
+
+        foreach ([$excCustMismatch->id, $excDupSale->id, $excCaseKey->id, $excInline->id, $excRetCo->id, $excRetTx->id, $excNullSale->id, $excEmptyKey->id, $excDupKey->id] as $expId) {
+            $this->assertContains($expId, $exceptionalIds, "Expected tx {$expId} to classify conservatively as exceptional.");
+        }
+
+        // Verify diagnostics agreement on all classified records in base query
+        foreach ($expectedBase as $tid) {
+            $trx = PosTransaction::findOrFail($tid);
+            $diag = $this->service->diagnose($trx);
+            if (in_array($tid, $ordinaryIds, true)) {
+                $this->assertTrue($diag['is_valid']);
+                $this->assertTrue($diag['has_split_mapping']);
+                $this->assertFalse($diag['is_inline_fallback']);
+            }
+        }
+    }
+
+    public function test_staged_ordinary_projection_matches_oracle_under_ledger_fanout_boundaries_and_avoids_model_hydration(): void
+    {
+        Carbon::setTestNow('2026-11-14 12:00:00');
+        $readService = app(\Modules\Pos\Services\PosGlobalPaymentReadService::class);
+
+        $makeSplitSale = function (array $attrs): Sale {
+            return Sale::create(array_merge([
+                'date' => '2026-11-01',
+                'due_date' => '2026-11-20',
+                'customer_id' => $this->customer->id,
+                'customer_name' => $this->customer->customer_name,
+                'tax_percentage' => 0,
+                'tax_amount' => 0,
+                'discount_percentage' => 0,
+                'discount_amount' => 0,
+                'shipping_amount' => 0,
+                'status' => Sale::STATUS_DISPATCHED,
+                'payment_status' => Sale::PAYMENT_STATUS_UNPAID,
+                'payment_method' => 'Cash',
+                'setting_id' => $this->setting1->id,
+                'paid_amount' => 0,
+            ], $attrs));
+        };
+
+        $attachSplitTrx = function (string $code, array $sales): PosTransaction {
+            $trx = PosTransaction::create([
+                'setting_id' => $this->setting1->id,
+                'customer_id' => $this->customer->id,
+                'created_by' => $this->user->id,
+                'owner_user_id' => $this->user->id,
+                'last_saved_by' => $this->user->id,
+                'source_pos_session_id' => $this->session->id,
+                'code' => $code,
+                'status' => PosTransaction::STATUS_COMPLETED,
+            ]);
+            $checkout = PosCheckout::create([
+                'setting_id' => $this->setting1->id,
+                'pos_transaction_id' => $trx->id,
+                'pos_session_id' => $this->session->id,
+                'terminal_id' => $this->terminal->id,
+                'cashier_user_id' => $this->user->id,
+                'customer_id' => $this->customer->id,
+                'status' => PosCheckout::STATUS_POSTED,
+                'idempotency_key' => uniqid('fn_', true),
+                'payload_hash' => 'hash_' . $code,
+                'subtotal' => array_sum(array_map(fn ($s) => (float) $s->total_amount, $sales)),
+                'grand_total' => array_sum(array_map(fn ($s) => (float) $s->total_amount, $sales)),
+                'paid_total' => 0,
+                'payment_method_id' => $this->paymentMethod->id,
+                'receipt_number' => 'RCP-' . $code,
+            ]);
+            $trx->update(['completed_checkout_id' => $checkout->id]);
+            foreach ($sales as $idx => $sale) {
+                PosCheckoutSale::create([
+                    'pos_checkout_id' => $checkout->id,
+                    'sale_id' => $sale->id,
+                    'split_key' => 'owner_' . $idx,
+                    'source_setting_id' => $sale->setting_id,
+                    'source_location_id' => $sale->setting_id === $this->setting1->id ? $this->location1->id : $this->location2->id,
+                    'tax_bucket' => 'NON_PKP',
+                    'subtotal' => $sale->total_amount,
+                    'grand_total' => $sale->total_amount,
+                    'paid_total' => 0,
+                ]);
+            }
+
+            return $trx;
+        };
+
+        // 1. Multi-payment + multi-credit fanout + active transfer + inactivated payment + negative net paid clamp + overpayment clamp
+        $sFanA = $makeSplitSale(['reference' => 'FAN-A', 'total_amount' => 1000, 'due_amount' => 1000, 'due_date' => '2026-11-10', 'setting_id' => $this->setting1->id]);
+        $sFanB = $makeSplitSale(['reference' => 'FAN-B', 'total_amount' => 500, 'due_amount' => 500, 'due_date' => null, 'setting_id' => $this->setting2->id]);
+        $p1 = SalePayment::create(['sale_id' => $sFanA->id, 'amount' => 300, 'date' => '2026-11-12', 'reference' => 'P1', 'payment_method_id' => $this->paymentMethod->id, 'payment_method' => 'Cash', 'status' => SalePayment::STATUS_ACTIVE]);
+        $p2 = SalePayment::create(['sale_id' => $sFanA->id, 'amount' => 200, 'date' => '2026-10-15', 'reference' => 'P2', 'payment_method_id' => $this->paymentMethod->id, 'payment_method' => 'Cash', 'status' => SalePayment::STATUS_ACTIVE]);
+        // Invalidated payment ignored
+        SalePayment::create(['sale_id' => $sFanA->id, 'amount' => 9999, 'date' => '2026-11-13', 'reference' => 'PINV', 'payment_method_id' => $this->paymentMethod->id, 'payment_method' => 'Cash', 'status' => 'CANCELLED']);
+        // 2 credit applications on p1 (fanout must NOT double p1->amount!)
+        $saleRet1 = \Modules\SalesReturn\Entities\SaleReturn::create([
+            'date' => '2026-11-05', 'reference' => 'SR-FAN-1', 'setting_id' => $this->setting1->id,
+            'customer_id' => $this->customer->id, 'customer_name' => $this->customer->customer_name,
+            'total_amount' => 150, 'paid_amount' => 0, 'due_amount' => 150,
+            'payment_status' => 'UNPAID', 'payment_method' => 'Cash', 'status' => 'APPROVED',
+        ]);
+        $saleRet2 = \Modules\SalesReturn\Entities\SaleReturn::create([
+            'date' => '2026-11-05', 'reference' => 'SR-FAN-2', 'setting_id' => $this->setting1->id,
+            'customer_id' => $this->customer->id, 'customer_name' => $this->customer->customer_name,
+            'total_amount' => 50, 'paid_amount' => 0, 'due_amount' => 50,
+            'payment_status' => 'UNPAID', 'payment_method' => 'Cash', 'status' => 'APPROVED',
+        ]);
+        $cred1 = \Modules\SalesReturn\Entities\CustomerCredit::create([
+            'customer_id' => $this->customer->id, 'sale_return_id' => $saleRet1->id, 'amount' => 100, 'remaining_amount' => 100, 'status' => 'open',
+        ]);
+        $cred2 = \Modules\SalesReturn\Entities\CustomerCredit::create([
+            'customer_id' => $this->customer->id, 'sale_return_id' => $saleRet2->id, 'amount' => 50, 'remaining_amount' => 50, 'status' => 'open',
+        ]);
+        \Modules\SalesReturn\Entities\SalePaymentCreditApplication::create([
+            'sale_payment_id' => $p1->id, 'customer_credit_id' => $cred1->id, 'amount' => 100,
+        ]);
+        \Modules\SalesReturn\Entities\SalePaymentCreditApplication::create([
+            'sale_payment_id' => $p1->id, 'customer_credit_id' => $cred2->id, 'amount' => 50,
+        ]);
+        // Negative net paid on sFanB (outgoing > payments) + overpayment scenario covered on sOver
+        \Illuminate\Support\Facades\DB::table('pos_owner_payment_transfers')->insert([
+            'execution_key' => 't-out', 'pos_return_id' => 1, 'sale_return_detail_id' => 1,
+            'source_sale_id' => $sFanB->id, 'replacement_sale_id' => $sFanA->id, 'original_sale_payment_id' => $p1->id,
+            'payment_method' => 'Cash', 'amount' => 150, 'amount_minor' => 15000, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        // Inactive-backed transfer ignored
+        $pInact = SalePayment::create(['sale_id' => $sFanA->id, 'amount' => 500, 'date' => '2026-11-13', 'reference' => 'P-INACT', 'payment_method_id' => $this->paymentMethod->id, 'payment_method' => 'Cash', 'status' => 'CANCELLED']);
+        \Illuminate\Support\Facades\DB::table('pos_owner_payment_transfers')->insert([
+            'execution_key' => 't-inact', 'pos_return_id' => 2, 'sale_return_detail_id' => 2,
+            'source_sale_id' => $sFanA->id, 'replacement_sale_id' => $sFanB->id, 'original_sale_payment_id' => $pInact->id,
+            'payment_method' => 'Cash', 'amount' => 500, 'amount_minor' => 50000, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $trxFan = $attachSplitTrx('STG-FAN', [$sFanA, $sFanB]);
+
+        // 2. Boundary: paid exactly 30 days ago (2026-10-15) -> counts recent; 31 days ago (2026-10-14) -> excluded; future (+1d) -> excluded
+        $s30d = $makeSplitSale(['reference' => 'SL-30D', 'total_amount' => 400, 'due_amount' => 0]);
+        SalePayment::create(['sale_id' => $s30d->id, 'amount' => 600, 'date' => '2026-10-15', 'reference' => 'P-30D', 'payment_method_id' => $this->paymentMethod->id, 'payment_method' => 'Cash', 'status' => SalePayment::STATUS_ACTIVE]);
+        $trx30d = $attachSplitTrx('STG-30D', [$s30d]);
+
+        $sFuture = $makeSplitSale(['reference' => 'SL-FUT', 'total_amount' => 400, 'due_amount' => 0]);
+        SalePayment::create(['sale_id' => $sFuture->id, 'amount' => 400, 'date' => '2026-11-15', 'reference' => 'P-FUT', 'payment_method_id' => $this->paymentMethod->id, 'payment_method' => 'Cash', 'status' => SalePayment::STATUS_ACTIVE]);
+        $trxFuture = $attachSplitTrx('STG-FUT', [$sFuture]);
+
+        // 3. Archived returned-zero sibling + unpaid sibling
+        $sZeroRet = $makeSplitSale(['reference' => 'SL-ZRET', 'total_amount' => 0, 'due_amount' => 0, 'status' => Sale::STATUS_RETURNED, 'archived_at' => now()]);
+        $sSibling = $makeSplitSale(['reference' => 'SL-ZSUB', 'total_amount' => 300, 'due_amount' => 300, 'due_date' => '2026-11-12']);
+        $trxZeroRet = $attachSplitTrx('STG-ZRET', [$sZeroRet, $sSibling]);
+
+        // Oracle per transaction
+        $oracles = [];
+        foreach ([$trxFan, $trx30d, $trxFuture, $trxZeroRet] as $t) {
+            $fresh = PosTransaction::with(PosSettlementProjectionService::reachableSalesEagerLoad())->findOrFail($t->id);
+            $oracles[$t->id] = $this->service->project($fresh);
+        }
+
+        $hydratedSales = 0;
+        $hydratedPayments = 0;
+        Sale::retrieved(function () use (&$hydratedSales) { $hydratedSales++; });
+        SalePayment::retrieved(function () use (&$hydratedPayments) { $hydratedPayments++; });
+
+        PosSettlementProjectionService::resetProjectionCount();
+        $stagedPage = $readService->paginateFilteredTransactions(
+            $this->service->baseEligibleQuery(),
+            fn (array $p) => true,
+            'id',
+            'asc',
+            10,
+            1
+        );
+        $summary = $readService->calculateSummaryCards();
+
+        $this->assertSame(0, $hydratedPayments, 'Stage 2 ordinary reads must hydrate 0 SalePayment models.');
+        $this->assertSame(0, $hydratedSales, 'Stage 2 ordinary reads must hydrate 0 Sale models.');
+        $this->assertSame(0, PosSettlementProjectionService::$projectionCount, 'Ordinary path must not invoke legacy project().');
+
+        foreach ($oracles as $tid => $oracle) {
+            $proj = $stagedPage['rowProjections'][$tid];
+            foreach (['total_amount', 'effective_paid', 'live_due', 'payment_status', 'effective_due_date', 'is_overdue', 'overdue_amount', 'has_recent_payment_30d', 'is_payable', 'is_valid'] as $k) {
+                $this->assertSame($oracle[$k], $proj[$k], "Mismatch on field {$k} for tx {$tid}");
+            }
+        }
+
+        // Oracle summary check
+        $this->assertSame(2, $summary['outstanding']['count']);
+        $this->assertSame(1000.0, $summary['outstanding']['total']); // (1000-800=200 + 500) + 300
+        $this->assertSame(2, $summary['overdue']['count']);
+        $this->assertSame(1, $summary['paid_within_30_days']['count']); // trx30d yes, trxFuture no
+        $this->assertSame(600.0, $summary['paid_within_30_days']['total']); // capped overpayment still yields effective_paid 600
+    }
 }

@@ -936,9 +936,19 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
 
         $component->call('applyCardFilter', 'unpaid');
 
-        // With 5 records, each record must be projected at most once per render (count <= 5, not 10)
-        $this->assertLessThanOrEqual(5, PosSettlementProjectionService::$projectionCount);
-        $this->assertGreaterThan(0, PosSettlementProjectionService::$projectionCount);
+        // Pure ordinary candidates resolve via Stage 2 scalar aggregation without calling legacy project()
+        $this->assertSame(0, PosSettlementProjectionService::$projectionCount);
+
+        // With an exceptional inline candidate present, only exceptional candidates run legacy project() at most once
+        $inline = $this->createCompletedPosTransaction($this->setting1, $this->customer1, 50000, 'POS-PROJ-INLINE-EXC');
+        \Modules\Pos\Entities\PosCheckoutSale::where('pos_checkout_id', $inline['checkout']->id)->delete();
+        $inline['checkout']->update(['sale_id' => $inline['sale']->id]);
+
+        PosSettlementProjectionService::resetProjectionCount();
+        $component->call('applyCardFilter', 'overdue');
+        $component->call('applyCardFilter', 'unpaid');
+        $this->assertLessThanOrEqual(2, PosSettlementProjectionService::$projectionCount);
+        $this->assertSame(2, PosSettlementProjectionService::$projectionCount);
     }
 
     public function test_unfiltered_table_projects_only_visible_page_rows(): void
@@ -1188,5 +1198,104 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
             ])
             ->assertSet('selectedCardFilter', null)
             ->assertSet('summary.outstanding.count', 2);
+    }
+
+    public function test_staged_table_mixed_path_page_boundaries_tied_sorts_search_once_and_combined_filters(): void
+    {
+        $tiedAt = now()->subDays(2)->setTime(10, 0, 0);
+
+        // Interleave 3 ordinary split + 3 inline exceptional records sharing exact created_at & alternating IDs
+        $created = [];
+        for ($i = 1; $i <= 6; $i++) {
+            $item = $this->createCompletedPosTransaction(
+                $this->setting1,
+                $this->customer1,
+                10000 * $i,
+                'MIX-TIED-CODE-' . $i,
+                ['created_at' => $tiedAt, 'updated_at' => $tiedAt]
+            );
+            $item['transaction']->forceFill([
+                'created_at' => $tiedAt,
+                'updated_at' => $tiedAt,
+            ])->save();
+            $item['sale']->update(['due_date' => now()->addDays($i)->toDateString()]);
+            if ($i % 2 === 0) {
+                // Make even ones inline exceptional so ordinary & exceptional alternate across page boundary (perPage = 2)
+                \Modules\Pos\Entities\PosCheckoutSale::where('pos_checkout_id', $item['checkout']->id)->delete();
+                $item['checkout']->update(['sale_id' => $item['sale']->id]);
+            }
+            $created[] = $item;
+        }
+
+        // Out-of-range page still reports exact combined total (6)
+        \Illuminate\Pagination\Paginator::currentPageResolver(fn () => 99);
+        $oor = app(\Modules\Pos\Services\PosGlobalPaymentReadService::class)->paginateFilteredTransactions(
+            app(PosSettlementProjectionService::class)->baseEligibleQuery(),
+            fn (array $p) => $p['live_due'] > 0,
+            'created_at',
+            'desc',
+            2,
+            99
+        );
+        $this->assertSame(6, $oor['paginator']->total());
+        $this->assertCount(0, $oor['paginator']->items());
+
+        // Check mixed-path page 2 (indices 2 and 3 in DESC ID order: 1 ordinary, 1 exceptional)
+        \Illuminate\Pagination\Paginator::currentPageResolver(fn () => 2);
+        $p2 = app(\Modules\Pos\Services\PosGlobalPaymentReadService::class)->paginateFilteredTransactions(
+            app(PosSettlementProjectionService::class)->baseEligibleQuery(),
+            fn (array $p) => $p['live_due'] > 0,
+            'created_at',
+            'desc',
+            2,
+            2
+        );
+        $this->assertSame(
+            [$created[3]['transaction']->id, $created[2]['transaction']->id],
+            $p2['paginator']->getCollection()->pluck('id')->all(),
+            'Mixed ordinary + exceptional rows must interleave deterministically by tied id.'
+        );
+
+        // Verify empty search / filter yields empty paginator
+        $emptyPag = app(\Modules\Pos\Services\PosGlobalPaymentReadService::class)->paginateFilteredTransactions(
+            app(PosSettlementProjectionService::class)->baseEligibleQuery()->where('pos_transactions.code', 'NO-SUCH-TRX-9999'),
+            fn (array $p) => $p['live_due'] > 0,
+            'created_at',
+            'desc',
+            10,
+            1
+        );
+        $this->assertSame(0, $emptyPag['paginator']->total());
+
+        // Verify combined search + customer + business + date + due date + cashier + terminal + status evaluates search once
+        $target = $created[0];
+        $query = app(PosSettlementProjectionService::class)->baseEligibleQuery()
+            ->where('pos_transactions.customer_id', $this->customer1->id)
+            ->whereIn('pos_transactions.setting_id', [$this->setting1->id])
+            ->whereDate('pos_transactions.created_at', $tiedAt->toDateString())
+            ->whereHas('completedCheckout', fn ($cq) => $cq->where('cashier_user_id', $this->user->id)->where('terminal_id', $target['checkout']->terminal_id));
+        \App\Support\GlobalPaymentSearchQuery::applyPosTransactionSearch($query, 'SO-MIX-TIED-CODE-1');
+
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+        \Illuminate\Support\Facades\DB::flushQueryLog();
+        $filtered = app(\Modules\Pos\Services\PosGlobalPaymentReadService::class)->paginateFilteredTransactions(
+            $query,
+            fn (array $p) => strtolower($p['payment_status']) === 'unpaid' && $p['live_due'] > 0,
+            'code',
+            'asc',
+            10,
+            1
+        );
+        $log = \Illuminate\Support\Facades\DB::getQueryLog();
+        \Illuminate\Support\Facades\DB::disableQueryLog();
+
+        $searchQueries = array_filter($log, fn ($q) => str_contains(json_encode($q['bindings'] ?? []), 'SO-MIX-TIED-CODE-1'));
+        $this->assertCount(1, $searchQueries, 'Existing POS search filter must execute only once per staged operation.');
+        $this->assertSame([$target['transaction']->id], $filtered['paginator']->getCollection()->pluck('id')->all());
+
+        // Summary matches legacy oracle accurately
+        $summary = app(PosSettlementProjectionService::class)->calculateSummaryCards($this->customer1->id, [$this->setting1->id]);
+        $this->assertSame(6, $summary['outstanding']['count']);
+        $this->assertSame(210000.0, $summary['outstanding']['total']);
     }
 }

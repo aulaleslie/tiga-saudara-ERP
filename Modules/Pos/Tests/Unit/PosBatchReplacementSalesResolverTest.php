@@ -1240,4 +1240,134 @@ class PosBatchReplacementSalesResolverTest extends TestCase
         $this->assertCount(2, $sales2, 'Second consecutive operation must immediately observe the new replacement sale.');
         $this->assertTrue($sales2->contains('id', $repSale->id));
     }
+
+    public function test_staged_fallback_processes_multiple_batches_and_releases_consumed_graphs(): void
+    {
+        $readService = app(\Modules\Pos\Services\PosGlobalPaymentReadService::class);
+        $ids = [];
+
+        // Build > FALLBACK_BATCH_SIZE (200) inline exceptional records plus a reversed return split (ordinary)
+        for ($i = 1; $i <= 205; $i++) {
+            $sale = Sale::create([
+                'setting_id' => $this->setting1->id,
+                'customer_id' => $this->customer->id,
+                'customer_name' => $this->customer->customer_name,
+                'reference' => 'SL-MB-' . $i,
+                'date' => now()->toDateString(),
+                'due_date' => now()->subDays(1)->toDateString(),
+                'status' => Sale::STATUS_DISPATCHED,
+                'payment_status' => Sale::PAYMENT_STATUS_UNPAID,
+                'total_amount' => 1000,
+                'paid_amount' => 0,
+                'due_amount' => 1000,
+                'payment_method' => 'Cash',
+            ]);
+            $trx = PosTransaction::create([
+                'setting_id' => $this->setting1->id,
+                'customer_id' => $this->customer->id,
+                'created_by' => $this->cashier->id,
+                'owner_user_id' => $this->cashier->id,
+                'last_saved_by' => $this->cashier->id,
+                'source_pos_session_id' => $this->session->id,
+                'code' => sprintf('MB-%04d', $i),
+                'status' => PosTransaction::STATUS_COMPLETED,
+            ]);
+            $checkout = PosCheckout::create([
+                'setting_id' => $this->setting1->id,
+                'pos_transaction_id' => $trx->id,
+                'pos_session_id' => $this->session->id,
+                'terminal_id' => $this->terminal->id,
+                'cashier_user_id' => $this->cashier->id,
+                'customer_id' => $this->customer->id,
+                'status' => PosCheckout::STATUS_POSTED,
+                'idempotency_key' => uniqid('mb_', true),
+                'payload_hash' => 'hash_mb_' . $i,
+                'subtotal' => 1000,
+                'grand_total' => 1000,
+                'paid_total' => 0,
+                'payment_method_id' => $this->cashMethod->id,
+                'receipt_number' => 'RCP-MB-' . $i,
+                'sale_id' => $sale->id, // Inline -> Stage 3 fallback
+            ]);
+            $trx->update(['completed_checkout_id' => $checkout->id]);
+            $ids[] = $trx->id;
+        }
+
+        // Add 1 ordinary split with a reversed return (stays in Stage 2!)
+        $sOrd = Sale::create([
+            'setting_id' => $this->setting1->id,
+            'customer_id' => $this->customer->id,
+            'customer_name' => $this->customer->customer_name,
+            'reference' => 'SL-MB-ORD',
+            'date' => now()->toDateString(),
+            'due_date' => now()->addDays(5)->toDateString(),
+            'status' => Sale::STATUS_DISPATCHED,
+            'payment_status' => Sale::PAYMENT_STATUS_UNPAID,
+            'total_amount' => 2500,
+            'paid_amount' => 0,
+            'due_amount' => 2500,
+            'payment_method' => 'Cash',
+        ]);
+        $trxOrd = PosTransaction::create([
+            'setting_id' => $this->setting1->id,
+            'customer_id' => $this->customer->id,
+            'created_by' => $this->cashier->id,
+            'owner_user_id' => $this->cashier->id,
+            'last_saved_by' => $this->cashier->id,
+            'source_pos_session_id' => $this->session->id,
+            'code' => 'MB-ORD-01',
+            'status' => PosTransaction::STATUS_COMPLETED,
+        ]);
+        $coOrd = PosCheckout::create([
+            'setting_id' => $this->setting1->id,
+            'pos_transaction_id' => $trxOrd->id,
+            'pos_session_id' => $this->session->id,
+            'terminal_id' => $this->terminal->id,
+            'cashier_user_id' => $this->cashier->id,
+            'customer_id' => $this->customer->id,
+            'status' => PosCheckout::STATUS_POSTED,
+            'idempotency_key' => uniqid('mb_ord_', true),
+            'payload_hash' => 'hash_mb_ord',
+            'subtotal' => 2500,
+            'grand_total' => 2500,
+            'paid_total' => 0,
+            'payment_method_id' => $this->cashMethod->id,
+            'receipt_number' => 'RCP-MB-ORD',
+        ]);
+        $trxOrd->update(['completed_checkout_id' => $coOrd->id]);
+        PosCheckoutSale::create([
+            'pos_checkout_id' => $coOrd->id, 'sale_id' => $sOrd->id, 'split_key' => 'main',
+            'source_setting_id' => $this->setting1->id, 'source_location_id' => $this->location1->id,
+            'tax_bucket' => 'NON_PKP', 'subtotal' => 2500, 'grand_total' => 2500, 'paid_total' => 0,
+        ]);
+        PosReturn::create([
+            'pos_checkout_id' => $coOrd->id, 'pos_transaction_id' => $trxOrd->id,
+            'transaction_code' => $trxOrd->code, 'receipt_number' => $coOrd->receipt_number,
+            'return_option' => PosReturn::OPTION_PRODUCT_REPLACEMENT, 'approval_status' => PosReturn::APPROVAL_STATUS_APPROVED,
+            'source_snapshot' => [], 'source_snapshot_hash' => 'hash_rev_ord', 'total_amount' => 100,
+            'reference' => 'RET-REV-ORD', 'status' => PosReturn::STATUS_COMPLETED, 'is_reversed' => true,
+            'customer_id' => $this->customer->id, 'setting_id' => $this->setting1->id, 'created_by' => $this->cashier->id,
+        ]);
+
+        PosSettlementProjectionService::resetProjectionCount();
+        $result = $readService->paginateFilteredTransactions(
+            $this->projectionService->baseEligibleQuery(),
+            fn (array $p) => $p['live_due'] > 0,
+            'id',
+            'asc',
+            10,
+            1
+        );
+        $summary = $readService->calculateSummaryCards();
+
+        // Exactly 205 fallback projections per operation (410 across both calls), never 206!
+        $this->assertSame(410, PosSettlementProjectionService::$projectionCount);
+        $this->assertSame(206, $result['paginator']->total());
+        foreach ($result['rowProjections'] as $proj) {
+            $this->assertArrayNotHasKey('sales', $proj, 'Staged scalar projection must release consumed Eloquent Sale graphs.');
+        }
+        $this->assertSame(206, $summary['outstanding']['count']);
+        $this->assertSame(207500.0, $summary['outstanding']['total']);
+        $this->assertSame(205, $summary['overdue']['count']);
+    }
 }

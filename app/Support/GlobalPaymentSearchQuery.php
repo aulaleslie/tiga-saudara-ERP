@@ -2,8 +2,9 @@
 
 namespace App\Support;
 
+use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Modules\Product\Entities\ProductSerialNumber;
 
 class GlobalPaymentSearchQuery
@@ -67,7 +68,9 @@ class GlobalPaymentSearchQuery
     }
 
     /**
-     * Apply tokenized and exact identity search for Global Sales Multi-Payment.
+     * Apply tokenized and exact identity search for Global Sales Multi-Payment
+     * via deduplicated candidate unions + grouped token intersection rather than
+     * correlated per-row OR-EXISTS subqueries or per-token join chains.
      */
     public static function applySaleSearch(Builder $query, ?string $rawSearch): Builder
     {
@@ -76,67 +79,270 @@ class GlobalPaymentSearchQuery
             return $query;
         }
 
-        $tokens = self::tokenize($search);
+        $connection = $query->getConnection();
+        $saleMorphClass = $query->getModel()->getMorphClass();
+        $tokens = array_values(array_unique(self::tokenize($search)));
 
-        return $query->where(function (Builder $saleQuery) use ($tokens, $search) {
-            // Branch 1: Tokenized text search (AND across tokens, OR across fields per token)
-            if (!empty($tokens)) {
-                $saleQuery->where(function (Builder $tokenBranch) use ($tokens) {
-                    foreach ($tokens as $token) {
-                        $tokenBranch->where(function (Builder $tokenMatch) use ($token) {
-                            $like = "%{$token}%";
-                            $tokenMatch->where('reference', 'like', $like)
-                                ->orWhere('imported_sales_reference_number', 'like', $like)
-                                ->orWhere('tax_ref_no', 'like', $like)
-                                ->orWhere('note', 'like', $like)
-                                ->orWhereHas('customer', function (Builder $cq) use ($like) {
-                                    $cq->where('customer_name', 'like', $like)
-                                       ->orWhere('contact_name', 'like', $like);
-                                })
-                                ->orWhereHas('tags', function (Builder $tq) use ($like) {
-                                    $tq->where('name->en', 'like', $like);
-                                })
-                                ->orWhereHas('posCheckout', function (Builder $pq) use ($like) {
-                                    $pq->where('receipt_number', 'like', $like)
-                                       ->orWhereHas('transaction', function (Builder $tq) use ($like) {
-                                           $tq->where('code', 'like', $like);
-                                       });
-                                })
-                                ->orWhereHas('checkoutSale.checkout', function (Builder $cq) use ($like) {
-                                    $cq->where('receipt_number', 'like', $like)
-                                       ->orWhereHas('transaction', function (Builder $tq) use ($like) {
-                                           $tq->where('code', 'like', $like);
-                                       });
-                                })
-                                ->orWhereHas('bundleItems', function (Builder $bq) use ($like) {
-                                    $bq->where('name', 'like', $like);
-                                })
-                                ->orWhereHas('saleDetails.product', function (Builder $pq) use ($like) {
-                                    $pq->where(function (Builder $pSub) use ($like) {
-                                        $pSub->where('product_name', 'like', $like)
-                                             ->orWhere('product_code', 'like', $like);
-                                    });
-                                });
+        $candidateQueries = [];
+
+        // Branch 1: Tokenized text search (AND across distinct tokens via token-labelled UNION + GROUP BY HAVING)
+        if (!empty($tokens)) {
+            if (count($tokens) === 1) {
+                $candidateQueries[] = self::buildSaleTokenCandidateQuery($connection, $saleMorphClass, $tokens[0]);
+            } else {
+                $tokenUnion = null;
+                foreach ($tokens as $index => $token) {
+                    $labelledTokenQuery = self::buildSaleTokenCandidateQuery($connection, $saleMorphClass, $token, $index);
+                    $tokenUnion = $tokenUnion === null ? $labelledTokenQuery : $tokenUnion->union($labelledTokenQuery);
+                }
+
+                $candidateQueries[] = $connection->query()
+                    ->fromSub($tokenUnion, 'tok_candidates')
+                    ->select('tok_candidates.sale_id as sale_id')
+                    ->groupBy('tok_candidates.sale_id')
+                    ->havingRaw('COUNT(DISTINCT tok_candidates.token_idx) = ?', [count($tokens)]);
+            }
+        }
+
+        // Branch 2 & 3: Full-input exact barcode & serial provenance candidates
+        foreach (self::buildSaleIdentityCandidateQueries($connection, $search) as $identityQuery) {
+            $candidateQueries[] = $identityQuery;
+        }
+
+        $combined = array_shift($candidateQueries);
+        foreach ($candidateQueries as $branch) {
+            $combined->union($branch);
+        }
+
+        $wrappedCandidates = $connection->query()
+            ->fromSub($combined, 'sale_search_candidates')
+            ->select('sale_search_candidates.sale_id');
+
+        return $query->whereIn($query->qualifyColumn('id'), $wrappedCandidates);
+    }
+
+    /**
+     * Build a deduplicated candidate sale_id union subquery for a single search token.
+     */
+    protected static function buildSaleTokenCandidateQuery(
+        ConnectionInterface $connection,
+        string $saleMorphClass,
+        string $token,
+        ?int $tokenIndex = null
+    ): QueryBuilder {
+        $like = "%{$token}%";
+        $selectCols = fn (string $column): string => $tokenIndex === null
+            ? "{$column} as sale_id"
+            : "{$column} as sale_id, " . ((int) $tokenIndex) . ' as token_idx';
+
+        // 1. Direct Sale header fields (single scan across the 4 searchable header columns)
+        $base = $connection->table('sales')
+            ->where(function (QueryBuilder $q) use ($like) {
+                $q->where('sales.reference', 'like', $like)
+                    ->orWhere('sales.imported_sales_reference_number', 'like', $like)
+                    ->orWhere('sales.tax_ref_no', 'like', $like)
+                    ->orWhere('sales.note', 'like', $like);
+            })
+            ->selectRaw($selectCols('sales.id'));
+
+        // 2. Customer names (scan customers first, then join sales by customer_id)
+        $customerArm = $connection->table('customers as c')
+            ->join('sales as s', 's.customer_id', '=', 'c.id')
+            ->where(function (QueryBuilder $q) use ($like) {
+                $q->where('c.customer_name', 'like', $like)
+                    ->orWhere('c.contact_name', 'like', $like);
+            })
+            ->selectRaw($selectCols('s.id'));
+
+        // 3. Polymorphic tags (tags.name->en)
+        $tagArm = $connection->table('tags as t')
+            ->join('taggables as tg', 'tg.tag_id', '=', 't.id')
+            ->where('tg.taggable_type', '=', $saleMorphClass)
+            ->where('t.name->en', 'like', $like)
+            ->selectRaw($selectCols('tg.taggable_id'));
+
+        // 4. Direct POS checkout receipt / transaction code
+        $posDirectArm = $connection->table('pos_checkouts as pc')
+            ->leftJoin('pos_transactions as pt', 'pt.id', '=', 'pc.pos_transaction_id')
+            ->whereNotNull('pc.sale_id')
+            ->where(function (QueryBuilder $q) use ($like) {
+                $q->where('pc.receipt_number', 'like', $like)
+                    ->orWhere('pt.code', 'like', $like);
+            })
+            ->selectRaw($selectCols('pc.sale_id'));
+
+        // 5. Split POS checkout_sales -> pos_checkouts -> pos_transactions
+        $posSplitArm = $connection->table('pos_checkout_sales as pcs')
+            ->join('pos_checkouts as pc', 'pc.id', '=', 'pcs.pos_checkout_id')
+            ->leftJoin('pos_transactions as pt', 'pt.id', '=', 'pc.pos_transaction_id')
+            ->whereNotNull('pcs.sale_id')
+            ->where(function (QueryBuilder $q) use ($like) {
+                $q->where('pc.receipt_number', 'like', $like)
+                    ->orWhere('pt.code', 'like', $like);
+            })
+            ->selectRaw($selectCols('pcs.sale_id'));
+
+        // 6. Bundle items
+        $bundleArm = $connection->table('sale_bundle_items as sbi')
+            ->whereNotNull('sbi.sale_id')
+            ->where('sbi.name', 'like', $like)
+            ->selectRaw($selectCols('sbi.sale_id'));
+
+        // 7. Current catalogue product name / code on sale_details
+        $productArm = $connection->table('products as p')
+            ->join('sale_details as sd', 'sd.product_id', '=', 'p.id')
+            ->whereNotNull('sd.sale_id')
+            ->where(function (QueryBuilder $q) use ($like) {
+                $q->where('p.product_name', 'like', $like)
+                    ->orWhere('p.product_code', 'like', $like);
+            })
+            ->selectRaw($selectCols('sd.sale_id'));
+
+        return $base
+            ->union($customerArm)
+            ->union($tagArm)
+            ->union($posDirectArm)
+            ->union($posSplitArm)
+            ->union($bundleArm)
+            ->union($productArm);
+    }
+
+    /**
+     * Build full-input exact barcode and serial provenance candidate sale_id queries.
+     *
+     * @return array<int, QueryBuilder>
+     */
+    protected static function buildSaleIdentityCandidateQueries(ConnectionInterface $connection, string $search): array
+    {
+        $driver = $connection->getDriverName();
+        $queries = [];
+
+        // 1. Exact primary barcode on linked sale_details -> products
+        $queries[] = $connection->table('products as p')
+            ->join('sale_details as sd', 'sd.product_id', '=', 'p.id')
+            ->whereNotNull('sd.sale_id')
+            ->where(function (QueryBuilder $q) use ($search) {
+                self::applyWhereExactInsensitive($q, 'p.barcode', $search);
+            })
+            ->select('sd.sale_id as sale_id');
+
+        // 2. Exact conversion barcode on active products' conversions
+        $queries[] = $connection->table('product_unit_conversions as puc')
+            ->join('products as p', 'p.id', '=', 'puc.product_id')
+            ->join('sale_details as sd', 'sd.product_id', '=', 'p.id')
+            ->whereNotNull('sd.sale_id')
+            ->where(function (QueryBuilder $q) use ($search) {
+                self::applyWhereExactInsensitive($q, 'puc.barcode', $search);
+            })
+            ->select('sd.sale_id as sale_id');
+
+        // 3. Exact serial lookup in ProductSerialNumber -> sales_order_serial_tracking & sale_details.serial_number_ids
+        //    (deferred directly into SQL so search query assembly remains inside the caller's read snapshot)
+        $normalizedSerial = ProductSerialNumber::normalize($search);
+
+        $queries[] = $connection->table('sales_order_serial_tracking as sost')
+            ->join('product_serial_numbers as psn', 'psn.id', '=', 'sost.product_serial_number_id')
+            ->whereNotNull('sost.sale_id')
+            ->where(function (QueryBuilder $exactQ) use ($search, $normalizedSerial) {
+                self::applyWhereExactInsensitive($exactQ, 'psn.serial_number', $normalizedSerial);
+                if ($normalizedSerial !== $search) {
+                    $exactQ->orWhere(function (QueryBuilder $origQ) use ($search) {
+                        self::applyWhereExactInsensitive($origQ, 'psn.serial_number', $search);
+                    });
+                }
+            })
+            ->select('sost.sale_id as sale_id');
+
+        $queries[] = self::buildSaleDetailsSerialIdsCandidateQuery($connection, $search, $normalizedSerial, $driver);
+
+        // 4. Exact serial string inside dispatch_details.serial_numbers JSON array
+        $queries[] = self::buildDispatchSerialCandidateQuery($connection, $search, $normalizedSerial, $driver);
+
+        return $queries;
+    }
+
+    /**
+     * Match dispatch_details.serial_numbers JSON array elements without wildcard semantics.
+     */
+    protected static function buildDispatchSerialCandidateQuery(
+        ConnectionInterface $connection,
+        string $search,
+        string $normalizedSerial,
+        string $driver
+    ): QueryBuilder {
+        $candidates = array_values(array_unique([$normalizedSerial, $search, mb_strtolower($search, 'UTF-8')]));
+
+        $query = $connection->table('dispatch_details as dd')
+            ->whereNotNull('dd.sale_id')
+            ->whereNotNull('dd.serial_numbers')
+            ->select('dd.sale_id as sale_id');
+
+        if ($driver === 'sqlite') {
+            $query->where('dd.serial_numbers', '!=', '')
+                ->where('dd.serial_numbers', '!=', '[]')
+                ->where(function (QueryBuilder $jsonQ) use ($candidates) {
+                    foreach ($candidates as $cand) {
+                        $jsonQ->orWhereRaw(
+                            'EXISTS (SELECT 1 FROM json_each(dd.serial_numbers) WHERE json_each.value = ? COLLATE NOCASE)',
+                            [$cand]
+                        );
+                    }
+                });
+        } else {
+            $query->whereRaw('JSON_LENGTH(dd.serial_numbers) > 0')
+                ->where(function (QueryBuilder $jsonQ) use ($candidates) {
+                    foreach ($candidates as $cand) {
+                        $jsonEncoded = json_encode($cand, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                        $jsonQ->orWhereRaw('JSON_CONTAINS(dd.serial_numbers, ?)', [$jsonEncoded]);
+                    }
+                });
+        }
+
+        return $query;
+    }
+
+    /**
+     * Match sale_details.serial_number_ids JSON arrays independent of product_id,
+     * preserving driver JSON semantics without pre-querying serial IDs outside snapshots.
+     */
+    protected static function buildSaleDetailsSerialIdsCandidateQuery(
+        ConnectionInterface $connection,
+        string $search,
+        string $normalizedSerial,
+        string $driver
+    ): QueryBuilder {
+        $query = $connection->table('sale_details as sd')
+            ->whereNotNull('sd.sale_id')
+            ->whereNotNull('sd.serial_number_ids')
+            ->select('sd.sale_id as sale_id');
+
+        if ($driver === 'sqlite') {
+            $query->where('sd.serial_number_ids', '!=', '')
+                ->where('sd.serial_number_ids', '!=', '[]')
+                ->whereRaw(
+                    'EXISTS (
+                        SELECT 1 FROM json_each(sd.serial_number_ids)
+                        JOIN product_serial_numbers ON product_serial_numbers.id = json_each.value
+                        WHERE (product_serial_numbers.serial_number = ? COLLATE NOCASE OR product_serial_numbers.serial_number = ? COLLATE NOCASE)
+                    )',
+                    [$normalizedSerial, $search]
+                );
+        } else {
+            $query->join('product_serial_numbers as psn', function ($join) {
+                    $join->whereRaw('JSON_CONTAINS(sd.serial_number_ids, CAST(psn.id AS CHAR))');
+                })
+                ->whereRaw('JSON_LENGTH(sd.serial_number_ids) > 0')
+                ->where(function (QueryBuilder $exactQ) use ($search, $normalizedSerial) {
+                    self::applyWhereExactInsensitive($exactQ, 'psn.serial_number', $normalizedSerial);
+                    if ($normalizedSerial !== $search) {
+                        $exactQ->orWhere(function (QueryBuilder $origQ) use ($search) {
+                            self::applyWhereExactInsensitive($origQ, 'psn.serial_number', $search);
                         });
                     }
                 });
-            }
+        }
 
-            // Branch 2: Exact barcode identity lookup (primary product barcode or conversion barcode)
-            $saleQuery->orWhereHas('saleDetails.product', function (Builder $pq) use ($search) {
-                $pq->where(function (Builder $barcodeSub) use ($search) {
-                    self::whereExactInsensitive($barcodeSub, 'barcode', $search);
-                    $barcodeSub->orWhereHas('conversions', function (Builder $cq) use ($search) {
-                        self::whereExactInsensitive($cq, 'barcode', $search);
-                    });
-                });
-            });
-
-            // Branch 3: Exact serial lookup through sale / dispatch provenance
-            $saleQuery->orWhere(function (Builder $serialBranch) use ($search) {
-                self::applySaleSerialSearch($serialBranch, $search);
-            });
-        });
+        return $query;
     }
 
     /**
@@ -303,11 +509,24 @@ class GlobalPaymentSearchQuery
      */
     public static function whereExactInsensitive(Builder $query, string $column, string $value): Builder
     {
+        self::applyWhereExactInsensitive($query, $column, $value);
+
+        return $query;
+    }
+
+    /**
+     * Apply case-insensitive exact comparison on either an Eloquent or Query builder.
+     *
+     * @param  Builder|QueryBuilder  $query
+     */
+    protected static function applyWhereExactInsensitive($query, string $column, string $value): void
+    {
         $driver = $query->getConnection()->getDriverName();
         $expression = self::resolveComparableColumn($query, $column, $driver);
 
         if ($driver === 'sqlite') {
-            return $query->whereRaw("{$expression} = ? COLLATE NOCASE", [$value]);
+            $query->whereRaw("{$expression} = ? COLLATE NOCASE", [$value]);
+            return;
         }
 
         // On MySQL / MariaDB, utf8mb4 default collation (utf8mb4_unicode_ci / utf8mb4_general_ci) is case-insensitive.
@@ -315,21 +534,24 @@ class GlobalPaymentSearchQuery
         // We supply both the raw search and normalized/uppercase variants if different.
         $normalized = mb_strtoupper($value, 'UTF-8');
         if ($normalized !== $value) {
-            return $query->where(function (Builder $sub) use ($expression, $value, $normalized) {
+            $query->where(function ($sub) use ($expression, $value, $normalized) {
                 $sub->whereRaw("{$expression} = ?", [$value])
                     ->orWhereRaw("{$expression} = ?", [$normalized]);
             });
+            return;
         }
 
-        return $query->whereRaw("{$expression} = ?", [$value]);
+        $query->whereRaw("{$expression} = ?", [$value]);
     }
 
     /**
      * Resolves a plain column or a "column->jsonKey" path into a raw-SQL-safe expression.
      * Plain columns are returned unchanged; JSON paths are translated per driver
      * (json_extract for SQLite, ->> for MySQL/MariaDB).
+     *
+     * @param  Builder|QueryBuilder  $query
      */
-    protected static function resolveComparableColumn(Builder $query, string $column, string $driver): string
+    protected static function resolveComparableColumn($query, string $column, string $driver): string
     {
         if (!str_contains($column, '->')) {
             return $column;

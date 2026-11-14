@@ -5,6 +5,7 @@ namespace App\Livewire\Pos;
 use App\Models\User;
 use App\Support\GlobalPaymentSearchQuery;
 use Carbon\Carbon;
+use Illuminate\Pagination\Paginator;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
@@ -13,6 +14,7 @@ use Livewire\WithPagination;
 use Modules\People\Entities\Customer;
 use Modules\Pos\Entities\PosTerminal;
 use Modules\Pos\Entities\PosTransaction;
+use Modules\Pos\Services\PosGlobalPaymentReadService;
 use Modules\Pos\Services\PosSettlementProjectionService;
 use Modules\Setting\Entities\Setting;
 
@@ -247,8 +249,7 @@ class GlobalPosPaymentTable extends Component
         /** @var PosSettlementProjectionService $projectionService */
         $projectionService = app(PosSettlementProjectionService::class);
 
-        $query = $projectionService->baseEligibleQuery()
-            ->with(PosSettlementProjectionService::reachableSalesEagerLoad());
+        $query = $projectionService->baseEligibleQuery();
 
         // Customer filter
         if (!empty($this->customerId)) {
@@ -309,73 +310,69 @@ class GlobalPosPaymentTable extends Component
         // paginating. Otherwise pagination would run on the unfiltered set and produce
         // partial/empty pages and incorrect totals.
         $isProjectionFilterActive = (bool) ($this->selectedCardFilter || $this->paymentStatusFilter || $this->dueDateFrom || $this->dueDateTo);
-        $projectionsByTrxId = [];
 
         if ($isProjectionFilterActive) {
-            $allMatching = (clone $query)->get();
+            $paymentStatusFilter = $this->paymentStatusFilter;
+            $selectedCardFilter = $this->selectedCardFilter;
+            $dueDateFrom = $this->dueDateFrom;
+            $dueDateTo = $this->dueDateTo;
 
-            // Prepare replacement sales in batch for all candidate transactions
-            $replacementContext = $projectionService->prepareReplacementSales($allMatching);
+            $staged = app(PosGlobalPaymentReadService::class)->paginateFilteredTransactions(
+                $query,
+                function (array $proj) use ($paymentStatusFilter, $selectedCardFilter, $dueDateFrom, $dueDateTo): bool {
+                    if ($paymentStatusFilter && strtolower($proj['payment_status']) !== strtolower($paymentStatusFilter)) {
+                        return false;
+                    }
 
-            $matchingIds = [];
-            foreach ($allMatching as $trx) {
-                $proj = $projectionService->project($trx, $replacementContext);
-                $projectionsByTrxId[$trx->id] = $proj;
+                    if ($selectedCardFilter === 'unpaid' && $proj['live_due'] <= 0) {
+                        return false;
+                    }
+                    if ($selectedCardFilter === 'overdue' && ! $proj['is_overdue']) {
+                        return false;
+                    }
+                    if ($selectedCardFilter === 'paid' && ! $proj['has_recent_payment_30d']) {
+                        return false;
+                    }
 
-                if ($this->paymentStatusFilter && strtolower($proj['payment_status']) !== strtolower($this->paymentStatusFilter)) {
-                    continue;
-                }
+                    if (! empty($dueDateFrom) && ($proj['effective_due_date'] === null || $proj['effective_due_date'] < $dueDateFrom)) {
+                        return false;
+                    }
+                    if (! empty($dueDateTo) && ($proj['effective_due_date'] === null || $proj['effective_due_date'] > $dueDateTo)) {
+                        return false;
+                    }
 
-                if ($this->selectedCardFilter === 'unpaid' && $proj['live_due'] <= 0) {
-                    continue;
-                }
-                if ($this->selectedCardFilter === 'overdue' && ! $proj['is_overdue']) {
-                    continue;
-                }
-                if ($this->selectedCardFilter === 'paid' && ! $proj['has_recent_payment_30d']) {
-                    continue;
-                }
+                    return true;
+                },
+                $this->sortField,
+                $this->sortDirection,
+                (int) $this->perPage,
+                (int) Paginator::resolveCurrentPage('page'),
+                'page',
+                $projectionService
+            );
 
-                if (!empty($this->dueDateFrom) && ($proj['effective_due_date'] === null || $proj['effective_due_date'] < $this->dueDateFrom)) {
-                    continue;
-                }
-                if (!empty($this->dueDateTo) && ($proj['effective_due_date'] === null || $proj['effective_due_date'] > $this->dueDateTo)) {
-                    continue;
-                }
-
-                $matchingIds[] = $trx->id;
-            }
-
-            $query->whereIn('pos_transactions.id', $matchingIds ?: [0]);
-        }
-
-        // Fetch paginated results
-        $paginator = $query->paginate($this->perPage);
-
-        // Map projections to paginated items and load presentation-only relations
-        $items = $paginator->getCollection();
-
-        if ($isProjectionFilterActive) {
-            // Reuse projection maps from pre-pagination filtering; do not re-project!
-            foreach ($items as $trx) {
-                $trx->projection = $projectionsByTrxId[$trx->id] ?? $projectionService->project($trx);
-            }
+            $paginator = $staged['paginator'];
         } else {
-            // No projection filter was active: batch prepare replacement sales ONLY on visible page rows
+            // Normal nonfinancial page path: project and eager-load only visible page rows
+            $paginator = $query
+                ->with(PosSettlementProjectionService::reachableSalesEagerLoad())
+                ->paginate($this->perPage);
+
+            $items = $paginator->getCollection();
             $pageReplacementContext = $projectionService->prepareReplacementSales($items);
             foreach ($items as $trx) {
                 $trx->projection = $projectionService->project($trx, $pageReplacementContext);
             }
-        }
 
-        // Restrict presentation-only eager loads to visible page rows
-        $items->loadMissing([
-            'setting',
-            'customer',
-            'creator',
-            'completedCheckout.terminal',
-            'completedCheckout.cashier',
-        ]);
+            // Restrict presentation-only eager loads to visible page rows
+            $items->loadMissing([
+                'setting',
+                'customer',
+                'creator',
+                'completedCheckout.terminal',
+                'completedCheckout.cashier',
+            ]);
+        }
 
         $availableSettings = Setting::query()
             ->orderBy('company_name')

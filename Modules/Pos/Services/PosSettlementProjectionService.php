@@ -355,79 +355,14 @@ class PosSettlementProjectionService
         ?string $dueDateFrom = null,
         ?string $dueDateTo = null
     ): array {
-        $query = $this->baseEligibleQuery()->with(array_merge(
-            self::reachableSalesEagerLoad(),
-            ['customer']
-        ));
-
-        if (!empty($customerId)) {
-            $query->where('pos_transactions.customer_id', $customerId);
-        }
-
-        if (!empty($businessFilters)) {
-            $query->whereIn('pos_transactions.setting_id', $businessFilters);
-        }
-
-        if (!empty($transactionDateFrom)) {
-            $query->whereDate('pos_transactions.created_at', '>=', $transactionDateFrom);
-        }
-        if (!empty($transactionDateTo)) {
-            $query->whereDate('pos_transactions.created_at', '<=', $transactionDateTo);
-        }
-
-        $transactions = $query->get();
-
-        $replacementContext = $this->prepareReplacementSales($transactions);
-
-        $outstandingCount = 0;
-        $outstandingTotal = 0.0;
-
-        $overdueCount = 0;
-        $overdueTotal = 0.0;
-
-        $paid30dCount = 0;
-        $paid30dTotal = 0.0;
-
-        foreach ($transactions as $trx) {
-            $projection = $this->project($trx, $replacementContext);
-
-            // Apply due date filters if specified
-            if (!empty($dueDateFrom) && ($projection['effective_due_date'] === null || $projection['effective_due_date'] < $dueDateFrom)) {
-                continue;
-            }
-            if (!empty($dueDateTo) && ($projection['effective_due_date'] === null || $projection['effective_due_date'] > $dueDateTo)) {
-                continue;
-            }
-
-            if ($projection['live_due'] > 0) {
-                $outstandingCount++;
-                $outstandingTotal += $projection['live_due'];
-            }
-
-            if ($projection['is_overdue']) {
-                $overdueCount++;
-                $overdueTotal += $projection['overdue_amount'] > 0 ? $projection['overdue_amount'] : $projection['live_due'];
-            }
-
-            if ($projection['has_recent_payment_30d']) {
-                $paid30dCount++;
-                $paid30dTotal += $projection['effective_paid'];
-            }
-        }
-
-        return [
-            'outstanding' => [
-                'count' => $outstandingCount,
-                'total' => round($outstandingTotal, 2),
-            ],
-            'overdue' => [
-                'count' => $overdueCount,
-                'total' => round($overdueTotal, 2),
-            ],
-            'paid_within_30_days' => [
-                'count' => $paid30dCount,
-                'total' => round($paid30dTotal, 2),
-            ],
-        ];
+        return app(PosGlobalPaymentReadService::class)->calculateSummaryCards(
+            $customerId,
+            $businessFilters,
+            $transactionDateFrom,
+            $transactionDateTo,
+            $dueDateFrom,
+            $dueDateTo,
+            $this
+        );
     }
 }

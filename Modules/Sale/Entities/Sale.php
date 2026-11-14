@@ -247,13 +247,15 @@ class Sale extends BaseModel implements HasMedia
      * Used by scopeWhereLiveDueAmountGreaterThan and scopeWhereLiveDueAmountLessThanOrEqual
      * to ensure both scopes implement the exact same calculation without drift.
      */
-    public static function canonicalLiveDueFormula(): string
+    public static function canonicalLiveDueFormula(?string $paymentsExpr = null): string
     {
-        return 'total_amount - COALESCE((
+        $paymentsTerm = $paymentsExpr ?? 'COALESCE((
             SELECT SUM(amount) FROM sale_payments
             WHERE sale_payments.sale_id = sales.id
             AND sale_payments.status = ?
-        ), 0) - COALESCE((
+        ), 0)';
+
+        return 'sales.total_amount - ' . $paymentsTerm . ' - COALESCE((
             SELECT SUM(spca.amount) FROM sale_payment_credit_applications spca
             INNER JOIN sale_payments sp ON spca.sale_payment_id = sp.id
             WHERE sp.sale_id = sales.id
@@ -279,11 +281,13 @@ class Sale extends BaseModel implements HasMedia
      *
      * @return array<int, string>
      */
-    public static function canonicalLiveDueFormulaBindings(): array
+    public static function canonicalLiveDueFormulaBindings(bool $includePaymentsBinding = true): array
     {
         $active = SalePayment::STATUS_ACTIVE;
 
-        return [$active, $active, $active, $active];
+        return $includePaymentsBinding
+            ? [$active, $active, $active, $active]
+            : [$active, $active, $active];
     }
 
     /**

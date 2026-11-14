@@ -493,4 +493,408 @@ class GlobalSalePaymentSearchTest extends TestCase
             ->set('search', 'Persisted Sales Snapshot')
             ->assertSee('SO-ORDINARY-LIST');
     }
+
+    public function test_empty_whitespace_repeated_tokens_and_broad_matches_without_caps()
+    {
+        $sales = [];
+        for ($i = 1; $i <= 7; $i++) {
+            $sales[] = $this->createSale([
+                'reference' => "SO-BROAD-CAP-{$i}",
+                'note' => 'CommonBroadToken shared note',
+                'setting_id' => $this->setting1->id,
+            ]);
+        }
+        $unrelated = $this->createSale([
+            'reference' => 'SO-UNRELATED-EMPTY',
+            'note' => 'SomethingElse',
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        // Empty and whitespace-only inputs are no-ops
+        $emptyIds = \App\Support\GlobalPaymentSearchQuery::applySaleSearch(
+            \Modules\Sale\Entities\Sale::query()->orderBy('id'),
+            ''
+        )->pluck('id')->all();
+        $whitespaceIds = \App\Support\GlobalPaymentSearchQuery::applySaleSearch(
+            \Modules\Sale\Entities\Sale::query()->orderBy('id'),
+            "   \t\n  "
+        )->pluck('id')->all();
+        $allIds = \Modules\Sale\Entities\Sale::query()->orderBy('id')->pluck('id')->all();
+
+        $this->assertSame($allIds, $emptyIds);
+        $this->assertSame($allIds, $whitespaceIds);
+
+        // Broad multi-row match across > 5 records without truncation
+        $broadIds = \App\Support\GlobalPaymentSearchQuery::applySaleSearch(
+            \Modules\Sale\Entities\Sale::query()->orderBy('id'),
+            'CommonBroadToken'
+        )->pluck('id')->all();
+        $this->assertCount(7, $broadIds);
+        $this->assertNotContains($unrelated->id, $broadIds);
+
+        // Repeated identical tokens match the exact same distinct set without duplicates
+        $repeatedIds = \App\Support\GlobalPaymentSearchQuery::applySaleSearch(
+            \Modules\Sale\Entities\Sale::query()->orderBy('id'),
+            'CommonBroadToken CommonBroadToken'
+        )->pluck('id')->all();
+        $this->assertSame($broadIds, $repeatedIds);
+
+        // Non-matching query returns empty without error
+        $noneIds = \App\Support\GlobalPaymentSearchQuery::applySaleSearch(
+            \Modules\Sale\Entities\Sale::query(),
+            'DefinitelyMissingSearchToken999'
+        )->pluck('id')->all();
+        $this->assertSame([], $noneIds);
+    }
+
+    public function test_all_header_customer_tag_pos_split_bundle_and_cross_field_token_routes()
+    {
+        $contactCustomer = Customer::factory()->create([
+            'customer_name' => 'PT Harapan Nusantara',
+            'contact_name' => 'Pak Hendrawan',
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        $saleHeader = $this->createSale([
+            'reference' => 'SO-HDR-ROUTE',
+            'imported_sales_reference_number' => 'IMP-LEGACY-551',
+            'tax_ref_no' => 'FP-010-2026-88',
+            'note' => 'UrgentCrossNote dispatch',
+            'customer_id' => $contactCustomer->id,
+            'customer_name' => $contactCustomer->canonical_name,
+            'setting_id' => $this->setting1->id,
+        ]);
+        $saleHeader->attachTag('PriorityVIP');
+
+        $product = $this->createProduct([
+            'product_name' => 'Alpha Industrial Compressor',
+            'product_code' => 'AIC-PRO-900',
+        ]);
+        $detail = $this->createSaleDetail($saleHeader, $product);
+
+        \Modules\Sale\Entities\SaleBundleItem::create([
+            'sale_id' => $saleHeader->id,
+            'sale_detail_id' => $detail->id,
+            'bundle_id' => 1,
+            'bundle_item_id' => 1,
+            'product_id' => $product->id,
+            'name' => 'Silent Muffler Addon',
+            'quantity' => 1,
+            'price' => 0,
+            'sub_total' => 0,
+        ]);
+
+        $terminal = \Modules\Pos\Entities\PosTerminal::create([
+            'setting_id' => $this->setting1->id,
+            'name' => 'Search Term 1',
+            'code' => 'T-SRCH-1',
+            'is_active' => true,
+        ]);
+        $session = \Modules\Pos\Entities\PosSession::create([
+            'setting_id' => $this->setting1->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'status' => 'OPEN',
+            'opened_at' => now(),
+            'opening_float_total' => 0,
+        ]);
+        $trxSplit = \Modules\Pos\Entities\PosTransaction::create([
+            'setting_id' => $this->setting1->id,
+            'customer_id' => $contactCustomer->id,
+            'created_by' => $this->user->id,
+            'owner_user_id' => $this->user->id,
+            'last_saved_by' => $this->user->id,
+            'source_pos_session_id' => $session->id,
+            'code' => 'TRX-SPLIT-ROUTE-77',
+            'status' => \Modules\Pos\Entities\PosTransaction::STATUS_COMPLETED,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $checkoutSplit = \Modules\Pos\Entities\PosCheckout::create([
+            'setting_id' => $this->setting1->id,
+            'pos_transaction_id' => $trxSplit->id,
+            'pos_session_id' => $session->id,
+            'terminal_id' => $terminal->id,
+            'cashier_user_id' => $this->user->id,
+            'customer_id' => $contactCustomer->id,
+            'receipt_number' => 'RCP-SPLIT-8899',
+            'status' => \Modules\Pos\Entities\PosCheckout::STATUS_POSTED,
+            'idempotency_key' => uniqid('', true),
+            'payload_hash' => 'hash_split_' . uniqid(),
+            'subtotal' => 100000,
+            'grand_total' => 100000,
+            'paid_total' => 0,
+        ]);
+
+        $salePosSplit = $this->createSale([
+            'reference' => 'SO-POS-SPLIT-99',
+            'customer_id' => $contactCustomer->id,
+            'customer_name' => $contactCustomer->canonical_name,
+            'setting_id' => $this->setting1->id,
+        ]);
+        \Modules\Pos\Entities\PosCheckoutSale::create([
+            'pos_checkout_id' => $checkoutSplit->id,
+            'sale_id' => $salePosSplit->id,
+            'split_key' => 'main',
+            'source_setting_id' => $this->setting1->id,
+            'source_location_id' => $this->location->id,
+            'tax_bucket' => 'NON_PKP',
+            'subtotal' => 100000,
+            'grand_total' => 100000,
+            'paid_total' => 0,
+        ]);
+
+        // Single sources + cross-field intersections
+        foreach ([
+            'IMP-LEGACY-551 Pak Hendrawan' => [$saleHeader->id],
+            'FP-010-2026-88 UrgentCrossNote' => [$saleHeader->id],
+            'PriorityVIP AIC-PRO-900' => [$saleHeader->id],
+            'Silent SO-HDR-ROUTE' => [$saleHeader->id],
+            'TRX-SPLIT-ROUTE-77 RCP-SPLIT-8899' => [$salePosSplit->id],
+            'PriorityVIP SO-POS-SPLIT-99' => [],
+        ] as $term => $expectedIds) {
+            $actualIds = \App\Support\GlobalPaymentSearchQuery::applySaleSearch(
+                \Modules\Sale\Entities\Sale::query()->orderBy('id'),
+                $term
+            )->pluck('id')->all();
+            $this->assertSame($expectedIds, $actualIds, "Failed search term: {$term}");
+        }
+    }
+
+    public function test_full_input_identity_matches_alongside_text_matches_numeric_and_string_json_serials_and_deduplication()
+    {
+        // 1. Multi-word serial + full-input barcode do not require all tokens to match text,
+        //    yet also preserve pure text matches (exact match does NOT terminate text search).
+        $barcodeProduct = $this->createProduct([
+            'product_name' => 'Barcode Device',
+            'product_code' => 'BD-100',
+            'barcode' => 'BAR MULTI 001',
+        ]);
+        $saleBarcode = $this->createSale([
+            'reference' => 'SO-BARCODE-FULL',
+            'setting_id' => $this->setting1->id,
+        ]);
+        $this->createSaleDetail($saleBarcode, $barcodeProduct);
+
+        $saleTextSamePhrase = $this->createSale([
+            'reference' => 'SO-TEXT-SAME-PHRASE',
+            'note' => 'Contains BAR and MULTI and 001 in note',
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
+            ->set('search', 'bar multi 001')
+            ->assertSee('SO-BARCODE-FULL')
+            ->assertSee('SO-TEXT-SAME-PHRASE');
+
+        // 2. Absent catalogue product (product_id = null): BOTH numeric JSON [id] and stringified JSON ["id"] match once.
+        $serialNum = ProductSerialNumber::create([
+            'product_id' => $barcodeProduct->id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'SN-MULTI-ROUTE 77%',
+            'status' => ProductSerialNumber::STATUS_SOLD,
+        ]);
+        $serialStr = ProductSerialNumber::create([
+            'product_id' => $barcodeProduct->id,
+            'location_id' => $this->location->id,
+            'serial_number' => 'SN-STRING-JSON-88',
+            'status' => ProductSerialNumber::STATUS_SOLD,
+        ]);
+
+        // Duplicate routes on the same Sale (tracking + dispatch JSON + two sale_details with numeric serial_number_ids)
+        $saleMultiRoute = $this->createSale([
+            'reference' => 'SO-MULTI-ROUTE-ONCE',
+            'setting_id' => $this->setting1->id,
+        ]);
+        $this->createSaleDetail($saleMultiRoute, null, [
+            'product_id' => null,
+            'serial_number_ids' => [$serialNum->id],
+        ]);
+        $this->createSaleDetail($saleMultiRoute, null, [
+            'product_id' => null,
+            'serial_number_ids' => [$serialNum->id],
+        ]);
+        SalesOrderSerialTracking::create([
+            'sale_id' => $saleMultiRoute->id,
+            'product_serial_number_id' => $serialNum->id,
+            'quantity_allocated' => 1,
+            'dispatch_date' => now(),
+        ]);
+        $dispatch = Dispatch::create([
+            'sale_id' => $saleMultiRoute->id,
+            'dispatch_date' => now()->toDateString(),
+            'status' => Dispatch::STATUS_APPROVED,
+        ]);
+        DispatchDetail::create([
+            'dispatch_id' => $dispatch->id,
+            'sale_id' => $saleMultiRoute->id,
+            'product_id' => $barcodeProduct->id,
+            'dispatched_quantity' => 1,
+            'location_id' => $this->location->id,
+            'serial_numbers' => json_encode(['SN-MULTI-ROUTE 77%']),
+        ]);
+
+        // Stringified JSON ["123"] on sale_details with product_id = null.
+        // Note: SQLite json_each matches this due to INTEGER column/value affinity; MySQL numeric-only JSON_CONTAINS parity is verified in GlobalPaymentSettlementReadsMysqlTest.
+        $saleStringJson = $this->createSale([
+            'reference' => 'SO-STRING-JSON-ONCE',
+            'setting_id' => $this->setting1->id,
+        ]);
+        $strDetail = $this->createSaleDetail($saleStringJson, null, [
+            'product_id' => null,
+        ]);
+        \Illuminate\Support\Facades\DB::table('sale_details')
+            ->where('id', $strDetail->id)
+            ->update(['serial_number_ids' => json_encode([(string) $serialStr->id])]);
+
+        \Illuminate\Support\Facades\DB::flushQueryLog();
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+        $multiRouteQuery = \App\Support\GlobalPaymentSearchQuery::applySaleSearch(
+            \Modules\Sale\Entities\Sale::query(),
+            'sn-multi-route 77%'
+        );
+        $buildQueries = \Illuminate\Support\Facades\DB::getQueryLog();
+        \Illuminate\Support\Facades\DB::disableQueryLog();
+
+        $this->assertCount(0, $buildQueries, 'applySaleSearch must defer serial lookup into SQL without eager queries outside snapshots');
+
+        $matchedMultiRouteIds = $multiRouteQuery->pluck('id')->all();
+        $this->assertSame([$saleMultiRoute->id], $matchedMultiRouteIds);
+
+        $matchedStringJsonIds = \App\Support\GlobalPaymentSearchQuery::applySaleSearch(
+            \Modules\Sale\Entities\Sale::query(),
+            'sn-string-json-88'
+        )->pluck('id')->all();
+        $this->assertSame([$saleStringJson->id], $matchedStringJsonIds);
+    }
+
+    public function test_long_input_exceeding_61_distinct_tokens_intersects_without_join_limit()
+    {
+        $tokens = [];
+        for ($i = 1; $i <= 65; $i++) {
+            $tokens[] = sprintf('tok%02d', $i);
+        }
+
+        $noteTokens = implode(' ', array_slice($tokens, 0, 25));
+        $customerTokens = implode(' ', array_slice($tokens, 25, 25));
+        $productAllTokens = implode(' ', array_slice($tokens, 50, 15));
+        $productMissingOneTokens = implode(' ', array_slice($tokens, 50, 14));
+
+        $productMatch = $this->createProduct([
+            'product_name' => $productAllTokens,
+            'product_code' => 'SKU-LONG-65',
+            'barcode' => 'BAR-LONG-65',
+        ]);
+        $productPartial = $this->createProduct([
+            'product_name' => $productMissingOneTokens,
+            'product_code' => 'SKU-LONG-64',
+            'barcode' => 'BAR-LONG-64',
+        ]);
+
+        $longCustomer = Customer::factory()->create([
+            'customer_name' => $customerTokens,
+            'contact_name' => 'Long Contact',
+            'setting_id' => $this->setting1->id,
+        ]);
+
+        $saleAll65 = $this->createSale([
+            'reference' => 'SO-LONG-65',
+            'customer_id' => $longCustomer->id,
+            'customer_name' => $longCustomer->canonical_name,
+            'note' => $noteTokens,
+            'setting_id' => $this->setting1->id,
+        ]);
+        $this->createSaleDetail($saleAll65, $productMatch);
+
+        $saleOnly64 = $this->createSale([
+            'reference' => 'SO-LONG-64',
+            'customer_id' => $longCustomer->id,
+            'customer_name' => $longCustomer->canonical_name,
+            'note' => $noteTokens,
+            'setting_id' => $this->setting1->id,
+        ]);
+        $this->createSaleDetail($saleOnly64, $productPartial);
+
+        $matchedIds = \App\Support\GlobalPaymentSearchQuery::applySaleSearch(
+            Sale::query(),
+            implode(' ', $tokens)
+        )->pluck('id')->all();
+
+        $this->assertSame([$saleAll65->id], $matchedIds);
+    }
+
+    public function test_search_respects_outer_card_business_customer_and_archived_scopes()
+    {
+        $unpaidDueSale = $this->createSale([
+            'reference' => 'SO-SCOPE-DUE',
+            'note' => 'ScopeTargetWidget',
+            'setting_id' => $this->setting1->id,
+            'customer_id' => $this->customer->id,
+            'payment_status' => 'UNPAID',
+            'total_amount' => 150000,
+            'paid_amount' => 0,
+            'due_amount' => 150000,
+            'due_date' => now()->subDays(5)->toDateString(),
+        ]);
+
+        $paidSale = $this->createSale([
+            'reference' => 'SO-SCOPE-PAID',
+            'note' => 'ScopeTargetWidget',
+            'setting_id' => $this->setting1->id,
+            'customer_id' => $this->customer->id,
+            'payment_status' => 'PAID',
+            'total_amount' => 150000,
+            'paid_amount' => 150000,
+            'due_amount' => 0,
+            'due_date' => now()->addDays(5)->toDateString(),
+        ]);
+        \Modules\Sale\Entities\SalePayment::create([
+            'sale_id' => $paidSale->id,
+            'amount' => 150000,
+            'date' => now()->toDateString(),
+            'reference' => 'PAY-SCOPE-PAID',
+            'status' => \Modules\Sale\Entities\SalePayment::STATUS_ACTIVE,
+            'payment_method' => 'Cash',
+        ]);
+
+        $returnedArchivedSale = $this->createSale([
+            'reference' => 'SO-SCOPE-RETURNED',
+            'note' => 'ScopeTargetWidget',
+            'setting_id' => $this->setting1->id,
+            'customer_id' => $this->customer->id,
+            'status' => \Modules\Sale\Entities\Sale::STATUS_RETURNED,
+            'payment_status' => 'UNPAID',
+            'total_amount' => 150000,
+            'due_amount' => 150000,
+        ]);
+
+        $otherBusinessSale = $this->createSale([
+            'reference' => 'SO-SCOPE-SET2',
+            'note' => 'ScopeTargetWidget',
+            'setting_id' => $this->setting2->id,
+            'customer_id' => $this->customer2->id,
+            'payment_status' => 'UNPAID',
+            'total_amount' => 150000,
+            'due_amount' => 150000,
+        ]);
+
+        // Card filter + search never leaks PAID, RETURNED/archived, or other customer/business rows
+        Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
+            ->set('dueAmountOnly', true)
+            ->set('search', 'ScopeTargetWidget')
+            ->assertSee('SO-SCOPE-DUE')
+            ->assertDontSee('SO-SCOPE-PAID')
+            ->assertDontSee('SO-SCOPE-RETURNED');
+
+        Livewire::test(\App\Livewire\Sale\SaleTable::class, [
+            'globalMode' => true,
+            'customerId' => $this->customer->id,
+        ])
+            ->set('globalBusinessFilters', [$this->setting1->id])
+            ->set('search', 'ScopeTargetWidget')
+            ->assertSee('SO-SCOPE-DUE')
+            ->assertSee('SO-SCOPE-PAID')
+            ->assertDontSee('SO-SCOPE-RETURNED')
+            ->assertDontSee('SO-SCOPE-SET2');
+    }
 }

@@ -2,9 +2,13 @@
 
 namespace Modules\Sale\Services;
 
+use App\Support\ConsistentReadSnapshot;
 use Carbon\Carbon;
+use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\DB;
 use Modules\Sale\Entities\Sale;
 use Modules\Sale\Entities\SalePayment;
@@ -38,24 +42,42 @@ class GlobalSaleSummaryQuery
         ?string $dueDateFrom,
         ?string $dueDateTo
     ): array {
-        $row = $this->summaryAggregateQuery($customerId, $businessIds, $documentDateFrom, $documentDateTo, $dueDateFrom, $dueDateTo)
-            ->first();
+        return ConsistentReadSnapshot::run(function () use (
+            $customerId,
+            $businessIds,
+            $documentDateFrom,
+            $documentDateTo,
+            $dueDateFrom,
+            $dueDateTo
+        ): array {
+            $row = $this->summaryAggregateQuery(
+                $customerId,
+                $businessIds,
+                $documentDateFrom,
+                $documentDateTo,
+                $dueDateFrom,
+                $dueDateTo
+            )->first();
 
-        return [
-            'outstanding' => [
-                'count' => (int) ($row->outstanding_count ?? 0),
-                'total' => (float) ($row->outstanding_total ?? 0),
-            ],
-            'overdue' => [
-                'count' => (int) ($row->overdue_count ?? 0),
-                'total' => (float) ($row->overdue_total ?? 0),
-            ],
-            'recent' => $this->recentCollections($customerId, $businessIds, $documentDateFrom, $documentDateTo, $dueDateFrom, $dueDateTo),
-        ];
+            return [
+                'outstanding' => [
+                    'count' => (int) ($row->outstanding_count ?? 0),
+                    'total' => (float) ($row->outstanding_total ?? 0),
+                ],
+                'overdue' => [
+                    'count' => (int) ($row->overdue_count ?? 0),
+                    'total' => (float) ($row->overdue_total ?? 0),
+                ],
+                'recent' => [
+                    'count' => (int) ($row->recent_count ?? 0),
+                    'total' => (float) ($row->recent_total ?? 0),
+                ],
+            ];
+        }, (new Sale())->getConnection());
     }
 
     /**
-     * Single grouped aggregate query producing outstanding/overdue counts and totals.
+     * Single grouped aggregate query producing all three Sales summary cards together.
      */
     public function summaryAggregateQuery(
         ?int $customerId,
@@ -68,6 +90,7 @@ class GlobalSaleSummaryQuery
         $raw = $this->rawDueExpression();
         $due = $this->clampedAccessorDueExpression();
         $overdueCondition = "({$raw}) > 0 AND sales.due_date < ?";
+        $recentCondition = "({$raw}) <= 0 AND COALESCE(agg_pay.has_recent_payment, 0) = 1";
         $today = Carbon::today();
 
         return $this->scopedSalesWithSettlement($customerId, $businessIds, $documentDateFrom, $documentDateTo, $dueDateFrom, $dueDateTo)
@@ -75,9 +98,92 @@ class GlobalSaleSummaryQuery
                 "COALESCE(SUM(CASE WHEN ({$raw}) > 0 THEN 1 ELSE 0 END), 0) AS outstanding_count, "
                 . "COALESCE(SUM(CASE WHEN ({$raw}) > 0 THEN {$due} ELSE 0 END), 0) AS outstanding_total, "
                 . "COALESCE(SUM(CASE WHEN {$overdueCondition} THEN 1 ELSE 0 END), 0) AS overdue_count, "
-                . "COALESCE(SUM(CASE WHEN {$overdueCondition} THEN {$due} ELSE 0 END), 0) AS overdue_total",
+                . "COALESCE(SUM(CASE WHEN {$overdueCondition} THEN {$due} ELSE 0 END), 0) AS overdue_total, "
+                . "COALESCE(SUM(CASE WHEN {$recentCondition} THEN 1 ELSE 0 END), 0) AS recent_count, "
+                . "COALESCE(SUM(CASE WHEN {$recentCondition} THEN COALESCE(agg_pay.recent_amount_sum, 0) ELSE 0 END), 0) AS recent_total",
                 [$today, $today]
             );
+    }
+
+    /**
+     * Restrict a global Sales table query to fully-settled Sales with at least one active payment
+     * in the last 30 days (table semantics: date >= today - 30d without an upper endOfDay bound).
+     */
+    public function applyPaidLast30DaysGlobal(Builder $query): Builder
+    {
+        $active = SalePayment::STATUS_ACTIVE;
+        $thirtyDaysAgo = Carbon::today()->subDays(30)->format('Y-m-d');
+        $connection = $query->getConnection();
+
+        $recentPayments = $connection->table('sale_payments')
+            ->where('status', $active)
+            ->groupBy('sale_id')
+            ->havingRaw('MAX(CASE WHEN date >= ? THEN 1 ELSE 0 END) = 1', [$thirtyDaysAgo])
+            ->selectRaw('sale_id, SUM(amount) AS amount_sum');
+
+        $rawFormula = Sale::canonicalLiveDueFormula('COALESCE(agg_pay.amount_sum, 0)');
+        $bindings = Sale::canonicalLiveDueFormulaBindings(false);
+
+        return $query
+            ->joinSub($recentPayments, 'agg_pay', 'agg_pay.sale_id', '=', 'sales.id')
+            ->whereRaw("({$rawFormula}) <= 0", $bindings);
+    }
+
+    /**
+     * Paginate financial-filtered Sale IDs using a single COUNT(*) OVER() query on the ID slice,
+     * falling back to a count query only when page > 1 returns empty rows, then hydrating only
+     * visible rows in the exact selected ID order within a consistent snapshot.
+     *
+     * @param  Closure(array<int, int>): \Illuminate\Support\Collection  $hydrator
+     */
+    public function paginateFinancialSales(
+        Builder $baseQuery,
+        int $perPage,
+        int $page,
+        Closure $hydrator
+    ): LengthAwarePaginator {
+        $page = max(1, $page);
+        $perPage = max(1, $perPage);
+        $connection = $baseQuery->getConnection();
+
+        return ConsistentReadSnapshot::run(function () use ($baseQuery, $perPage, $page, $hydrator): LengthAwarePaginator {
+            $windowRows = (clone $baseQuery)
+                ->toBase()
+                ->selectRaw('sales.id AS id, COUNT(*) OVER() AS __total_count')
+                ->forPage($page, $perPage)
+                ->get();
+
+            if ($windowRows->isNotEmpty()) {
+                $pageIds = $windowRows->pluck('id')->map(fn ($id): int => (int) $id)->all();
+                $total = (int) $windowRows->first()->__total_count;
+            } elseif ($page === 1) {
+                $pageIds = [];
+                $total = 0;
+            } else {
+                // Explicit empty-offset count fallback when page > 1 overshoots matching results.
+                $pageIds = [];
+                $total = (int) (clone $baseQuery)
+                    ->reorder()
+                    ->toBase()
+                    ->cloneWithout(['columns', 'limit', 'offset'])
+                    ->count();
+            }
+
+            $items = $pageIds === []
+                ? collect()
+                : $hydrator($pageIds);
+
+            return new LengthAwarePaginator(
+                $items,
+                $total,
+                $perPage,
+                $page,
+                [
+                    'path' => Paginator::resolveCurrentPath(),
+                    'pageName' => 'page',
+                ]
+            );
+        }, $connection);
     }
 
     /**
@@ -137,10 +243,18 @@ class GlobalSaleSummaryQuery
             return $narrowed ? $query->whereIn($column, $scope()->select('sales.id')->toBase()) : $query;
         };
 
+        $recentStart = Carbon::today()->subDays(30)->format('Y-m-d');
+        $recentEnd = Carbon::today()->endOfDay()->format('Y-m-d H:i:s');
+
         $payments = DB::table('sale_payments')
             ->where('status', $active)
             ->groupBy('sale_id')
-            ->selectRaw('sale_id, SUM(amount) AS amount_sum');
+            ->selectRaw(
+                'sale_id, SUM(amount) AS amount_sum, '
+                . 'SUM(CASE WHEN date >= ? AND date <= ? THEN amount ELSE 0 END) AS recent_amount_sum, '
+                . 'MAX(CASE WHEN date >= ? AND date <= ? THEN 1 ELSE 0 END) AS has_recent_payment',
+                [$recentStart, $recentEnd, $recentStart, $recentEnd]
+            );
 
         $credits = DB::table('sale_payment_credit_applications as spca')
             ->join('sale_payments as sp', 'spca.sale_payment_id', '=', 'sp.id')

@@ -2,6 +2,8 @@
 
 namespace App\Livewire\Sale;
 
+use App\Support\ConsistentReadSnapshot;
+use App\Support\GlobalPaymentSearchQuery;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
@@ -316,128 +318,153 @@ class SaleTable extends Component
             ];
         }
 
-        $query = ($this->showArchived ? Sale::archived() : Sale::query())
-            ->with(['customer', 'saleDetails', 'tags', 'posCheckout.transaction', 'checkoutSale.checkout.transaction', 'tenantSetting'])
-            ->withLiveSettlementAggregates();
+        $isFinancialGlobal = $this->globalMode && ($this->dueAmountOnly || $this->overdueOnly || $this->paidLast30DaysOnly);
+        $summaryQuery = $isFinancialGlobal ? app(\Modules\Sale\Services\GlobalSaleSummaryQuery::class) : null;
 
-        // Apply setting scope only if not in global mode
-        if (!$this->globalMode) {
-            $query->where('setting_id', $this->settingId);
-        } else {
-            // Global mode excludes archived sales
-            $query->whereNull('archived_at');
-
-            // Apply business filter if set (empty array means all businesses)
-            if (!empty($this->globalBusinessFilters)) {
-                $query->whereIn('setting_id', $this->globalBusinessFilters);
+        $executeGlobalOrLocalRead = function () use ($statuses, $isFinancialGlobal, $summaryQuery) {
+            $query = $this->showArchived ? Sale::archived() : Sale::query();
+            if (!$isFinancialGlobal) {
+                $query->with(['customer', 'saleDetails', 'tags', 'posCheckout.transaction', 'checkoutSale.checkout.transaction', 'tenantSetting'])
+                    ->withLiveSettlementAggregates();
             }
 
-            // Apply document date range filter if set
-            if (!empty($this->documentDateFrom)) {
-                $query->where('date', '>=', $this->documentDateFrom);
-            }
-            if (!empty($this->documentDateTo)) {
-                $query->where('date', '<=', $this->documentDateTo);
-            }
+            // Apply setting scope only if not in global mode
+            if (!$this->globalMode) {
+                $query->where('sales.setting_id', $this->settingId);
+            } else {
+                // Global mode excludes archived sales
+                $query->whereNull('sales.archived_at');
 
-            // Apply due date range filter if set
-            if (!empty($this->dueDateFrom)) {
-                $query->where('due_date', '>=', $this->dueDateFrom);
-            }
-            if (!empty($this->dueDateTo)) {
-                $query->where('due_date', '<=', Carbon::parse($this->dueDateTo)->endOfDay());
-            }
-        }
-
-        $query->when($statuses !== null, function ($q) use ($statuses) {
-                $q->whereIn('status', $statuses);
-            })
-            ->when(! empty($this->saleId), function ($q) {
-                $q->where('id', $this->saleId);
-            })
-            ->when(! empty($this->customerId), function ($q) {
-                $q->where('customer_id', $this->customerId);
-            })
-            ->when(! empty($this->paymentStatusFilter), function ($q) {
-                $q->where('payment_status', $this->paymentStatusFilter);
-            })
-            ->when(! empty($this->paymentStatusFilters), function ($q) {
-                $q->whereIn('payment_status', $this->paymentStatusFilters);
-            })
-            ->when($this->dueAmountOnly, function ($q) {
-                $q->whereLiveDueAmountGreaterThan(0);
-            })
-            ->when($this->overdueOnly, function ($q) {
-                $q->where('due_date', '<', Carbon::today())
-                  ->whereLiveDueAmountGreaterThan(0);
-            })
-            ->when($this->paidLast30DaysOnly, function ($q) {
-                $thirtyDaysAgo = Carbon::today()->subDays(30)->format('Y-m-d');
-                if ($this->globalMode) {
-                    // Global mode: fully paid sales with active payment in past 30 days
-                    $q->whereLiveDueAmountLessThanOrEqual(0)
-                      ->whereHas('salePayments', function ($pq) use ($thirtyDaysAgo) {
-                          $pq->where('date', '>=', $thirtyDaysAgo)
-                             ->where('status', \Modules\Sale\Entities\SalePayment::STATUS_ACTIVE);
-                      });
-                } else {
-                    $q->where(function ($sub) use ($thirtyDaysAgo) {
-                        $sub->whereHas('salePayments', function ($pq) use ($thirtyDaysAgo) {
-                            $pq->where('date', '>=', $thirtyDaysAgo)
-                               ->where('status', \Modules\Sale\Entities\SalePayment::STATUS_ACTIVE);
-                        })->orWhere('date', '>=', $thirtyDaysAgo);
-                    });
+                // Apply business filter if set (empty array means all businesses)
+                if (!empty($this->globalBusinessFilters)) {
+                    $query->whereIn('sales.setting_id', $this->globalBusinessFilters);
                 }
-            })
-            ->when($this->search, function ($q) {
-                if ($this->globalMode) {
-                    \App\Support\GlobalPaymentSearchQuery::applySaleSearch($q, $this->search);
-                } else {
-                    $q->where(function ($qq) {
-                        $search = $this->search;
-                        $qq->where('reference', 'like', "%{$search}%")
-                            ->orWhere('imported_sales_reference_number', 'like', "%{$search}%")
-                            ->orWhere('tax_ref_no', 'like', "%{$search}%")
-                            ->orWhere('note', 'like', "%{$search}%")
-                            ->orWhereHas('customer', function ($q2) use ($search) {
-                                $q2->where('customer_name', 'like', "%{$search}%")
-                                    ->orWhere('contact_name', 'like', "%{$search}%");
-                            })
-                            ->orWhereHas('saleDetails', function ($q2) use ($search) {
-                                $q2->where('product_name', 'like', "%{$search}%")
-                                   ->orWhere('product_code', 'like', "%{$search}%");
-                            })
-                            ->orWhereHas('tags', function ($q2) use ($search) {
-                                $q2->where('name->en', 'like', "%{$search}%");
-                            })
-                            ->orWhereHas('posCheckout', function ($q2) use ($search) {
-                                $q2->where('receipt_number', 'like', "%{$search}%")
-                                   ->orWhereHas('transaction', function ($q3) use ($search) {
-                                       $q3->where('code', 'like', "%{$search}%");
-                                   });
-                            })
-                            ->orWhereHas('checkoutSale.checkout', function ($q2) use ($search) {
-                                $q2->where('receipt_number', 'like', "%{$search}%")
-                                   ->orWhereHas('transaction', function ($q3) use ($search) {
-                                       $q3->where('code', 'like', "%{$search}%");
-                                   });
-                            })
-                            ->orWhereHas('bundleItems', function ($q2) use ($search) {
-                                $q2->where('name', 'like', "%{$search}%");
-                            });
-                    });
-                }
-            })
-            ->when($this->sortField === 'date', function ($q) {
-                $q->orderByRaw('COALESCE(sales.reporting_date, sales.date) ' . ($this->sortDirection === 'asc' ? 'asc' : 'desc'));
-            }, function ($q) {
-                $q->orderBy($this->sortField, $this->sortDirection);
-            })
-            ->when($this->sortField !== 'id', function ($q) {
-                $q->orderBy('id', $this->sortDirection);
-            });
 
-        $sales = $query->paginate($this->perPage);
+                // Apply document date range filter if set
+                if (!empty($this->documentDateFrom)) {
+                    $query->where('sales.date', '>=', $this->documentDateFrom);
+                }
+                if (!empty($this->documentDateTo)) {
+                    $query->where('sales.date', '<=', $this->documentDateTo);
+                }
+
+                // Apply due date range filter if set
+                if (!empty($this->dueDateFrom)) {
+                    $query->where('sales.due_date', '>=', $this->dueDateFrom);
+                }
+                if (!empty($this->dueDateTo)) {
+                    $query->where('sales.due_date', '<=', Carbon::parse($this->dueDateTo)->endOfDay());
+                }
+            }
+
+            $query->when($statuses !== null, function ($q) use ($statuses) {
+                    $q->whereIn('sales.status', $statuses);
+                })
+                ->when(! empty($this->saleId), function ($q) {
+                    $q->where('sales.id', $this->saleId);
+                })
+                ->when(! empty($this->customerId), function ($q) {
+                    $q->where('sales.customer_id', $this->customerId);
+                })
+                ->when(! empty($this->paymentStatusFilter), function ($q) {
+                    $q->where('sales.payment_status', $this->paymentStatusFilter);
+                })
+                ->when(! empty($this->paymentStatusFilters), function ($q) {
+                    $q->whereIn('sales.payment_status', $this->paymentStatusFilters);
+                })
+                ->when($this->dueAmountOnly, function ($q) {
+                    $q->whereLiveDueAmountGreaterThan(0);
+                })
+                ->when($this->overdueOnly, function ($q) {
+                    $q->where('sales.due_date', '<', Carbon::today())
+                      ->whereLiveDueAmountGreaterThan(0);
+                })
+                ->when($this->paidLast30DaysOnly, function ($q) use ($summaryQuery) {
+                    if ($this->globalMode) {
+                        $summaryQuery->applyPaidLast30DaysGlobal($q);
+                    } else {
+                        $thirtyDaysAgo = Carbon::today()->subDays(30)->format('Y-m-d');
+                        $q->where(function ($sub) use ($thirtyDaysAgo) {
+                            $sub->whereHas('salePayments', function ($pq) use ($thirtyDaysAgo) {
+                                $pq->where('date', '>=', $thirtyDaysAgo)
+                                   ->where('status', \Modules\Sale\Entities\SalePayment::STATUS_ACTIVE);
+                            })->orWhere('date', '>=', $thirtyDaysAgo);
+                        });
+                    }
+                })
+                ->when($this->search, function ($q) {
+                    if ($this->globalMode) {
+                        GlobalPaymentSearchQuery::applySaleSearch($q, $this->search);
+                    } else {
+                        $q->where(function ($qq) {
+                            $search = $this->search;
+                            $qq->where('reference', 'like', "%{$search}%")
+                                ->orWhere('imported_sales_reference_number', 'like', "%{$search}%")
+                                ->orWhere('tax_ref_no', 'like', "%{$search}%")
+                                ->orWhere('note', 'like', "%{$search}%")
+                                ->orWhereHas('customer', function ($q2) use ($search) {
+                                    $q2->where('customer_name', 'like', "%{$search}%")
+                                        ->orWhere('contact_name', 'like', "%{$search}%");
+                                })
+                                ->orWhereHas('saleDetails', function ($q2) use ($search) {
+                                    $q2->where('product_name', 'like', "%{$search}%")
+                                       ->orWhere('product_code', 'like', "%{$search}%");
+                                })
+                                ->orWhereHas('tags', function ($q2) use ($search) {
+                                    $q2->where('name->en', 'like', "%{$search}%");
+                                })
+                                ->orWhereHas('posCheckout', function ($q2) use ($search) {
+                                    $q2->where('receipt_number', 'like', "%{$search}%")
+                                       ->orWhereHas('transaction', function ($q3) use ($search) {
+                                           $q3->where('code', 'like', "%{$search}%");
+                                       });
+                                })
+                                ->orWhereHas('checkoutSale.checkout', function ($q2) use ($search) {
+                                    $q2->where('receipt_number', 'like', "%{$search}%")
+                                       ->orWhereHas('transaction', function ($q3) use ($search) {
+                                           $q3->where('code', 'like', "%{$search}%");
+                                       });
+                                })
+                                ->orWhereHas('bundleItems', function ($q2) use ($search) {
+                                    $q2->where('name', 'like', "%{$search}%");
+                                });
+                        });
+                    }
+                })
+                ->when($this->sortField === 'date', function ($q) {
+                    $q->orderByRaw('COALESCE(sales.reporting_date, sales.date) ' . ($this->sortDirection === 'asc' ? 'asc' : 'desc'));
+                }, function ($q) {
+                    $q->orderBy($q->qualifyColumn($this->sortField), $this->sortDirection);
+                })
+                ->when($this->sortField !== 'id', function ($q) {
+                    $q->orderBy('sales.id', $this->sortDirection);
+                });
+
+            return $isFinancialGlobal
+                ? $summaryQuery->paginateFinancialSales(
+                    $query,
+                    (int) $this->perPage,
+                    \Illuminate\Pagination\Paginator::resolveCurrentPage('page'),
+                    function (array $pageIds) {
+                        $hydrated = ($this->showArchived ? Sale::archived() : Sale::query())
+                            ->whereIn('sales.id', $pageIds)
+                            ->with(['customer', 'saleDetails', 'tags', 'posCheckout.transaction', 'checkoutSale.checkout.transaction', 'tenantSetting'])
+                            ->withLiveSettlementAggregates()
+                            ->get()
+                            ->keyBy('id');
+
+                        return collect($pageIds)
+                            ->map(fn (int $id) => $hydrated->get($id))
+                            ->filter()
+                            ->values();
+                    }
+                )
+                : $query->paginate($this->perPage);
+        };
+
+        $sales = $this->globalMode
+            ? ConsistentReadSnapshot::run(fn () => $executeGlobalOrLocalRead(), Sale::query()->getConnection())
+            : $executeGlobalOrLocalRead();
 
         $availableSettings = [];
         if ($this->globalMode) {
