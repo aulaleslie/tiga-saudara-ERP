@@ -59,9 +59,10 @@ class PosReturnEditForm extends Component
         $registeredComponentLineIds = \Modules\SalesReturn\Entities\ReturnSerialRegistration::query()
             ->where('workflow', 'pos')->where('pos_return_id', $return->id)->whereNull('registered_serial_id')
             ->pluck('pos_return_line_id')->all();
-        $existingLines = $lines->reject(fn ($line) => $line->bundle_parent_sale_detail_id
-            && (int) $line->bundle_parent_sale_detail_id !== (int) $line->sale_detail_id
-            && in_array($line->id, $registeredComponentLineIds, true))->keyBy(function ($line) {
+        $existingLines = $lines->reject(fn ($line) => PosReturnLine::isComponentLine($line)
+            && (in_array($line->id, $registeredComponentLineIds, true)
+                || ((int) $line->bundle_parent_sale_detail_id === (int) $line->sale_detail_id
+                    && $line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN)))->keyBy(function ($line) {
             if ($line->returned_serial_id) {
                 $prefix = $line->pos_transaction_line_id ?? $line->sale_detail_id;
                 return $prefix . '-' . $line->returned_serial_id;
@@ -137,7 +138,7 @@ class PosReturnEditForm extends Component
         $result = [];
         foreach ($lines as $line) {
             $claim = $claims->get($line->id);
-            if (! $claim || ($line->bundle_parent_sale_detail_id && (int) $line->bundle_parent_sale_detail_id !== (int) $line->sale_detail_id)) {
+            if (! $claim || PosReturnLine::isComponentLine($line)) {
                 continue;
             }
             $replacement = $line->replacement_serial_id ? \Modules\Product\Entities\ProductSerialNumber::find($line->replacement_serial_id) : null;
@@ -163,7 +164,7 @@ class PosReturnEditForm extends Component
 
         $result = [];
         foreach ($lines as $line) {
-            $isComponent = $line->bundle_parent_sale_detail_id && (int) $line->bundle_parent_sale_detail_id !== (int) $line->sale_detail_id;
+            $isComponent = PosReturnLine::isComponentLine($line);
             if ($isComponent && $claims->has($line->id)) {
                 $result[$line->sale_detail_id . ':' . $line->product_id][] = $claims->get($line->id)->proposed_serial;
             }
@@ -182,7 +183,7 @@ class PosReturnEditForm extends Component
         $result = [];
         $positions = [];
         foreach ($lines as $line) {
-            $isComponent = $line->bundle_parent_sale_detail_id && (int) $line->bundle_parent_sale_detail_id !== (int) $line->sale_detail_id;
+            $isComponent = PosReturnLine::isComponentLine($line);
             if (! $isComponent || ! $claims->has($line->id)) {
                 continue;
             }

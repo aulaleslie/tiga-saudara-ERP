@@ -396,6 +396,164 @@ class POSReturnQuantityGuardTest extends PosTransactionFeatureTestCase
         $this->assertFalse($this->quantityGuard->isValid(null, 4, ['sale_detail_id' => $saleDetail->id]));
     }
 
+    /** @test */
+    public function it_scopes_refundable_and_returnable_quantities_by_product_when_parent_and_components_share_a_sale_detail()
+    {
+        $transaction = $this->setupTransaction('TXN-QTY-PARENT-CARRIER');
+        $parentProduct = $this->createStockedProduct($this->setting, $this->location);
+        $componentA = $this->createStockedProduct($this->setting, $this->location);
+        $componentB = $this->createStockedProduct($this->setting, $this->location);
+        $sale = $this->setupSale($transaction, 1000);
+
+        $parentSaleDetail = SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $parentProduct->id,
+            'quantity' => 2,
+            'price' => 500,
+            'unit_price' => 500,
+            'sub_total' => 1000,
+            'product_name' => $parentProduct->product_name,
+            'product_code' => $parentProduct->product_code,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $snapshot = $this->snapshotService->build($transaction->id);
+        $checkoutSaleId = PosCheckoutSale::where('sale_id', $sale->id)->value('id');
+
+        $pendingReturn = PosReturn::create([
+            'reference' => 'POSRT-SHARED-CARRIER-PENDING',
+            'setting_id' => $this->setting->id,
+            'pos_transaction_id' => $transaction->id,
+            'pos_checkout_id' => $transaction->completed_checkout_id,
+            'transaction_code' => $transaction->code,
+            'receipt_number' => 'RCP-' . $transaction->code,
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'status' => PosReturn::STATUS_PENDING_APPROVAL,
+            'approval_status' => PosReturn::APPROVAL_STATUS_PENDING,
+            'source_snapshot' => $snapshot,
+            'source_snapshot_hash' => $snapshot['hash'],
+            'total_amount' => 500,
+            'created_by' => $this->user->id,
+        ]);
+
+        // Parent line + Component A + Component B lines all share $parentSaleDetail->id
+        PosReturnLine::create([
+            'pos_return_id' => $pendingReturn->id,
+            'pos_checkout_sale_id' => $checkoutSaleId,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $parentSaleDetail->id,
+            'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
+            'bundle_return_scope' => PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'product_id' => $parentProduct->id,
+            'product_name' => $parentProduct->product_name,
+            'product_code' => $parentProduct->product_code,
+            'quantity' => 1,
+            'unit_price' => 500,
+            'line_total' => 500,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+        ]);
+
+        PosReturnLine::create([
+            'pos_return_id' => $pendingReturn->id,
+            'pos_checkout_sale_id' => $checkoutSaleId,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $parentSaleDetail->id,
+            'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
+            'component_quantity_per_bundle' => 1,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'product_id' => $componentA->id,
+            'product_name' => $componentA->product_name,
+            'product_code' => $componentA->product_code,
+            'quantity' => 1,
+            'unit_price' => 0,
+            'line_total' => 0,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+        ]);
+
+        // Parent refundable & returnable quantities must only deduct the parent product (1 of 2),
+        // ignoring Component A sharing the same sale_detail_id.
+        $this->assertEquals(1.0, $this->quantityGuard->getRefundableQuantity($parentSaleDetail->id));
+        $this->assertEquals(1.0, $this->quantityGuard->getReturnableQuantity(null, $parentSaleDetail->id));
+        $this->assertTrue($this->quantityGuard->isValid(null, 1, [
+            'sale_detail_id' => $parentSaleDetail->id,
+            'product_id' => $parentProduct->id,
+        ]));
+        $this->assertFalse($this->quantityGuard->isValid(null, 2, [
+            'sale_detail_id' => $parentSaleDetail->id,
+            'product_id' => $parentProduct->id,
+        ]));
+
+        // Component A has 1 of 2 remaining; Component B (not yet claimed) still has its full 4.
+        $this->assertEquals(1.0, $this->quantityGuard->getRefundableQuantity($parentSaleDetail->id, null, 2.0, $componentA->id));
+        $this->assertEquals(4.0, $this->quantityGuard->getRefundableQuantity($parentSaleDetail->id, null, 4.0, $componentB->id));
+
+        // When excluding a completed cash return that contains both parent and component lines on
+        // the same sale_detail_id, completedCashReduction must also be scoped by product_id.
+        $completedReturn = PosReturn::create([
+            'reference' => 'POSRT-SHARED-CARRIER-COMPLETED',
+            'setting_id' => $this->setting->id,
+            'pos_transaction_id' => $transaction->id,
+            'pos_checkout_id' => $transaction->completed_checkout_id,
+            'transaction_code' => $transaction->code,
+            'receipt_number' => 'RCP-' . $transaction->code,
+            'return_option' => PosReturn::OPTION_CASH_RETURN,
+            'status' => PosReturn::STATUS_COMPLETED,
+            'approval_status' => PosReturn::APPROVAL_STATUS_APPROVED,
+            'is_reversed' => false,
+            'source_snapshot' => $snapshot,
+            'source_snapshot_hash' => $snapshot['hash'],
+            'total_amount' => 500,
+            'created_by' => $this->user->id,
+        ]);
+
+        PosReturnLine::create([
+            'pos_return_id' => $completedReturn->id,
+            'pos_checkout_sale_id' => $checkoutSaleId,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $parentSaleDetail->id,
+            'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'product_id' => $parentProduct->id,
+            'product_name' => $parentProduct->product_name,
+            'product_code' => $parentProduct->product_code,
+            'quantity' => 1,
+            'unit_price' => 500,
+            'line_total' => 500,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+        ]);
+
+        PosReturnLine::create([
+            'pos_return_id' => $completedReturn->id,
+            'pos_checkout_sale_id' => $checkoutSaleId,
+            'sale_id' => $sale->id,
+            'sale_detail_id' => $parentSaleDetail->id,
+            'bundle_parent_sale_detail_id' => $parentSaleDetail->id,
+            'component_quantity_per_bundle' => 1,
+            'source_setting_id' => $this->setting->id,
+            'source_location_id' => $this->location->id,
+            'stock_behavior' => PosReturnLine::STOCK_BEHAVIOR_MANAGED,
+            'product_id' => $componentA->id,
+            'product_name' => $componentA->product_name,
+            'product_code' => $componentA->product_code,
+            'quantity' => 1,
+            'unit_price' => 0,
+            'line_total' => 0,
+            'resolution' => PosReturnLine::RESOLUTION_CASH_RETURN,
+        ]);
+
+        // Remaining DB qty = 2; adding back excluded completed parent qty (1) minus pending parent qty (1) = 2 (NOT 3).
+        $this->assertEquals(2.0, $this->quantityGuard->getRefundableQuantity($parentSaleDetail->id, $completedReturn->id));
+        $this->assertEquals(2.0, $this->quantityGuard->getReturnableQuantity(null, $parentSaleDetail->id, $completedReturn->id));
+    }
+
     protected function setupTransaction($code)
     {
         $transaction = PosTransaction::create([

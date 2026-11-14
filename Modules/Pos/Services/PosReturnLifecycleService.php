@@ -647,7 +647,7 @@ class PosReturnLifecycleService
         $groupedByComm = $cashLines->groupBy(fn (\Modules\Pos\Entities\PosReturnLine $line) => $valuationService->resolveCommercialLineKey($line, $cashLines));
 
         foreach ($groupedByComm as $commKey => $linesGroup) {
-            $parentLine = $linesGroup->first(fn ($l) => empty($l->bundle_parent_sale_detail_id) || (int) $l->bundle_parent_sale_detail_id === (int) $l->sale_detail_id) ?? $linesGroup->first();
+            $parentLine = $linesGroup->first(fn ($l) => ! PosReturnLine::isComponentLine($l)) ?? $linesGroup->first();
             $sale = $sales->get((int) $parentLine->sale_id);
             if (! $sale) {
                 continue;
@@ -814,7 +814,7 @@ class PosReturnLifecycleService
                     $isBundle = ($bundleContext && ! empty($bundleContext['is_bundle']))
                         || $saleDetail->bundleItems()->exists()
                         || ! empty($line->bundle_group_key)
-                        || ((int) $line->bundle_parent_sale_detail_id > 0 && (int) $line->bundle_parent_sale_detail_id === (int) $line->sale_detail_id);
+                        || ! empty($line->bundle_parent_sale_detail_id);
                 }
                 if ($isBundle) {
                     if (empty($line->bundle_return_scope)) {
@@ -954,7 +954,7 @@ class PosReturnLifecycleService
                 $this->assertReturnedSerialIsCurrentHeldOccurrenceUnderLock($line, $posReturn);
             } else {
                 // Quantity claims
-                $isTaggedComponentLine = (bool) $line->bundle_parent_sale_detail_id && (int) $line->bundle_parent_sale_detail_id !== (int) $line->sale_detail_id;
+                $isTaggedComponentLine = PosReturnLine::isComponentLine($line, $saleDetail);
                 $componentOriginalQuantity = null;
                 if ($isTaggedComponentLine && $line->component_quantity_per_bundle !== null) {
                     $parentRefundableQty = $quantityGuard->getRefundableQuantity((int) $line->bundle_parent_sale_detail_id, $posReturn->id);
@@ -969,8 +969,18 @@ class PosReturnLifecycleService
                 }
 
                 $availableQty = $line->resolution === \Modules\Pos\Entities\PosReturnLine::RESOLUTION_CASH_RETURN
-                    ? $quantityGuard->getRefundableQuantity($line->sale_detail_id, $posReturn->id, $componentOriginalQuantity)
-                    : $quantityGuard->getReturnableQuantity($line->dispatch_detail_id, $line->sale_detail_id, $posReturn->id);
+                    ? $quantityGuard->getRefundableQuantity(
+                        $line->sale_detail_id,
+                        $posReturn->id,
+                        $componentOriginalQuantity,
+                        $line->product_id ? (int) $line->product_id : null
+                    )
+                    : $quantityGuard->getReturnableQuantity(
+                        $line->dispatch_detail_id,
+                        $line->sale_detail_id,
+                        $posReturn->id,
+                        $line->product_id ? (int) $line->product_id : null
+                    );
 
                 if ((float) $line->quantity > $availableQty) {
                     throw new \RuntimeException("Kuantitas retur melebihi batas yang diizinkan untuk produk {$saleDetail->product_name}.");
@@ -1048,6 +1058,13 @@ class PosReturnLifecycleService
 
         if ($posReturn && ! $posReturn->relationLoaded('posTransaction') && $posReturn->pos_transaction_id) {
             $posReturn->load('posTransaction.lines');
+        }
+
+        if ($line
+            && $line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN
+            && $this->isBundleComponentLine($line)
+            && (float) ($line->line_meta['reviewed_unit_price'] ?? $line->unit_price ?? 0) == 0.0) {
+            return 0.0;
         }
 
         if ($line
@@ -2541,18 +2558,7 @@ class PosReturnLifecycleService
 
     protected function isBundleComponentLine(?\Modules\Pos\Entities\PosReturnLine $line): bool
     {
-        if (! $line) {
-            return false;
-        }
-
-        $parentSaleDetailId = (int) ($line->bundle_parent_sale_detail_id ?? 0);
-        $saleDetailId = (int) ($line->sale_detail_id ?? 0);
-
-        if ($parentSaleDetailId <= 0 || $saleDetailId <= 0 || $parentSaleDetailId === $saleDetailId) {
-            return false;
-        }
-
-        return (float) ($line->component_quantity_per_bundle ?? 0) > 0 || (string) ($line->bundle_group_key ?? '') !== '';
+        return $line ? PosReturnLine::isComponentLine($line) : false;
     }
 
     /**

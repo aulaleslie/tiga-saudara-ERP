@@ -381,10 +381,13 @@ class PosReturnApprovalPreviewPlannerService
         // Quantity guard validation for non-serial lines
         if (! $line->returned_serial_id) {
             $guard = $this->quantityGuard ?? app(PosReturnQuantityGuard::class);
-            $isTaggedComponentLine = (bool) $line->bundle_parent_sale_detail_id && (int) $line->bundle_parent_sale_detail_id !== (int) $line->sale_detail_id;
+            $isTaggedComponentLine = PosReturnLine::isComponentLine($line, $saleDetail);
             $componentOriginalQuantity = null;
             if ($isTaggedComponentLine && $line->component_quantity_per_bundle !== null) {
-                $parentRefundableQty = $guard->getRefundableQuantity((int) $line->bundle_parent_sale_detail_id, $posReturn->id);
+                $parentRefundableQty = $guard->getRefundableQuantity(
+                    (int) $line->bundle_parent_sale_detail_id,
+                    $posReturn->id
+                );
                 $componentOriginalQuantity = (float) $line->component_quantity_per_bundle * $parentRefundableQty;
             } elseif ((int) $line->product_id !== (int) $saleDetail->product_id) {
                 $bundleItem = \Modules\Sale\Entities\SaleBundleItem::where('sale_detail_id', $saleDetail->id)
@@ -396,8 +399,18 @@ class PosReturnApprovalPreviewPlannerService
             }
 
             $availableQty = $line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN
-                ? $guard->getRefundableQuantity($line->sale_detail_id, $posReturn->id, $componentOriginalQuantity)
-                : $guard->getReturnableQuantity($line->dispatch_detail_id, $line->sale_detail_id, $posReturn->id);
+                ? $guard->getRefundableQuantity(
+                    $line->sale_detail_id,
+                    $posReturn->id,
+                    $componentOriginalQuantity,
+                    $line->product_id ? (int) $line->product_id : null
+                )
+                : $guard->getReturnableQuantity(
+                    $line->dispatch_detail_id,
+                    $line->sale_detail_id,
+                    $posReturn->id,
+                    $line->product_id ? (int) $line->product_id : null
+                );
 
             if ((float) $line->quantity > $availableQty) {
                 $blockers[] = $this->message(
@@ -438,7 +451,7 @@ class PosReturnApprovalPreviewPlannerService
 
         $isBundleParentLine = ! $this->isBundleComponentLine($line)
             && ($this->isBundledSourceLine($line, $saleDetail)
-                || (int) $line->bundle_parent_sale_detail_id === (int) $line->sale_detail_id
+                || ! empty($line->bundle_parent_sale_detail_id)
                 || ! empty($line->bundle_group_key));
 
         if ($isBundleParentLine && $line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN) {
@@ -633,6 +646,8 @@ class PosReturnApprovalPreviewPlannerService
             }
         } elseif ($plannedCashAmount !== null) {
             $detailAmount = (float) $plannedCashAmount;
+        } elseif ($isComponentLine && (int) $line->sale_detail_id === (int) $line->bundle_parent_sale_detail_id) {
+            $detailAmount = 0.0;
         } elseif ($isComponentLine && $componentBundleItem && (float) ($componentBundleItem->price ?? 0) > 0) {
             $detailAmount = round((float) $componentBundleItem->price * (float) $line->quantity, 2);
         } elseif ($isBundleParentLine
@@ -1367,36 +1382,7 @@ class PosReturnApprovalPreviewPlannerService
 
     private function isBundleComponentLine(PosReturnLine $line): bool
     {
-        $parentSaleDetailId = (int) ($line->bundle_parent_sale_detail_id ?? 0);
-        $saleDetailId = (int) ($line->sale_detail_id ?? 0);
-
-        if ($saleDetailId <= 0) {
-            return false;
-        }
-
-        if ($parentSaleDetailId > 0 && $parentSaleDetailId !== $saleDetailId) {
-            return (float) ($line->component_quantity_per_bundle ?? 0) > 0 || (string) ($line->bundle_group_key ?? '') !== '';
-        }
-
-        // Sequence 10 correction: an INDEPENDENT component product_replacement
-        // (never synthesized from a whole-bundle cash return, so it carries
-        // no distinct bundle_parent_sale_detail_id — see store(), which
-        // self-references bundle_parent_sale_detail_id = sale_detail_id for
-        // any line whose sale_detail_id resolves to a row with bundleItems,
-        // including a carrier row acting as its OWN component identity) is
-        // still a genuine bundle-component line: its persisted product_id
-        // (the component's own, resolved and pinned at submission time) will
-        // differ from the CARRIER row's own product_id (the bundle
-        // PARENT's). component_quantity_per_bundle being set confirms this
-        // was resolved through synthesis/submission identity, not a
-        // coincidental self-reference on an ordinary parent line.
-        if ((float) ($line->component_quantity_per_bundle ?? 0) > 0) {
-            $saleDetail = SaleDetails::find($saleDetailId);
-
-            return $saleDetail && (int) $saleDetail->product_id !== (int) $line->product_id;
-        }
-
-        return false;
+        return PosReturnLine::isComponentLine($line);
     }
 
     private function hasBundleParentLine(PosReturn $posReturn, PosReturnLine $line): bool
@@ -1586,6 +1572,13 @@ class PosReturnApprovalPreviewPlannerService
 
         if ($line
             && $line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN
+            && $this->isBundleComponentLine($line)
+            && (float) ($line->line_meta['reviewed_unit_price'] ?? $line->unit_price ?? 0) == 0.0) {
+            return 0.0;
+        }
+
+        if ($line
+            && $line->resolution === PosReturnLine::RESOLUTION_CASH_RETURN
             && $line->bundle_return_scope === PosReturnLine::BUNDLE_RETURN_SCOPE_WHOLE_BUNDLE
             && ! $this->isBundleComponentLine($line)) {
 
@@ -1761,6 +1754,9 @@ class PosReturnApprovalPreviewPlannerService
                     $componentsAmount = (float) $saleLines
                         ->filter(fn ($l) => $this->isBundleComponentLine($l))
                         ->sum(function (PosReturnLine $l) use ($saleDetails, $planningContext) {
+                            if ((int) $l->sale_detail_id === (int) $l->bundle_parent_sale_detail_id) {
+                                return 0.0;
+                            }
                             $sbi = $this->resolveOwnBundleItem($l, $planningContext);
                             if ($sbi) {
                                 return (float) ($sbi->sub_total ?? $sbi->price ?? 0);
@@ -1807,6 +1803,9 @@ class PosReturnApprovalPreviewPlannerService
                 $lineAmounts[$parentLine->id] = $totalCommAmount;
             } else {
                 $fragments = $linesInComm->mapWithKeys(function (PosReturnLine $l) use ($saleDetails, $planningContext) {
+                    if ($this->isBundleComponentLine($l) && (int) $l->sale_detail_id === (int) $l->bundle_parent_sale_detail_id) {
+                        return [$l->id => ['id' => $l->id, 'basis' => 0.0]];
+                    }
                     $basis = 0.0;
                     if ($this->isBundleComponentLine($l)) {
                         $sbi = $this->resolveOwnBundleItem($l, $planningContext);

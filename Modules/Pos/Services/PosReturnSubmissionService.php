@@ -141,7 +141,7 @@ class PosReturnSubmissionService
                 // here instead of re-deriving identity from $saleDetail whenever
                 // present, or the persisted PosReturnLine would carry the wrong
                 // product.
-                $isSynthesizedCrossOwnerComponent = array_key_exists('__component_product_id', $lineData);
+                $isSynthesizedCrossOwnerComponent = !empty($lineData['__component_product_id']);
                 $effectiveProductId = $isSynthesizedCrossOwnerComponent ? (int) $lineData['__component_product_id'] : (int) $saleDetail->product_id;
                 $effectiveProduct = $isSynthesizedCrossOwnerComponent
                     ? \Modules\Product\Entities\Product::find($effectiveProductId)
@@ -202,9 +202,22 @@ class PosReturnSubmissionService
                 // allocation (the carrier row's nominal quantity is always 0).
                 $componentReplacement = $resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
                     && $componentOriginalQuantity !== null;
+                $effectiveLineProductId = $isSynthesizedCrossOwnerComponent
+                    ? ((int) ($lineData['__component_product_id'] ?? 0) ?: (int) ($lineData['product_id'] ?? 0))
+                    : (int) ($saleDetail->product_id ?? $lineData['product_id'] ?? 0);
                 $returnableQty = ($resolution === PosReturnLine::RESOLUTION_CASH_RETURN || $componentReplacement)
-                    ? $this->quantityGuard->getRefundableQuantity($saleDetail->id, null, $componentOriginalQuantity)
-                    : $this->quantityGuard->getReturnableQuantity($saleDetail->dispatch_detail_id, $saleDetail->id);
+                    ? $this->quantityGuard->getRefundableQuantity(
+                        $saleDetail->id,
+                        null,
+                        $componentOriginalQuantity,
+                        $effectiveLineProductId ?: null
+                    )
+                    : $this->quantityGuard->getReturnableQuantity(
+                        $saleDetail->dispatch_detail_id,
+                        $saleDetail->id,
+                        null,
+                        $effectiveLineProductId ?: null
+                    );
                 if (!$isSerial && $quantity > $returnableQty) {
                     throw new \Exception("Kuantitas retur melebihi batas yang diizinkan untuk produk {$saleDetail->product_name}.");
                 }
@@ -216,7 +229,8 @@ class PosReturnSubmissionService
                     $unitPrice = (float) $checkoutSale->subtotal / $saleDetail->quantity;
                 }
 
-                $isSynthesizedComponent = !empty($lineData['__synthesized_component']);
+                $isSynthesizedComponent = !empty($lineData['__synthesized_component'])
+                    || (PosReturnLine::isComponentLine($lineData, $saleDetail) && $resolution === PosReturnLine::RESOLUTION_CASH_RETURN);
 
                 // Determine bundle return scope before unit price calculation
                 $bundleReturnScope = $lineData['bundle_return_scope'] ?? null;
@@ -247,6 +261,11 @@ class PosReturnSubmissionService
                     } elseif ($ptl && $ptl->unit_price > 0) {
                         $unitPrice = (float) $ptl->unit_price;
                     }
+                }
+
+                if ($isSynthesizedComponent && $resolution === PosReturnLine::RESOLUTION_CASH_RETURN) {
+                    $unitPrice = 0.0;
+                    $bundleReturnScope = null;
                 }
 
                 $lineTotal = $quantity * $unitPrice;
@@ -341,7 +360,6 @@ class PosReturnSubmissionService
                 // stable per-bundle-instance grouping key shared by parent+components.
                 $bundleParentSaleDetailId = $lineData['__bundle_parent_sale_detail_id'] ?? ($isBundle ? $saleDetail->id : null);
                 $bundleGroupKey = $lineData['__bundle_group_key'] ?? ($isBundle ? ('bundle-' . $bundleParentSaleDetailId) : null);
-                $isSynthesizedComponent = !empty($lineData['__synthesized_component']);
                 $bundleQuantity = $lineData['__bundle_quantity'] ?? ($isBundle && !$isSynthesizedComponent ? $quantity : null);
                 $componentQuantityPerBundle = $lineData['__component_quantity_per_bundle'] ?? null;
 
@@ -439,27 +457,21 @@ class PosReturnSubmissionService
                     $totalAmount += $expectedCashAmount;
                 }
 
-                // Corrections/10: persist the resolved sale_bundle_item_id for
-                // a synthesized component into line_meta — traceability only;
-                // downstream planning (PosReturnApprovalPreviewPlannerService)
-                // independently re-resolves this from sale_id+product_id+
-                // sale_detail_id and never reads it back from here, so this is
-                // not load-bearing for the pipeline, only for debugging/audit.
-                if ($isSynthesizedCrossOwnerComponent && !empty($lineData['__sale_bundle_item_id'])) {
-                    $returnLine->update([
-                        'line_meta' => array_merge($returnLine->line_meta ?? [], [
-                            'sale_bundle_item_id' => (int) $lineData['__sale_bundle_item_id'],
-                        ]),
-                    ]);
-                }
-
+                // Corrections/10: persist the resolved sale_bundle_item_id and
+                // allocated component price into line_meta without overwriting existing keys.
                 // Task 3.7/3.9: Trace bundled components for actionable lines.
                 // Task 3.10: Informational only — no stock reservation or mutation occurs here.
-                $lineMetaUpdate = [];
+                $lineMetaUpdate = $returnLine->line_meta ?? [];
+                if ($isSynthesizedCrossOwnerComponent && !empty($lineData['__sale_bundle_item_id'])) {
+                    $lineMetaUpdate['sale_bundle_item_id'] = (int) $lineData['__sale_bundle_item_id'];
+                }
+                if ($isSynthesizedComponent && array_key_exists('__component_allocated_price', $lineData) && $lineData['__component_allocated_price'] !== null) {
+                    $lineMetaUpdate['allocated_price'] = (float) $lineData['__component_allocated_price'];
+                }
                 if ($valuationErrorMessage !== null) {
                     $lineMetaUpdate['valuation_error'] = $valuationErrorMessage;
                 }
-                if ($isBundle && $resolution !== PosReturnLine::RESOLUTION_NONE) {
+                if ($isBundle && !$isSynthesizedComponent && $resolution !== PosReturnLine::RESOLUTION_NONE) {
                     // Task 3.9: Use PTL bundle items as authoritative source when available.
                     $bundleId = $ptlIsBundle ? (int) ($ptl->line_meta['bundle_id'] ?? 0) : 0;
 
@@ -501,7 +513,12 @@ class PosReturnSubmissionService
                 }
 
                 if (!empty($lineMetaUpdate)) {
-                    $returnLine->update(['line_meta' => array_filter($lineMetaUpdate, fn ($value) => $value !== null)]);
+                    $returnLine->update([
+                        'line_meta' => array_filter(
+                            array_merge($returnLine->line_meta ?? [], $lineMetaUpdate),
+                            fn ($value) => $value !== null
+                        ),
+                    ]);
                 }
             }
 
@@ -569,7 +586,7 @@ class PosReturnSubmissionService
                 // line's sale_detail_id points at the CARRIER row (product_id
                 // = the PARENT's), so its own identity must come from the
                 // explicit __component_* keys instead.
-                $isSynthesizedCrossOwnerComponent = array_key_exists('__component_product_id', $lineData);
+                $isSynthesizedCrossOwnerComponent = !empty($lineData['__component_product_id']);
                 $effectiveProductId = $isSynthesizedCrossOwnerComponent ? (int) $lineData['__component_product_id'] : (int) $saleDetail->product_id;
                 $effectiveProduct = $isSynthesizedCrossOwnerComponent
                     ? \Modules\Product\Entities\Product::find($effectiveProductId)
@@ -609,9 +626,22 @@ class PosReturnSubmissionService
 
                 $componentReplacement = $resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
                     && $componentOriginalQuantity !== null;
+                $effectiveLineProductId = $isSynthesizedCrossOwnerComponent
+                    ? ((int) ($lineData['__component_product_id'] ?? 0) ?: (int) ($lineData['product_id'] ?? 0))
+                    : (int) ($saleDetail->product_id ?? $lineData['product_id'] ?? 0);
                 $returnableQty = ($resolution === PosReturnLine::RESOLUTION_CASH_RETURN || $componentReplacement)
-                    ? $this->quantityGuard->getRefundableQuantity($saleDetail->id, $posReturn->id, $componentOriginalQuantity)
-                    : $this->quantityGuard->getReturnableQuantity($saleDetail->dispatch_detail_id, $saleDetail->id, $posReturn->id);
+                    ? $this->quantityGuard->getRefundableQuantity(
+                        $saleDetail->id,
+                        $posReturn->id,
+                        $componentOriginalQuantity,
+                        $effectiveLineProductId ?: null
+                    )
+                    : $this->quantityGuard->getReturnableQuantity(
+                        $saleDetail->dispatch_detail_id,
+                        $saleDetail->id,
+                        $posReturn->id,
+                        $effectiveLineProductId ?: null
+                    );
                 if (!$isSerial && $quantity > $returnableQty) {
                     throw new \Exception("Kuantitas retur melebihi batas yang diizinkan untuk produk {$saleDetail->product_name}.");
                 }
@@ -623,7 +653,8 @@ class PosReturnSubmissionService
                     $unitPrice = (float) $checkoutSale->subtotal / $saleDetail->quantity;
                 }
 
-                $isSynthesizedComponent = !empty($lineData['__synthesized_component']);
+                $isSynthesizedComponent = !empty($lineData['__synthesized_component'])
+                    || (PosReturnLine::isComponentLine($lineData, $saleDetail) && $resolution === PosReturnLine::RESOLUTION_CASH_RETURN);
 
                 // Determine bundle return scope before unit price calculation
                 $bundleReturnScope = $lineData['bundle_return_scope'] ?? null;
@@ -654,6 +685,11 @@ class PosReturnSubmissionService
                     } elseif ($ptl && $ptl->unit_price > 0) {
                         $unitPrice = (float) $ptl->unit_price;
                     }
+                }
+
+                if ($isSynthesizedComponent && $resolution === PosReturnLine::RESOLUTION_CASH_RETURN) {
+                    $unitPrice = 0.0;
+                    $bundleReturnScope = null;
                 }
 
                 $lineTotal = $isSerial ? $unitPrice : ($quantity * $unitPrice);
@@ -738,7 +774,6 @@ class PosReturnSubmissionService
 
                 $bundleParentSaleDetailId = $lineData['__bundle_parent_sale_detail_id'] ?? ($isBundle ? $saleDetail->id : null);
                 $bundleGroupKey = $lineData['__bundle_group_key'] ?? ($isBundle ? ('bundle-' . $bundleParentSaleDetailId) : null);
-                $isSynthesizedComponent = !empty($lineData['__synthesized_component']);
                 $bundleQuantity = $lineData['__bundle_quantity'] ?? ($isBundle && !$isSynthesizedComponent ? $quantity : null);
                 $componentQuantityPerBundle = $lineData['__component_quantity_per_bundle'] ?? null;
 
@@ -822,24 +857,21 @@ class PosReturnSubmissionService
                     $totalAmount += $expectedCashAmount;
                 }
 
-                // Corrections/10: persist the resolved sale_bundle_item_id for
-                // a synthesized component into line_meta (traceability only —
-                // see store() for why this is not load-bearing downstream).
-                if ($isSynthesizedCrossOwnerComponent && !empty($lineData['__sale_bundle_item_id'])) {
-                    $returnLine->update([
-                        'line_meta' => array_merge($returnLine->line_meta ?? [], [
-                            'sale_bundle_item_id' => (int) $lineData['__sale_bundle_item_id'],
-                        ]),
-                    ]);
-                }
-
+                // Corrections/10: persist the resolved sale_bundle_item_id and
+                // allocated component price into line_meta without overwriting existing keys.
                 // Task 3.7/3.9: Trace bundled components for actionable lines.
                 // Task 3.10: Informational only — no stock reservation or mutation occurs here.
-                $lineMetaUpdate = [];
+                $lineMetaUpdate = $returnLine->line_meta ?? [];
+                if ($isSynthesizedCrossOwnerComponent && !empty($lineData['__sale_bundle_item_id'])) {
+                    $lineMetaUpdate['sale_bundle_item_id'] = (int) $lineData['__sale_bundle_item_id'];
+                }
+                if ($isSynthesizedComponent && array_key_exists('__component_allocated_price', $lineData) && $lineData['__component_allocated_price'] !== null) {
+                    $lineMetaUpdate['allocated_price'] = (float) $lineData['__component_allocated_price'];
+                }
                 if ($valuationErrorMessage !== null) {
                     $lineMetaUpdate['valuation_error'] = $valuationErrorMessage;
                 }
-                if ($isBundle && $resolution !== PosReturnLine::RESOLUTION_NONE) {
+                if ($isBundle && !$isSynthesizedComponent && $resolution !== PosReturnLine::RESOLUTION_NONE) {
                     $bundleId = $ptlIsBundle ? (int) ($ptl->line_meta['bundle_id'] ?? 0) : 0;
 
                     if ($ptlIsBundle && !empty($ptl->line_meta['bundle_items'])) {
@@ -879,7 +911,12 @@ class PosReturnSubmissionService
                 }
 
                 if (!empty($lineMetaUpdate)) {
-                    $returnLine->update(['line_meta' => array_filter($lineMetaUpdate, fn ($value) => $value !== null)]);
+                    $returnLine->update([
+                        'line_meta' => array_filter(
+                            array_merge($returnLine->line_meta ?? [], $lineMetaUpdate),
+                            fn ($value) => $value !== null
+                        ),
+                    ]);
                 }
             }
 
@@ -942,7 +979,7 @@ class PosReturnSubmissionService
                 ->whereNull('registered_serial_id')->pluck('proposed_serial', 'pos_return_line_id');
 
             // Whole-bundle component proposals are re-synthesized from the parent line: feed them from the persisted claims.
-            $isComponentLine = fn (PosReturnLine $l) => $l->bundle_parent_sale_detail_id && (int) $l->bundle_parent_sale_detail_id !== (int) $l->sale_detail_id;
+            $isComponentLine = fn (PosReturnLine $l) => PosReturnLine::isComponentLine($l);
             $this->componentPendingSerials = [];
             foreach ($lockedReturn->lines as $l) {
                 if ($isComponentLine($l) && $pendingClaims->has($l->id)) {
@@ -952,8 +989,10 @@ class PosReturnSubmissionService
 
             $this->validateDraftLines(
                 $lockedReturn->lines->map(function (PosReturnLine $line) use ($pendingClaims, $isComponentLine) {
+                    $lineIsComponent = $isComponentLine($line);
+
                     return [
-                        'pending_serial' => $isComponentLine($line) ? null : $pendingClaims->get($line->id),
+                        'pending_serial' => $lineIsComponent ? null : $pendingClaims->get($line->id),
                         'sale_detail_id' => $line->sale_detail_id,
                         'sale_id' => $line->sale_id,
                         'pos_transaction_line_id' => $line->pos_transaction_line_id,
@@ -966,21 +1005,14 @@ class PosReturnSubmissionService
                         // reason, otherwise a previously-valid non-serial
                         // product_replacement line would spuriously fail here.
                         'replacement_reason' => data_get($line->line_meta, 'replacement_reason'),
-                        // Sequence 10 correction: a previously-synthesized
-                        // carrier-row component line, once persisted, is
-                        // re-submitted here as a raw line. Without these
-                        // identity tags, the pre-synthesis guard re-check
-                        // below (see store()/validateDraftLines()) would
-                        // treat its sale_detail_id as a standalone row and
-                        // re-derive product/quantity identity from the
-                        // CARRIER row's own (parent's) product_id and
-                        // always-0 quantity — spuriously rejecting a valid
-                        // resubmission. Carry the persisted component
-                        // identity columns forward so re-validation
-                        // recognizes it exactly as synthesis originally did.
-                        '__component_product_id' => ($line->bundle_parent_sale_detail_id && (int) $line->bundle_parent_sale_detail_id !== (int) $line->sale_detail_id) ? $line->product_id : null,
-                        '__component_product_name' => ($line->bundle_parent_sale_detail_id && (int) $line->bundle_parent_sale_detail_id !== (int) $line->sale_detail_id) ? $line->product_name : null,
-                        '__component_product_code' => ($line->bundle_parent_sale_detail_id && (int) $line->bundle_parent_sale_detail_id !== (int) $line->sale_detail_id) ? $line->product_code : null,
+                        // Carry persisted component identity forward so
+                        // re-validation recognizes carrier-row component lines
+                        // on both sibling carriers and parent carriers.
+                        '__component_product_id' => $lineIsComponent ? $line->product_id : null,
+                        '__component_product_name' => $lineIsComponent ? $line->product_name : null,
+                        '__component_product_code' => $lineIsComponent ? $line->product_code : null,
+                        '__component_dispatch_detail_id' => $lineIsComponent ? $line->dispatch_detail_id : null,
+                        '__component_allocated_price' => $lineIsComponent ? data_get($line->line_meta, 'allocated_price') : null,
                         '__component_quantity_per_bundle' => $line->component_quantity_per_bundle !== null ? (float) $line->component_quantity_per_bundle : null,
                         '__bundle_parent_sale_detail_id' => $line->bundle_parent_sale_detail_id,
                     ];
@@ -1124,15 +1156,15 @@ class PosReturnSubmissionService
                 }
             }
 
-            $effectiveProductId = $isSerial && $returnedSerialId
-                ? (int) (ProductSerialNumber::find($returnedSerialId)->product_id ?? $saleDetail->product_id)
-                : (int) $saleDetail->product_id;
+            $effectiveProductId = !empty($lineData['__component_product_id'])
+                ? (int) $lineData['__component_product_id']
+                : (!empty($lineData['product_id'])
+                    ? (int) $lineData['product_id']
+                    : ($isSerial && $returnedSerialId
+                        ? (int) (ProductSerialNumber::find($returnedSerialId)->product_id ?? $saleDetail->product_id)
+                        : (int) $saleDetail->product_id));
 
-            $isSynthesizedComponentLine = !empty($lineData['__synthesized_component'])
-                || (array_key_exists('__component_quantity_per_bundle', $lineData)
-                    && $lineData['__component_quantity_per_bundle'] !== null
-                    && array_key_exists('__bundle_parent_sale_detail_id', $lineData)
-                    && (int) ($lineData['__bundle_parent_sale_detail_id'] ?? 0) !== (int) $lineData['sale_detail_id']);
+            $isSynthesizedComponentLine = PosReturnLine::isComponentLine($lineData, $saleDetail);
 
             $resolvedDispatchDetailId = null;
             if (!empty($lineData['__component_dispatch_detail_id']) && $isSynthesizedComponentLine) {
@@ -1271,14 +1303,13 @@ class PosReturnSubmissionService
             // — see submitDraftForApproval()) has its sale_detail_id pointing
             // at a carrier row whose own SaleDetails.quantity is always 0 —
             // pass the component's true original quantity explicitly.
-            $isTaggedComponentLine = array_key_exists('__component_quantity_per_bundle', $lineData)
-                && $lineData['__component_quantity_per_bundle'] !== null
-                && array_key_exists('__bundle_parent_sale_detail_id', $lineData)
-                && (int) ($lineData['__bundle_parent_sale_detail_id'] ?? 0) !== (int) $lineData['sale_detail_id'];
+            $isTaggedComponentLine = PosReturnLine::isComponentLine($lineData, $saleDetail)
+                && ($lineData['__component_quantity_per_bundle'] ?? $lineData['component_quantity_per_bundle'] ?? null) !== null
+                && !empty($lineData['__bundle_parent_sale_detail_id'] ?? $lineData['bundle_parent_sale_detail_id'] ?? null);
             $componentOriginalQuantity = null;
             if ($isTaggedComponentLine) {
-                $quantityPerBundle = (float) $lineData['__component_quantity_per_bundle'];
-                $parentSaleDetailId = (int) $lineData['__bundle_parent_sale_detail_id'];
+                $quantityPerBundle = (float) ($lineData['__component_quantity_per_bundle'] ?? $lineData['component_quantity_per_bundle']);
+                $parentSaleDetailId = (int) ($lineData['__bundle_parent_sale_detail_id'] ?? $lineData['bundle_parent_sale_detail_id']);
                 $parentRefundableQty = $this->quantityGuard->getRefundableQuantity($parentSaleDetailId, $ignorePosReturnId);
                 $componentOriginalQuantity = $quantityPerBundle * $parentRefundableQty;
             }
@@ -1290,9 +1321,22 @@ class PosReturnSubmissionService
             // A registered split-owner component replacement is measured against the component's own allocation.
             $componentReplacement = $resolution === PosReturnLine::RESOLUTION_PRODUCT_REPLACEMENT
                 && $componentOriginalQuantity !== null;
+            $effectiveLineProductId = $isTaggedComponentLine
+                ? ((int) ($lineData['__component_product_id'] ?? 0) ?: (int) ($lineData['product_id'] ?? 0))
+                : (int) ($saleDetail->product_id ?? $lineData['product_id'] ?? 0);
             $returnableQty = ($resolution === PosReturnLine::RESOLUTION_CASH_RETURN || $componentReplacement)
-                ? $this->quantityGuard->getRefundableQuantity($saleDetail->id, $ignorePosReturnId, $componentOriginalQuantity)
-                : $this->quantityGuard->getReturnableQuantity($saleDetail->dispatch_detail_id, $saleDetail->id, $ignorePosReturnId);
+                ? $this->quantityGuard->getRefundableQuantity(
+                    $saleDetail->id,
+                    $ignorePosReturnId,
+                    $componentOriginalQuantity,
+                    $effectiveLineProductId ?: null
+                )
+                : $this->quantityGuard->getReturnableQuantity(
+                    $saleDetail->dispatch_detail_id,
+                    $saleDetail->id,
+                    $ignorePosReturnId,
+                    $effectiveLineProductId ?: null
+                );
 
             if (!$isSerial && $quantity > $returnableQty) {
                 throw new \Exception("Kuantitas retur melebihi batas yang diizinkan untuk produk {$saleDetail->product_name}.");
@@ -1539,6 +1583,8 @@ class PosReturnSubmissionService
                     'dispatch_detail_id' => $c['dispatch_detail_id'],
                     'product_name' => $c['product_name'],
                     'product_code' => $c['product_code'],
+                    'lineage_status' => $c['lineage_status'] ?? 'resolved',
+                    'allocated_price' => (float) ($c['allocated_price'] ?? 0.0),
                 ]);
 
                 if ($resolvableItems->isEmpty()) {
@@ -1584,37 +1630,34 @@ class PosReturnSubmissionService
             $isFullRemainingReturn = abs($parentQuantity - $parentRefundableQty) < 0.0001;
 
             foreach ($parentInfo['catalog_items'] as $catalogItem) {
+                if (($catalogItem->lineage_status ?? 'resolved') !== 'resolved') {
+                    continue;
+                }
+
                 $componentProductId = (int) $catalogItem->product_id;
 
                 // Corrections/10: resolve the component's SaleBundleItem.
-                // Try the PARENT's own sale_id FIRST (narrow scope) — this
-                // correctly disambiguates when the SAME bundle catalog is
-                // purchased multiple times in one checkout (e.g. a
-                // serialized parent with quantity > 1, one Sale per unit):
-                // bundle_id/bundle_item_id/quantity are IDENTICAL across
-                // those separate purchases, so widening the search to every
-                // sale in the checkout up front would make every one of them
-                // ambiguous. Only widen to the full checkout (the SAME
-                // disambiguation order as PosReturnSnapshotService, shared
-                // PosBundleComponentResolver) when the narrow scope finds
-                // nothing at all — the genuine split-owner case, where the
-                // component's SaleBundleItem never lives under the parent's
-                // own sale_id to begin with.
-                $bundleItem = $this->bundleComponentResolver->findComponentBundleItem(
-                    [$parentInfo['sale_id']],
-                    $componentProductId,
-                    (int) $catalogItem->bundle_id,
-                    (int) $catalogItem->id,
-                    (float) $catalogItem->quantity,
-                    $catalogItem->carrier_sale_detail_id ?? null
-                ) ?? $this->bundleComponentResolver->findComponentBundleItem(
-                    $saleIds,
-                    $componentProductId,
-                    (int) $catalogItem->bundle_id,
-                    (int) $catalogItem->id,
-                    (float) $catalogItem->quantity,
-                    $catalogItem->carrier_sale_detail_id ?? null
-                );
+                // Prefer the resolver's disambiguated sale_bundle_item_id first, then fall back to
+                // the PARENT's own sale_id (narrow scope) before widening to the full checkout.
+                $bundleItem = (!empty($catalogItem->sale_bundle_item_id)
+                    ? \Modules\Sale\Entities\SaleBundleItem::find((int) $catalogItem->sale_bundle_item_id)
+                    : null)
+                    ?? $this->bundleComponentResolver->findComponentBundleItem(
+                        [$parentInfo['sale_id']],
+                        $componentProductId,
+                        (int) $catalogItem->bundle_id,
+                        (int) $catalogItem->id,
+                        (float) $catalogItem->quantity,
+                        $catalogItem->carrier_sale_detail_id ?? null
+                    )
+                    ?? $this->bundleComponentResolver->findComponentBundleItem(
+                        $saleIds,
+                        $componentProductId,
+                        (int) $catalogItem->bundle_id,
+                        (int) $catalogItem->id,
+                        (float) $catalogItem->quantity,
+                        $catalogItem->carrier_sale_detail_id ?? null
+                    );
 
                 if (!$bundleItem) {
                     // Component allocation not resolvable from persisted
@@ -1633,22 +1676,9 @@ class PosReturnSubmissionService
                 $quantityPerBundle = (float) $catalogItem->quantity;
                 $componentQuantity = $quantityPerBundle * $parentQuantity;
 
-                // Corrections/10: SaleBundleItem.sale_detail_id can mean one
-                // of two different things depending on posting shape:
-                //  - Same-owner (normal) posting: it points at the PARENT's
-                //    own SaleDetails row (SaleDetails::bundleItems() is a
-                //    hasMany keyed by sale_detail_id) — the actual component
-                //    identity is a SEPARATE sibling SaleDetails row in the
-                //    same Sale, keyed by the component's own product_id with
-                //    unit_price = 0 (the long-standing convention used
-                //    throughout this class/PosReturnQuantityGuard).
-                //  - Split-owner posting: it points at a CARRIER row that is
-                //    NOT the parent's own row (a different, zero-quantity
-                //    residual line in the component owner's OWN Sale) — this
-                //    carrier row itself IS the only real identity that exists
-                //    for the component; no sibling row is ever created.
-                // Disambiguate by checking whether the attached row equals
-                // the bundle parent's own row.
+                // Disambiguate whether the attached row equals the parent's own row:
+                // prefer an explicit zero-price sibling row when present, otherwise use
+                // the parent's SaleDetails row itself as the carrier row.
                 if ((int) $attachedDetail->id === $saleDetailId) {
                     $siblingDetail = SaleDetails::query()
                         ->where('sale_id', $componentSaleId)
@@ -1656,30 +1686,19 @@ class PosReturnSubmissionService
                         ->where('unit_price', 0)
                         ->first();
 
-                    if (!$siblingDetail) {
-                        // Same-owner shape with no discoverable sibling
-                        // allocation row at all: this preserves the
-                        // long-standing legacy behavior — a component with
-                        // no verifiable standalone allocation is silently
-                        // excluded from synthesis entirely (never treated as
-                        // "missing" by the completeness check, and never
-                        // synthesized against the parent's own sale_detail_id
-                        // — which would wrongly collide with the parent
-                        // line's own identity).
-                        continue;
-                    }
-
-                    $carrierDetail = $siblingDetail;
+                    $carrierDetail = $siblingDetail ?: $attachedDetail;
                 } else {
                     $carrierDetail = $attachedDetail;
                 }
 
-                $componentDispatchDetailId = $this->bundleComponentResolver->findComponentDispatchDetailId(
-                    $componentSaleId,
-                    $componentProductId,
-                    (int) $carrierDetail->id,
-                    (int) $bundleItem->bundle_id
-                );
+                $componentDispatchDetailId = !empty($catalogItem->dispatch_detail_id)
+                    ? (int) $catalogItem->dispatch_detail_id
+                    : $this->bundleComponentResolver->findComponentDispatchDetailId(
+                        $componentSaleId,
+                        $componentProductId,
+                        (int) $carrierDetail->id,
+                        (int) $bundleItem->bundle_id
+                    );
 
                 $componentProduct = $bundleItem->product ?? \Modules\Product\Entities\Product::find($componentProductId);
                 $componentIsSerial = (bool) ($componentProduct->serial_number_required ?? false);
@@ -1708,6 +1727,13 @@ class PosReturnSubmissionService
                 // component product id instead.
                 $handledComponentSaleDetailIds[] = $carrierDetail->id . ':' . $componentProductId;
 
+                $allocatedPrice = (float) ($catalogItem->allocated_price ?? 0.0);
+                if ($allocatedPrice <= 0.0 && $bundleItem) {
+                    $allocatedPrice = (float) ($bundleItem->price > 0
+                        ? $bundleItem->price
+                        : ($bundleItem->sub_total > 0 ? $bundleItem->sub_total / max(1, (float) $bundleItem->quantity) : 0.0));
+                }
+
                 $componentInfo = [
                     'quantity_per_bundle' => $quantityPerBundle,
                     'sale_detail' => $carrierDetail,
@@ -1718,6 +1744,7 @@ class PosReturnSubmissionService
                     'component_product_id' => $componentProductId,
                     'component_product_name' => $componentProduct->product_name ?? null,
                     'component_product_code' => $componentProduct->product_code ?? null,
+                    'allocated_price' => $allocatedPrice,
                 ];
 
                 if ($componentIsSerial) {
@@ -1772,7 +1799,8 @@ class PosReturnSubmissionService
                 $componentRefundableQty = $this->quantityGuard->getRefundableQuantity(
                     $carrierDetail->id,
                     $ignorePosReturnId,
-                    $componentOriginalQuantity
+                    $componentOriginalQuantity,
+                    $componentProductId
                 );
 
                 if ($componentQuantity > $componentRefundableQty) {
@@ -1852,6 +1880,7 @@ class PosReturnSubmissionService
                     '__component_product_code' => $componentInfo['component_product_code'],
                     '__component_dispatch_detail_id' => $componentDispatchDetailId,
                     '__sale_bundle_item_id' => $bundleItem->id,
+                    '__component_allocated_price' => $allocatedPrice,
                 ];
                 if ($componentText !== null) {
                     $last = array_key_last($synthesized);
@@ -1931,7 +1960,7 @@ class PosReturnSubmissionService
                 continue;
             }
 
-            if (isset($parentToCatalogComponents[$saleDetailId]) && $isExplicitCashReturn) {
+            if (isset($parentToCatalogComponents[$saleDetailId]) && $isExplicitCashReturn && !PosReturnLine::isComponentLine($lineData)) {
                 $bundleGroupKey = 'bundle-' . $saleDetailId;
                 $lineData['__bundle_parent_sale_detail_id'] = $saleDetailId;
                 $lineData['__bundle_group_key'] = $bundleGroupKey;
@@ -2121,6 +2150,7 @@ class PosReturnSubmissionService
                 '__component_product_code' => $componentInfo['component_product_code'] ?? $leafSerial->product?->product_code,
                 '__component_dispatch_detail_id' => $sourceDispatchDetailId,
                 '__sale_bundle_item_id' => $componentInfo['sale_bundle_item_id'] ?? null,
+                '__component_allocated_price' => (float) ($componentInfo['allocated_price'] ?? 0.0),
             ];
         }
 
@@ -2329,7 +2359,9 @@ class PosReturnSubmissionService
         foreach ($cashReturnLines as $lineData) {
             $saleDetailId = (int) ($lineData['sale_detail_id'] ?? 0);
             $parentSaleDetailId = (int) ($lineData['__bundle_parent_sale_detail_id'] ?? 0);
-            $isParentLine = isset($parentToCatalogComponents[$saleDetailId]) && $parentSaleDetailId === $saleDetailId;
+            $isParentLine = isset($parentToCatalogComponents[$saleDetailId])
+                && $parentSaleDetailId === $saleDetailId
+                && !PosReturnLine::isComponentLine($lineData, $saleDetails->get($saleDetailId));
 
             if ($isParentLine) {
                 $groupedByParent[$saleDetailId]['parent_line'] = $lineData;

@@ -2,8 +2,9 @@
 
 namespace Modules\Pos\Entities;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Modules\Sale\Entities\SaleDetails;
 use Modules\SalesReturn\Entities\SaleReturn;
 use Modules\SalesReturn\Entities\SaleReturnDetail;
 
@@ -115,5 +116,74 @@ class PosReturnLine extends Model
     public function bundleParentSaleDetail()
     {
         return $this->belongsTo(\Modules\Sale\Entities\SaleDetails::class, 'bundle_parent_sale_detail_id');
+    }
+
+    /**
+     * Determine whether a POS return line (or draft line payload array) represents
+     * a bundle component rather than a bundle parent or standalone product.
+     */
+    public static function isComponentLine(self|array $line, ?SaleDetails $carrierDetail = null): bool
+    {
+        if (is_array($line)) {
+            if (!empty($line['__synthesized_component'])) {
+                return true;
+            }
+
+            $compQtyPerBundle = $line['component_quantity_per_bundle'] ?? $line['__component_quantity_per_bundle'] ?? null;
+            if ($compQtyPerBundle !== null && (float) $compQtyPerBundle > 0) {
+                return true;
+            }
+
+            $parentSaleDetailId = (int) ($line['bundle_parent_sale_detail_id'] ?? $line['__bundle_parent_sale_detail_id'] ?? 0);
+            if ($parentSaleDetailId <= 0) {
+                return false;
+            }
+
+            $saleDetailId = (int) ($line['sale_detail_id'] ?? 0);
+            if ($saleDetailId > 0 && $parentSaleDetailId !== $saleDetailId) {
+                return true;
+            }
+
+            $productId = (int) ($line['__component_product_id'] ?? $line['product_id'] ?? 0);
+            if ($productId > 0) {
+                $carrierProductId = $carrierDetail
+                    ? (int) $carrierDetail->product_id
+                    : ($saleDetailId > 0 ? (int) (SaleDetails::whereKey($saleDetailId)->value('product_id') ?? 0) : 0);
+
+                if ($carrierProductId > 0 && $productId !== $carrierProductId) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        if ($line->component_quantity_per_bundle !== null && (float) $line->component_quantity_per_bundle > 0) {
+            return true;
+        }
+
+        $parentSaleDetailId = (int) ($line->bundle_parent_sale_detail_id ?? 0);
+        if ($parentSaleDetailId <= 0) {
+            return false;
+        }
+
+        $saleDetailId = (int) ($line->sale_detail_id ?? 0);
+        if ($saleDetailId > 0 && $parentSaleDetailId !== $saleDetailId) {
+            return true;
+        }
+
+        $productId = (int) ($line->product_id ?? 0);
+        if ($productId > 0) {
+            $carrier = $carrierDetail ?? ($line->relationLoaded('saleDetail') ? $line->saleDetail : null);
+            $carrierProductId = $carrier
+                ? (int) $carrier->product_id
+                : ($saleDetailId > 0 ? (int) (SaleDetails::whereKey($saleDetailId)->value('product_id') ?? 0) : 0);
+
+            if ($carrierProductId > 0 && $productId !== $carrierProductId) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

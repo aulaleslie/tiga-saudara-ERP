@@ -240,7 +240,7 @@ class PosReturnRoundingValuationService
         if ($line->bundle_parent_sale_detail_id) {
             if ($contextLines) {
                 foreach ($contextLines as $candidate) {
-                    if ((int) $candidate->sale_detail_id === (int) $line->bundle_parent_sale_detail_id) {
+                    if ((int) $candidate->sale_detail_id === (int) $line->bundle_parent_sale_detail_id && ! PosReturnLine::isComponentLine($candidate)) {
                         if (! empty($candidate->pos_transaction_line_id)) {
                             return 'ptl_' . $candidate->pos_transaction_line_id;
                         }
@@ -253,7 +253,7 @@ class PosReturnRoundingValuationService
                     }
                 }
             } elseif ($line->relationLoaded('posReturn') && $line->posReturn && $line->posReturn->relationLoaded('lines')) {
-                $parent = $line->posReturn->lines->first(fn ($l) => (int) $l->sale_detail_id === (int) $line->bundle_parent_sale_detail_id);
+                $parent = $line->posReturn->lines->first(fn ($l) => (int) $l->sale_detail_id === (int) $line->bundle_parent_sale_detail_id && ! PosReturnLine::isComponentLine($l));
                 if ($parent) {
                     if (! empty($parent->pos_transaction_line_id)) {
                         return 'ptl_' . $parent->pos_transaction_line_id;
@@ -497,7 +497,7 @@ class PosReturnRoundingValuationService
             return ['quantity' => 0.0, 'amount' => 0.0, 'last_reference' => null];
         }
 
-        $parentLines = $lines->filter(fn ($l) => empty($l->bundle_parent_sale_detail_id) || (int) $l->bundle_parent_sale_detail_id === (int) $l->sale_detail_id);
+        $parentLines = $lines->reject(fn ($l) => PosReturnLine::isComponentLine($l));
         $quantity = $parentLines->isNotEmpty()
             ? (float) $parentLines->sum('quantity')
             : (float) $lines->sum('quantity');
@@ -585,7 +585,7 @@ class PosReturnRoundingValuationService
             $currentCommittedQty = (float) ($context['commercial_lines'][$key]['committed_quantity'] ?? 0);
             $currentCommittedAmt = (float) ($context['commercial_lines'][$key]['committed_amount'] ?? 0);
 
-            $parentLine = $groupLines->first(fn ($l) => empty($l->bundle_parent_sale_detail_id) || (int) $l->bundle_parent_sale_detail_id === (int) $l->sale_detail_id) ?? $groupLines->first();
+            $parentLine = $groupLines->first(fn ($l) => ! PosReturnLine::isComponentLine($l)) ?? $groupLines->first();
             $releaseQty = (float) $parentLine->quantity;
             $releaseAmt = (float) $groupLines->sum(fn ($l) => (float) ($l->expected_cash_amount ?? $l->line_total ?? 0));
 

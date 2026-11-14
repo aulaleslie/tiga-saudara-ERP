@@ -17,7 +17,7 @@ class PosReturnQuantityGuard
      * @param int|null $excludeReturnId
      * @return float
      */
-    public function getReturnableQuantity(?int $dispatchDetailId, ?int $saleDetailId = null, ?int $excludeReturnId = null): float
+    public function getReturnableQuantity(?int $dispatchDetailId, ?int $saleDetailId = null, ?int $excludeReturnId = null, ?int $productId = null): float
     {
         $originalQty = 0;
         
@@ -28,6 +28,9 @@ class PosReturnQuantityGuard
             // Fallback for stockless lines or cases where dispatch detail is missing
             $saleDetail = SaleDetails::find($saleDetailId);
             $originalQty = (float) ($saleDetail->quantity ?? 0);
+            if ($productId === null && $saleDetail && !empty($saleDetail->product_id)) {
+                $productId = (int) $saleDetail->product_id;
+            }
         }
 
         // If an excluded return is completed, its cash return reduction was already applied
@@ -43,6 +46,7 @@ class PosReturnQuantityGuard
                     }, function ($q) use ($saleDetailId) {
                         $q->where('sale_detail_id', $saleDetailId);
                     })
+                    ->when($productId !== null && $productId > 0, fn ($q) => $q->where('product_id', $productId))
                     ->sum('quantity');
             }
         }
@@ -69,6 +73,7 @@ class PosReturnQuantityGuard
             }, function ($q) use ($saleDetailId) {
                 $q->where('sale_detail_id', $saleDetailId);
             })
+            ->when($productId !== null && $productId > 0, fn ($q) => $q->where('product_id', $productId))
             ->sum('quantity');
 
         return max(0, ($originalQty + $completedCashReduction) - $inFlightQty);
@@ -104,7 +109,7 @@ class PosReturnQuantityGuard
      * @param float|null $componentOriginalQuantity
      * @return float
      */
-    public function getRefundableQuantity(?int $saleDetailId, ?int $excludeReturnId = null, ?float $componentOriginalQuantity = null): float
+    public function getRefundableQuantity(?int $saleDetailId, ?int $excludeReturnId = null, ?float $componentOriginalQuantity = null, ?int $productId = null): float
     {
         if (!$saleDetailId) {
             return 0.0;
@@ -115,6 +120,9 @@ class PosReturnQuantityGuard
         } else {
             $saleDetail = SaleDetails::find($saleDetailId);
             $originalQty = (float) ($saleDetail->quantity ?? 0);
+            if ($productId === null && $saleDetail && !empty($saleDetail->product_id)) {
+                $productId = (int) $saleDetail->product_id;
+            }
         }
 
         $completedCashReduction = 0;
@@ -124,6 +132,7 @@ class PosReturnQuantityGuard
                 $completedCashReduction = (float) PosReturnLine::where('pos_return_id', $excludeReturnId)
                     ->where('sale_detail_id', $saleDetailId)
                     ->where('resolution', PosReturnLine::RESOLUTION_CASH_RETURN)
+                    ->when($productId !== null && $productId > 0, fn ($q) => $q->where('product_id', $productId))
                     ->sum('quantity');
             }
         }
@@ -144,6 +153,7 @@ class PosReturnQuantityGuard
             })
             ->where('sale_detail_id', $saleDetailId)
             ->where('resolution', PosReturnLine::RESOLUTION_CASH_RETURN)
+            ->when($productId !== null && $productId > 0, fn ($q) => $q->where('product_id', $productId))
             ->sum('quantity');
 
         return max(0, ($originalQty + $completedCashReduction) - $inFlightCashReturns);
@@ -165,7 +175,8 @@ class PosReturnQuantityGuard
 
         $saleDetailId = $options['sale_detail_id'] ?? null;
         $excludeReturnId = $options['exclude_return_id'] ?? null;
-        $returnableQty = $this->getReturnableQuantity($dispatchDetailId, $saleDetailId, $excludeReturnId);
+        $productId = $options['product_id'] ?? null;
+        $returnableQty = $this->getReturnableQuantity($dispatchDetailId, $saleDetailId, $excludeReturnId, $productId);
 
         // Allow a small epsilon for float comparison if needed, but standard return quantities are usually discrete or 4 decimals.
         return round($requestedQuantity, 4) <= round($returnableQty, 4);

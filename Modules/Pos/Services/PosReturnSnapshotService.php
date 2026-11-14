@@ -399,10 +399,18 @@ class PosReturnSnapshotService
             $completedCashReturns = (float) PosReturnLine::whereHas('posReturn', function ($q) {
                 $q->where('is_reversed', false)
                   ->where('status', PosReturn::STATUS_COMPLETED);
-            })->where('sale_detail_id', $detail->id)->where('resolution', PosReturnLine::RESOLUTION_CASH_RETURN)->sum('quantity');
+            })->where('sale_detail_id', $detail->id)
+              ->when(!empty($detail->product_id), fn ($q) => $q->where('product_id', (int) $detail->product_id))
+              ->where('resolution', PosReturnLine::RESOLUTION_CASH_RETURN)
+              ->sum('quantity');
 
             $trueOriginalQuantity = (float) $detail->quantity + $completedCashReturns;
-            $returnableQty = app(\App\Support\PosReturn\PosReturnQuantityGuard::class)->getReturnableQuantity($dispatchDetailId, $detail->id);
+            $returnableQty = app(\App\Support\PosReturn\PosReturnQuantityGuard::class)->getReturnableQuantity(
+                $dispatchDetailId,
+                $detail->id,
+                null,
+                $detail->product_id ? (int) $detail->product_id : null
+            );
 
             $results[] = [
                 'checkout_sale_id' => $checkoutSale->id,
@@ -625,8 +633,9 @@ class PosReturnSnapshotService
             // never the component's real quantity) — the component's real
             // originally-fulfilled quantity is the bundle item's own quantity.
             $originalQty = $bundleItem ? (float) $bundleItem->quantity : 0.0;
+            $componentProductId = $product ? (int) $product->id : ($bundleItem ? (int) $bundleItem->product_id : null);
             $returnableQty = $carrierDetail
-                ? app(\App\Support\PosReturn\PosReturnQuantityGuard::class)->getRefundableQuantity($carrierDetail->id, null, $originalQty)
+                ? app(\App\Support\PosReturn\PosReturnQuantityGuard::class)->getRefundableQuantity($carrierDetail->id, null, $originalQty, $componentProductId ?: null)
                 : 0.0;
             $entry['returnable_quantity'] = $returnableQty;
 
@@ -651,8 +660,9 @@ class PosReturnSnapshotService
             $entry = array_merge($entry, $meta);
             if ($meta['registration_classification'] === \App\Support\SalesReturn\SerialRegistration\SourceClassification::QUANTITY_ONLY) {
                 $originalQty = $bundleItem ? (float) $bundleItem->quantity : 0.0;
+                $componentProductId = $product ? (int) $product->id : ($bundleItem ? (int) $bundleItem->product_id : null);
                 $entry['returnable_quantity'] = $carrierDetail
-                    ? app(\App\Support\PosReturn\PosReturnQuantityGuard::class)->getRefundableQuantity($carrierDetail->id, null, $originalQty)
+                    ? app(\App\Support\PosReturn\PosReturnQuantityGuard::class)->getRefundableQuantity($carrierDetail->id, null, $originalQty, $componentProductId ?: null)
                     : 0.0;
             }
 

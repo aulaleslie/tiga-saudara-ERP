@@ -464,15 +464,7 @@ class PosReceiptReprintProjectionService
      */
     protected function isBundleComponentReturnLine(PosReturnLine $line, ?PosTransactionLine $txnLine = null): bool
     {
-        if ((float) ($line->component_quantity_per_bundle ?? 0) > 0) {
-            return true;
-        }
-
-        if (empty($line->bundle_parent_sale_detail_id)) {
-            return false;
-        }
-
-        if (! empty($line->sale_detail_id) && (int) $line->bundle_parent_sale_detail_id !== (int) $line->sale_detail_id) {
+        if (PosReturnLine::isComponentLine($line)) {
             return true;
         }
 
