@@ -102,3 +102,30 @@ Findings addressed (verified against installed Livewire 3.0.5 `dist/livewire.js`
 - Stale failure clearing newer feedback: workspace failure handlers read the card sequence from the failing commit (`toggleCardFilter` param or `sale-filter`/`pos-filter` dispatch param) and release pending state only when it equals the current sequence; commits without a sequence are ignored.
 
 Verification: markup assertions plus `node --check` of the inline scripts only. Behaviour (offline/aborted request, 504 from proxy, rapid card clicks with an older failure) is part of the outstanding browser verification in section 5.
+
+## 7. Review follow-up 2
+
+- Request-error banners use `x-show.important` (Bootstrap `d-flex` is `!important` and overrode Alpine's hide).
+- Transport guard now buffers the response body inside the guarded chain, so a connection that drops after headers (during `response.text()`) also becomes the synthetic 503; status, headers, `redirected` and `url` are preserved on the buffered response. Checked with a Node harness (ok / initial reject / body failure / redirect).
+- Failed filter requests: the client retains the latest failed `*-filters-changed` (or `retrySummary`) inputs and retries with `retrySummary(failedSummaryFilters)`; the server assigns those inputs before recalculating, so the retry uses the scope the table shows.
+- Card failures collect every sequence in a (possibly batched) commit and release pending state if any equals the current sequence (Sales and POS).
+
+Focused run: 71 passed across the summary/workspace/POS test classes. Browser verification (section 5) is still outstanding.
+
+## 8. Review follow-up 3
+
+- After a failed initial `loadSummary`, a successful filter-only request (which only stores inputs because the component is not initialized) no longer clears the retry; only a successful `loadSummary`/`retrySummary` does. Retained filter inputs are dropped once a filter request reaches PHP.
+- `retrySummary($filters)` replays only the financial scope (businesses, document/transaction and due dates); the current card selection is kept (Sales and POS).
+
+Focused run: 72 passed. Browser verification (section 5) still outstanding.
+
+## 9. Review follow-up 4
+
+- Card selection freshness: the failure state records the failed event's selection and marks it superseded if a `toggleCardFilter` commit on the summary component follows the failure. `retryInputs()` omits `selectedCardFilter` only when superseded; `retrySummary()` replays the selection whenever the key is present (so a failed Reset restores its cleared selection). Sales and POS.
+- Tests: Sales and POS cover "failed Apply then newer card" (newer selection kept, replayed scope totals) and "failed Reset" (null selection and unfiltered totals restored). Client logic checked with a Node simulation of the commit hook.
+
+Focused run: 75 passed. Browser verification (section 5) still outstanding.
+
+## 10. Review follow-up 5
+
+- A card selection now supersedes the failed event's selection only when its own request succeeds; a failed card request leaves the failed Reset/Apply selection to be replayed. Checked with a Node simulation (failed Reset → failed card → retry keeps `selectedCardFilter: null`; successful card → omitted).

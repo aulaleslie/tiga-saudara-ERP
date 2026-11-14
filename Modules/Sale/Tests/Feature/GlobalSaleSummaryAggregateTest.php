@@ -478,23 +478,100 @@ class GlobalSaleSummaryAggregateTest extends TestCase
             ->assertDispatched('global-sale-filters-changed', forceRefresh: true);
     }
 
+    public function test_retry_with_failed_filter_inputs_calculates_the_new_scope(): void
+    {
+        $this->sale(['date' => '2026-01-10', 'total_amount' => 1000]);
+        $this->sale(['date' => '2026-01-20', 'total_amount' => 400]);
+        $this->sale(['date' => '2026-06-10', 'total_amount' => 700]);
+
+        $component = new SaleSummaryCards();
+        $component->mount(globalMode: true, selectedCardFilter: 'unpaid');
+        $component->loadSummary();
+        $this->assertSame(3, $component->getPiutangBelumTertagihProperty()['count']);
+        $this->assertEquals(2100, $component->getPiutangBelumTertagihProperty()['total']);
+
+        // Apply (January, "unpaid" selected) failed before PHP; the user then selects "overdue".
+        $component->toggleCardFilter('overdue');
+
+        $component->retrySummary([
+            'globalBusinessFilters' => [],
+            'documentDateFrom' => '2026-01-01',
+            'documentDateTo' => '2026-01-31',
+            'dueDateFrom' => null,
+            'dueDateTo' => null,
+            // selectedCardFilter omitted: the client marks it superseded by the newer selection.
+        ]);
+
+        // Financial scope is replayed, the newer card selection is kept.
+        $this->assertSame(2, $component->getPiutangBelumTertagihProperty()['count']);
+        $this->assertEquals(1400, $component->getPiutangBelumTertagihProperty()['total']);
+        $this->assertSame('overdue', $component->selectedCardFilter);
+    }
+
+    public function test_retry_after_failed_reset_restores_reset_selection(): void
+    {
+        $this->sale(['date' => '2026-01-10']);
+        $this->sale(['date' => '2026-06-10']);
+
+        $component = new SaleSummaryCards();
+        $component->mount(globalMode: true, documentDateFrom: '2026-01-01', documentDateTo: '2026-01-31', selectedCardFilter: 'unpaid');
+        $component->loadSummary();
+        $this->assertSame(1, $component->getPiutangBelumTertagihProperty()['count']);
+
+        // Reset event failed; no newer card selection, so the client replays its null selection.
+        $component->retrySummary([
+            'globalBusinessFilters' => [], 'documentDateFrom' => null, 'documentDateTo' => null,
+            'dueDateFrom' => null, 'dueDateTo' => null, 'selectedCardFilter' => null, 'forceRefresh' => true,
+        ]);
+
+        $this->assertNull($component->selectedCardFilter);
+        $this->assertSame(2, $component->getPiutangBelumTertagihProperty()['count']);
+    }
+
+    public function test_filter_event_before_initialization_does_not_calculate(): void
+    {
+        $this->sale();
+        $component = new SaleSummaryCards();
+        $component->mount(globalMode: true);
+
+        // Initial load failed at HTTP level: not initialized, so a later filter event only stores inputs.
+        $component->handleFiltersChanged([], '2026-01-01', '2026-12-31');
+        $this->assertFalse($component->summaryInitialized);
+        $this->assertNull($component->summary);
+
+        // Retry (no client-retained inputs) calculates with the stored scope.
+        $component->retrySummary();
+        $this->assertSame(1, $component->getPiutangBelumTertagihProperty()['count']);
+    }
+
     public function test_workspace_wires_transport_guard_sequenced_failures_and_client_retry(): void
     {
         $html = (string) $this->blade("@include('sale::global-payments.partials.workspace', ['keyPrefix' => 'standalone'])");
 
         // Rejected fetch() becomes a handled Livewire failure instead of a stuck queue.
         $this->assertStringContainsString('data-livewire-transport-guard', $html);
-        $this->assertStringContainsString('promise.catch(', $html);
+        // Body-read failures after headers are converted too (body buffered inside the guarded chain).
+        $this->assertStringContainsString('response.text().then(', $html);
+        $this->assertStringContainsString('.catch(transportFailure)', $html);
         $this->assertStringContainsString('failure.preventDefault()', $html);
 
         // Card failures release pending state only for the current sequence.
-        $this->assertStringContainsString('const seq = this.failedCommitSeq(commit);', $html);
-        $this->assertStringContainsString('if (seq === this.cardFilterSeq) this.cardFilterPending = false;', $html);
+        // Batched commits may carry several sequences; release if any is the current one.
+        $this->assertStringContainsString('const seqs = this.failedCommitSeqs(commit);', $html);
+        $this->assertStringContainsString('if (seqs.includes(this.cardFilterSeq)) this.cardFilterPending = false;', $html);
 
         // Summary request failures that never reach PHP still surface a retry and mark totals stale.
         $this->assertStringContainsString('summaryRequestFailed', $html);
         $this->assertStringContainsString('data-sale-summary-request-error', $html);
-        $this->assertStringContainsString('$wire.retrySummary()', $html);
+        // Retry replays the latest failed filter inputs; banner overrides Bootstrap's d-flex !important.
+        $this->assertStringContainsString('$wire.retrySummary(retryInputs())', $html);
+        $this->assertStringContainsString('x-show.important="summaryRequestFailed"', $html);
+        // A filter-only success after a failed initial load must not hide the retry.
+        $this->assertStringContainsString('if (!calculates && this.initialLoadFailed) return;', $html);
+        // Failed event's selection is replayed unless a later card selection superseded it.
+        $this->assertStringContainsString('if (this.selectionSuperseded) delete inputs.selectedCardFilter;', $html);
+        $this->assertStringContainsString('succeed(() => { if (this.failedSummaryFilters) this.selectionSuperseded = true; });', $html);
+        $this->assertStringNotContainsString('x-show="summaryRequestFailed"', $html);
         $this->assertStringContainsString("'opacity-50': summaryRequestFailed", $html);
     }
 }

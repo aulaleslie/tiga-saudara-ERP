@@ -1151,4 +1151,42 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
             ->assertSet('selectedCardFilter', null)
             ->assertNotDispatched('pos-card-filter-applied');
     }
+
+    public function test_pos_retry_replays_failed_scope_and_keeps_newer_card_selection(): void
+    {
+        $this->createCompletedPosTransaction($this->setting1, $this->customer1, 10000, 'POS-RETRY-S1');
+        $this->createCompletedPosTransaction($this->setting2, $this->customer2, 20000, 'POS-RETRY-S2');
+
+        // Apply (setting2, "unpaid") failed before PHP; the user then selected "overdue", so the
+        // client omits the superseded selection from the replayed inputs.
+        Livewire::test(PosSummaryCards::class, ['selectedCardFilter' => 'unpaid'])
+            ->call('loadSummary')
+            ->assertSet('summary.outstanding.count', 2)
+            ->call('toggleCardFilter', 'overdue', 2)
+            ->call('retrySummary', [
+                'globalBusinessFilters' => [$this->setting2->id],
+                'transactionDateFrom' => null, 'transactionDateTo' => null,
+                'dueDateFrom' => null, 'dueDateTo' => null,
+            ])
+            ->assertSet('summary.outstanding.count', 1)
+            ->assertSet('summary.outstanding.total', 20000)
+            ->assertSet('selectedCardFilter', 'overdue');
+    }
+
+    public function test_pos_retry_after_failed_reset_restores_reset_selection(): void
+    {
+        $this->createCompletedPosTransaction($this->setting1, $this->customer1, 10000, 'POS-RESET-S1');
+        $this->createCompletedPosTransaction($this->setting2, $this->customer2, 20000, 'POS-RESET-S2');
+
+        Livewire::test(PosSummaryCards::class, ['globalBusinessFilters' => [$this->setting1->id], 'selectedCardFilter' => 'unpaid'])
+            ->call('loadSummary')
+            ->assertSet('summary.outstanding.count', 1)
+            // Reset event failed with no newer selection: its null selection is replayed.
+            ->call('retrySummary', [
+                'globalBusinessFilters' => [], 'transactionDateFrom' => null, 'transactionDateTo' => null,
+                'dueDateFrom' => null, 'dueDateTo' => null, 'selectedCardFilter' => null, 'forceRefresh' => true,
+            ])
+            ->assertSet('selectedCardFilter', null)
+            ->assertSet('summary.outstanding.count', 2);
+    }
 }

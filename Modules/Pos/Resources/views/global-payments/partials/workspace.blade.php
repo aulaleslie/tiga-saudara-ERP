@@ -29,14 +29,16 @@
         stopCardFilterLoading() {
             this.cardFilterLoading = false;
         },
-        failedCommitSeq(commit) {
+        failedCommitSeqs(commit) {
             // The card sequence travels in toggleCardFilter(type, seq) and in the
-            // sale-filter/pos-filter dispatch params; other commits carry none.
+            // sale-filter/pos-filter dispatch params. Livewire can batch queued selections
+            // into one commit, so collect every sequence the commit carries.
+            const seqs = [];
             for (const call of (commit && commit.calls) || []) {
-                if (call.method === 'toggleCardFilter' && call.params && call.params[1] != null) return Number(call.params[1]);
-                if (call.method === '__dispatch' && call.params && call.params[1] && call.params[1].seq != null) return Number(call.params[1].seq);
+                if (call.method === 'toggleCardFilter' && call.params && call.params[1] != null) seqs.push(Number(call.params[1]));
+                if (call.method === '__dispatch' && call.params && call.params[1] && call.params[1].seq != null) seqs.push(Number(call.params[1].seq));
             }
-            return null;
+            return seqs;
         },
         init() {
             // Release only when this workspace's commit for the CURRENT card sequence fails
@@ -44,9 +46,9 @@
             if (window.Livewire && typeof window.Livewire.hook === 'function') {
                 this.commitHookCleanup = window.Livewire.hook('commit', ({ component, commit, fail }) => {
                     if (!component || !component.el || !this.$el.contains(component.el)) return;
-                    const seq = this.failedCommitSeq(commit);
-                    if (seq === null) return;
-                    fail(() => { if (seq === this.cardFilterSeq) this.stopCardFilterLoading(); });
+                    const seqs = this.failedCommitSeqs(commit);
+                    if (seqs.length === 0) return;
+                    fail(() => { if (seqs.includes(this.cardFilterSeq)) this.stopCardFilterLoading(); });
                 });
             }
         },

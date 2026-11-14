@@ -260,9 +260,11 @@ class GlobalPosPaymentAuthorizationTest extends TestCase
         // Transport failures are converted into handled failures; failure release is sequence-correlated;
         // summary request failures show a client-side retry.
         $this->assertStringContainsString('data-livewire-transport-guard', $html);
-        $this->assertStringContainsString('if (seq === this.cardFilterSeq) this.stopCardFilterLoading();', $html);
+        $this->assertStringContainsString('if (seqs.includes(this.cardFilterSeq)) this.stopCardFilterLoading();', $html);
         $this->assertStringContainsString('data-pos-summary-request-error', $html);
-        $this->assertStringContainsString('$wire.retrySummary()', $html);
+        $this->assertStringContainsString('$wire.retrySummary(retryInputs())', $html);
+        $this->assertStringContainsString('x-show.important="summaryRequestFailed"', $html);
+        $this->assertStringContainsString('response.text().then(', $html);
     }
 
     public function test_show_renders_combined_print_history_with_actor_names_and_timestamps()

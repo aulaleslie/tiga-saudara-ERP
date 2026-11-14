@@ -9,9 +9,9 @@
             <span class="sr-only">Memuat data...</span>
         </div>
     </div>
-        <div x-show="summaryRequestFailed" x-cloak class="alert alert-warning d-flex justify-content-between align-items-center mb-3" role="alert" data-pos-summary-request-error>
+        <div x-show.important="summaryRequestFailed" x-cloak class="alert alert-warning d-flex justify-content-between align-items-center mb-3" role="alert" data-pos-summary-request-error>
             <span>Permintaan ringkasan gagal. Angka di bawah belum diperbarui. Tabel tetap dapat digunakan.</span>
-            <button type="button" class="btn btn-sm btn-outline-secondary" x-on:click="$wire.retrySummary()">
+            <button type="button" class="btn btn-sm btn-outline-secondary" x-on:click="$wire.retrySummary(retryInputs())">
                 Coba Lagi
             </button>
         </div>

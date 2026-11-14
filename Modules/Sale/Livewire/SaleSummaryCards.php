@@ -93,13 +93,26 @@ class SaleSummaryCards extends Component
     }
 
     /** Recalculate with the current applied inputs after a failure. */
-    public function retrySummary(): void
+    public function retrySummary(?array $filters = null): void
     {
         if (!$this->globalMode) {
             return;
         }
 
         $this->authorizeGlobal();
+        // A failed filter request never reached PHP: replay the latest applied inputs the
+        // client retained, so the retry calculates the scope the table already shows. The client
+        // omits selectedCardFilter when a newer card selection superseded the failed event.
+        if (is_array($filters)) {
+            $this->globalBusinessFilters = $filters['globalBusinessFilters'] ?? [];
+            $this->documentDateFrom = $filters['documentDateFrom'] ?? null;
+            $this->documentDateTo = $filters['documentDateTo'] ?? null;
+            $this->dueDateFrom = $filters['dueDateFrom'] ?? null;
+            $this->dueDateTo = $filters['dueDateTo'] ?? null;
+            if (array_key_exists('selectedCardFilter', $filters)) {
+                $this->selectedCardFilter = $filters['selectedCardFilter'];
+            }
+        }
         $this->summaryInitialized = true;
         $this->refreshSummary(true);
     }
