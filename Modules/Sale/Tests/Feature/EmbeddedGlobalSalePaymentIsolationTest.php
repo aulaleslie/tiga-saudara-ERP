@@ -101,7 +101,7 @@ class EmbeddedGlobalSalePaymentIsolationTest extends TestCase
         $cardsComponent = Livewire::test(\Modules\Sale\Livewire\SaleSummaryCards::class, [
             'globalMode' => true,
             'customerId' => $this->customer1->id,
-        ]);
+        ])->call('loadSummary');
 
         $piutang = $cardsComponent->get('piutangBelumTertagih');
         $this->assertEquals(2, $piutang['count']);
@@ -147,7 +147,7 @@ class EmbeddedGlobalSalePaymentIsolationTest extends TestCase
         $cards = Livewire::test(\Modules\Sale\Livewire\SaleSummaryCards::class, [
             'globalMode' => true,
             'customerId' => null,
-        ]);
+        ])->call('loadSummary');
 
         $piutang = $cards->get('piutangBelumTertagih');
         $this->assertEquals(2, $piutang['count']);

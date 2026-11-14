@@ -300,6 +300,7 @@ class GlobalPaymentCardFilterRestorationTest extends TestCase
             'globalBusinessFilters' => [$this->setting1->id],
             'selectedCardFilter' => 'unpaid',
         ])
+            ->call('loadSummary')
             ->assertSet('selectedCardFilter', 'unpaid')
             ->assertSeeHtml('bg-light')
             ->tap(function ($component) {

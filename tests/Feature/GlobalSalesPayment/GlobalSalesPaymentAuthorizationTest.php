@@ -300,6 +300,7 @@ class GlobalSalesPaymentAuthorizationTest extends TestCase
 
         Livewire::actingAs($this->authorizedUser)
             ->test(SaleSummaryCards::class, ['globalMode' => true])
+            ->call('loadSummary')
             ->assertSet('piutangBelumTertagih.count', 2)
             ->assertSet('piutangBelumTertagih.total', 1800000.0)
             ->assertSet('piutangTelat.count', 1)

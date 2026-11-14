@@ -239,6 +239,7 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
         $t3['sale']->update(['due_date' => now()->subDays(2)->toDateString()]);
 
         Livewire::test(PosSummaryCards::class)
+            ->call('loadSummary')
             ->assertSee('15,000') // Total Live Due: 10,000 + 5,000 = 15,000
             ->assertSee('5,000')  // Overdue Amount: 5,000
             ->assertSee('20,000'); // Paid in last 30d: 20,000
@@ -296,8 +297,8 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
         preg_match('/<div\b[^>]*wire:loading\.flex[^>]*>/', $html, $overlayMatch);
         $overlayTag = $overlayMatch[0] ?? '';
 
-        $this->assertStringContainsString(
-            'wire:target="toggleCardFilter"',
+        $this->assertMatchesRegularExpression(
+            '/wire:target="[^"]*\btoggleCardFilter\b[^"]*"/',
             $overlayTag,
             'Expected the overlay to target toggleCardFilter so it blocks repeated card clicks during that request.'
         );
@@ -959,7 +960,7 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
     {
         $this->createCompletedPosTransaction($this->setting1, $this->customer1, 10000, 'POS-CARD-OPT-01');
 
-        $component = Livewire::test(PosSummaryCards::class);
+        $component = Livewire::test(PosSummaryCards::class)->call('loadSummary');
 
         // Track queries during card filter toggling
         \Illuminate\Support\Facades\DB::enableQueryLog();
@@ -1006,7 +1007,7 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
         $t = $this->createCompletedPosTransaction($this->setting1, $this->customer1, 10000, 'POS-RESET-STALE');
 
         // Mount summary cards with default filters
-        $summary = Livewire::test(PosSummaryCards::class);
+        $summary = Livewire::test(PosSummaryCards::class)->call('loadSummary');
         $this->assertSame(1, $summary->get('summary')['outstanding']['count']);
         $this->assertEquals(10000.0, $summary->get('summary')['outstanding']['total']);
         $this->assertSame(0, $summary->get('summary')['paid_within_30_days']['count']);
@@ -1046,5 +1047,108 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
         $summary->assertSet('summary.outstanding.count', 0);
         $summary->assertSet('summary.paid_within_30_days.total', 10000);
         $summary->assertSet('summary.paid_within_30_days.count', 1);
+    }
+
+    public function test_pos_summary_initial_render_defers_projection_and_shows_placeholder(): void
+    {
+        $this->createCompletedPosTransaction($this->setting1, $this->customer1, 10000, 'POS-DEFER-01');
+        PosSettlementProjectionService::$projectionCount = 0;
+
+        $summary = Livewire::test(PosSummaryCards::class)
+            ->assertSet('summary', null)
+            ->assertSeeHtml('wire:init="loadSummary"')
+            ->assertSeeHtml('data-pos-summary-placeholder')
+            ->assertDontSee('0 Transaksi');
+        $this->assertSame(0, PosSettlementProjectionService::$projectionCount);
+
+        $summary->call('loadSummary')
+            ->assertSet('summary.outstanding.count', 1)
+            ->assertDontSeeHtml('data-pos-summary-placeholder');
+    }
+
+    public function test_pos_summary_filter_before_initialization_uses_latest_inputs(): void
+    {
+        $this->createCompletedPosTransaction($this->setting1, $this->customer1, 10000, 'POS-DEFER-S1');
+        $this->createCompletedPosTransaction($this->setting2, $this->customer2, 20000, 'POS-DEFER-S2');
+
+        Livewire::test(PosSummaryCards::class)
+            ->dispatch('global-pos-filters-changed', globalBusinessFilters: [$this->setting2->id])
+            ->assertSet('summary', null)
+            ->call('loadSummary')
+            ->assertSet('summary.outstanding.count', 1)
+            ->assertSet('summary.outstanding.total', 20000)
+            ->dispatch('global-pos-filters-changed', globalBusinessFilters: [$this->setting1->id])
+            ->dispatch('global-pos-filters-changed', globalBusinessFilters: [$this->setting1->id, $this->setting2->id])
+            ->assertSet('summary.outstanding.count', 2);
+    }
+
+    public function test_pos_summary_customer_constraint_survives_deferred_load(): void
+    {
+        $this->createCompletedPosTransaction($this->setting1, $this->customer1, 10000, 'POS-DEFER-C1');
+        $this->createCompletedPosTransaction($this->setting1, $this->customer2, 20000, 'POS-DEFER-C2');
+
+        Livewire::test(PosSummaryCards::class, ['customerId' => $this->customer2->id])
+            ->call('loadSummary')
+            ->assertSet('customerId', $this->customer2->id)
+            ->assertSet('summary.outstanding.count', 1)
+            ->assertSet('summary.outstanding.total', 20000);
+    }
+
+    public function test_pos_summary_deferred_action_requires_global_access(): void
+    {
+        $summary = Livewire::test(PosSummaryCards::class);
+
+        \Illuminate\Support\Facades\Gate::define('posPayments.global.access', fn () => false);
+
+        $summary->call('loadSummary')->assertForbidden();
+    }
+
+    public function test_pos_summary_failure_shows_retry_and_retry_uses_latest_inputs(): void
+    {
+        $this->createCompletedPosTransaction($this->setting1, $this->customer1, 10000, 'POS-RETRY-01');
+        $fail = true;
+        $real = app(PosSettlementProjectionService::class);
+        $this->app->instance(PosSettlementProjectionService::class, new class($real, $fail) {
+            public function __construct(private $real, private bool &$fail) {}
+            public function __call($m, $a) { return $this->real->$m(...$a); }
+            public function calculateSummaryCards(...$a)
+            {
+                if ($this->fail) {
+                    throw new \RuntimeException('boom');
+                }
+
+                return $this->real->calculateSummaryCards(...$a);
+            }
+        });
+
+        $summary = Livewire::test(PosSummaryCards::class)
+            ->call('loadSummary')
+            ->assertSet('summary', null)
+            ->assertSeeHtml('data-pos-summary-error')
+            ->assertSee('Coba Lagi')
+            ->assertDontSee('0 Transaksi');
+
+        $fail = false;
+        $summary->call('retrySummary')
+            ->assertSet('summaryError', null)
+            ->assertSet('summary.outstanding.count', 1);
+    }
+
+    public function test_pos_card_filter_completion_is_scoped_and_sequenced(): void
+    {
+        $this->createCompletedPosTransaction($this->setting1, $this->customer1, 10000, 'POS-SEQ-01');
+
+        Livewire::test(PosSummaryCards::class, ['customerId' => $this->customer1->id])
+            ->call('toggleCardFilter', 'unpaid', 4)
+            ->assertDispatched('pos-filter', type: 'unpaid', workspace: 'customer-' . $this->customer1->id, seq: 4);
+
+        Livewire::test(GlobalPosPaymentTable::class, ['customerId' => $this->customer1->id])
+            ->dispatch('pos-filter', type: 'unpaid', workspace: 'customer-' . $this->customer1->id, seq: 4)
+            ->assertDispatched('pos-card-filter-applied', workspace: 'customer-' . $this->customer1->id, seq: 4);
+
+        Livewire::test(GlobalPosPaymentTable::class)
+            ->dispatch('pos-filter', type: 'unpaid', workspace: 'customer-999', seq: 1)
+            ->assertSet('selectedCardFilter', null)
+            ->assertNotDispatched('pos-card-filter-applied');
     }
 }
