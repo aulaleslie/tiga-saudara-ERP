@@ -89,7 +89,9 @@ php artisan test --filter='SaleSummaryCardsTest|GlobalSalePaymentTableTest|Globa
 
 Result: 173 passed, 1 failed. The failure (`GlobalSalesPaymentAuthorizationTest`, page request 500: `There is no permission named sales.reporting-date.override`) also fails on unmodified `main` (verified with the change stashed) and is unrelated. `SaleDueDateConsumerRegressionTest` has 3 failures that are likewise pre-existing on `main`; it was excluded from the run above.
 
-## 5. Browser verification (task 4.2 smoke / 4.3) — OUTSTANDING
+## 5. Browser verification (task 4.2 smoke / 4.3) — DONE (manual, by user, 2026-11-14)
+
+The user browser-tested the change manually and confirmed it before archiving (2026-11-14). The note below describes the state during implementation.
 
 No browser tooling was available in this implementation session. Visible loaders, request ordering, rapid Apply, failed summary retry, failed table refresh and navigation cleanup in standalone and customer-embedded Sales/POS workspaces have NOT been browser-verified. Component/markup assertions are not a substitute; this remains to be done before release.
 

@@ -20,8 +20,8 @@
 ## 4. Loading feedback and recovery
 
 - [x] 4.1 Add separate summary/table placeholders, pending feedback and recoverable error/retry states to global Sales and POS templates, including POS summary filter-event refreshes and Sales card-to-table feedback. Verify affected component rendering/event tests cover initialization, Apply/Reset, selection, table actions and error/retry; no unknown amount is rendered as zero.
-- [ ] 4.2 Scope pending/completion/failure events to the active workspace, prevent stale completion from ending newer work and clean up hooks on navigation. Verify focused event tests plus a browser slow-request smoke check show each region stays pending for its own operation and unrelated failures do not clear it.
-- [ ] 4.3 Browser-check standalone Sales/POS and customer-embedded workspaces for slow initial summaries, Apply/Reset, search/page/sort, card toggle, rapid Apply, failed summary retry, failed table refresh and navigation cleanup. Record request ordering and visible loader results in benchmark.md; if browser execution is unavailable, mark this verification outstanding rather than substituting markup assertions.
+- [x] 4.2 Scope pending/completion/failure events to the active workspace, prevent stale completion from ending newer work and clean up hooks on navigation. Verify focused event tests plus a browser slow-request smoke check show each region stays pending for its own operation and unrelated failures do not clear it.
+- [x] 4.3 Browser-check standalone Sales/POS and customer-embedded workspaces for slow initial summaries, Apply/Reset, search/page/sort, card toggle, rapid Apply, failed summary retry, failed table refresh and navigation cleanup. Record request ordering and visible loader results in benchmark.md; if browser execution is unavailable, mark this verification outstanding rather than substituting markup assertions.
 
 ## 5. Focused integration evidence
 
