@@ -46,23 +46,16 @@
                     @foreach($cart_items as $cart_item)
                         <tr wire:key="purchase-cart-item-{{ $cart_item->rowId }}">
                             <td class="align-middle">
-                                @can('products.manage_cross_business_prices')
-                                    <a href="{{ route('products.cross-business-prices.edit', $cart_item->id) }}" target="_blank" class="text-primary font-weight-bold" title="Manage Cross-Business Prices">
+                                @can('products.edit')
+                                    <a href="{{ route('products.edit', $cart_item->id) }}"
+                                       target="_blank" rel="noopener"
+                                       class="text-primary font-weight-bold" title="Edit Produk">
                                         {{ $cart_item->name }}
                                     </a> <br>
                                 @else
                                     <strong>{{ $cart_item->name }}</strong> <br>
                                 @endcan
                                 <span class="badge badge-success">{{ $cart_item->options->code }}</span>
-                                @can('products.edit')
-                                    <a href="{{ route('products.edit', $cart_item->id) }}"
-                                       target="_blank"
-                                       rel="noopener"
-                                       class="d-inline-block small text-info font-weight-bold ml-1"
-                                       title="Edit Produk">
-                                        <i class="bi bi-pencil-square"></i> Edit Produk
-                                    </a>
-                                @endcan
 
                                 <!-- Tooltip Container -->
                                 <span class="d-inline-block"

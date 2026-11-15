@@ -79,18 +79,18 @@ class PurchaseProductCartCrossBusinessPriceLinkTest extends TestCase
         $this->productEditorUser->givePermissionTo($editPermission);
     }
 
-    public function test_renders_cross_business_price_link_for_authorized_user()
+    public function test_price_only_user_sees_plain_product_name()
     {
         $this->actingAs($this->authorizedUser);
 
         $this->seedCartRow();
 
         Livewire::test(ProductCart::class, ['cartInstance' => 'purchase'])
-            ->assertSeeHtml(route('products.cross-business-prices.edit', $this->product->id))
-            ->assertSeeHtml('Manage Cross-Business Prices');
+            ->assertDontSeeHtml(route('products.cross-business-prices.edit', $this->product->id))
+            ->assertSeeHtml('<strong>' . $this->product->product_name . '</strong>');
     }
 
-    public function test_hides_cross_business_price_link_for_unauthorized_user()
+    public function test_unprivileged_user_sees_plain_product_name()
     {
         $this->actingAs($this->unauthorizedUser);
 
@@ -111,7 +111,8 @@ class PurchaseProductCartCrossBusinessPriceLinkTest extends TestCase
             ->assertSeeHtml('href="' . route('products.edit', $this->product->id) . '"')
             ->assertSeeHtml('target="_blank"')
             ->assertSeeHtml('rel="noopener"')
-            ->assertSeeHtml('Edit Produk');
+            ->assertSeeHtml('title="Edit Produk"')
+            ->assertDontSeeHtml(route('products.cross-business-prices.edit', $this->product->id));
     }
 
     public function test_hides_product_edit_link_without_product_edit_permission()

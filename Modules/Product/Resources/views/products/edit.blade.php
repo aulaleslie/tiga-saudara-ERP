@@ -29,6 +29,12 @@
                         @can('products.edit')
                             <x-button label="Perbaharui Produk" icon="bi-check"/>
                         @endcan
+                        @can('products.manage_cross_business_prices')
+                            <a href="{{ route('products.cross-business-prices.edit', $product->id) }}"
+                               class="btn btn-warning ml-2" title="Kelola Harga Multi-Bisnis">
+                                Kelola Harga Multi-Bisnis
+                            </a>
+                        @endcan
                     </div>
                 </div>
 
