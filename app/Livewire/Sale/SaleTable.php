@@ -20,6 +20,7 @@ class SaleTable extends Component
     #[Url]
     public $search = '';
     public $perPage = 10;
+    public bool $showHundredTransactions = false;
     #[Url]
     public $sortField = 'created_at';
     #[Url]
@@ -203,6 +204,12 @@ class SaleTable extends Component
             selectedCardFilter: null,
             forceRefresh: true,
         );
+    }
+
+    public function updatedShowHundredTransactions(): void
+    {
+        $this->perPage = $this->showHundredTransactions ? 100 : 10;
+        $this->resetPage();
     }
 
     public function searchSubmit()

@@ -58,6 +58,31 @@ class GlobalSalePaymentTableTest extends TestCase
         ], $overrides));
     }
 
+    public function test_global_payment_checkbox_shows_up_to_100_transactions_and_resets_page()
+    {
+        $sales = collect(range(1, 11))->map(fn () => $this->createSale());
+
+        Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
+            ->assertSee('Tampilkan 100 transaksi')
+            ->assertDontSee($sales->first()->reference)
+            ->call('gotoPage', 2)
+            ->assertSee($sales->first()->reference)
+            ->set('showHundredTransactions', true)
+            ->assertSet('perPage', 100)
+            ->assertSee('Halaman 1')
+            ->assertSee($sales->first()->reference)
+            ->assertSee($sales->last()->reference)
+            ->set('showHundredTransactions', false)
+            ->assertSet('perPage', 10)
+            ->assertDontSee($sales->first()->reference);
+    }
+
+    public function test_100_transaction_checkbox_is_not_shown_on_regular_sales_table()
+    {
+        Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => false, 'settingId' => $this->setting1->id])
+            ->assertDontSee('Tampilkan 100 transaksi');
+    }
+
     public function test_global_mode_shows_sales_across_all_settings()
     {
         $sale1 = $this->createSale(['setting_id' => $this->setting1->id]);
