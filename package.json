@@ -2,7 +2,8 @@
     "private": true,
     "scripts": {
         "dev": "vite",
-        "build": "vite build"
+        "build": "vite build",
+        "test:product-status": "node --test Modules/Product/Tests/Browser/product-status-handler.test.cjs"
     },
     "devDependencies": {
         "@coreui/coreui": "^3.2.2",
