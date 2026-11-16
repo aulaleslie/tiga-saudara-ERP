@@ -158,7 +158,7 @@ class ProductPriceFeedIntegrationTest extends TestCase
         ]);
 
         $sync = app(ProductLastPurchasePriceSynchronizer::class);
-        $sync->syncLastPurchasePrice($product->id, 7500);
+        $sync->syncLastPurchasePrice($product->id, $this->settingA->id, 7500);
 
         $event = ProductPriceFeedEvent::where('subject_id', $product->id)
             ->where('event_type', ProductPriceFeedEvent::TYPE_PRODUCT_PRICE_UPDATED)
@@ -166,6 +166,12 @@ class ProductPriceFeedIntegrationTest extends TestCase
 
         $this->assertNotNull($event);
         $this->assertEquals(ProductPriceFeedEvent::SOURCE_PURCHASE_SYNC, $event->source);
+        $this->assertCount(1, $event->snapshots);
+        $this->assertEquals($this->settingA->id, $event->snapshots->first()->setting_id);
+        $this->assertDatabaseMissing('product_prices', [
+            'product_id' => $product->id,
+            'setting_id' => $this->settingB->id,
+        ]);
     }
 
     public function test_product_import_batch_existing_and_new_products_records_feed_events(): void

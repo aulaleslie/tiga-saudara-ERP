@@ -1402,7 +1402,7 @@ class PurchaseController extends Controller
                                 ]);
 
                                 app(\Modules\Product\Services\ProductLastPurchasePriceSynchronizer::class)
-                                    ->syncLastPurchasePrice($product->id, $purchaseDetail->price);
+                                    ->syncLastPurchasePrice($product->id, (int) $settingId, $purchaseDetail->price);
 
                                 app(\Modules\Product\Services\ProductAveragePriceSynchronizer::class)
                                     ->syncAveragePurchasePrice($product->id, $newAveragePrice);

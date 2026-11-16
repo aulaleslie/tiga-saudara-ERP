@@ -183,9 +183,9 @@ class PurchaseApprovalPriceSyncTest extends TestCase
         $this->assertEquals(10000.0, (float) $prices[$this->settingA->id]->average_purchase_price);
         $this->assertEquals(10000.0, (float) $prices[$this->settingB->id]->average_purchase_price);
 
-        // Also last purchase price should be synced to 10000 across all settings
+        // Only the purchasing business receives the new last purchase price
         $this->assertEquals(10000.0, (float) $prices[$this->settingA->id]->last_purchase_price);
-        $this->assertEquals(10000.0, (float) $prices[$this->settingB->id]->last_purchase_price);
+        $this->assertEquals(0.0, (float) $prices[$this->settingB->id]->last_purchase_price);
     }
 
     public function test_purchase_approval_syncs_last_purchase_price_and_preserves_unrelated_fields()
@@ -204,6 +204,13 @@ class PurchaseApprovalPriceSyncTest extends TestCase
             'last_purchase_price' => 20000,
             'sale_tax_id' => $tax1->id,
             'purchase_tax_id' => $tax2->id,
+        ]);
+
+        ProductPrice::create([
+            'product_id' => $this->product->id,
+            'setting_id' => $this->settingB->id,
+            'sale_price' => 42000,
+            'last_purchase_price' => 19000,
         ]);
 
         // Create a Purchase with detail price = 35000
@@ -271,8 +278,9 @@ class PurchaseApprovalPriceSyncTest extends TestCase
         $this->assertEquals($tax1->id, $prices[$this->settingA->id]->sale_tax_id);
         $this->assertEquals($tax2->id, $prices[$this->settingA->id]->purchase_tax_id);
 
-        // Setting B missing row created with last_purchase_price = 35000
-        $this->assertEquals(35000.0, (float) $prices[$this->settingB->id]->last_purchase_price);
+        // Another business keeps its existing price and unrelated sale price.
+        $this->assertEquals(19000.0, (float) $prices[$this->settingB->id]->last_purchase_price);
+        $this->assertEquals(42000.0, (float) $prices[$this->settingB->id]->sale_price);
     }
 
     public function test_multiple_received_products_synchronize_independently()
@@ -365,15 +373,15 @@ class PurchaseApprovalPriceSyncTest extends TestCase
         $approveResponse = $this->post(route('receivings.approve', $receivedNote->id));
         $approveResponse->assertSessionHasNoErrors();
 
-        // Product 1 prices synced to 15000 across settings
+        // Product 1 last price changes only for setting A
         $prices1 = ProductPrice::where('product_id', $this->product->id)->get()->keyBy('setting_id');
         $this->assertEquals(15000.0, (float) $prices1[$this->settingA->id]->last_purchase_price);
-        $this->assertEquals(15000.0, (float) $prices1[$this->settingB->id]->last_purchase_price);
+        $this->assertEquals(0.0, (float) $prices1[$this->settingB->id]->last_purchase_price);
 
-        // Product 2 prices synced to 45000 across settings
+        // Product 2 last price changes only for setting A
         $prices2 = ProductPrice::where('product_id', $product2->id)->get()->keyBy('setting_id');
         $this->assertEquals(45000.0, (float) $prices2[$this->settingA->id]->last_purchase_price);
-        $this->assertEquals(45000.0, (float) $prices2[$this->settingB->id]->last_purchase_price);
+        $this->assertEquals(0.0, (float) $prices2[$this->settingB->id]->last_purchase_price);
     }
 
     public function test_pending_receiving_or_zero_quantity_does_not_synchronize_last_purchase_price()
