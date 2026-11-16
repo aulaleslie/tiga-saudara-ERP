@@ -161,6 +161,12 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
             'updated_at' => now(),
         ], $overrides));
 
+        // PosTransaction guards timestamps, so create() silently ignores overrides.
+        $timestamps = array_intersect_key($overrides, array_flip(['created_at', 'updated_at']));
+        if ($timestamps) {
+            $trx->forceFill($timestamps)->save();
+        }
+
         $checkout = PosCheckout::create([
             'setting_id' => $setting->id,
             'pos_transaction_id' => $trx->id,
@@ -304,6 +310,9 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
 
         $response->assertOk();
 
+        $this->assertSame('2026-09-01 10:00:00', $older['transaction']->fresh()->created_at->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-09-05 10:00:00', $newest['transaction']->fresh()->created_at->format('Y-m-d H:i:s'));
+
         $candidateIds = $response->viewData('candidateTransactions')->pluck('id')->all();
 
         $this->assertSame([
@@ -314,10 +323,14 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
             max($sameTimestampA['transaction']->id, $sameTimestampB['transaction']->id),
         ], $candidateIds);
 
-        $response->assertSee('name="allocations[' . $older['transaction']->id . ']"', false);
-        $response->assertSee('value="10000"', false);
-        $response->assertSee('name="allocations[' . $newest['transaction']->id . ']"', false);
-        $response->assertSee('value="0"', false);
+        $document = new \DOMDocument();
+        @$document->loadHTML($response->getContent());
+        $inputs = new \DOMXPath($document);
+        foreach ([$older['transaction']->id => '10000', $newest['transaction']->id => '0'] as $id => $expected) {
+            $matches = $inputs->query('//input[@name="allocations[' . $id . ']"]');
+            $this->assertCount(1, $matches);
+            $this->assertSame($expected, $matches->item(0)->getAttribute('value'));
+        }
     }
 
     public function test_pos_summary_cards_render_loading_overlay_targeting_toggle_card_filter()
