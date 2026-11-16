@@ -1397,7 +1397,6 @@ class PurchaseController extends Controller
                                     : $dppUnitCost;
 
                                 $productPrice->update([
-                                    'last_purchase_price' => $purchaseDetail->price,
                                     'average_purchase_price' => $newAveragePrice,
                                 ]);
 

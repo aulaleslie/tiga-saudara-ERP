@@ -7,6 +7,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
+use Modules\Product\Entities\ProductPriceFeedEvent;
 use Modules\Product\Entities\ProductStock;
 use Modules\Purchase\Entities\Purchase;
 use Modules\Purchase\Entities\PurchaseDetail;
@@ -281,6 +282,16 @@ class PurchaseApprovalPriceSyncTest extends TestCase
         // Another business keeps its existing price and unrelated sale price.
         $this->assertEquals(19000.0, (float) $prices[$this->settingB->id]->last_purchase_price);
         $this->assertEquals(42000.0, (float) $prices[$this->settingB->id]->sale_price);
+
+        $event = ProductPriceFeedEvent::where('subject_id', $this->product->id)
+            ->where('source', ProductPriceFeedEvent::SOURCE_PURCHASE_SYNC)
+            ->latest('id')
+            ->firstOrFail();
+        $this->assertCount(1, $event->snapshots);
+        $snapshot = $event->snapshots->first();
+        $this->assertSame($this->settingA->id, (int) $snapshot->setting_id);
+        $this->assertEquals(20000.0, $snapshot->before_snapshot['last_purchase_price']);
+        $this->assertEquals(35000.0, $snapshot->after_snapshot['last_purchase_price']);
     }
 
     public function test_multiple_received_products_synchronize_independently()
