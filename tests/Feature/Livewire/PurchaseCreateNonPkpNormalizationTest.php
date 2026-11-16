@@ -6,6 +6,8 @@ use App\Livewire\Purchase\CreateForm;
 use App\Models\User;
 use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 use Modules\Currency\Entities\Currency;
 use Modules\People\Entities\Supplier;
@@ -130,4 +132,52 @@ class PurchaseCreateNonPkpNormalizationTest extends TestCase
         $this->assertSame(0.0, (float) $detail->product_tax_amount);
         $this->assertSame(1000.0, (float) $detail->sub_total);
     }
+    public function test_image_uploaded_during_purchase_creation_is_attached_to_purchase(): void
+    {
+        Storage::fake('local');
+        Storage::fake('public');
+
+        $component = Livewire::test(CreateForm::class, ['idempotencyToken' => 'purchase-image-create']);
+        Cart::instance('purchase')->add([
+            'id' => $this->product->id,
+            'name' => $this->product->product_name,
+            'qty' => 1,
+            'price' => 1000,
+            'weight' => 1,
+            'options' => [
+                'sub_total' => 1000,
+                'sub_total_before_tax' => 1000,
+                'code' => $this->product->product_code,
+                'product_tax' => null,
+                'unit_price' => 1000,
+                'product_discount_type' => 'fixed',
+                'product_discount' => 0,
+            ],
+        ]);
+
+        $component->set('supplier_id', $this->supplier->id)
+            ->set('payment_term', $this->paymentTerm->id)
+            ->set('image', UploadedFile::fake()->image('nota.png'))
+            ->call('submit')
+            ->assertHasNoErrors();
+
+        $purchase = Purchase::query()->latest('id')->firstOrFail();
+        $media = $purchase->getFirstMedia('attachments');
+        $this->assertNotNull($media);
+        $this->assertSame('nota.png', $media->getCustomProperty('original_name'));
+        $this->assertSame('image/png', $media->mime_type);
+    }
+
+    public function test_non_image_file_is_rejected_before_purchase_is_created(): void
+    {
+        $component = Livewire::test(CreateForm::class, ['idempotencyToken' => 'purchase-invalid-image']);
+        $component->set('supplier_id', $this->supplier->id)
+            ->set('payment_term', $this->paymentTerm->id)
+            ->set('image', UploadedFile::fake()->createWithContent('nota.txt', 'not an image'))
+            ->call('submit')
+            ->assertHasErrors(['image']);
+
+        $this->assertSame(0, Purchase::query()->count());
+    }
+
 }

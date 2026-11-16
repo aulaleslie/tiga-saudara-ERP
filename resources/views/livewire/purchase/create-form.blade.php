@@ -116,10 +116,20 @@
             <div class="text-danger">{{ $message }}</div> @enderror
         </div>
 
+        <!-- Gambar pembelian -->
+        <div class="form-group">
+            <label for="purchase-image">Gambar Pembelian (opsional)</label>
+            <input type="file" class="form-control-file @error('image') is-invalid @enderror"
+                   id="purchase-image" wire:model="image" accept="image/jpeg,image/png,image/webp">
+            <small class="form-text text-muted">JPG, PNG, atau WebP; maksimal 10 MB. Gambar tersimpan bersama pembelian.</small>
+            <div wire:loading wire:target="image" class="text-muted">Mengunggah gambar…</div>
+            @error('image') <div class="text-danger">{{ $message }}</div> @enderror
+        </div>
+
         <!-- Submit -->
         <div class="mt-3">
             <button type="button" class="btn btn-primary" 
-                wire:loading.attr="disabled"
+                wire:loading.attr="disabled" wire:target="image,submit"
                 x-data
                 @click="
                     const supplierId = document.getElementById('purchase_supplier_id')?.value || null;
