@@ -21,6 +21,11 @@
                             Referensi: <strong>{{ $expense->reference }}</strong>
                         </div>
                         <div class="mfs-auto mfe-1 d-print-none">
+                            @can('expenses.create')
+                                <a href="{{ route('expenses.duplicate', $expense) }}" class="btn btn-info btn-sm">
+                                    <i class="bi bi-files"></i> Duplikat
+                                </a>
+                            @endcan
                             @if($expense->status === \Modules\Expense\Entities\Expense::STATUS_DRAFT || $expense->status === \Modules\Expense\Entities\Expense::STATUS_REJECTED)
                                 @can('expenses.edit')
                                     <a href="{{ route('expenses.edit', $expense) }}" class="btn btn-info btn-sm">

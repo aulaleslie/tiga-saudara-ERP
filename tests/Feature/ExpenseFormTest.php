@@ -645,4 +645,50 @@ class ExpenseFormTest extends TestCase
 
         $this->assertDatabaseCount('expenses', 0);
     }
+
+    public function test_duplicate_prefills_new_expense_without_copying_identity_or_attachments(): void
+    {
+        $currency = \Modules\Currency\Entities\Currency::create([
+            'currency_name' => 'Rupiah', 'code' => 'IDR', 'symbol' => 'Rp',
+            'thousand_separator' => '.', 'decimal_separator' => ',', 'exchange_rate' => 1,
+        ]);
+        $setting = \Modules\Setting\Entities\Setting::create([
+            'company_name' => 'Test Company', 'company_email' => 'test@test.com',
+            'company_phone' => '1234', 'company_address' => 'Test',
+            'notification_email' => 'test@test.com', 'footer_text' => 'Footer',
+            'default_currency_id' => $currency->id,
+            'default_currency_position' => 'prefix', 'is_pkp' => true,
+        ]);
+        session(['setting_id' => $setting->id]);
+        $category = ExpenseCategory::create(['category_name' => 'Beban Pajak']);
+        $tax = Tax::create(['name' => 'PPN', 'value' => 10, 'is_active' => true]);
+        $source = Expense::create([
+            'setting_id' => $setting->id, 'category_id' => $category->id,
+            'date' => '2026-11-01', 'amount' => 110000,
+            'is_tax_included' => false, 'status' => Expense::STATUS_APPROVED,
+        ]);
+        $detail = $source->detailRows()->create([
+            'name' => 'Pajak bulan lalu', 'tax_id' => $tax->id, 'amount' => 100000,
+        ]);
+
+        Livewire::test(ExpenseForm::class, ['duplicateExpense' => $source])
+            ->assertSet('expenseId', null)
+            ->assertSet('category_id', $category->id)
+            ->assertSet('date', '2026-11-01')
+            ->assertSet('details.0.id', null)
+            ->assertSet('details.0.name', $detail->name)
+            ->assertSet('details.0.tax_id', $tax->id)
+            ->assertSet('existingAttachments', [])
+            ->call('saveDraft')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseCount('expenses', 2);
+        $copy = Expense::query()->whereKeyNot($source->id)->firstOrFail();
+        $this->assertSame(Expense::STATUS_DRAFT, $copy->status);
+        $this->assertSame($source->category_id, $copy->category_id);
+        $this->assertSame('PAJAK BULAN LALU', $copy->detailRows->first()->name);
+        $this->assertNotSame($source->reference, $copy->reference);
+        $this->assertSame(Expense::STATUS_APPROVED, $source->fresh()->status);
+    }
+
 }

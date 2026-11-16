@@ -44,7 +44,7 @@ class ExpenseForm extends Component
     public $tagOptions = [];
     public $tagLabels = [];
 
-    public function mount(?Expense $expense = null, ?string $idempotencyToken = null): void
+    public function mount(?Expense $expense = null, ?string $idempotencyToken = null, ?Expense $duplicateExpense = null): void
     {
         $this->idempotencyToken = $idempotencyToken ?? (string) Str::uuid();
         $this->taxRates = Tax::pluck('value', 'id')->map(fn ($value) => (float) $value)->toArray();
@@ -58,6 +58,23 @@ class ExpenseForm extends Component
         if ($expense && $expense->exists) {
             app(\Modules\Expense\Services\ExpenseService::class)->verifySettingOwnership($expense);
             $this->hydrateFromExpense($expense);
+            return;
+        }
+
+        if ($duplicateExpense && $duplicateExpense->exists) {
+            app(\Modules\Expense\Services\ExpenseService::class)->verifySettingOwnership($duplicateExpense);
+            $this->hydrateFromExpense($duplicateExpense);
+            $this->expenseId = null;
+            $this->reference = 'EXP';
+            $this->date = \Illuminate\Support\Carbon::parse($duplicateExpense->getRawOriginal('date'))->format('Y-m-d');
+            $this->existingAttachments = [];
+            $this->details = array_map(function ($row) {
+                $row['id'] = null;
+                if ($row['tax_id'] && ! Tax::whereKey($row['tax_id'])->where('is_active', true)->exists()) {
+                    $row['tax_id'] = null;
+                }
+                return $row;
+            }, $this->details);
             return;
         }
 
