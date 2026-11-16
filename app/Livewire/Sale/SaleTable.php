@@ -20,7 +20,6 @@ class SaleTable extends Component
     #[Url]
     public $search = '';
     public $perPage = 10;
-    public bool $showHundredTransactions = false;
     #[Url]
     public $sortField = 'created_at';
     #[Url]
@@ -206,9 +205,11 @@ class SaleTable extends Component
         );
     }
 
-    public function updatedShowHundredTransactions(): void
+    public function updatedPerPage(): void
     {
-        $this->perPage = $this->showHundredTransactions ? 100 : 10;
+        if (!in_array((int) $this->perPage, [10, 25, 50, 100], true)) {
+            $this->perPage = 10;
+        }
         $this->resetPage();
     }
 

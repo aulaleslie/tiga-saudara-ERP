@@ -93,9 +93,14 @@
     <div class="d-flex justify-content-between align-items-center mb-2">
         <div class="d-flex align-items-center" style="gap: 1rem;">
             @if ($globalMode)
-            <div class="form-check pt-1">
-                <input class="form-check-input" type="checkbox" id="showHundredTransactions-{{ $this->getId() }}" wire:model.live="showHundredTransactions">
-                <label class="form-check-label" for="showHundredTransactions-{{ $this->getId() }}">Tampilkan 100 transaksi</label>
+            <div class="d-flex align-items-center" style="gap: 1rem;">
+                <select class="form-control form-control-sm" style="width: 80px;" aria-label="Jumlah data per halaman" wire:model.live="perPage">
+                    <option value="10">10</option>
+                    <option value="25">25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                </select>
+                <span class="text-muted small">data per halaman</span>
             </div>
             @else
             <div class="form-check pt-1">
@@ -272,6 +277,11 @@
             </strong>
             dari <strong>{{ $sales->total() }}</strong> data
         </div>
+        @if ($globalMode)
+        <div>
+            {{ $sales->links('livewire::bootstrap') }}
+        </div>
+        @else
         <div class="d-flex align-items-center gap-2">
             <button class="btn btn-outline-secondary btn-sm"
                     wire:click="gotoPage({{ $sales->currentPage() - 1 }})"
@@ -288,6 +298,7 @@
                 Berikutnya <i class="bi bi-chevron-right"></i>
             </button>
         </div>
+        @endif
     </div>
 </div>
 @push('scripts')
