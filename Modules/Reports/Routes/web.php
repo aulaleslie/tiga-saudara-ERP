@@ -25,6 +25,7 @@ use Modules\Reports\Http\Controllers\AgedPayablesReportController;
 use Modules\Reports\Http\Controllers\PurchaseDeliveryReportController;
 use Modules\Reports\Http\Controllers\SaleDeliveryReportController;
 use Modules\Reports\Http\Controllers\SaleByProductReportController;
+use Modules\Reports\Http\Controllers\SoldSerialNumberReportController;
 use Modules\Reports\Http\Controllers\StockMutationReportController;
 use Modules\Reports\Http\Controllers\SalesOrderCompletionReportController;
 use Modules\Reports\Http\Controllers\SupplierPayablesReportController;
@@ -141,6 +142,10 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
 
         Route::get('/sale-by-product', [SaleByProductReportController::class, 'index'])
             ->name('reports.sale-by-product.index')
+            ->middleware('can:saleReports.access');
+
+        Route::get('/sold-serial-number', [SoldSerialNumberReportController::class, 'index'])
+            ->name('reports.sold-serial-number.index')
             ->middleware('can:saleReports.access');
 
         Route::get('/sales-order-completion', [SalesOrderCompletionReportController::class, 'index'])

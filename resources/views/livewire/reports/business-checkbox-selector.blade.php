@@ -6,7 +6,8 @@
     })"
     x-init="init()"
     @click.outside="close()"
-    @keydown.escape.prevent="close(true)">
+    @keydown.escape.prevent="close(true)"
+    @sync-business-selector.window="if (open) close()">
     @if(!isset($hideLabel) || !$hideLabel)
         <label class="form-label small mb-1">{{ $label ?? 'Bisnis' }}</label>
     @endif
@@ -59,7 +60,7 @@
                         :value="opt.id"
                         :checked="isChecked(opt.id)"
                         @change="toggleItem(opt.id)"
-                        class="form-check-input me-2 mt-0 flex-shrink-0"
+                        class="form-check-input position-static ml-0 mr-2 mt-0 flex-shrink-0"
                         style="cursor: pointer;">
                     <span x-text="opt.name" class="text-truncate"></span>
                 </label>

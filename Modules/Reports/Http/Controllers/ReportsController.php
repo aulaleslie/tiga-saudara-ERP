@@ -124,6 +124,13 @@ class ReportsController extends Controller
                         'permission' => 'saleReports.access'
                     ],
                     [
+                        'label' => 'Serial number terjual',
+                        'icon' => 'bi bi-upc-scan',
+                        'description' => 'Menampilkan daftar serial number terjual per produk berdasarkan tanggal penjualan asli dengan pembaruan retur fisik dan penggantian disetujui.',
+                        'route' => 'reports.sold-serial-number.index',
+                        'permission' => 'saleReports.access'
+                    ],
+                    [
                         'label' => 'Penyelesaian pesanan penjualan',
                         'icon' => 'bi bi-check2-square',
                         'description' => 'Menampilkan ringkasan proses bisnis perusahaan ini. Anda dapat mengidentifikasi setiap penyelesaian penawaran dan pesanan penjualan hingga penagihan dan pembayarannya dilakukan.',
