@@ -166,10 +166,23 @@ async function runTests() {
     await global.window.PosKasBonCollection.loadReview(123);
 
     const methodsBody = document.getElementById('pos-kb-methods-body');
+    const methodSelect = document.getElementById('pos-kb-method-select');
+    const addMethodBtn = document.getElementById('pos-kb-add-method-btn');
     const rowsInitial = methodsBody.querySelectorAll('tr[data-client-id]');
-    check('1. Initial methods row count is 1 (Tunai)', rowsInitial.length, 1);
+    check('1. Initial methods row count is 0 (empty)', rowsInitial.length, 0);
+    check('1. Initial method picker is blank', methodSelect.value, '');
+    check('1. Initial Summary Total Pembayaran is Rp0', document.getElementById('pos-kb-calc-total-payment').textContent, 'Rp0');
+    check('1. Initial Summary Sisa Hutang is Rp6.500.000', document.getElementById('pos-kb-calc-remaining-debt').textContent, 'Rp6.500.000');
+    check('1. Initial Submit button is disabled', document.getElementById('pos-kb-submit-payment').disabled, true);
 
-    const cashRow = rowsInitial[0];
+    // Explicitly add CASH (id: '1')
+    methodSelect.value = '1';
+    addMethodBtn.click();
+
+    const rowsAfterAddCash = methodsBody.querySelectorAll('tr[data-client-id]');
+    check('1. After adding CASH, methods row count is 1 (Tunai)', rowsAfterAddCash.length, 1);
+
+    const cashRow = rowsAfterAddCash[0];
     const cashAmtInput = cashRow.querySelector('.js-method-amount');
     const cashNoteInput = cashRow.querySelector('.js-method-note');
     const cashTenderInput = cashRow.querySelector('.js-method-tender');
@@ -207,7 +220,6 @@ async function runTests() {
     // Step 3: Cashier selects Transfer and clicks #pos-kb-add-method-btn
     // EXECUTES THE ACTUAL PRODUCTION EVENT HANDLER!
     // -------------------------------------------------------------
-    const methodSelect = document.getElementById('pos-kb-method-select');
     methodSelect.value = '2'; // Method ID 2: Transfer Bank BCA (requires_reference = true)
 
     const addBtn = document.getElementById('pos-kb-add-method-btn');
@@ -338,6 +350,36 @@ async function runTests() {
     check('7. [PAYLOAD ASSERTION] Transfer note is "Titipan transfer BCA"', subTransfer.note, 'Titipan transfer BCA');
     check('7. [PAYLOAD ASSERTION] Transfer reference is "TRF-BCA-987654"', subTransfer.reference, 'TRF-BCA-987654');
     check('7. [SEPARATE STORAGE] Transfer note and reference are NOT substituted', subTransfer.note !== subTransfer.reference, true);
+
+    // -------------------------------------------------------------
+    // Step 8: Opening another review, closing/reopening, clearing unadded picker choice, and removing last method
+    // -------------------------------------------------------------
+    methodSelect.value = '2'; // unadded picker choice
+    await global.window.PosKasBonCollection.loadReview(123);
+    check('8. Another review has 0 rows', methodsBody.querySelectorAll('tr[data-client-id]').length, 0);
+    check('8. Another review clears unadded picker choice', methodSelect.value, '');
+    check('8. Another review Total Pembayaran is Rp0', document.getElementById('pos-kb-calc-total-payment').textContent, 'Rp0');
+    check('8. Another review Sisa Hutang is Rp6.500.000', document.getElementById('pos-kb-calc-remaining-debt').textContent, 'Rp6.500.000');
+    check('8. Another review Submit button is disabled', document.getElementById('pos-kb-submit-payment').disabled, true);
+
+    // Reopen collection modal and load review
+    await global.window.PosKasBonCollection.openModal();
+    await global.window.PosKasBonCollection.loadReview(123);
+    check('8. Reopened review has 0 rows', methodsBody.querySelectorAll('tr[data-client-id]').length, 0);
+    check('8. Reopened review method picker is blank', methodSelect.value, '');
+
+    // Add a method then remove the last method
+    methodSelect.value = '1';
+    addMethodBtn.click();
+    check('8. Added 1 method before removal', methodsBody.querySelectorAll('tr[data-client-id]').length, 1);
+    const removeBtn = methodsBody.querySelector('.js-remove-method');
+    if (removeBtn) {
+        removeBtn.click();
+    }
+    check('8. Removing last method leaves 0 rows', methodsBody.querySelectorAll('tr[data-client-id]').length, 0);
+    check('8. Removing last method sets Total Pembayaran to Rp0', document.getElementById('pos-kb-calc-total-payment').textContent, 'Rp0');
+    check('8. Removing last method restores Sisa Hutang to Rp6.500.000', document.getElementById('pos-kb-calc-remaining-debt').textContent, 'Rp6.500.000');
+    check('8. Removing last method disables Submit button', document.getElementById('pos-kb-submit-payment').disabled, true);
 
     // Success view populated by production showSuccessView
     check('7. Success view amount collected is Rp1.500.000', document.getElementById('pos-kb-res-amount').textContent, 'Rp1.500.000');

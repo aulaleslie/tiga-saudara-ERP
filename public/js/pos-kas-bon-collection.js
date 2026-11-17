@@ -471,26 +471,14 @@ window.PosKasBonCollection = (function () {
         document.getElementById('pos-kb-summary-paid').textContent = formatRp(data.effective_paid || 0);
         document.getElementById('pos-kb-summary-due').textContent = formatRp(data.live_due || 0);
 
-        // Reset payment form with default = live_due
-        const liveDue = Number(data.live_due) || 0;
-        amountToPay = liveDue;
+        // Reset payment form to empty selection
+        amountToPay = 0;
         currentAttemptIdempotencyKey = null;
 
-        // Initialize default method (Tunai if available)
         selectedMethods = [];
-        const cashMethod = availableMethods.find(m => m.is_cash);
-        if (cashMethod && liveDue > 0) {
-            selectedMethods.push({
-                client_id: generateClientId(),
-                payment_method_id: cashMethod.id,
-                name: cashMethod.name,
-                is_cash: true,
-                requires_reference: !!cashMethod.requires_reference,
-                amount: liveDue,
-                tender_amount: liveDue,
-                note: '',
-                reference: '',
-            });
+        const methodSelect = document.getElementById('pos-kb-method-select');
+        if (methodSelect) {
+            methodSelect.value = '';
         }
         renderMethodsTable();
         calculatePaymentSummary();
@@ -744,6 +732,7 @@ window.PosKasBonCollection = (function () {
 
                     selectedMethods = selectedMethods.filter(item => item.client_id !== targetClientId);
                     renderMethodsTable();
+                    calculatePaymentSummary();
                 });
 
                 tbody.appendChild(tr);
