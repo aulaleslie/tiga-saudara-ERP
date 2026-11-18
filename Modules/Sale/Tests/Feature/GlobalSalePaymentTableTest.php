@@ -58,6 +58,38 @@ class GlobalSalePaymentTableTest extends TestCase
         ], $overrides));
     }
 
+    public function test_global_payment_page_size_selector_and_numbered_pagination()
+    {
+        $sales = collect(range(1, 26))->map(fn () => $this->createSale());
+
+        Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => true])
+            ->assertSee('data per halaman')
+            ->assertSee('wire:click="gotoPage(2, \'page\')"', false)
+            ->assertDontSee($sales->first()->reference)
+            ->call('gotoPage', 2)
+            ->assertSee($sales[15]->reference)
+            ->set('perPage', 25)
+            ->assertSet('perPage', 25)
+            ->assertSee($sales->last()->reference)
+            ->assertDontSee($sales->first()->reference)
+            ->call('gotoPage', 2)
+            ->assertSee($sales->first()->reference)
+            ->set('perPage', 50)
+            ->assertSee($sales->first()->reference)
+            ->assertSee($sales->last()->reference)
+            ->set('perPage', 100)
+            ->assertSet('perPage', 100)
+            ->assertSee($sales->first()->reference)
+            ->set('perPage', 10)
+            ->assertDontSee($sales->first()->reference);
+    }
+
+    public function test_page_size_selector_is_not_shown_on_regular_sales_table()
+    {
+        Livewire::test(\App\Livewire\Sale\SaleTable::class, ['globalMode' => false, 'settingId' => $this->setting1->id])
+            ->assertDontSee('data per halaman');
+    }
+
     public function test_global_mode_shows_sales_across_all_settings()
     {
         $sale1 = $this->createSale(['setting_id' => $this->setting1->id]);
