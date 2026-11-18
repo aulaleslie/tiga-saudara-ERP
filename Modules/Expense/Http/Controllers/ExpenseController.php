@@ -37,6 +37,15 @@ class ExpenseController extends Controller
     }
 
 
+    public function duplicate(Request $request, Expense $expense) {
+        abort_if(Gate::denies('expenses.create'), 403);
+        $this->expenseService->verifySettingOwnership($expense);
+
+        $idempotencyToken = IdempotencyService::tokenFromRequest($request);
+
+        return view('expense::expenses.create', ['idempotencyToken' => $idempotencyToken, 'duplicateExpense' => $expense]);
+    }
+
     public function store(Request $request) {
         abort_if(Gate::denies('expenses.create'), 403);
 

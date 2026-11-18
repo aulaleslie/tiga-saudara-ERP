@@ -27,6 +27,7 @@ Route::group(['middleware' => ['auth', 'role.setting']], function () {
     Route::delete('expenses/{expense}/attachments/{media}', 'ExpenseController@destroyAttachment')->name('expenses.attachments.destroy');
 
     //Expense
+    Route::get('expenses/{expense}/duplicate', 'ExpenseController@duplicate')->name('expenses.duplicate');
     Route::resource('expenses', 'ExpenseController');
     Route::post('expenses/{expense}/submit', 'ExpenseController@submit')->name('expenses.submit')->middleware('idempotency');
     Route::post('expenses/{expense}/approve', 'ExpenseController@approve')->name('expenses.approve')->middleware('idempotency');

@@ -7,6 +7,12 @@
             <i class="bi bi-eye"></i> Lihat
         </a>
         
+        @can('expenses.create')
+            <a class="dropdown-item" href="{{ route('expenses.duplicate', $data->id) }}">
+                <i class="bi bi-files"></i> Duplikat
+            </a>
+        @endcan
+
         @if(in_array($data->status, [\Modules\Expense\Entities\Expense::STATUS_DRAFT, \Modules\Expense\Entities\Expense::STATUS_REJECTED]))
             @can('expenses.edit')
                 <a class="dropdown-item" href="{{ route('expenses.edit', $data->id) }}">
