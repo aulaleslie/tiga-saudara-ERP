@@ -9,28 +9,15 @@
     </a>
 @endcan
 @if(auth()->user()->can('suppliers.edit') || auth()->user()->can('suppliers.delete'))
-    @if($data->is_active)
-        <button type="button" class="btn btn-warning btn-sm" title="Nonaktifkan Pemasok" onclick="
-            event.preventDefault();
-            if (confirm('Nonaktifkan pemasok &quot;{{ $data->supplier_name }}&quot;? Data tidak akan dihapus dan tetap tercatat di transaksi historis.')) {
-                document.getElementById('toggle-status-{{ $data->id }}').submit();
-            }
-        ">
-            <i class="bi bi-pause-circle"></i>
-        </button>
-    @else
-        <button type="button" class="btn btn-success btn-sm" title="Aktifkan Kembali" onclick="
-            event.preventDefault();
-            if (confirm('Aktifkan kembali pemasok &quot;{{ $data->supplier_name }}&quot;?')) {
-                document.getElementById('toggle-status-{{ $data->id }}').submit();
-            }
-        ">
-            <i class="bi bi-play-circle"></i>
-        </button>
-    @endif
-    <form id="toggle-status-{{ $data->id }}" class="d-none" action="{{ route('suppliers.toggle-status', $data->id) }}" method="POST">
+    <form class="d-inline contact-status-form" action="{{ route('suppliers.toggle-status', $data->id) }}" method="POST"
+          data-contact-name="{{ $data->supplier_name }}" data-contact-active="{{ $data->is_active ? '1' : '0' }}"
+          data-contact-confirm="Data tidak akan dihapus dan tetap tercatat di transaksi historis." data-contact-label="pemasok">
         @csrf
         @method('patch')
+        @if($data->is_active)
+            <button type="submit" class="btn btn-warning btn-sm" title="Nonaktifkan Pemasok"><i class="bi bi-pause-circle"></i></button>
+        @else
+            <button type="submit" class="btn btn-success btn-sm" title="Aktifkan Kembali"><i class="bi bi-play-circle"></i></button>
+        @endif
     </form>
 @endif
-

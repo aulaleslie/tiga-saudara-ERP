@@ -163,6 +163,30 @@ class MasterDataDeactivationTest extends TestCase
         $this->assertDatabaseHas('suppliers', ['id' => $supplier->id]);
     }
 
+    public function test_contact_status_toggle_returns_json_without_redirect(): void
+    {
+        $customer = Customer::create(['customer_name' => 'AJAX Customer', 'is_active' => true]);
+        $supplier = Supplier::create([
+            'supplier_name' => 'AJAX Supplier',
+            'setting_id' => $this->setting->id,
+            'supplier_email' => 'ajax-supplier@example.com',
+            'supplier_phone' => '08000000003',
+            'city' => 'Jakarta',
+            'country' => 'Indonesia',
+            'address' => 'Test Address',
+            'is_active' => true,
+        ]);
+
+        foreach ([['customers', $customer], ['suppliers', $supplier]] as [$route, $contact]) {
+            $this->patchJson(route($route . '.toggle-status', $contact->id))
+                ->assertOk()->assertJsonPath('is_active', false);
+            $this->assertFalse($contact->fresh()->is_active);
+            $this->patchJson(route($route . '.toggle-status', $contact->id))
+                ->assertOk()->assertJsonPath('is_active', true);
+            $this->assertTrue($contact->fresh()->is_active);
+        }
+    }
+
     public function test_contact_archive_actions_use_non_destructive_copy(): void
     {
         $customer = Customer::create([

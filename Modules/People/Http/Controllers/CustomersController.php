@@ -7,6 +7,7 @@ use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\JsonResponse;
 use Modules\People\DataTables\CustomersDataTable;
 use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
@@ -386,22 +387,37 @@ class CustomersController extends Controller
     }
 
 
-    public function toggleStatus(Customer $customer, \App\Services\MasterDataLifecycleService $lifecycleService): RedirectResponse
+    public function toggleStatus(Request $request, Customer $customer, \App\Services\MasterDataLifecycleService $lifecycleService): JsonResponse|RedirectResponse
     {
         abort_if(! Gate::allows('customers.edit') && ! Gate::allows('customers.delete'), 403);
 
         try {
             if ($customer->is_active) {
                 $lifecycleService->deactivate($customer);
-                toast('Pelanggan berhasil dinonaktifkan!', 'info');
+                $message = 'Pelanggan berhasil dinonaktifkan!';
+                $alertType = 'info';
             } else {
                 $lifecycleService->reactivate($customer);
-                toast('Pelanggan berhasil diaktifkan kembali!', 'success');
+                $message = 'Pelanggan berhasil diaktifkan kembali!';
+                $alertType = 'success';
             }
         } catch (\Illuminate\Validation\ValidationException $e) {
+            if ($request->expectsJson()) {
+                return response()->json(['message' => $e->getMessage(), 'errors' => $e->errors()], 422);
+            }
+
             toast($e->getMessage(), 'error');
+            return redirect()->back();
         }
 
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => $message,
+                'is_active' => (bool) $customer->fresh()->is_active,
+            ]);
+        }
+
+        toast($message, $alertType);
         return redirect()->back();
     }
 

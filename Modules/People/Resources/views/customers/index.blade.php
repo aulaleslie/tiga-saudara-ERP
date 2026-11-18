@@ -26,6 +26,7 @@
                         @endcan
 
                         <hr>
+                        <div id="contact-status-feedback" aria-live="polite"></div>
 
                         <div class="table-responsive">
                             {!! $dataTable->table() !!}
@@ -39,4 +40,5 @@
 
 @push('page_scripts')
     {!! $dataTable->scripts() !!}
+    @include('people::partials.contact-status-script', ['tableId' => 'customers-table'])
 @endpush

@@ -5,6 +5,8 @@ namespace Modules\People\Http\Controllers;
 use App\Services\IdempotencyService;
 use Modules\People\DataTables\SuppliersDataTable;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -222,22 +224,37 @@ class SuppliersController extends Controller
     }
 
 
-    public function toggleStatus(Supplier $supplier, \App\Services\MasterDataLifecycleService $lifecycleService): \Illuminate\Http\RedirectResponse
+    public function toggleStatus(Request $request, Supplier $supplier, \App\Services\MasterDataLifecycleService $lifecycleService): JsonResponse|RedirectResponse
     {
         abort_if(! Gate::allows('suppliers.edit') && ! Gate::allows('suppliers.delete'), 403);
 
         try {
             if ($supplier->is_active) {
                 $lifecycleService->deactivate($supplier);
-                toast('Pemasok berhasil dinonaktifkan!', 'info');
+                $message = 'Pemasok berhasil dinonaktifkan!';
+                $alertType = 'info';
             } else {
                 $lifecycleService->reactivate($supplier);
-                toast('Pemasok berhasil diaktifkan kembali!', 'success');
+                $message = 'Pemasok berhasil diaktifkan kembali!';
+                $alertType = 'success';
             }
         } catch (\Illuminate\Validation\ValidationException $e) {
+            if ($request->expectsJson()) {
+                return response()->json(['message' => $e->getMessage(), 'errors' => $e->errors()], 422);
+            }
+
             toast($e->getMessage(), 'error');
+            return redirect()->back();
         }
 
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => $message,
+                'is_active' => (bool) $supplier->fresh()->is_active,
+            ]);
+        }
+
+        toast($message, $alertType);
         return redirect()->back();
     }
 
