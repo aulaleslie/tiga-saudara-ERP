@@ -82,23 +82,21 @@ class POSSafeDropWorkflowTest extends TestCase
             ->assertJson([
                 'session_id' => $session->id,
                 'approval_result' => 'APPROVED',
-                'expected_cash_before' => 150000.0,
-                'expected_cash_after' => 120000.0,
                 'dropped_amount' => 30000.0,
-                'threshold_value' => 100000.0,
-                'is_threshold_breached' => true,
+                'can_view_expected_cash' => false,
             ])
+            ->assertJsonMissingPath('expected_cash_before')
+            ->assertJsonMissingPath('expected_cash_after')
+            ->assertJsonMissingPath('threshold_value')
+            ->assertJsonMissingPath('is_threshold_breached')
             ->assertJsonStructure([
                 'session_id',
                 'cash_event_id',
                 'approval_id',
                 'approval_result',
-                'expected_cash_before',
-                'expected_cash_after',
                 'dropped_amount',
-                'threshold_value',
-                'is_threshold_breached',
                 'occurred_at',
+                'can_view_expected_cash',
             ]);
 
         $this->assertDatabaseHas('pos_session_cash_events', [
@@ -219,7 +217,7 @@ class POSSafeDropWorkflowTest extends TestCase
         ]);
     }
 
-    public function test_safe_drop_rejected_when_amount_exceeds_expected_cash(): void
+    public function test_safe_drop_succeeds_when_amount_exceeds_expected_cash_and_records_negative_balance(): void
     {
         [$setting, $cashier, $session] = $this->createOpenSession(openingFloat: 90000, cashThreshold: 50000, requireSupervisorApproval: true);
 
@@ -239,18 +237,25 @@ class POSSafeDropWorkflowTest extends TestCase
                 'supervisor_pin' => 'supervisor-secret',
             ]);
 
-        $response->assertStatus(422)
+        $response->assertOk()
             ->assertJson([
-                'message' => 'Safe drop amount cannot exceed expected cash.',
-            ]);
+                'session_id' => $session->id,
+                'approval_result' => 'APPROVED',
+                'dropped_amount' => 100000.0,
+                'can_view_expected_cash' => false,
+            ])
+            ->assertJsonMissingPath('expected_cash_after');
 
-        $this->assertDatabaseMissing('pos_session_cash_events', [
+        $this->assertDatabaseHas('pos_session_cash_events', [
             'setting_id' => $setting->id,
             'pos_session_id' => $session->id,
             'event_type' => 'SAFE_DROP_OUT',
+            'direction' => 'OUT',
+            'amount' => 100000.0,
         ]);
 
-        $this->assertDatabaseCount('pos_supervisor_approvals', 0);
+        $session->refresh();
+        $this->assertSame(-10000.0, (float) $session->expected_cash_total);
     }
 
     public function test_safe_drop_route_requires_pos_safe_drops_create_permission(): void

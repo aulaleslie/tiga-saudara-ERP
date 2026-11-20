@@ -26,6 +26,7 @@ use Modules\Pos\Services\PosRolePolicyService;
 use Modules\Pos\Services\PosSessionSummaryService;
 use Modules\Pos\Services\PosSessionAdminCloseService;
 use Modules\Pos\Services\PosSessionFinalizeService;
+use Modules\Pos\Support\PosExpectedCashVisibility;
 use Modules\Setting\Entities\SettingSaleLocation;
 use Modules\Setting\Entities\SettingPosPaymentMethod;
 
@@ -81,8 +82,9 @@ class PosSessionController extends Controller
         });
 
         $terminalFilter = $terminalId ? PosTerminal::find($terminalId) : null;
+        $canViewExpectedCash = PosExpectedCashVisibility::canView(auth()->user());
 
-        return view('pos::session.index', compact('sessions', 'status', 'terminalFilter'));
+        return view('pos::session.index', compact('sessions', 'status', 'terminalFilter', 'canViewExpectedCash'));
     }
 
     public function create(): Renderable|RedirectResponse
@@ -258,6 +260,8 @@ class PosSessionController extends Controller
             ], 500);
         }
 
+        $summary = PosExpectedCashVisibility::projectSummary($summary, $user);
+
         if (request()->header('Accept') === 'application/json' || request()->wantsJson()) {
             return response()->json($summary);
         }
@@ -343,7 +347,9 @@ class PosSessionController extends Controller
             ], 422);
         }
 
-        return response()->json($result);
+        return response()->json(
+            PosExpectedCashVisibility::projectPickupResponse($result, $user)
+        );
     }
 
     public function close(
@@ -462,7 +468,9 @@ class PosSessionController extends Controller
             'session_id' => $session,
             'user_id' => $user->id,
         ]);
-        return response()->json($result);
+        return response()->json(
+            PosExpectedCashVisibility::projectPickupResponse($result, $user)
+        );
     }
 
     private function currentSettingId(): int
@@ -553,14 +561,7 @@ class PosSessionController extends Controller
         $amount = (float) $validated['amount'];
         $supervisorId = (int) $validated['supervisor_id'];
         $otpCode = (string) $validated['otp_code'];
-
-        // Validate amount against expected cash
         $expectedCash = (float) ($posSession->expected_cash_total ?? 0);
-        if ($amount > $expectedCash) {
-            return response()->json([
-                'message' => 'Jumlah pengambilan tidak boleh melebihi ekspektasi kas.',
-            ], 422);
-        }
 
         try {
             // Verify supervisor via OTP
@@ -612,10 +613,12 @@ class PosSessionController extends Controller
                 $approvalResult
             );
 
-            return response()->json([
-                'message' => 'Pengambilan kas berhasil.',
-                'expected_cash_after' => (float) ($result['expected_cash_after'] ?? $expectedCash - $amount),
-            ]);
+            return response()->json(
+                PosExpectedCashVisibility::projectPickupResponse([
+                    'message' => 'Pengambilan kas berhasil.',
+                    'expected_cash_after' => (float) ($result['expected_cash_after'] ?? $expectedCash - $amount),
+                ], $user)
+            );
         } catch (DomainException $exception) {
             \Illuminate\Support\Facades\Log::channel('single')->warning('POS Pickup: Rejected by DomainException', [
                 'session_id' => $session,
@@ -751,13 +754,18 @@ class PosSessionController extends Controller
                 'session_id' => $session,
                 'requires_variance_approval' => $result['payload']['requires_variance_approval'] ?? false,
             ]);
-            return response()->json($result['payload'], 422);
+            return response()->json(
+                PosExpectedCashVisibility::projectFinalizeResponse($result['payload'], $user),
+                422
+            );
         }
 
         \Illuminate\Support\Facades\Log::channel('single')->info('POS Finalize Session: Success', [
             'session_id' => $session,
             'user_id' => $user->id,
         ]);
-        return response()->json($result['payload']);
+        return response()->json(
+            PosExpectedCashVisibility::projectFinalizeResponse($result['payload'], $user)
+        );
     }
 }

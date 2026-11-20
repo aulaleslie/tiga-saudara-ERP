@@ -277,11 +277,13 @@
                         <div class="kpi-value" id="kpi-average-basket">Rp0</div>
                         <div class="kpi-hint">Grand total / transaksi</div>
                     </div>
+                    @if($canViewExpectedCash)
                     <div class="pos-report-kpi">
                         <div class="kpi-label">Rasio Tunai</div>
                         <div class="kpi-value" id="kpi-cash-ratio">0%</div>
                         <div class="kpi-hint">Proporsi tunai dari total</div>
                     </div>
+                    @endif
                     <div class="pos-report-kpi">
                         <div class="kpi-label">Persetujuan Supervisor</div>
                         <div class="kpi-value" id="kpi-approvals">0</div>
@@ -300,9 +302,11 @@
                     <li class="nav-item">
                         <button class="nav-link" id="tab-cashiers" data-toggle="tab" data-target="#content-cashiers" data-bs-toggle="tab" data-bs-target="#content-cashiers" type="button" role="tab">Ringkasan Kasir</button>
                     </li>
+                    @if($canViewExpectedCash)
                     <li class="nav-item">
                         <button class="nav-link" id="tab-payments" data-toggle="tab" data-target="#content-payments" data-bs-toggle="tab" data-bs-target="#content-payments" type="button" role="tab">Metode Pembayaran</button>
                     </li>
+                    @endif
                     <li class="nav-item">
                         <button class="nav-link" id="tab-items" data-toggle="tab" data-target="#content-items" data-bs-toggle="tab" data-bs-target="#content-items" type="button" role="tab">Penjualan Produk</button>
                     </li>
@@ -324,12 +328,14 @@
                                         <th class="text-right">Diskon</th>
                                         <th class="text-right">Pajak</th>
                                         <th class="text-right">Total Akhir</th>
+                                        @if($canViewExpectedCash)
                                         <th class="text-right">Tunai</th>
                                         <th class="text-right">Non-Tunai</th>
+                                        @endif
                                     </tr>
                                 </thead>
                                 <tbody id="tbody-daily-sales">
-                                    <tr><td colspan="8" class="text-center text-muted py-4">Memuat...</td></tr>
+                                    <tr><td colspan="{{ $canViewExpectedCash ? 8 : 6 }}" class="text-center text-muted py-4">Memuat...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -343,18 +349,21 @@
                                         <th>Kasir</th>
                                         <th class="text-center">Transaksi</th>
                                         <th class="text-right">Total Akhir</th>
+                                        @if($canViewExpectedCash)
                                         <th class="text-right">Tunai</th>
                                         <th class="text-right">Non-Tunai</th>
+                                        @endif
                                         <th class="text-right">Rata-rata Keranjang</th>
                                     </tr>
                                 </thead>
                                 <tbody id="tbody-cashiers">
-                                    <tr><td colspan="6" class="text-center text-muted py-4">Memuat...</td></tr>
+                                    <tr><td colspan="{{ $canViewExpectedCash ? 6 : 4 }}" class="text-center text-muted py-4">Memuat...</td></tr>
                                 </tbody>
                             </table>
                         </div>
                     </div>
 
+                    @if($canViewExpectedCash)
                     <div class="tab-pane fade" id="content-payments" role="tabpanel" tabindex="0">
                         <div class="table-responsive">
                             <table class="table table-hover mb-0 pos-report-table">
@@ -371,6 +380,7 @@
                             </table>
                         </div>
                     </div>
+                    @endif
 
                     <div class="tab-pane fade" id="content-items" role="tabpanel" tabindex="0">
                         <div class="table-responsive">
@@ -478,10 +488,12 @@
                 return date.toLocaleString('id-ID');
             };
 
+            const canViewExpectedCash = @json($canViewExpectedCash);
+
             const endpoints = {
                 'daily-sales': @json(route('pos.reports.daily-sales')),
                 'cashiers': @json(route('pos.reports.cashier-summary')),
-                'payments': @json(route('pos.reports.payment-methods')),
+                ...(canViewExpectedCash ? { 'payments': @json(route('pos.reports.payment-methods')) } : {}),
                 'items': @json(route('pos.reports.item-sales')),
                 'approvals': @json(route('pos.reports.supervisor-approvals')),
             };
@@ -495,8 +507,8 @@
             };
 
             const tabColumnCount = {
-                'daily-sales': 8,
-                'cashiers': 6,
+                'daily-sales': canViewExpectedCash ? 8 : 6,
+                'cashiers': canViewExpectedCash ? 6 : 4,
                 'payments': 3,
                 'items': 4,
                 'approvals': 6,
@@ -590,8 +602,10 @@
                             <td class="text-right text-danger">${formatCurrency(row.discount_total)}</td>
                             <td class="text-right">${formatCurrency(row.tax_total)}</td>
                             <td class="text-right font-weight-bold">${formatCurrency(row.grand_total)}</td>
+                            ${canViewExpectedCash ? `
                             <td class="text-right text-success">${formatCurrency(row.cash_total)}</td>
                             <td class="text-right text-primary">${formatCurrency(row.non_cash_total)}</td>
+                            ` : ''}
                         </tr>
                     `).join('');
                 },
@@ -606,8 +620,10 @@
                             <td><strong>${escapeHtml(row.cashier_name || '-')}</strong></td>
                             <td class="text-center">${formatNumber(row.transactions_count)}</td>
                             <td class="text-right font-weight-bold">${formatCurrency(row.grand_total)}</td>
+                            ${canViewExpectedCash ? `
                             <td class="text-right text-success">${formatCurrency(row.cash_total)}</td>
                             <td class="text-right text-primary">${formatCurrency(row.non_cash_total)}</td>
+                            ` : ''}
                             <td class="text-right text-muted">${formatCurrency(row.average_basket)}</td>
                         </tr>
                     `).join('');

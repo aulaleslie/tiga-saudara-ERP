@@ -35,6 +35,7 @@
                                 <label class="form-label small text-muted">Total Penjualan</label>
                                 <div id="finalizeTotalSales" class="fw-bold"></div>
                             </div>
+                            @can('pos.sessions.viewExpectedCash')
                             <div class="col-md-4">
                                 <label class="form-label small text-muted">Penjualan Kas</label>
                                 <div id="finalizeCashSales" class="fw-bold"></div>
@@ -43,9 +44,11 @@
                                 <label class="form-label small text-muted">Penjualan Non-Kas</label>
                                 <div id="finalizeNonCashSales" class="fw-bold"></div>
                             </div>
+                            @endcan
                         </div>
                     </div>
 
+                    @can('pos.sessions.viewExpectedCash')
                     <div class="mb-3" id="finalizeKasBonSection" style="display: none;">
                         <h6 class="mb-2 text-success"><i class="bi bi-wallet2"></i> Ringkasan Pembayaran Kas Bon</h6>
                         <div class="row g-2">
@@ -101,6 +104,7 @@
                             </table>
                         </div>
                     </div>
+                    @endcan
 
                     <div class="mb-3">
                         <label for="actualCashReceived" class="form-label">
@@ -120,6 +124,7 @@
                         <small class="text-muted d-block mt-2">Masukkan jumlah kas yang diterima dari kasir</small>
                     </div>
 
+                    @can('pos.sessions.viewExpectedCash')
                     <div class="mb-3">
                         <h6 class="mb-2"><i class="bi bi-calculator"></i> Perhitungan Varians</h6>
                         <div class="alert alert-info alert-sm mb-0">
@@ -139,6 +144,7 @@
                             </div>
                         </div>
                     </div>
+                    @endcan
 
                     <div class="mb-3">
                         <label for="finalizeNotes" class="form-label">Catatan Finalisasi (Opsional)</label>

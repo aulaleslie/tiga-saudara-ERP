@@ -99,12 +99,6 @@ class PosSafeDropService
                 throw new DomainException('Safe drop is only allowed for OPEN sessions.');
             }
 
-            $expectedBefore = round((float) $session->expected_cash_total, 2);
-
-            if ($normalizedAmount > $expectedBefore) {
-                throw new DomainException('Safe drop amount cannot exceed expected cash.');
-            }
-
             $policy = $session->terminal?->policy;
 
             if (! $policy) {

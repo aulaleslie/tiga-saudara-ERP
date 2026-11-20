@@ -42,11 +42,15 @@
                                 <th>Status</th>
                                 <th>Dibuka</th>
                                 <th>Ditutup</th>
-                                <th class="text-end">Saldo Awal</th>
+                                @if($canViewExpectedCash)
+                                    <th class="text-end">Saldo Awal</th>
+                                @endif
                                 <th class="text-end">Total Penjualan</th>
-                                <th class="text-end">Kas</th>
-                                <th class="text-end">Pengambilan Kas</th>
-                                <th class="text-end">Threshold</th>
+                                @if($canViewExpectedCash)
+                                    <th class="text-end">Kas</th>
+                                    <th class="text-end">Pengambilan Kas</th>
+                                    <th class="text-end">Threshold</th>
+                                @endif
                                 <th class="text-end">Metrik</th>
                                 <th>Aktivitas Terakhir</th>
                                 <th>Aksi</th>
@@ -58,7 +62,8 @@
                                     $nonTerminalLabel = 'Non-Terminal';
                                     $terminalCodeLabel = $session->terminal?->code ?? $nonTerminalLabel;
                                     // Highlight row if expected cash exceeds threshold (for sessions with terminals)
-                                    $isThresholdExceeded = $session->terminal
+                                    $isThresholdExceeded = $canViewExpectedCash
+                                        && $session->terminal
                                         && $session->terminal->policy
                                         && $session->expected_cash_total > $session->terminal->policy->cash_threshold;
                                 @endphp
@@ -89,25 +94,29 @@
                                     <td>
                                         {{ $session->closed_at ? $session->closed_at->format('d/m/Y H:i') : '-' }}
                                     </td>
-                                    <td class="text-end">{{ format_currency($session->opening_float_total) }}</td>
+                                    @if($canViewExpectedCash)
+                                        <td class="text-end">{{ format_currency($session->opening_float_total) }}</td>
+                                    @endif
                                     <td class="text-end">{{ format_currency($session->sales_total ?? 0) }}</td>
 
-                                    {{-- Kas column: displays expected_cash_total for all session states (OPEN, CLOSED, CLOSING, FINALIZED) --}}
-                                    {{-- This provides consistent operational context: what should be in the drawer based on opening float + sales --}}
-                                    <td class="text-end">
-                                        {{ format_currency($session->expected_cash_total) }}
-                                    </td>
+                                    @if($canViewExpectedCash)
+                                        {{-- Kas column: displays expected_cash_total for all session states (OPEN, CLOSED, CLOSING, FINALIZED) --}}
+                                        {{-- This provides consistent operational context: what should be in the drawer based on opening float + sales --}}
+                                        <td class="text-end {{ (float) $session->expected_cash_total < 0 ? 'text-danger fw-bold' : '' }}">
+                                            {{ format_currency($session->expected_cash_total) }}
+                                        </td>
 
-                                    <td class="text-end">{{ format_currency($session->cash_picked_up_total ?? 0) }}</td>
+                                        <td class="text-end">{{ format_currency($session->cash_picked_up_total ?? 0) }}</td>
 
-                                    {{-- Threshold column: displays terminal policy cash threshold or - if no terminal --}}
-                                    <td class="text-end">
-                                        @if($session->terminal && $session->terminal->policy)
-                                            {{ format_currency($session->terminal->policy->cash_threshold) }}
-                                        @else
-                                            <span class="text-muted">-</span>
-                                        @endif
-                                    </td>
+                                        {{-- Threshold column: displays terminal policy cash threshold or - if no terminal --}}
+                                        <td class="text-end">
+                                            @if($session->terminal && $session->terminal->policy)
+                                                {{ format_currency($session->terminal->policy->cash_threshold) }}
+                                            @else
+                                                <span class="text-muted">-</span>
+                                            @endif
+                                        </td>
+                                    @endif
 
                                     {{-- Metrik column: shows CASH_SALE_IN count for terminal sessions, total PosTransaction count for non-terminal --}}
                                     <td class="text-end">
@@ -170,7 +179,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="13" class="text-center py-4 text-muted">
+                                    <td colspan="{{ $canViewExpectedCash ? 13 : 9 }}" class="text-center py-4 text-muted">
                                         Tidak ada data sesi POS ditemukan.
                                     </td>
                                 </tr>

@@ -194,64 +194,76 @@ function fetchSessionData(sessionId, callback) {
  * Populate finalize modal with session data
  */
 function populateFinalizeModal(session, fallbackSessionCode = NON_TERMINAL_LABEL) {
-    document.getElementById('finalizeSessionCode').textContent = session.terminal?.code || fallbackSessionCode || NON_TERMINAL_LABEL;
-    document.getElementById('finalizeCashierName').textContent = session.cashier?.name || '-';
+    document.getElementById('finalizeSessionCode').textContent = session.terminal?.code || session.terminal_code || fallbackSessionCode || NON_TERMINAL_LABEL;
+    document.getElementById('finalizeCashierName').textContent = session.cashier?.name || session.cashier_name || '-';
 
-    // Use backend-computed totals where available; fall back to event-derived values for non-terminal sessions
+    const canViewExpectedCash = Boolean(session.can_view_expected_cash);
     const totalSales = session.sales_total ?? calculateTotalSales(session.transactions);
-    const netCashSales = session.net_cash_sales_total ?? calculateCashSales(session.cash_events);
-    const cashTendered = session.cash_tendered_total ?? netCashSales;
-    const changeReturned = session.change_total ?? 0;
-    const openingFloat = calculateOpeningFloat(session.cash_events);
-    const safeDrops = calculateSafeDrops(session.cash_events);
-    const nonCashSales = totalSales - netCashSales;
-
-    document.getElementById('finalizeOpeningFloat').textContent = formatCurrency(openingFloat);
-    document.getElementById('finalizeTotalSales').textContent = formatCurrency(totalSales);
-    document.getElementById('finalizeCashSales').textContent = formatCurrency(netCashSales);
-    document.getElementById('finalizeNonCashSales').textContent = formatCurrency(nonCashSales);
-    document.getElementById('finalizeCashTendered').textContent = formatCurrency(cashTendered);
-    document.getElementById('finalizeCashSalesAmount').textContent = formatCurrency(netCashSales);
-    document.getElementById('finalizeChangeReturned').textContent = formatCurrency(changeReturned);
-    document.getElementById('finalizeSafeDrops').textContent = formatCurrency(safeDrops);
-
-    const kasBonTotal = parseFloat(session.kas_bon_collection_total ?? session.pos_kas_bon_collection_total ?? 0);
-    const kasBonNetCash = parseFloat(session.kas_bon_net_cash_total ?? session.pos_kas_bon_cash_total ?? 0);
-    const kasBonNonCash = parseFloat(session.kas_bon_non_cash_total ?? session.pos_kas_bon_non_cash_total ?? 0);
-
-    const finalizeKasBonSection = document.getElementById('finalizeKasBonSection');
-    const finalizeKasBonCashRow = document.getElementById('finalizeKasBonCashRow');
-    if (kasBonTotal > 0 || kasBonNetCash > 0) {
-        if (finalizeKasBonSection) {
-            finalizeKasBonSection.style.display = 'block';
-            const elTotal = document.getElementById('finalizeKasBonTotal');
-            if (elTotal) elTotal.textContent = formatCurrency(kasBonTotal);
-            const elCash = document.getElementById('finalizeKasBonCash');
-            if (elCash) elCash.textContent = formatCurrency(kasBonNetCash);
-            const elNonCash = document.getElementById('finalizeKasBonNonCash');
-            if (elNonCash) elNonCash.textContent = formatCurrency(kasBonNonCash);
-        }
-        if (finalizeKasBonCashRow) {
-            finalizeKasBonCashRow.style.display = 'table-row';
-            const elCashAmt = document.getElementById('finalizeKasBonCashAmount');
-            if (elCashAmt) elCashAmt.textContent = formatCurrency(kasBonNetCash);
-        }
-    } else {
-        if (finalizeKasBonSection) finalizeKasBonSection.style.display = 'none';
-        if (finalizeKasBonCashRow) finalizeKasBonCashRow.style.display = 'none';
+    const elTotalSales = document.getElementById('finalizeTotalSales');
+    if (elTotalSales) {
+        elTotalSales.textContent = formatCurrency(totalSales);
     }
 
-    // Use backend expected_cash_total as the single source of truth
-    const expectedCash = (session.expected_cash_total != null) ? parseFloat(session.expected_cash_total) : calculateExpectedCash(session);
-    const varianceThreshold = session.threshold_value ?? (session.terminal?.policy?.close_variance_approval_threshold ?? 0);
-    document.getElementById('finalizeExpectedCash').textContent = formatCurrency(expectedCash);
-    document.getElementById('finalizeVarianceThreshold').textContent = formatCurrency(varianceThreshold);
-
-    // Store session ID, expected cash, and threshold as numeric for variance calculation
     const form = document.getElementById('finalizeForm');
-    form.dataset.sessionId = session.id;
-    form.dataset.expectedCash = expectedCash;
-    form.dataset.varianceThreshold = varianceThreshold;
+    form.dataset.sessionId = session.id ?? session.session_id;
+    form.dataset.canViewExpectedCash = canViewExpectedCash ? '1' : '0';
+
+    if (canViewExpectedCash) {
+        // Use backend-computed totals where available; fall back to event-derived values for non-terminal sessions
+        const netCashSales = session.net_cash_sales_total ?? calculateCashSales(session.cash_events);
+        const cashTendered = session.cash_tendered_total ?? netCashSales;
+        const changeReturned = session.change_total ?? 0;
+        const openingFloat = calculateOpeningFloat(session.cash_events);
+        const safeDrops = calculateSafeDrops(session.cash_events);
+        const nonCashSales = totalSales - netCashSales;
+
+        const setElText = (id, text) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = text;
+        };
+
+        setElText('finalizeOpeningFloat', formatCurrency(openingFloat));
+        setElText('finalizeCashSales', formatCurrency(netCashSales));
+        setElText('finalizeNonCashSales', formatCurrency(nonCashSales));
+        setElText('finalizeCashTendered', formatCurrency(cashTendered));
+        setElText('finalizeCashSalesAmount', formatCurrency(netCashSales));
+        setElText('finalizeChangeReturned', formatCurrency(changeReturned));
+        setElText('finalizeSafeDrops', formatCurrency(safeDrops));
+
+        const kasBonTotal = parseFloat(session.kas_bon_collection_total ?? session.pos_kas_bon_collection_total ?? 0);
+        const kasBonNetCash = parseFloat(session.kas_bon_net_cash_total ?? session.pos_kas_bon_cash_total ?? 0);
+        const kasBonNonCash = parseFloat(session.kas_bon_non_cash_total ?? session.pos_kas_bon_non_cash_total ?? 0);
+
+        const finalizeKasBonSection = document.getElementById('finalizeKasBonSection');
+        const finalizeKasBonCashRow = document.getElementById('finalizeKasBonCashRow');
+        if (kasBonTotal > 0 || kasBonNetCash > 0) {
+            if (finalizeKasBonSection) {
+                finalizeKasBonSection.style.display = 'block';
+                setElText('finalizeKasBonTotal', formatCurrency(kasBonTotal));
+                setElText('finalizeKasBonCash', formatCurrency(kasBonNetCash));
+                setElText('finalizeKasBonNonCash', formatCurrency(kasBonNonCash));
+            }
+            if (finalizeKasBonCashRow) {
+                finalizeKasBonCashRow.style.display = 'table-row';
+                setElText('finalizeKasBonCashAmount', formatCurrency(kasBonNetCash));
+            }
+        } else {
+            if (finalizeKasBonSection) finalizeKasBonSection.style.display = 'none';
+            if (finalizeKasBonCashRow) finalizeKasBonCashRow.style.display = 'none';
+        }
+
+        // Use backend expected_cash_total as the single source of truth
+        const expectedCash = (session.expected_cash_total != null) ? parseFloat(session.expected_cash_total) : calculateExpectedCash(session);
+        const varianceThreshold = session.threshold_value ?? (session.terminal?.policy?.close_variance_approval_threshold ?? 0);
+        setElText('finalizeExpectedCash', formatCurrency(expectedCash));
+        setElText('finalizeVarianceThreshold', formatCurrency(varianceThreshold));
+
+        form.dataset.expectedCash = expectedCash;
+        form.dataset.varianceThreshold = varianceThreshold;
+    } else {
+        delete form.dataset.expectedCash;
+        delete form.dataset.varianceThreshold;
+    }
 
     // Reset override section
     document.getElementById('supervisorOverrideSection').style.display = 'none';
@@ -327,13 +339,16 @@ function calculateExpectedCash(session) {
  * Real-time variance calculation
  */
 function calculateVariance() {
-    const actualCash = parseFloat(document.getElementById('actualCashReceived').value) || 0;
     const form = document.getElementById('finalizeForm');
-    const expectedCash = parseFloat(form.dataset.expectedCash) || 0;
-    const variance = actualCash - expectedCash;
-
     const varianceElement = document.getElementById('finalizeVarianceAmount');
     const varianceWarning = document.getElementById('varianceWarning');
+    if (!form || form.dataset.canViewExpectedCash !== '1' || !varianceElement) {
+        return;
+    }
+
+    const actualCash = parseFloat(document.getElementById('actualCashReceived').value) || 0;
+    const expectedCash = parseFloat(form.dataset.expectedCash) || 0;
+    const variance = actualCash - expectedCash;
     const threshold = parseFloat(form.dataset.varianceThreshold) || 0;
 
     varianceElement.textContent = formatCurrency(variance);
@@ -342,11 +357,11 @@ function calculateVariance() {
     if (Math.abs(variance) > threshold) {
         varianceElement.classList.remove('text-success');
         varianceElement.classList.add('text-danger');
-        varianceWarning.style.display = 'block';
+        if (varianceWarning) varianceWarning.style.display = 'block';
     } else {
         varianceElement.classList.remove('text-danger');
         varianceElement.classList.add('text-success');
-        varianceWarning.style.display = 'none';
+        if (varianceWarning) varianceWarning.style.display = 'none';
     }
 }
 
@@ -514,8 +529,12 @@ function submitFinalize(modal) {
                         supervisorSection.style.display = 'block';
                         document.getElementById('supervisorIdentifier').focus();
 
+                        const varianceDetail = data.can_view_expected_cash && data.variance_total !== undefined
+                            ? ` (${formatCurrency(data.variance_total)})`
+                            : '';
+
                         throw new Error(
-                            `Varians melebihi batas (${formatCurrency(data.variance_total)}). ` +
+                            `Varians melebihi batas${varianceDetail}. ` +
                             `Otorisasi supervisor diperlukan untuk melanjutkan.`
                         );
                     }

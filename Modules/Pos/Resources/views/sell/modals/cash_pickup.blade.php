@@ -20,10 +20,12 @@
                             <label class="form-label small font-weight-bold">Kasir:</label>
                             <div id="pos-pickup-cashier-info" class="form-control-plaintext text-muted small"></div>
                         </div>
+                        @can('pos.sessions.viewExpectedCash')
                         <div class="mb-3">
                             <label class="form-label small font-weight-bold">Ekspektasi Kas:</label>
                             <div id="pos-pickup-expected-cash" class="form-control-plaintext font-weight-bold text-primary" style="font-size: 1.1rem;"></div>
                         </div>
+                        @endcan
                         <div class="form-group mb-3">
                             <label for="pos-pickup-amount" class="form-label small font-weight-bold">Jumlah Pengambilan:</label>
                             <input type="text" id="pos-pickup-amount" class="form-control" inputmode="numeric" placeholder="0">

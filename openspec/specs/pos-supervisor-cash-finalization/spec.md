@@ -1,4 +1,9 @@
-## MODIFIED Requirements
+# pos-supervisor-cash-finalization Specification
+
+## Purpose
+Define supervisor cash finalization with variance calculation, approval gates, and OTP-based cash pickup authorization.
+
+## Requirements
 
 ### Requirement: Supervisor cash finalization with variance calculation
 

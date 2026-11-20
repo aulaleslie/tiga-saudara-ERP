@@ -36,6 +36,7 @@ class POSSessionSummaryViewTest extends TestCase
         foreach ([
             'pos.access',
             'pos.sessions.view',
+            'pos.sessions.viewExpectedCash',
         ] as $permission) {
             Permission::findOrCreate($permission, 'web');
         }
@@ -299,14 +300,15 @@ class POSSessionSummaryViewTest extends TestCase
         $this->assertEquals('TRX-001', $transactions[0]['code']);
         $this->assertEquals('TRX-002', $transactions[1]['code']);
 
-        // Verify cash_events are present but we're focused on transactions
-        $this->assertArrayHasKey('cash_events', $response->json());
+        // Verify cash_events are omitted when viewer lacks pos.sessions.viewExpectedCash
+        $this->assertArrayNotHasKey('cash_events', $response->json());
+        $this->assertFalse($response->json('can_view_expected_cash'));
     }
 
     public function test_terminal_session_summary_returns_checkouts(): void
     {
         $setting = $this->createSetting('BIZ TERMINAL TEST A');
-        $cashier = $this->createUserForSetting($setting, ['pos.access']);
+        $cashier = $this->createUserForSetting($setting, ['pos.access', 'pos.sessions.viewExpectedCash']);
         $terminal = $this->createTerminal($setting);
         $session = $this->createOpenSession($setting, $cashier, $terminal); // Terminal session
 
@@ -442,7 +444,7 @@ class POSSessionSummaryViewTest extends TestCase
     {
         // Scenario: Rp990,000 cash sale, customer pays Rp1,000,000, Rp10,000 change returned
         $setting = $this->createSetting('BIZ CHANGE AWARE TEST');
-        $cashier = $this->createUserForSetting($setting, ['pos.access']);
+        $cashier = $this->createUserForSetting($setting, ['pos.access', 'pos.sessions.viewExpectedCash']);
         $terminal = $this->createTerminal($setting);
         $session = $this->createOpenSession($setting, $cashier, $terminal);
 
@@ -513,7 +515,7 @@ class POSSessionSummaryViewTest extends TestCase
     public function test_session_summary_view_includes_kembalian_filter_button(): void
     {
         $setting = $this->createSetting('BIZ KEMBALIAN FILTER TEST');
-        $cashier = $this->createUserForSetting($setting, ['pos.access']);
+        $cashier = $this->createUserForSetting($setting, ['pos.access', 'pos.sessions.viewExpectedCash']);
         $terminal = $this->createTerminal($setting);
         $session = $this->createOpenSession($setting, $cashier, $terminal);
 

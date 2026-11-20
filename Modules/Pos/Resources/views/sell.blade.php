@@ -4216,6 +4216,14 @@
                     return false;
                 }
 
+                if (!currentSessionData.can_view_expected_cash || !pickupExpectedCash) {
+                    pickupAmountInput.disabled = false;
+                    pickupAmountInput.removeAttribute('max');
+                    pickupAmountError.classList.add('d-none');
+                    pickupNextBtn.disabled = true;
+                    return true;
+                }
+
                 try {
                     pickupExpectedCash.innerHTML = '<div class="spinner-border spinner-border-sm text-primary" role="status"><span class="sr-only">Loading...</span></div>';
                     pickupAmountInput.disabled = true;
@@ -4238,14 +4246,16 @@
                     }
 
                     const data = await response.json();
-                    const expectedCashValue = data.expected_cash_total || 0;
+                    const expectedCashValue = Number(data.expected_cash_total ?? 0);
 
-                    currentSessionData.expected_cash = Number(expectedCashValue);
+                    currentSessionData.expected_cash = expectedCashValue;
                     pickupExpectedCash.textContent = formatPrice(expectedCashValue);
+                    pickupExpectedCash.classList.toggle('text-danger', expectedCashValue < 0);
+                    pickupExpectedCash.classList.toggle('text-primary', expectedCashValue >= 0);
                     pickupAmountInput.disabled = false;
-                    pickupAmountInput.max = expectedCashValue;
+                    pickupAmountInput.removeAttribute('max');
                     pickupAmountError.classList.add('d-none');
-                    pickupNextBtn.disabled = false;
+                    pickupNextBtn.disabled = Number(pickupAmountInput.dataset.rawValue || 0) <= 0;
 
                     return true;
                 } catch (error) {
@@ -4387,19 +4397,11 @@
             if (pickupAmountInput && pickupNextBtn) {
                 pickupAmountInput.addEventListener('input', function () {
                     const amount = Number(pickupAmountInput.dataset.rawValue || 0);
-                    const expectedCash = currentSessionData && currentSessionData.expected_cash ? Number(currentSessionData.expected_cash) : 0;
 
                     pickupAmountError.classList.add('d-none');
 
                     if (amount <= 0) {
                         pickupAmountError.textContent = 'Jumlah pengambilan harus lebih dari 0.';
-                        pickupAmountError.classList.remove('d-none');
-                        pickupNextBtn.disabled = true;
-                        return;
-                    }
-
-                    if (amount > expectedCash) {
-                        pickupAmountError.textContent = 'Jumlah pengambilan tidak boleh melebihi ekspektasi kas.';
                         pickupAmountError.classList.remove('d-none');
                         pickupNextBtn.disabled = true;
                         return;
@@ -4439,9 +4441,8 @@
             if (pickupNextBtn) {
                 pickupNextBtn.addEventListener('click', function () {
                     const amount = Number(pickupAmountInput.dataset.rawValue || 0);
-                    const expectedCash = currentSessionData && currentSessionData.expected_cash ? Number(currentSessionData.expected_cash) : 0;
 
-                    if (amount <= 0 || amount > expectedCash) {
+                    if (amount <= 0) {
                         pickupAmountError.textContent = 'Jumlah pengambilan tidak valid.';
                         pickupAmountError.classList.remove('d-none');
                         return;
@@ -4495,8 +4496,9 @@
 
                         if (response) {
                             $(pickupModalElement).modal('hide');
-                            const newExpectedCash = response.expected_cash_after || 0;
-                            const message = `Pengambilan kas berhasil. Ekspektasi kas: ${formatPrice(newExpectedCash)}`;
+                            const message = (response.can_view_expected_cash && response.expected_cash_after !== undefined)
+                                ? `Pengambilan kas berhasil. Ekspektasi kas: ${formatPrice(response.expected_cash_after)}`
+                                : 'Pengambilan kas berhasil.';
                             showToast(message, 'success');
 
                             // Refresh cart to update expected cash display
@@ -4523,7 +4525,8 @@
                             terminal_code: dropdownMenu.getAttribute('data-terminal-code') || '-',
                             terminal_name: dropdownMenu.getAttribute('data-terminal-name') || '-',
                             cashier_name: dropdownMenu.getAttribute('data-cashier-name') || '-',
-                            expected_cash: 0 // Will be fetched live
+                            can_view_expected_cash: dropdownMenu.getAttribute('data-can-view-expected-cash') === '1',
+                            expected_cash: null // Will be fetched live when authorized
                         };
 
                         const terminal = `${currentSessionData.terminal_code} - ${currentSessionData.terminal_name}`;

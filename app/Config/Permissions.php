@@ -348,6 +348,7 @@ return [
         'pos.sessions.close-admin' => 'Tutup Terminal (Admin)',
         'pos.sessions.approve-variance' => 'Setujui Varians Kas',
         'pos.sessions.view' => 'Lihat Sesi',
+        'pos.sessions.viewExpectedCash' => 'Lihat Ekspektasi Kas',
         'pos.safeDrops.create' => 'Buat Setoran',
         'pos.safeDrops.approve' => 'Setujui Setoran',
         'pos.cart.clear' => 'Kosongkan Keranjang',

@@ -150,6 +150,7 @@ final class PosPermissionMatrix
                     'pos.checkout.debt',
                     'pos.checkout.debt.request',
                     'pos.sessions.open.total-only',
+                    'pos.sessions.viewExpectedCash',
                 ],
             ],
             'returns' => [

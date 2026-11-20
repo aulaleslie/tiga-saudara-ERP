@@ -7,14 +7,16 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Pos\Services\PosReportingService;
+use Modules\Pos\Support\PosExpectedCashVisibility;
 
 class PosReportController extends Controller
 {
     public function index(): Renderable
     {
         $settingId = $this->currentSettingId();
+        $canViewExpectedCash = PosExpectedCashVisibility::canView(auth()->user());
 
-        return view('pos::reports.index', compact('settingId'));
+        return view('pos::reports.index', compact('settingId', 'canViewExpectedCash'));
     }
 
     public function dailySales(Request $request, PosReportingService $reportingService): JsonResponse
@@ -22,13 +24,14 @@ class PosReportController extends Controller
         $this->validateDateParams($request);
         
         $settingId = $this->currentSettingId();
+        $rows = $reportingService->getDailySalesSummary(
+            $settingId,
+            $request->input('date_from'),
+            $request->input('date_to')
+        );
         
         return response()->json(
-            $reportingService->getDailySalesSummary(
-                $settingId,
-                $request->input('date_from'),
-                $request->input('date_to')
-            )
+            PosExpectedCashVisibility::projectSalesReportRows($rows, auth()->user())
         );
     }
 
@@ -37,13 +40,14 @@ class PosReportController extends Controller
         $this->validateDateParams($request);
         
         $settingId = $this->currentSettingId();
+        $rows = $reportingService->getCashierSummary(
+            $settingId,
+            $request->input('date_from'),
+            $request->input('date_to')
+        );
         
         return response()->json(
-            $reportingService->getCashierSummary(
-                $settingId,
-                $request->input('date_from'),
-                $request->input('date_to')
-            )
+            PosExpectedCashVisibility::projectSalesReportRows($rows, auth()->user())
         );
     }
 
@@ -52,13 +56,14 @@ class PosReportController extends Controller
         $this->validateDateParams($request);
         
         $settingId = $this->currentSettingId();
+        $rows = $reportingService->getPaymentMethodSummary(
+            $settingId,
+            $request->input('date_from'),
+            $request->input('date_to')
+        );
         
         return response()->json(
-            $reportingService->getPaymentMethodSummary(
-                $settingId,
-                $request->input('date_from'),
-                $request->input('date_to')
-            )
+            PosExpectedCashVisibility::projectPaymentMethodReportRows($rows, auth()->user())
         );
     }
 

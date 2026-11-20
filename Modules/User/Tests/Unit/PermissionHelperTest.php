@@ -211,6 +211,28 @@ class PermissionHelperTest extends TestCase
         $this->assertArrayHasKey('pos.sessions.require-terminal', $guidance['deprecated']);
     }
 
+    public function test_expected_cash_visibility_permission_is_registered_as_explicit_pos_exception()
+    {
+        $groups = PermissionHelper::getGroupsForForm();
+
+        $this->assertArrayHasKey('POS', $groups);
+        $this->assertArrayHasKey('pos.sessions.viewExpectedCash', $groups['POS']);
+        $this->assertSame('Lihat Ekspektasi Kas', $groups['POS']['pos.sessions.viewExpectedCash']['label']);
+        $this->assertSame('Lihat Ekspektasi Kas', PermissionHelper::getPermissionLabel('pos.sessions.viewExpectedCash'));
+
+        $clusters = \Modules\Pos\Support\PosPermissionMatrix::capabilityClusters();
+        $this->assertContains('pos.sessions.viewExpectedCash', $clusters['exceptions']['permissions']);
+
+        $bundles = \Modules\Pos\Support\PosPermissionMatrix::supportedBundles();
+        foreach (['manager', 'cashier', 'floor_staff'] as $bundleKey) {
+            $this->assertNotContains(
+                'pos.sessions.viewExpectedCash',
+                $bundles[$bundleKey]['permissions'],
+                "Bundle {$bundleKey} must not automatically include pos.sessions.viewExpectedCash"
+            );
+        }
+    }
+
     public function test_get_hidden_assigned_permissions_returns_deprecated_permissions_only()
     {
         $role = Role::create(['name' => 'deprecated-pos-role']);

@@ -7,14 +7,16 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Pos\Services\PosReconciliationService;
+use Modules\Pos\Support\PosExpectedCashVisibility;
 
 class PosReconciliationController extends Controller
 {
     public function index(): Renderable
     {
         $settingId = $this->currentSettingId();
+        $canViewExpectedCash = PosExpectedCashVisibility::canView(auth()->user());
 
-        return view('pos::reconciliation.index', compact('settingId'));
+        return view('pos::reconciliation.index', compact('settingId', 'canViewExpectedCash'));
     }
 
     public function sessions(Request $request, PosReconciliationService $reconciliationService): JsonResponse
@@ -22,13 +24,14 @@ class PosReconciliationController extends Controller
         $this->validateDateParams($request);
         
         $settingId = $this->currentSettingId();
+        $rows = $reconciliationService->getSessionReconciliation(
+            $settingId,
+            $request->input('date_from'),
+            $request->input('date_to')
+        );
         
         return response()->json(
-            $reconciliationService->getSessionReconciliation(
-                $settingId,
-                $request->input('date_from'),
-                $request->input('date_to')
-            )
+            PosExpectedCashVisibility::projectReconciliation($rows, auth()->user())
         );
     }
 

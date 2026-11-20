@@ -19,7 +19,7 @@
                                              data-terminal-code="{{ $activeSession->terminal->code ?? '-' }}"
                                              data-terminal-name="{{ $activeSession->terminal->name ?? '-' }}"
                                              data-cashier-name="{{ $activeSession->cashier->name ?? '-' }}"
-                                             data-expected-cash="{{ $activeSession->expected_cash_total ?? 0 }}">
+                                             data-can-view-expected-cash="{{ auth()->user()?->can('pos.sessions.viewExpectedCash') ? '1' : '0' }}">
                                             <button type="button" id="pos-shortcut-reprint" class="dropdown-item" disabled>Reprint</button>
                                             @can('pos.kasBon.collect')
                                                 <button type="button" id="pos-menu-bayar-kas-bon" class="dropdown-item">Bayar Kas Bon</button>

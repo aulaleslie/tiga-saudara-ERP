@@ -67,34 +67,38 @@
                             <span class="text-muted">Total Penjualan</span>
                             <span class="fw-bold text-primary">{{ format_currency($sales_total) }}</span>
                         </div>
-                        <div class="d-flex justify-content-between mb-3 border-bottom pb-2">
-                            <span class="text-muted">Total Bayar Kas Bon</span>
-                            <span class="fw-bold text-success">{{ format_currency($kas_bon_collection_total ?? 0) }}</span>
-                        </div>
-                        <div class="d-flex justify-content-between mb-2 ps-3 small text-muted">
-                            <span>└ Kas Bon Tunai (Net)</span>
-                            <span class="fw-semibold text-dark">{{ format_currency($kas_bon_net_cash_total ?? 0) }}</span>
-                        </div>
-                        <div class="d-flex justify-content-between mb-3 border-bottom pb-2 ps-3 small text-muted">
-                            <span>└ Kas Bon Non-Tunai</span>
-                            <span class="fw-semibold text-dark">{{ format_currency($kas_bon_non_cash_total ?? 0) }}</span>
-                        </div>
+                        @if($can_view_expected_cash)
+                            <div class="d-flex justify-content-between mb-3 border-bottom pb-2">
+                                <span class="text-muted">Total Bayar Kas Bon</span>
+                                <span class="fw-bold text-success">{{ format_currency($kas_bon_collection_total ?? 0) }}</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-2 ps-3 small text-muted">
+                                <span>└ Kas Bon Tunai (Net)</span>
+                                <span class="fw-semibold text-dark">{{ format_currency($kas_bon_net_cash_total ?? 0) }}</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-3 border-bottom pb-2 ps-3 small text-muted">
+                                <span>└ Kas Bon Non-Tunai</span>
+                                <span class="fw-semibold text-dark">{{ format_currency($kas_bon_non_cash_total ?? 0) }}</span>
+                            </div>
+                        @endif
 
                         @if($terminal_id)
-                            {{-- Terminal session: Show cash-related fields --}}
-                            <div class="d-flex justify-content-between mb-3 border-bottom pb-2">
-                                <span class="text-muted">Ekspektasi Kas</span>
-                                <span class="fw-bold text-success">{{ format_currency($expected_cash_total) }}</span>
-                            </div>
-                            <div class="d-flex justify-content-between mb-3 border-bottom pb-2">
-                                <span class="text-muted">Ambang Batas</span>
-                                <span class="fw-bold">{{ format_currency($threshold_value) }}</span>
-                            </div>
-
-                            @if($is_threshold_breached)
-                                <div class="alert alert-danger mt-4 border-0 shadow-sm" style="border-radius: 10px;">
-                                    <i class="bi bi-exclamation-triangle-fill me-2"></i> Saldo kas melebihi ambang batas!
+                            @if($can_view_expected_cash)
+                                {{-- Terminal session: Show cash-related fields --}}
+                                <div class="d-flex justify-content-between mb-3 border-bottom pb-2">
+                                    <span class="text-muted">Ekspektasi Kas</span>
+                                    <span class="fw-bold {{ ($expected_cash_total ?? 0) < 0 ? 'text-danger' : 'text-success' }}">{{ format_currency($expected_cash_total) }}</span>
                                 </div>
+                                <div class="d-flex justify-content-between mb-3 border-bottom pb-2">
+                                    <span class="text-muted">Ambang Batas</span>
+                                    <span class="fw-bold">{{ format_currency($threshold_value) }}</span>
+                                </div>
+
+                                @if($is_threshold_breached)
+                                    <div class="alert alert-danger mt-4 border-0 shadow-sm" style="border-radius: 10px;">
+                                        <i class="bi bi-exclamation-triangle-fill me-2"></i> Saldo kas melebihi ambang batas!
+                                    </div>
+                                @endif
                             @endif
                         @else
                             {{-- Non-terminal session: Show transaction count --}}
@@ -126,6 +130,7 @@
             {{-- Timeline & Transactions --}}
             <div class="col-lg-8">
                 @if($terminal_id)
+                    @if($can_view_expected_cash)
                     {{-- Terminal Session: Cash Events Timeline --}}
                     <div class="card border-0 shadow-sm mb-4" style="border-radius: 15px;">
                         <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center">
@@ -166,6 +171,7 @@
                             </ul>
                         </div>
                     </div>
+                    @endif
 
                     {{-- Terminal Session: Checkouts Table --}}
                     <div class="card border-0 shadow-sm" style="border-radius: 15px;">

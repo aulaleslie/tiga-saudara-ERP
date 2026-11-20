@@ -33,10 +33,14 @@
                             <tr>
                                 <th>Sesi / Terminal</th>
                                 <th>Siklus</th>
-                                <th class="text-end">Saldo Awal</th>
-                                <th class="text-end">Kas Diharapkan</th>
+                                @if($canViewExpectedCash)
+                                    <th class="text-end">Saldo Awal</th>
+                                    <th class="text-end">Kas Diharapkan</th>
+                                @endif
                                 <th class="text-end">Kas Dihitung</th>
-                                <th class="text-end">Selisih</th>
+                                @if($canViewExpectedCash)
+                                    <th class="text-end">Selisih</th>
+                                @endif
                                 <th class="text-end">Total POS</th>
                                 <th class="text-end">Penjualan Tercatat</th>
                                 <th class="text-end">Pembayaran Tercatat</th>
@@ -44,7 +48,7 @@
                             </tr>
                         </thead>
                         <tbody id="reconciliation-tbody">
-                            <tr><td colspan="10" class="text-center text-muted py-4">Klik Muat untuk mengambil data.</td></tr>
+                            <tr><td colspan="{{ $canViewExpectedCash ? 10 : 7 }}" class="text-center text-muted py-4">Klik Muat untuk mengambil data.</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -62,6 +66,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const tbody = document.getElementById('reconciliation-tbody');
 
     const apiEndpoint = '{{ route("pos.reconciliation.sessions") }}';
+    const canViewExpectedCash = @json($canViewExpectedCash);
+    const tableColspan = canViewExpectedCash ? 10 : 7;
 
     const formatCurrency = (amount) => {
         return new Intl.NumberFormat('id-ID', {
@@ -89,7 +95,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         btnRefresh.disabled = true;
         btnRefresh.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Memuat';
-        tbody.innerHTML = '<tr><td colspan="10" class="text-center py-4"><i class="fas fa-spinner fa-spin text-primary fs-3"></i></td></tr>';
+        tbody.innerHTML = `<tr><td colspan="${tableColspan}" class="text-center py-4"><i class="fas fa-spinner fa-spin text-primary fs-3"></i></td></tr>`;
 
         try {
             const response = await fetch(`${apiEndpoint}?date_from=${dateFrom}&date_to=${dateTo}`, {
@@ -111,7 +117,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const data = await response.json();
             
             if (data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">Tidak ada sesi tutup pada rentang tanggal.</td></tr>';
+                tbody.innerHTML = `<tr><td colspan="${tableColspan}" class="text-center text-muted py-4">Tidak ada sesi tutup pada rentang tanggal.</td></tr>`;
                 return;
             }
 
@@ -120,6 +126,31 @@ document.addEventListener('DOMContentLoaded', function () {
                 const badge = row.has_mismatch 
                     ? `<span class="badge bg-danger" title="${row.mismatch_details}">Tidak Cocok</span>` 
                     : `<span class="badge bg-success">Sesuai</span>`;
+                const showCash = Boolean(row.can_view_expected_cash) && canViewExpectedCash;
+                const openingAndExpectedCols = showCash ? `
+                        <td class="text-end">${formatCurrency(row.opening_float)}</td>
+                        <td class="text-end fw-bold ${row.expected_cash < 0 ? 'text-danger' : ''}">${formatCurrency(row.expected_cash)}<br>
+                            <span class="badge bg-secondary">Setoran: ${formatCurrency(row.safe_drop_total)}</span>
+                        </td>
+                ` : '';
+                const varianceCol = showCash ? `
+                        <td class="text-end ${row.variance < 0 ? 'text-danger fw-bold' : (row.variance > 0 ? 'text-success fw-bold' : '')}">
+                            ${formatCurrency(row.variance)}
+                        </td>
+                ` : '';
+                const cashBreakdownHtml = showCash ? `
+                            <span class="small text-muted text-nowrap">
+                                <i class="fas fa-money-bill"></i> ${formatCurrency(row.pos_cash_sales_total)}<br>
+                                <i class="fas fa-credit-card"></i> ${formatCurrency(row.pos_non_cash_sales_total)}
+                            </span>
+                            ${(row.pos_kas_bon_collection_total > 0 || row.pos_kas_bon_cash_total > 0) ? `
+                                <div class="mt-1 pt-1 border-top small text-success text-nowrap">
+                                    <span class="badge bg-success text-white">Kas Bon: ${formatCurrency(row.pos_kas_bon_collection_total || 0)}</span><br>
+                                    <span class="text-muted"><i class="fas fa-money-bill"></i> ${formatCurrency(row.pos_kas_bon_cash_total || 0)}</span> | 
+                                    <span class="text-muted"><i class="fas fa-credit-card"></i> ${formatCurrency(row.pos_kas_bon_non_cash_total || 0)}</span>
+                                </div>
+                            ` : ''}
+                ` : '';
                 
                 return `
                     <tr class="${trClass}">
@@ -132,26 +163,11 @@ document.addEventListener('DOMContentLoaded', function () {
                             Buka: ${formatDate(row.opened_at)}<br>
                             Tutup: ${formatDate(row.closed_at)}
                         </td>
-                        <td class="text-end">${formatCurrency(row.opening_float)}</td>
-                        <td class="text-end fw-bold">${formatCurrency(row.expected_cash)}<br>
-                            <span class="badge bg-secondary">Setoran: ${formatCurrency(row.safe_drop_total)}</span>
-                        </td>
+                        ${openingAndExpectedCols}
                         <td class="text-end">${formatCurrency(row.counted_cash)}</td>
-                        <td class="text-end ${row.variance < 0 ? 'text-danger fw-bold' : (row.variance > 0 ? 'text-success fw-bold' : '')}">
-                            ${formatCurrency(row.variance)}
-                        </td>
+                        ${varianceCol}
                         <td class="text-end fw-bold">${formatCurrency(row.pos_checkout_total)}<br>
-                            <span class="small text-muted text-nowrap">
-                                <i class="fas fa-money-bill"></i> ${formatCurrency(row.pos_cash_sales_total)}<br>
-                                <i class="fas fa-credit-card"></i> ${formatCurrency(row.pos_non_cash_sales_total)}
-                            </span>
-                            ${(row.pos_kas_bon_collection_total > 0 || row.pos_kas_bon_cash_total > 0) ? `
-                                <div class="mt-1 pt-1 border-top small text-success text-nowrap">
-                                    <span class="badge bg-success text-white">Kas Bon: ${formatCurrency(row.pos_kas_bon_collection_total || 0)}</span><br>
-                                    <span class="text-muted"><i class="fas fa-money-bill"></i> ${formatCurrency(row.pos_kas_bon_cash_total || 0)}</span> | 
-                                    <span class="text-muted"><i class="fas fa-credit-card"></i> ${formatCurrency(row.pos_kas_bon_non_cash_total || 0)}</span>
-                                </div>
-                            ` : ''}
+                            ${cashBreakdownHtml}
                         </td>
                         <td class="text-end ${row.has_mismatch && row.pos_checkout_total !== row.posted_sales_total ? 'text-danger fw-bold' : ''}">
                             ${formatCurrency(row.posted_sales_total)}
@@ -165,7 +181,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }).join('');
 
         } catch (error) {
-            tbody.innerHTML = `<tr><td colspan="10" class="text-center text-danger py-4"><i class="fas fa-exclamation-circle"></i> ${error.message}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="${tableColspan}" class="text-center text-danger py-4"><i class="fas fa-exclamation-circle"></i> ${error.message}</td></tr>`;
         } finally {
             btnRefresh.disabled = false;
             btnRefresh.innerHTML = '<i class="fas fa-sync-alt"></i> Muat';
