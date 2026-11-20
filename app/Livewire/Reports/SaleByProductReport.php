@@ -2,25 +2,29 @@
 
 namespace App\Livewire\Reports;
 
-use Livewire\Component;
-use Livewire\WithPagination;
+use App\Exports\SaleByProductReportExport;
+use App\Services\Reports\SaleByProductCategoryTreeResolver;
 use App\Services\Reports\SaleByProductReportFilterData;
 use App\Services\Reports\SaleByProductReportQueryService;
+use App\Services\Reports\SaleByProductReportSnapshotService;
+use App\Services\Reports\SaleByProductReportValidator;
+use Carbon\Carbon;
+use Illuminate\Validation\ValidationException;
+use Livewire\Component;
+use Livewire\WithPagination;
+use Maatwebsite\Excel\Facades\Excel;
 use Modules\People\Entities\Customer;
+use Modules\Product\Entities\Brand;
 use Modules\Product\Entities\Category;
 use Modules\Product\Entities\Product;
 use Spatie\Tags\Tag;
-use App\Services\Reports\SaleByProductReportValidator;
-use App\Services\Reports\SaleByProductReportSnapshotService;
-use App\Exports\SaleByProductReportExport;
-use Maatwebsite\Excel\Facades\Excel;
-use Illuminate\Validation\ValidationException;
-use Illuminate\Support\Facades\DB;
 
 class SaleByProductReport extends Component
 {
     use WithPagination;
     use HasReportSettingScope;
+
+    public const REPORT_TIMEZONE = 'Asia/Makassar';
 
     public $startDate, $endDate;
     public $sortField = 'product_name';
@@ -31,8 +35,9 @@ class SaleByProductReport extends Component
     public $tagLogic = 'Salah satu';
     public $categoryIds = [];
     public $categoryLogic = 'Salah satu';
+    public $brandIds = [];
     public $productIds = [];
-    public $periodPreset = '';
+    public $periodPreset = 'this_month';
 
     public $filterTriggered = false;
     public $appliedFilters = [];
@@ -40,26 +45,32 @@ class SaleByProductReport extends Component
     // Searchable filter states
     public $customerSearch = '';
     public $customerOptions = [];
+    public $hasMoreCustomerOptions = false;
     public $tagSearch = '';
     public $tagOptions = [];
     public $categorySearch = '';
     public $categoryOptions = [];
+    public $brandSearch = '';
+    public $brandOptions = [];
     public $productSearch = '';
     public $productOptions = [];
+    public $hasMoreProductOptions = false;
 
     // Selected labels for display pills
     public $customerLabels = [];
     public $tagLabels = [];
     public $categoryLabels = [];
+    public $brandLabels = [];
     public $productLabels = [];
 
     protected $paginationTheme = 'bootstrap';
+    protected ?array $cachedDataset = null;
 
     public function mount()
     {
-        $this->selectedSettingIds = [];
-        $this->startDate = now()->startOfMonth()->format('Y-m-d');
-        $this->endDate = now()->endOfMonth()->format('Y-m-d');
+        $this->selectedSettingIds = $this->defaultSettingSelection();
+        $this->periodPreset = 'this_month';
+        $this->applyPeriodPresetDates('this_month');
         $this->appliedFilters = $this->exportFilters();
         $this->filterTriggered = false;
     }
@@ -71,29 +82,122 @@ class SaleByProductReport extends Component
 
     public function updatedPeriodPreset($value): void
     {
-        match ($value) {
-            'today'      => [$this->startDate, $this->endDate] = [now()->format('Y-m-d'), now()->format('Y-m-d')],
-            'this_week'  => [$this->startDate, $this->endDate] = [now()->startOfWeek()->format('Y-m-d'), now()->endOfWeek()->format('Y-m-d')],
-            'this_month' => [$this->startDate, $this->endDate] = [now()->startOfMonth()->format('Y-m-d'), now()->endOfMonth()->format('Y-m-d')],
-            'this_year'  => [$this->startDate, $this->endDate] = [now()->startOfYear()->format('Y-m-d'), now()->endOfYear()->format('Y-m-d')],
-            default      => null,
-        };
+        if ($value === 'custom' || $value === '' || $value === null) {
+            return;
+        }
+
+        $this->applyPeriodPresetDates((string) $value);
+    }
+
+    public function updatedStartDate(): void
+    {
+        $this->syncPeriodPresetToDates();
+    }
+
+    public function updatedEndDate(): void
+    {
+        $this->syncPeriodPresetToDates();
+    }
+
+    private function syncPeriodPresetToDates(): void
+    {
+        $ranges = $this->periodDateRanges();
+        $dates = [$this->startDate, $this->endDate];
+
+        // Retain the selected preset if calendar periods happen to share boundaries.
+        if (isset($ranges[$this->periodPreset]) && $ranges[$this->periodPreset] === $dates) {
+            return;
+        }
+
+        $this->periodPreset = array_search($dates, $ranges, true) ?: 'custom';
+    }
+
+    private function applyPeriodPresetDates(string $preset): void
+    {
+        $range = $this->periodDateRanges()[$preset] ?? null;
+
+        if ($range !== null) {
+            [$this->startDate, $this->endDate] = $range;
+        }
+    }
+
+    /** @return array<string, array{string, string}> */
+    private function periodDateRanges(): array
+    {
+        $now = Carbon::now(self::REPORT_TIMEZONE);
+
+        $ranges = [
+            'today' => [
+                $now->copy()->format('Y-m-d'),
+                $now->copy()->format('Y-m-d'),
+            ],
+            'this_week' => [
+                $now->copy()->startOfWeek(Carbon::MONDAY)->format('Y-m-d'),
+                $now->copy()->endOfWeek(Carbon::SUNDAY)->format('Y-m-d'),
+            ],
+            'last_week' => [
+                $now->copy()->subWeek()->startOfWeek(Carbon::MONDAY)->format('Y-m-d'),
+                $now->copy()->subWeek()->endOfWeek(Carbon::SUNDAY)->format('Y-m-d'),
+            ],
+            'this_month' => [
+                $now->copy()->startOfMonth()->format('Y-m-d'),
+                $now->copy()->endOfMonth()->format('Y-m-d'),
+            ],
+            'last_month' => [
+                $now->copy()->subMonthNoOverflow()->startOfMonth()->format('Y-m-d'),
+                $now->copy()->subMonthNoOverflow()->endOfMonth()->format('Y-m-d'),
+            ],
+            'this_year' => [
+                $now->copy()->startOfYear()->format('Y-m-d'),
+                $now->copy()->endOfYear()->format('Y-m-d'),
+            ],
+            'last_year' => [
+                $now->copy()->subYearNoOverflow()->startOfYear()->format('Y-m-d'),
+                $now->copy()->subYearNoOverflow()->endOfYear()->format('Y-m-d'),
+            ],
+        ];
+
+        return $ranges;
+    }
+
+    public function toggleCustomer(int $id, string $name = ''): void
+    {
+        $ids = array_map('intval', $this->customerIds);
+        if (in_array($id, $ids, true)) {
+            $this->removeCustomer($id);
+        } else {
+            $this->customerIds = array_values(array_unique(array_merge($ids, [$id])));
+            if ($name !== '') {
+                $this->customerLabels[$id] = $name;
+            } else {
+                $customer = Customer::query()->find($id, ['id', 'customer_name', 'contact_name']);
+                $this->customerLabels[$id] = $customer ? $customer->canonical_name : 'ID:' . $id;
+            }
+        }
     }
 
     public function selectCustomer(int $id, string $name): void
     {
-        if (!in_array($id, $this->customerIds)) {
+        $ids = array_map('intval', $this->customerIds);
+        if (!in_array($id, $ids, true)) {
             $this->customerIds[] = $id;
             $this->customerLabels[$id] = $name;
         }
         $this->customerSearch = '';
         $this->customerOptions = [];
+        $this->hasMoreCustomerOptions = false;
     }
 
     public function removeCustomer(int $id): void
     {
-        $this->customerIds = array_values(array_diff($this->customerIds, [$id]));
+        $this->customerIds = array_values(array_diff(array_map('intval', $this->customerIds), [$id]));
         unset($this->customerLabels[$id]);
+    }
+
+    public function clearCustomers(): void
+    {
+        $this->customerIds = [];
+        $this->customerLabels = [];
     }
 
     public function selectTag(int $id, string $name): void
@@ -112,9 +216,26 @@ class SaleByProductReport extends Component
         unset($this->tagLabels[$id]);
     }
 
+    public function toggleCategory(int $id, string $name = ''): void
+    {
+        $ids = array_map('intval', $this->categoryIds);
+        if (in_array($id, $ids, true)) {
+            $this->removeCategory($id);
+        } else {
+            $this->categoryIds = array_values(array_unique(array_merge($ids, [$id])));
+            if ($name !== '') {
+                $this->categoryLabels[$id] = $name;
+            } else {
+                $paths = (new SaleByProductCategoryTreeResolver())->buildPathLabels([$id]);
+                $this->categoryLabels[$id] = $paths[$id] ?? 'ID:' . $id;
+            }
+        }
+    }
+
     public function selectCategory(int $id, string $name): void
     {
-        if (!in_array($id, $this->categoryIds)) {
+        $ids = array_map('intval', $this->categoryIds);
+        if (!in_array($id, $ids, true)) {
             $this->categoryIds[] = $id;
             $this->categoryLabels[$id] = $name;
         }
@@ -124,29 +245,100 @@ class SaleByProductReport extends Component
 
     public function removeCategory(int $id): void
     {
-        $this->categoryIds = array_values(array_diff($this->categoryIds, [$id]));
+        $this->categoryIds = array_values(array_diff(array_map('intval', $this->categoryIds), [$id]));
         unset($this->categoryLabels[$id]);
+    }
+
+    public function clearCategories(): void
+    {
+        $this->categoryIds = [];
+        $this->categoryLabels = [];
+    }
+
+    public function toggleBrand(int $id, string $name = ''): void
+    {
+        $ids = array_map('intval', $this->brandIds);
+        if (in_array($id, $ids, true)) {
+            $this->removeBrand($id);
+        } else {
+            $this->brandIds = array_values(array_unique(array_merge($ids, [$id])));
+            if ($name !== '') {
+                $this->brandLabels[$id] = $name;
+            } else {
+                $brand = Brand::query()->find($id, ['id', 'name']);
+                $this->brandLabels[$id] = $brand ? $brand->name : 'ID:' . $id;
+            }
+        }
+    }
+
+    public function selectBrand(int $id, string $name): void
+    {
+        $ids = array_map('intval', $this->brandIds);
+        if (!in_array($id, $ids, true)) {
+            $this->brandIds[] = $id;
+            $this->brandLabels[$id] = $name;
+        }
+        $this->brandSearch = '';
+        $this->brandOptions = [];
+    }
+
+    public function removeBrand(int $id): void
+    {
+        $this->brandIds = array_values(array_diff(array_map('intval', $this->brandIds), [$id]));
+        unset($this->brandLabels[$id]);
+    }
+
+    public function clearBrands(): void
+    {
+        $this->brandIds = [];
+        $this->brandLabels = [];
+    }
+
+    public function toggleProduct(int $id, string $label = ''): void
+    {
+        $ids = array_map('intval', $this->productIds);
+        if (in_array($id, $ids, true)) {
+            $this->removeProduct($id);
+        } else {
+            $this->productIds = array_values(array_unique(array_merge($ids, [$id])));
+            if ($label !== '') {
+                $this->productLabels[$id] = $label;
+            } else {
+                $product = Product::query()->find($id, ['id', 'product_name', 'product_code']);
+                $this->productLabels[$id] = $product
+                    ? (!empty($product->product_code) ? "{$product->product_code} | {$product->product_name}" : $product->product_name)
+                    : 'ID:' . $id;
+            }
+        }
     }
 
     public function selectProduct(int $id, string $name): void
     {
-        if (!in_array($id, $this->productIds)) {
+        $ids = array_map('intval', $this->productIds);
+        if (!in_array($id, $ids, true)) {
             $this->productIds[] = $id;
             $this->productLabels[$id] = $name;
         }
         $this->productSearch = '';
         $this->productOptions = [];
+        $this->hasMoreProductOptions = false;
     }
 
     public function removeProduct(int $id): void
     {
-        $this->productIds = array_values(array_diff($this->productIds, [$id]));
+        $this->productIds = array_values(array_diff(array_map('intval', $this->productIds), [$id]));
         unset($this->productLabels[$id]);
+    }
+
+    public function clearProducts(): void
+    {
+        $this->productIds = [];
+        $this->productLabels = [];
     }
 
     private function applyTokenizedSearch($query, string $value, array $columns): void
     {
-        $tokens = array_filter(preg_split('/\s+/', trim($value)), fn($t) => $t !== '');
+        $tokens = array_filter(preg_split('/\s+/', trim($value)), fn ($t) => $t !== '');
         if (empty($tokens)) {
             return;
         }
@@ -165,7 +357,7 @@ class SaleByProductReport extends Component
 
     private function buildProductSearchQuery(string $value)
     {
-        $query = Product::query();
+        $query = Product::query()->orderBy('product_name');
         $this->applyTokenizedSearch($query, $value, ['product_name', 'product_code']);
         return $query;
     }
@@ -207,55 +399,98 @@ class SaleByProductReport extends Component
 
     public function updatedCustomerSearch($value): void
     {
-        $value = trim($value);
+        $value = trim((string) $value);
         if (strlen($value) < 2) {
             $this->customerOptions = [];
+            $this->hasMoreCustomerOptions = false;
             return;
         }
-        $query = Customer::query();
+        $query = Customer::query()->orderBy('customer_name');
         $this->applyTokenizedSearch($query, $value, ['customer_name', 'contact_name']);
 
-        $this->customerOptions = $query
-            ->limit(10)->get(['id', 'customer_name', 'contact_name'])
-            ->map(fn($c) => ['id' => $c->id, 'customer_name' => $c->canonical_name])->toArray();
+        $raw = $query->limit(26)->get(['id', 'customer_name', 'contact_name']);
+        $this->hasMoreCustomerOptions = $raw->count() > 25;
+        $this->customerOptions = $raw->take(25)
+            ->map(fn ($c) => [
+                'id' => $c->id,
+                'customer_name' => $c->canonical_name,
+                'contact_name' => $c->contact_name,
+            ])->toArray();
     }
 
     public function updatedTagSearch($value): void
     {
-        $value = trim($value);
+        $value = trim((string) $value);
         if (strlen($value) < 2) {
             $this->tagOptions = [];
             return;
         }
         $locale = app()->getLocale();
         $this->tagOptions = Tag::query()
-            ->where(fn ($q) => $q->containing($value, $locale)->orWhere(fn($sq) => $sq->containing($value, 'en')))
+            ->where(fn ($q) => $q->containing($value, $locale)->orWhere(fn ($sq) => $sq->containing($value, 'en')))
             ->limit(10)->get(['id', 'name'])->toArray();
     }
 
     public function updatedCategorySearch($value): void
     {
-        $value = trim($value);
+        $value = trim((string) $value);
         if (strlen($value) < 2) {
             $this->categoryOptions = [];
             return;
         }
-        $query = Category::query();
+        $query = Category::query()->orderBy('category_name');
         $this->applyTokenizedSearch($query, $value, ['category_name']);
 
-        $this->categoryOptions = $query
-            ->limit(10)->get(['id', 'category_name'])->toArray();
+        $matched = $query->limit(25)->get(['id', 'category_name', 'parent_id']);
+        $paths = (new SaleByProductCategoryTreeResolver())->buildPathLabels($matched->pluck('id')->all());
+
+        $this->categoryOptions = $matched->map(fn ($cat) => [
+            'id' => $cat->id,
+            'category_name' => $cat->category_name,
+            'display_path' => $paths[$cat->id] ?? $cat->category_name,
+        ])->toArray();
+    }
+
+    public function updatedBrandSearch($value): void
+    {
+        $value = trim((string) $value);
+        if (strlen($value) < 2) {
+            $this->brandOptions = [];
+            return;
+        }
+        $query = Brand::query()->orderBy('name');
+        $this->applyTokenizedSearch($query, $value, ['name']);
+
+        $this->brandOptions = $query
+            ->limit(25)->get(['id', 'name'])->toArray();
     }
 
     public function updatedProductSearch($value): void
     {
-        $value = trim($value);
+        $value = trim((string) $value);
         if (strlen($value) < 2) {
             $this->productOptions = [];
+            $this->hasMoreProductOptions = false;
             return;
         }
-        $this->productOptions = $this->buildProductSearchQuery($value)
-            ->limit(10)->get(['id', 'product_name', 'product_code'])->toArray();
+
+        $raw = $this->buildProductSearchQuery($value)
+            ->limit(26)->get(['id', 'product_name', 'product_code']);
+
+        $this->hasMoreProductOptions = $raw->count() > 25;
+        $this->productOptions = $raw->take(25)->toArray();
+    }
+
+    public function getHasPendingFilterChangesProperty(): bool
+    {
+        if (!$this->filterTriggered || empty($this->appliedFilters)) {
+            return false;
+        }
+
+        $currentHash = SaleByProductReportFilterData::fromArray($this->exportFilters())->hash();
+        $appliedHash = SaleByProductReportFilterData::fromArray($this->appliedFilters)->hash();
+
+        return $currentHash !== $appliedHash;
     }
 
     public function cancelFilters(): void
@@ -263,59 +498,71 @@ class SaleByProductReport extends Component
         if (!empty($this->appliedFilters)) {
             $this->startDate = $this->appliedFilters['startDate'] ?? $this->startDate;
             $this->endDate = $this->appliedFilters['endDate'] ?? $this->endDate;
-            $this->periodPreset = $this->appliedFilters['periodPreset'] ?? '';
+            $this->selectedSettingIds = $this->appliedFilters['scopeSettingIds'] ?? $this->selectedSettingIds;
+            $this->periodPreset = $this->appliedFilters['periodPreset'] ?? 'custom';
             $this->customerIds = $this->appliedFilters['customerIds'] ?? [];
             $this->customerLabels = $this->appliedFilters['customerLabels'] ?? [];
             $this->tagIds = $this->appliedFilters['tagIds'] ?? [];
             $this->tagLabels = $this->appliedFilters['tagLabels'] ?? [];
             $this->categoryIds = $this->appliedFilters['categoryIds'] ?? [];
             $this->categoryLabels = $this->appliedFilters['categoryLabels'] ?? [];
+            $this->brandIds = $this->appliedFilters['brandIds'] ?? [];
+            $this->brandLabels = $this->appliedFilters['brandLabels'] ?? [];
             $this->productIds = $this->appliedFilters['productIds'] ?? [];
             $this->productLabels = $this->appliedFilters['productLabels'] ?? [];
             $this->tagLogic = $this->appliedFilters['tagLogic'] ?? 'Salah satu';
-            $this->categoryLogic = $this->appliedFilters['categoryLogic'] ?? 'Salah satu';
+            $this->categoryLogic = 'Salah satu';
             $this->sortField = $this->appliedFilters['sortField'] ?? 'product_name';
             $this->sortDirection = $this->appliedFilters['sortDirection'] ?? 'asc';
         }
         $this->customerSearch = '';
         $this->customerOptions = [];
+        $this->hasMoreCustomerOptions = false;
         $this->tagSearch = '';
         $this->tagOptions = [];
         $this->categorySearch = '';
         $this->categoryOptions = [];
+        $this->brandSearch = '';
+        $this->brandOptions = [];
         $this->productSearch = '';
         $this->productOptions = [];
+        $this->hasMoreProductOptions = false;
     }
 
     public function resetFilters(): void
     {
-        $this->selectedSettingIds = [];
-        $this->startDate = now()->startOfMonth()->format('Y-m-d');
-        $this->endDate = now()->endOfMonth()->format('Y-m-d');
-        $this->periodPreset = '';
+        $this->selectedSettingIds = $this->defaultSettingSelection();
+        $this->periodPreset = 'this_month';
+        $this->applyPeriodPresetDates('this_month');
         $this->customerIds = [];
         $this->customerLabels = [];
         $this->tagIds = [];
         $this->tagLabels = [];
         $this->categoryIds = [];
         $this->categoryLabels = [];
+        $this->brandIds = [];
+        $this->brandLabels = [];
         $this->productIds = [];
         $this->productLabels = [];
         $this->tagLogic = 'Salah satu';
         $this->categoryLogic = 'Salah satu';
         $this->sortField = 'product_name';
         $this->sortDirection = 'asc';
-        
+
         $this->customerSearch = '';
         $this->customerOptions = [];
+        $this->hasMoreCustomerOptions = false;
         $this->tagSearch = '';
         $this->tagOptions = [];
         $this->categorySearch = '';
         $this->categoryOptions = [];
+        $this->brandSearch = '';
+        $this->brandOptions = [];
         $this->productSearch = '';
         $this->productOptions = [];
+        $this->hasMoreProductOptions = false;
 
-        $this->dispatch('sync-select2-saleByProductSettingIds', ['values' => []]);
+        $this->dispatch('sync-business-selector');
     }
 
     private function exportFilters(): array
@@ -332,7 +579,8 @@ class SaleByProductReport extends Component
             'tagIds' => $this->tagIds,
             'tagLogic' => $this->tagLogic,
             'categoryIds' => $this->categoryIds,
-            'categoryLogic' => $this->categoryLogic,
+            'categoryLogic' => 'Salah satu',
+            'brandIds' => $this->brandIds,
             'productIds' => $this->productIds,
             'sortField' => $this->sortField,
             'sortDirection' => $this->sortDirection,
@@ -345,24 +593,25 @@ class SaleByProductReport extends Component
         SaleByProductReportSnapshotService $snapshotService
     ) {
         $filterArray = $this->exportFilters();
-        
+
         try {
             $validated = $validator->validate($filterArray);
-            
+
             $this->appliedFilters = array_merge($validated, [
                 'periodPreset' => $this->periodPreset,
                 'customerLabels' => $this->customerLabels,
                 'tagLabels' => $this->tagLabels,
                 'categoryLabels' => $this->categoryLabels,
+                'brandLabels' => $this->brandLabels,
                 'productLabels' => $this->productLabels,
             ]);
-            
+
             $this->filterTriggered = true;
 
             $filter = SaleByProductReportFilterData::fromArray($this->appliedFilters);
-            $count = DB::query()->fromSub($queryService->build($filter), 'sale_by_product')->count();
-            $snapshotService->createSnapshot($filter, $count);
-            
+            $this->cachedDataset = $queryService->getDataset($filter);
+            $snapshotService->createSnapshot($filter, $this->cachedDataset['totals']['row_count']);
+
             $this->resetPage();
         } catch (ValidationException $e) {
             $this->filterTriggered = false;
@@ -371,7 +620,7 @@ class SaleByProductReport extends Component
     }
 
     public function exportExcel(
-        SaleByProductReportSnapshotService $snapshotService, 
+        SaleByProductReportSnapshotService $snapshotService,
         SaleByProductReportQueryService $queryService
     ) {
         if (!$this->filterTriggered) {
@@ -379,23 +628,21 @@ class SaleByProductReport extends Component
             return;
         }
 
-        $filter = SaleByProductReportFilterData::fromArray($this->appliedFilters);
+        $currentFilter = SaleByProductReportFilterData::fromArray($this->exportFilters());
 
-        if (!$snapshotService->isValidForExport($filter)) {
+        if (!$snapshotService->isValidForExport($currentFilter)) {
             $this->dispatch('alert', ['type' => 'error', 'message' => 'Kondisi filter telah berubah. Silakan terapkan filter kembali sebelum mengekspor.']);
             return;
         }
 
-        $query = $queryService->build($filter);
-        $queryService->applySort($query, $filter->sortField, $filter->sortDirection);
+        $dataset = $queryService->getDataset($currentFilter);
+        $filename = "sale_by_product_{$currentFilter->startDate}_{$currentFilter->endDate}.xlsx";
 
-        $filename = "sale_by_product_{$filter->startDate}_{$filter->endDate}.xlsx";
-
-        return Excel::download(new SaleByProductReportExport($query, $filter, false), $filename);
+        return Excel::download(new SaleByProductReportExport($dataset, $currentFilter, false), $filename);
     }
 
     public function exportCsv(
-        SaleByProductReportSnapshotService $snapshotService, 
+        SaleByProductReportSnapshotService $snapshotService,
         SaleByProductReportQueryService $queryService
     ) {
         if (!$this->filterTriggered) {
@@ -403,19 +650,65 @@ class SaleByProductReport extends Component
             return;
         }
 
-        $filter = SaleByProductReportFilterData::fromArray($this->appliedFilters);
+        $currentFilter = SaleByProductReportFilterData::fromArray($this->exportFilters());
 
-        if (!$snapshotService->isValidForExport($filter)) {
+        if (!$snapshotService->isValidForExport($currentFilter)) {
             $this->dispatch('alert', ['type' => 'error', 'message' => 'Kondisi filter telah berubah. Silakan terapkan filter kembali sebelum mengekspor.']);
             return;
         }
 
-        $query = $queryService->build($filter);
-        $queryService->applySort($query, $filter->sortField, $filter->sortDirection);
+        $dataset = $queryService->getDataset($currentFilter);
+        $filename = "sale_by_product_{$currentFilter->startDate}_{$currentFilter->endDate}.csv";
 
-        $filename = "sale_by_product_{$filter->startDate}_{$filter->endDate}.csv";
+        return Excel::download(new SaleByProductReportExport($dataset, $currentFilter, true), $filename, \Maatwebsite\Excel\Excel::CSV);
+    }
 
-        return Excel::download(new SaleByProductReportExport($query, $filter, true), $filename, \Maatwebsite\Excel\Excel::CSV);
+    private function buildAppliedSummary($availableSettings): array
+    {
+        if (!$this->filterTriggered || empty($this->appliedFilters)) {
+            return [];
+        }
+
+        $appliedSettingIds = $this->validateSettingIds(
+            $this->appliedFilters['scopeSettingIds'] ?? [],
+            $availableSettings
+        );
+        $scopeLabel = $this->getScopeLabel($availableSettings, $appliedSettingIds);
+
+        $presetLabels = [
+            'today' => 'Hari Ini',
+            'this_week' => 'Minggu Ini',
+            'last_week' => 'Minggu Lalu',
+            'this_month' => 'Bulan Ini',
+            'last_month' => 'Bulan Lalu',
+            'this_year' => 'Tahun Ini',
+            'last_year' => 'Tahun Lalu',
+            'custom' => 'Rentang khusus',
+        ];
+
+        $presetKey = $this->appliedFilters['periodPreset'] ?? 'custom';
+        $start = $this->appliedFilters['startDate'] ?? '';
+        $end = $this->appliedFilters['endDate'] ?? '';
+
+        return [
+            'scope' => $scopeLabel,
+            'period_label' => $presetLabels[$presetKey] ?? 'Rentang khusus',
+            'date_range' => ($start && $end) ? "{$start} s/d {$end}" : '',
+            'customers' => $this->resolveAppliedLabels($this->appliedFilters['customerIds'] ?? [], $this->appliedFilters['customerLabels'] ?? []),
+            'categories' => $this->resolveAppliedLabels($this->appliedFilters['categoryIds'] ?? [], $this->appliedFilters['categoryLabels'] ?? []),
+            'brands' => $this->resolveAppliedLabels($this->appliedFilters['brandIds'] ?? [], $this->appliedFilters['brandLabels'] ?? []),
+            'products' => $this->resolveAppliedLabels($this->appliedFilters['productIds'] ?? [], $this->appliedFilters['productLabels'] ?? []),
+            'tags' => $this->resolveAppliedLabels($this->appliedFilters['tagIds'] ?? [], $this->appliedFilters['tagLabels'] ?? []),
+        ];
+    }
+
+    private function resolveAppliedLabels(array $ids, array $labels): array
+    {
+        $resolved = [];
+        foreach ($ids as $id) {
+            $resolved[] = $labels[$id] ?? ('ID:' . $id);
+        }
+        return $resolved;
     }
 
     public function render(SaleByProductReportQueryService $queryService)
@@ -425,18 +718,29 @@ class SaleByProductReport extends Component
         $scopeLabel = $this->getScopeLabel($availableSettings, $effectiveSettingIds);
 
         $products = collect();
-        $grandTotalSold = 0;
+        $grandTotalSold = 0.0;
+        $grandTotalSoldPartial = false;
+        $grandTotalCost = 0.0;
+        $grandTotalCostPartial = false;
 
         if ($this->filterTriggered) {
-            $filter = SaleByProductReportFilterData::fromArray($this->appliedFilters);
+            $appliedSettingIds = $this->validateSettingIds(
+                $this->appliedFilters['scopeSettingIds'] ?? $effectiveSettingIds,
+                $availableSettings
+            );
 
-            $query = $queryService->build($filter);
-            $queryService->applySort($query, $filter->sortField, $filter->sortDirection);
+            $filter = SaleByProductReportFilterData::fromArray(array_merge($this->appliedFilters, [
+                'scopeSettingIds' => $appliedSettingIds,
+            ]));
 
-            $products = $query->paginate(15);
-            $totals = $queryService->calculateGrandTotal($filter);
+            $paginated = $queryService->paginate($filter, 15, (int) $this->getPage(), $this->cachedDataset);
+            $products = $paginated['paginator'];
+            $totals = $paginated['totals'];
 
             $grandTotalSold = $totals['sold_value'];
+            $grandTotalSoldPartial = $totals['sold_value_partial'];
+            $grandTotalCost = $totals['total_cost'];
+            $grandTotalCostPartial = $totals['total_cost_partial'];
         }
 
         return view('livewire.reports.sale-by-product-report', [
@@ -445,6 +749,11 @@ class SaleByProductReport extends Component
             'scopeLabel' => $scopeLabel,
             'products' => $products,
             'grandTotalSold' => $grandTotalSold,
+            'grandTotalSoldPartial' => $grandTotalSoldPartial,
+            'grandTotalCost' => $grandTotalCost,
+            'grandTotalCostPartial' => $grandTotalCostPartial,
+            'hasPendingFilterChanges' => $this->hasPendingFilterChanges,
+            'appliedSummary' => $this->buildAppliedSummary($availableSettings),
         ]);
     }
 }

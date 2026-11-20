@@ -410,10 +410,15 @@ class SaleByProductReportTest extends TestCase
         $this->assertEquals([
             'Kode Produk',
             'Nama Produk',
+            'Dijual sebagai',
             'Kuantitas Terjual',
             'Satuan',
             'Total Nilai terjual',
             'Harga Penjualan Rata-rata',
+            'Status Nilai Terjual',
+            'Total Modal',
+            'Modal Rata-rata/unit',
+            'Status Modal',
         ], $export->headings());
 
         $arrayData = $export->array();
@@ -421,14 +426,15 @@ class SaleByProductReportTest extends TestCase
 
         $this->assertEquals('P-001', $mapped[0]);
         $this->assertEquals($product->product_name, $mapped[1]);
-        $this->assertEquals(10.0, $mapped[2]);
-        $this->assertEquals(10000.0, $mapped[4]);
-        $this->assertEquals(1000.0, $mapped[5]);
+        $this->assertEquals('Penjualan langsung / paket', $mapped[2]);
+        $this->assertEquals(10.0, $mapped[3]);
+        $this->assertEquals(10000.0, $mapped[5]);
+        $this->assertEquals(1000.0, $mapped[6]);
 
         // Assert grand total is in last row
         $totalRow = $arrayData[1];
         $this->assertEquals('Total Keseluruhan', $totalRow[0]);
-        $this->assertEquals(10000.0, $totalRow[4]);
+        $this->assertEquals(10000.0, $totalRow[5]);
     }
 
     /** @test */
@@ -632,7 +638,7 @@ class SaleByProductReportTest extends TestCase
     public function it_asserts_select_all_matching_selects_beyond_displayed_limit()
     {
         $createdIds = [];
-        for ($i = 1; $i <= 15; $i++) {
+        for ($i = 1; $i <= 30; $i++) {
             $p = $this->makeProduct([
                 'product_name' => "BULKTEST PRODUCT {$i}",
                 'product_code' => "BT-{$i}",
@@ -646,7 +652,8 @@ class SaleByProductReportTest extends TestCase
             ->set('productSearch', 'bulktest')
             ->call('selectAllMatchingProducts');
 
-        $this->assertCount(10, $test->get('productOptions'));
+        $this->assertCount(25, $test->get('productOptions'));
+        $this->assertTrue($test->get('hasMoreProductOptions'));
         $this->assertEqualsCanonicalizing($createdIds, $test->get('productIds'));
     }
 
@@ -1041,8 +1048,21 @@ class SaleByProductReportTest extends TestCase
             'company_address' => 'Address 2'
         ]);
 
-        $cat1 = $this->makeCategory('Shared Category Name', $this->setting->id);
-        $cat2 = $this->makeCategory('Shared Category Name', $setting2->id);
+        $parent1 = $this->makeCategory('Parent Branch A', $this->setting->id);
+        $parent2 = $this->makeCategory('Parent Branch B', $setting2->id);
+
+        $cat1 = Category::create([
+            'category_code' => 'CAT-S1',
+            'category_name' => 'Shared Category Name',
+            'parent_id' => $parent1->id,
+            'created_by' => $this->user->id,
+        ]);
+        $cat2 = Category::create([
+            'category_code' => 'CAT-S2',
+            'category_name' => 'Shared Category Name',
+            'parent_id' => $parent2->id,
+            'created_by' => $this->user->id,
+        ]);
 
         session(['setting_id' => $this->setting->id]);
 
@@ -1050,7 +1070,11 @@ class SaleByProductReportTest extends TestCase
             ->set('categorySearch', 'shared category')
             ->assertSet('categoryOptions', function ($options) use ($cat1, $cat2) {
                 $ids = collect($options)->pluck('id')->toArray();
-                return in_array($cat1->id, $ids) && in_array($cat2->id, $ids);
+                $paths = collect($options)->pluck('display_path', 'id')->toArray();
+                return in_array($cat1->id, $ids)
+                    && in_array($cat2->id, $ids)
+                    && str_contains($paths[$cat1->id] ?? '', 'PARENT BRANCH A')
+                    && str_contains($paths[$cat2->id] ?? '', 'PARENT BRANCH B');
             });
     }
 
