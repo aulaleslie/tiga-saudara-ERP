@@ -4,6 +4,7 @@ namespace Modules\Product\Livewire\Modals;
 
 use Livewire\Component;
 use Modules\Product\Entities\Category;
+use Modules\Product\Services\ProductTaxonomyResolver;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Auth;
 
@@ -36,8 +37,6 @@ class CategoryQuickAddModal extends Component
                 'required',
                 'string',
                 'max:255',
-                Rule::unique('categories', 'category_name')
-                    ->where('setting_id', session('setting_id') ?? 1)
             ],
             'parent_id' => 'nullable|exists:categories,id'
         ];
@@ -75,13 +74,14 @@ class CategoryQuickAddModal extends Component
             $code = 'CA_' . str_pad($categoryMaxId, 2, '0', STR_PAD_LEFT);
         }
 
-        $category = Category::create([
-            'category_code' => $code,
-            'category_name' => $this->category_name,
-            'parent_id' => $this->parent_id,
-            'created_by' => Auth::id(),
-            'setting_id' => session('setting_id') ?? 1
-        ]);
+        $parentId = $this->parent_id !== null && $this->parent_id !== '' ? (int) $this->parent_id : null;
+
+        $category = app(ProductTaxonomyResolver::class)->createCategory(
+            (string) $code,
+            (string) $this->category_name,
+            $parentId,
+            Auth::id()
+        );
 
         $parentName = optional($category->parent)->category_name;
         $displayName = $parentName
@@ -120,7 +120,6 @@ class CategoryQuickAddModal extends Component
     public function getParentCategoriesProperty()
     {
         return Category::whereNull('parent_id')
-            ->where('setting_id', session('setting_id') ?? 1)
             ->orderBy('category_name')
             ->get();
     }

@@ -67,12 +67,8 @@ class ProductController extends Controller
         $brands = Brand::all()->unique('id')->values();
         $categories = Category::with('parent')->distinct()->get();
 
-        $settingId = session('setting_id');
         $parentCategories = Category::query()
             ->whereNull('parent_id')
-            ->when($settingId, function ($query) use ($settingId) {
-                $query->where('setting_id', $settingId);
-            })
             ->orderBy('category_name')
             ->distinct()
             ->get();

@@ -42,6 +42,8 @@ class ProductServiceProvider extends ServiceProvider
             \Modules\Product\Console\PreflightIdentityCollisionsCommand::class,
             \Modules\Product\Console\ReconcileCatalogGroupCommand::class,
             \Modules\Product\Console\ConvertProductUomCommand::class,
+            \Modules\Product\Console\ReconcileProductTaxonomyCommand::class,
+            \Modules\Product\Console\FinalizeProductTaxonomyCommand::class,
         ]);
     }
 

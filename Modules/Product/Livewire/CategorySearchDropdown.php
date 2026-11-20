@@ -185,12 +185,9 @@ class CategorySearchDropdown extends Component
 
     private function fetchCategories(): array
     {
-        $settingId = session('setting_id');
-
         $query = Category::query()
             ->with('parent')
             ->when($this->rootOnly, fn ($q) => $q->whereNull('parent_id'))
-            ->when($settingId, fn ($q) => $q->where('setting_id', $settingId))
             ->orderBy('category_name');
 
         return $query->get()->map(function (Category $category) {

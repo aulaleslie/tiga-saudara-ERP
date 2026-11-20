@@ -139,10 +139,7 @@ class BrandSearchDropdown extends Component
             }
         }
 
-        $settingId = session('setting_id');
-        $brand = Brand::query()
-            ->when($settingId, fn ($q) => $q->where('setting_id', $settingId))
-            ->find($id);
+        $brand = Brand::query()->find($id);
 
         if (!$brand) {
             return null;
@@ -173,10 +170,7 @@ class BrandSearchDropdown extends Component
      */
     private function fetchBrands(): array
     {
-        $settingId = session('setting_id');
-
         return Brand::query()
-            ->when($settingId, fn ($q) => $q->where('setting_id', $settingId))
             ->orderBy('name')
             ->get()
             ->map(fn (Brand $brand) => [

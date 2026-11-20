@@ -4,7 +4,7 @@ namespace Modules\Product\Livewire\Modals;
 
 use Livewire\Component;
 use Modules\Product\Entities\Brand;
-use Illuminate\Validation\Rule;
+use Modules\Product\Services\ProductTaxonomyResolver;
 use Illuminate\Support\Facades\Auth;
 
 class BrandQuickAddModal extends Component
@@ -28,7 +28,6 @@ class BrandQuickAddModal extends Component
                 'required',
                 'string',
                 'max:255',
-                Rule::unique('brands', 'name')->where('setting_id', session('setting_id') ?? 1)
             ],
             'description' => 'nullable|string|max:1000'
         ];
@@ -58,12 +57,11 @@ class BrandQuickAddModal extends Component
     {
         $this->validate();
 
-        $brand = Brand::create([
-            'name' => $this->name,
-            'description' => $this->description,
-            'setting_id' => session('setting_id') ?? 1,
-            'created_by' => Auth::id()
-        ]);
+        $brand = app(ProductTaxonomyResolver::class)->createBrand(
+            (string) $this->name,
+            $this->description,
+            Auth::id()
+        );
 
         $this->dispatch('brandCreated', [
             'id' => $brand->id,

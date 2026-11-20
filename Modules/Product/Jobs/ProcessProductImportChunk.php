@@ -92,39 +92,34 @@ class ProcessProductImportChunk implements ShouldQueue
                         return $cacheUnit[$k] = (int) $row->id;
                     };
 
-                    $firstOrCreateBrand = function (?string $name) use (&$cacheBrand, $settingIdForCreations, $uploaderId) {
-                        $n = trim((string) $name);
-                        if ($n === '') return null;
-                        $k = mb_strtolower($n);
-                        if (isset($cacheBrand[$k])) return $cacheBrand[$k];
+                    $taxonomyResolver = app(\Modules\Product\Services\ProductTaxonomyResolver::class);
 
-                        $row = Brand::whereRaw('LOWER(name) = ?', [$k])->first();
-                        if (!$row) {
-                            $row = Brand::create([
-                                'name'       => $n,
-                                'setting_id' => $settingIdForCreations, // required in many schemas
-                                'created_by' => $uploaderId,
-                            ]);
+                    $firstOrCreateBrand = function (?string $name) use (&$cacheBrand, $uploaderId, $taxonomyResolver) {
+                        $normalized = $taxonomyResolver->canonicalizer()->tryNormalizeName($name);
+                        if ($normalized === null) {
+                            return null;
                         }
-                        return $cacheBrand[$k] = (int) $row->id;
+                        if (isset($cacheBrand[$normalized])) {
+                            return $cacheBrand[$normalized];
+                        }
+
+                        $row = $taxonomyResolver->resolveOrCreateBrandForImport($name, $uploaderId);
+
+                        return $cacheBrand[$normalized] = $row ? (int) $row->id : null;
                     };
 
-                    $firstOrCreateCategory = function (?string $name) use (&$cacheCategory, $settingIdForCreations, $uploaderId) {
-                        $n = trim((string) $name);
-                        if ($n === '') return null;
-                        $k = mb_strtolower($n);
-                        if (isset($cacheCategory[$k])) return $cacheCategory[$k];
-
-                        $row = Category::whereRaw('LOWER(category_name) = ?', [$k])->first();
-                        if (!$row) {
-                            $row = Category::create([
-                                'category_code' => Str::limit(Str::slug($n, '_'), 50),
-                                'category_name' => $n,
-                                'setting_id'    => $settingIdForCreations,
-                                'created_by'    => $uploaderId,
-                            ]);
+                    $firstOrCreateCategory = function (?string $name) use (&$cacheCategory, $uploaderId, $taxonomyResolver) {
+                        $normalized = $taxonomyResolver->canonicalizer()->tryNormalizeName($name);
+                        if ($normalized === null) {
+                            return null;
                         }
-                        return $cacheCategory[$k] = (int) $row->id;
+                        if (isset($cacheCategory[$normalized])) {
+                            return $cacheCategory[$normalized];
+                        }
+
+                        $row = $taxonomyResolver->resolveOrCreateCategoryForImport($name, $uploaderId);
+
+                        return $cacheCategory[$normalized] = $row ? (int) $row->id : null;
                     };
 
                     $parseTaxPercent = function (?string $label) {

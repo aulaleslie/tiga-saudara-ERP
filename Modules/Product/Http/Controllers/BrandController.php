@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Modules\Product\DataTables\BrandDataTable;
 use Modules\Product\Entities\Brand;
+use Modules\Product\Services\ProductTaxonomyResolver;
 
 class BrandController extends Controller
 {
@@ -40,22 +41,19 @@ class BrandController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request, ProductTaxonomyResolver $resolver): RedirectResponse
     {
         abort_if(Gate::denies('brands.create'), 403);
         $request->validate([
-            'name' => 'required|string|max:255|unique:brands,name,NULL,id,setting_id,' . session('setting_id'),
+            'name' => 'required|string|max:255',
             'description' => 'nullable|string',
         ]);
 
-        $currentSettingId = session('setting_id');
-
-        Brand::create([
-            'name' => $request->input('name'),
-            'description' => $request->input('description'),
-            'setting_id' => $currentSettingId,
-            'created_by' => auth()->id(),
-        ]);
+        $resolver->createBrand(
+            (string) $request->input('name'),
+            $request->input('description'),
+            auth()->id()
+        );
 
         toast('Merek Ditambahkan!', 'success');
 
@@ -85,18 +83,19 @@ class BrandController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, Brand $brand): RedirectResponse
+    public function update(Request $request, Brand $brand, ProductTaxonomyResolver $resolver): RedirectResponse
     {
         abort_if(Gate::denies('brands.edit'), 403);
         $request->validate([
-            'name' => 'required|string|max:255|unique:brands,name,' . $brand->id . ',id,setting_id,' . session('setting_id'),
+            'name' => 'required|string|max:255',
             'description' => 'nullable|string',
         ]);
 
-        $brand->update([
-            'name' => $request->input('name'),
-            'description' => $request->input('description'),
-        ]);
+        $resolver->updateBrand(
+            $brand,
+            (string) $request->input('name'),
+            $request->input('description')
+        );
 
         toast('Merek Telah Berhasil Diubah!', 'info');
 
