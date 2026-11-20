@@ -99,15 +99,17 @@ class PosSafeDropService
                 throw new DomainException('Safe drop is only allowed for OPEN sessions.');
             }
 
+            $isTerminalSession = $session->terminal_id !== null;
             $policy = $session->terminal?->policy;
 
-            if (! $policy) {
+            if ($isTerminalSession && ! $policy) {
                 throw new DomainException('POS terminal policy is missing.');
             }
 
             $approvalId = null;
             $approvedBy = null;
             $approvalResult = 'BYPASSED';
+            $requirePickupApproval = $policy ? (bool) $policy->require_pickup_supervisor_approval : true;
 
             if ($preApproved !== null) {
                 // Supervisor was already verified upstream (e.g. OTP pickup flow);
@@ -115,7 +117,7 @@ class PosSafeDropService
                 $approvalId = (int) $preApproved['approval_id'];
                 $approvalResult = (string) $preApproved['approval_result'];
                 $approvedBy = isset($preApproved['approved_by']) ? (int) $preApproved['approved_by'] : null;
-            } elseif (! $isSuperAdmin && (bool) $policy->require_pickup_supervisor_approval) {
+            } elseif (! $isSuperAdmin && $requirePickupApproval) {
                 if (! $supervisorIdentifier || ! $supervisorPin) {
                     throw new DomainException('Supervisor credentials are required for safe drop.');
                 }
@@ -155,21 +157,23 @@ class PosSafeDropService
                 'occurred_at' => now(),
             ]);
 
-            $this->cashDrawerService->triggerDrawerOpen(
-                PosCashDrawerService::TRIGGER_PICKUP,
-                (int) $session->terminal_id,
-                $settingId,
-                [
-                    'pos_session_id' => $session->id,
-                    'cash_event_id' => $cashEvent->id,
-                ],
-                $session->terminal
-            );
+            if ($isTerminalSession) {
+                $this->cashDrawerService->triggerDrawerOpen(
+                    PosCashDrawerService::TRIGGER_PICKUP,
+                    (int) $session->terminal_id,
+                    $settingId,
+                    [
+                        'pos_session_id' => $session->id,
+                        'cash_event_id' => $cashEvent->id,
+                    ],
+                    $session->terminal
+                );
+            }
 
             $calculation = $this->expectedCashCalculator->calculate((int) $session->id);
             $expectedAfter = round((float) $calculation['expected_cash_total'], 2);
 
-            $thresholdValue = $policy->cash_threshold;
+            $thresholdValue = $policy?->cash_threshold;
 
             if ($thresholdValue === null) {
                 $thresholdValue = (float) config('pos.default_cash_threshold', 10000000);

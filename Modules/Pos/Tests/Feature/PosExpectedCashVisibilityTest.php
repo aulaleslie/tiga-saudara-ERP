@@ -446,6 +446,70 @@ class PosExpectedCashVisibilityTest extends TestCase
             ->assertJsonPath('0.grand_total', 250000);
     }
 
+    public function test_otp_pickup_succeeds_for_terminal_less_session_and_records_negative_balance(): void
+    {
+        $setting = $this->createSetting('BIZ TERMINAL LESS PICKUP');
+
+        $cashier = $this->createUserForSetting($setting, 'Cashier Terminal Less', [
+            'pos.access',
+            'pos.sell',
+        ]);
+
+        $supervisor = $this->createUserForSetting($setting, 'Supervisor Terminal Less', [
+            'pos.access',
+            'pos.safeDrops.approve',
+            'pos.supervisor.approval',
+        ]);
+
+        $twoFactor = app(TwoFactorService::class);
+        $secret = $twoFactor->generateSecretKey();
+        $twoFactor->enableTwoFactor($supervisor, $secret);
+        $google2fa = new \PragmaRX\Google2FA\Google2FA();
+
+        $session = PosSession::create([
+            'setting_id' => $setting->id,
+            'terminal_id' => null,
+            'cashier_user_id' => $cashier->id,
+            'status' => PosSession::STATUS_OPEN,
+            'opened_at' => now(),
+            'opened_by' => $cashier->id,
+            'opening_float_total' => 4300000,
+            'expected_cash_total' => 4300000,
+            'active_marker' => PosSession::activeMarkerForStatus(PosSession::STATUS_OPEN),
+        ]);
+
+        PosSessionCashEvent::create([
+            'setting_id' => $setting->id,
+            'pos_session_id' => $session->id,
+            'event_type' => PosSessionCashEvent::EVENT_OPEN_FLOAT,
+            'direction' => PosSessionCashEvent::DIRECTION_IN,
+            'amount' => 4300000,
+            'performed_by' => $cashier->id,
+            'occurred_at' => now(),
+        ]);
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['setting_id' => $setting->id])
+            ->postJson(route('pos.sessions.pickup', ['session' => $session->id]), [
+                'amount' => 5000000,
+                'supervisor_id' => $supervisor->id,
+                'otp_code' => $google2fa->getCurrentOtp($secret),
+            ]);
+
+        $response->assertOk()
+            ->assertJson([
+                'message' => 'Pengambilan kas berhasil.',
+                'can_view_expected_cash' => false,
+            ])
+            ->assertJsonMissingPath('expected_cash_after');
+
+        $session->refresh();
+        $this->assertSame(-700000.0, (float) $session->expected_cash_total);
+
+        $recalculated = app(PosSessionExpectedCashCalculator::class)->calculate($session->id);
+        $this->assertSame(-700000.0, (float) $recalculated['expected_cash_total']);
+    }
+
     private function createSetting(string $name): Setting
     {
         return Setting::create([
