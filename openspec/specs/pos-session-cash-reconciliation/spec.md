@@ -2,83 +2,99 @@
 
 ## Purpose
 TBD - created by archiving change fix-pos-session-summary-display. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Display opening float on session summary
 The session summary page SHALL display the opening float amount (Saldo Awal) extracted from the OPEN_FLOAT cash events for the session.
 
+These display and input requirements SHALL apply only to viewers with `pos.sessions.viewExpectedCash`; other viewers SHALL NOT receive the revealing reconciliation card or its protected data.
+
 #### Scenario: Opening float displays correctly
-- **WHEN** user views a closed POS session summary
+- **WHEN** a user with balance visibility views a closed POS session summary
 - **THEN** the Perhitungan Kas card displays opening float value calculated from all OPEN_FLOAT events with direction IN
 
 #### Scenario: No opening float
-- **WHEN** user views a session with no opening float events
+- **WHEN** a user with balance visibility views a session with no opening float events
 - **THEN** opening float displays as Rp 0.00
 
 ### Requirement: Display cash sales total on session summary
 The session summary page SHALL display the total cash sales amount (Penjualan Kas) calculated from CASH_SALE_IN events for the session.
 
+These display and input requirements SHALL apply only to viewers with `pos.sessions.viewExpectedCash`; other viewers SHALL NOT receive the revealing reconciliation card or its protected data.
+
 #### Scenario: Cash sales amount displays
-- **WHEN** user views a closed session summary
+- **WHEN** a user with balance visibility views a closed session summary
 - **THEN** the Perhitungan Kas card shows total cash sales from all CASH_SALE_IN events with direction IN
 
 #### Scenario: No cash sales events
-- **WHEN** a session has no cash sales events
+- **WHEN** a viewer with balance visibility accesses a session with no cash sales events
 - **THEN** cash sales displays as Rp 0.00
 
 ### Requirement: Display safe drops total on session summary
 The session summary page SHALL display the total amount picked up (Pengambilan Kas) extracted from SAFE_DROP_OUT events for the session.
 
+These display and input requirements SHALL apply only to viewers with `pos.sessions.viewExpectedCash`; other viewers SHALL NOT receive the revealing reconciliation card or its protected data.
+
 #### Scenario: Safe drops display
-- **WHEN** user views a closed session summary
+- **WHEN** a user with balance visibility views a closed session summary
 - **THEN** the Perhitungan Kas card shows total safe drops from all SAFE_DROP_OUT events with direction OUT
 
 #### Scenario: No safe drops
-- **WHEN** session has no safe drop events
+- **WHEN** a viewer with balance visibility accesses a session with no safe drop events
 - **THEN** safe drops displays as Rp 0.00
 
 ### Requirement: Input non-cash transaction total
 The session summary page SHALL provide an editable input field for the user to enter the total amount of non-cash transactions not captured in the cash event timeline.
 
+These display and input requirements SHALL apply only to viewers with `pos.sessions.viewExpectedCash`; other viewers SHALL NOT receive the revealing reconciliation card or its protected data.
+
 #### Scenario: Non-cash input available
-- **WHEN** user views a session summary
+- **WHEN** a user with balance visibility views a session summary
 - **THEN** the Perhitungan Kas card contains an input field labeled "Penjualan Non-Kas" with placeholder "0.00"
 
 #### Scenario: Non-cash amount is numeric
-- **WHEN** user enters a non-cash amount
+- **WHEN** a user with balance visibility enters a non-cash amount
 - **THEN** the input accepts numeric values >= 0 with 2 decimal places
 
 ### Requirement: Display cash reconciliation formula
 The session summary page SHALL calculate and display the cash reconciliation result using the formula: `opening_float + cash_sales + non_cash - safe_drops`.
 
+These display and input requirements SHALL apply only to viewers with `pos.sessions.viewExpectedCash`; other viewers SHALL NOT receive the revealing reconciliation card or its protected data.
+
 #### Scenario: Reconciliation calculates correctly
-- **WHEN** user enters values for opening float, cash sales, non-cash, and safe drops are displayed
+- **WHEN** a user with balance visibility enters values for opening float, cash sales, non-cash, and safe drops are displayed
 - **THEN** the reconciliation card shows the calculated expected cash total
 - **AND** the formula matches: opening_float + cash_sales + non_cash - safe_drops = expected_cash
 
 #### Scenario: Reconciliation with no safe drops
-- **WHEN** a session has no safe drops (pickup = 0)
+- **WHEN** a viewer with balance visibility accesses a session with no safe drops (pickup = 0)
 - **THEN** reconciliation calculates as: opening_float + cash_sales + non_cash = expected_cash
 
 #### Scenario: Reconciliation with zero values
-- **WHEN** all cash event components are zero
+- **WHEN** a viewer with balance visibility accesses a session where all cash event components are zero
 - **THEN** reconciliation shows Rp 0.00
 
 ### Requirement: Display expected cash vs actual comparison
 The session summary page SHALL display both the expected cash total (calculated from reconciliation) and the actual total sales amount for comparison.
 
+These display and input requirements SHALL apply only to viewers with `pos.sessions.viewExpectedCash`; other viewers SHALL NOT receive the revealing reconciliation card or its protected data.
+
 #### Scenario: Expected cash matches sales total
-- **WHEN** user views a balanced session (expected_cash equals sales_total)
+- **WHEN** a user with balance visibility views a balanced session (expected_cash equals sales_total)
 - **THEN** both values display in the reconciliation card with matching amounts
 
 #### Scenario: Expected cash differs from sales total
-- **WHEN** expected cash does not match actual sales total
+- **WHEN** a viewer with balance visibility accesses a session whose expected cash does not match actual sales total
 - **THEN** both values display so user can identify variance
 
 ### Requirement: Reconciliation card positioning
 The Perhitungan Kas (cash reconciliation) card SHALL be positioned on the session summary page between the session overview and the timeline/transactions sections.
 
+These display and input requirements SHALL apply only to viewers with `pos.sessions.viewExpectedCash`; other viewers SHALL NOT receive the revealing reconciliation card or its protected data.
+
 #### Scenario: Card layout in summary
-- **WHEN** user views the session summary page
+- **WHEN** a user with balance visibility views the session summary page
 - **THEN** the Perhitungan Kas card is visible in a prominent location with proper spacing
 - **AND** the card uses Bootstrap styling consistent with other cards on the page
 
@@ -132,6 +148,10 @@ The system SHALL calculate expected drawer cash by adding all cash-in events and
 - **THEN** no additional cash-in or change-out event SHALL be created
 - **AND** expected drawer cash SHALL remain unchanged by the replay
 
+#### Scenario: Approved outflow creates a negative balance
+- **WHEN** cash-in events total Rp950000 and an approved Rp1000000 pickup is recorded as cash-out
+- **THEN** ledger recalculation and the session cache SHALL both equal -Rp50000 without a zero floor
+
 ### Requirement: Closed-session cash history SHALL remain immutable
 Deploying the corrected cash-event behavior MUST NOT silently rewrite cash events or expected-cash audit values for sessions that were already closed or finalized. Historical discrepancies MAY be surfaced through a read-only diagnostic.
 
@@ -158,12 +178,12 @@ Cash received through POS Kas Bon collection SHALL be recorded as collection cas
 - **THEN** it is associated with the receiving session without any cash inflow or change outflow
 
 ### Requirement: Session reporting distinguishes collections from sales
-Session summaries and reconciliation SHALL separately display Kas Bon cash and non-cash collections. Pickup limits, cash thresholds, closing expected cash, and variance SHALL include net collection cash through the cash-event ledger. Collection SHALL not inflate new-sales totals or count multiple times because payment is split across generated Sales.
+Session summaries and reconciliation SHALL separately display Kas Bon cash and non-cash collections. Cash thresholds, closing expected cash, and variance SHALL include net collection cash through the cash-event ledger. Expected cash SHALL NOT be a pickup limit. Revealing collection and reconciliation components SHALL be disclosed only to viewers with `pos.sessions.viewExpectedCash`. Collection SHALL not inflate new-sales totals or count multiple times because payment is split across generated Sales.
 
 #### Scenario: Mixed collection and pickup
 - **WHEN** opening float is Rp200,000 and a Rp100,000 collection comprises Rp60,000 cash and Rp40,000 transfer
-- **THEN** expected cash and available pickup are Rp260,000 before other movements
-- **AND** the session reports Rp60,000 cash collections and Rp40,000 non-cash collections separately from new sales
+- **THEN** expected cash is Rp260,000 before other movements, without imposing a pickup maximum
+- **AND** the session reports to authorized balance viewers Rp60,000 cash collections and Rp40,000 non-cash collections separately from new sales
 
 #### Scenario: Split-owner collection
 - **WHEN** one collection creates payments across multiple generated Sales
@@ -179,4 +199,3 @@ Invalidating a Sale payment SHALL NOT delete or reverse the receiving session's 
 #### Scenario: Invalidation after session closure
 - **WHEN** Sales invalidates a collected payment after the receiving session is closed or finalized
 - **THEN** the closed session's collection cash events and finalized history remain unchanged
-

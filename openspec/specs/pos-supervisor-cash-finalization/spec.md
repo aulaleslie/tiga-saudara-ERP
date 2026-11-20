@@ -16,7 +16,7 @@ Supervisors (with `pos.supervisor.approval` permission) SHALL receive cash from 
 - **THEN** the user SHALL see a "Finalize" action button for CLOSED sessions
 - **AND** the user SHALL see a DISABLED "Finalize" action button for OPEN sessions
 - **AND** the disabled button SHALL have a tooltip: "Tutup terminal terlebih dahulu sebelum finalisasi" (or similar)
-- **AND** clicking "Finalize" for a CLOSED session SHALL open a modal displaying full session reconciliation details
+- **AND** clicking "Finalize" for a CLOSED session SHALL open a modal displaying session reconciliation details subject to expected-cash visibility
 
 #### Scenario: Super Admin finalizes session without setting assignment
 - **WHEN** a user with `Super Admin` role attempts to finalize a CLOSED session in a setting they are NOT assigned to
@@ -25,7 +25,7 @@ Supervisors (with `pos.supervisor.approval` permission) SHALL receive cash from 
 - **AND** the session status SHALL change from CLOSED to FINALIZED if all other conditions are met
 
 #### Scenario: Finalization modal shows full reconciliation details
-- **WHEN** supervisor clicks "Finalize" button for a CLOSED session
+- **WHEN** a supervisor with `pos.sessions.viewExpectedCash` clicks "Finalize" button for a CLOSED session
 - **THEN** the modal SHALL display:
   - Session header: terminal code, terminal name, cashier name, opened_at, session duration
   - Sales summary: total sales amount, net cash sales amount, cash tendered amount, change returned amount, non-cash sales amount
@@ -36,13 +36,13 @@ Supervisors (with `pos.supervisor.approval` permission) SHALL receive cash from 
   - Submit / Cancel buttons
 
 #### Scenario: Expected cash calculation
-- **WHEN** supervisor views finalization modal
+- **WHEN** a supervisor with balance visibility views finalization modal
 - **THEN** expected_cash_total SHALL come from the backend summary response's `expected_cash_total`
 - **AND** frontend code MUST NOT independently define variance source-of-truth by recalculating expected cash from selected cash event types
 - **AND** the modal SHALL display the formula and component amounts (opening float, net cash sales, cash tendered, change returned, safe drops) so supervisor understands the calculation
 
 #### Scenario: Cash overpayment is explained during finalization
-- **WHEN** supervisor views finalization for a session containing a Rp990,000 cash sale paid with Rp1,000,000 and Rp10,000 change returned
+- **WHEN** a supervisor with balance visibility views finalization for a session containing a Rp990,000 cash sale paid with Rp1,000,000 and Rp10,000 change returned
 - **THEN** the modal SHALL show `Penjualan Kas` as Rp990,000
 - **AND** the modal SHALL show `Tunai Diterima` as Rp1,000,000
 - **AND** the modal SHALL show `Kembalian` as Rp10,000
@@ -57,7 +57,7 @@ Supervisors (with `pos.supervisor.approval` permission) SHALL receive cash from 
 - **AND** a new PosSessionCashEvent SHALL be created with event_type EVENT_FINALIZE_COUNT, direction DIRECTION_NEUTRAL
 - **AND** the event's amount SHALL be the actual_cash_received
 - **AND** the event's metadata SHALL contain `expected_cash_total`, `variance_total`, `variance_threshold`
-- **AND** the response SHALL include `status: 'FINALIZED'`, `finalized_at` timestamp, `variance_total`, and `approval_result: 'BYPASSED'`
+- **AND** the response SHALL include `status: 'FINALIZED'`, `finalized_at` timestamp, and `approval_result: 'BYPASSED'`, with `variance_total` included only for a viewer with balance visibility
 - **AND** the UI SHALL show success message "Session finalized successfully"
 
 #### Scenario: Finalize with variance exceeding threshold - interactive approval
@@ -95,3 +95,8 @@ Supervisors (with `pos.supervisor.approval` permission) SHALL receive cash from 
 - **THEN** neither cashier nor supervisor nor admin SHALL be able to further modify the session
 - **AND** subsequent finalize requests SHALL return HTTP 422 with message "Session is already finalized"
 
+#### Scenario: Finalize without expected cash visibility
+- **WHEN** an otherwise authorized supervisor without `pos.sessions.viewExpectedCash` opens or submits finalization
+- **THEN** actual cash entry, submit, and required approval SHALL remain usable
+- **AND** expected cash, numeric variance, revealing reconciliation components, and protected event metadata SHALL NOT reach the browser
+- **AND** server-side variance calculations and approval thresholds SHALL remain effective
