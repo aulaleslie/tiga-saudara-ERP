@@ -4,6 +4,7 @@ namespace App\Livewire\Purchase;
 
 use App\Services\EffectiveDocumentBusinessResolver;
 use App\Services\IdempotencyService;
+use App\Services\PurchaseAttachmentService;
 use App\Services\DocumentReferenceService;
 use Carbon\Carbon;
 use Gloudemans\Shoppingcart\Facades\Cart;
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\On;
 use Livewire\Component;
+use Livewire\WithFileUploads;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Rule;
 use Modules\People\Entities\Supplier;
@@ -29,6 +31,8 @@ use Throwable;
 
 class CreateForm extends Component
 {
+    use WithFileUploads;
+
     public $reference;
     public $supplier_id;
     public $supplier_purchase_number;
@@ -37,6 +41,7 @@ class CreateForm extends Component
     public $due_date;
     public $payment_term;
     public $note;
+    public $image;
     public array $tags = [];
     public $duplicatePurchase = null;
     public $shipping = 0;
@@ -977,6 +982,7 @@ class CreateForm extends Component
                 'due_date' => 'required|date|after_or_equal:date',
                 'payment_term' => 'required|exists:payment_terms,id',
                 'note' => 'nullable|string|max:1000',
+                'image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:10240',
             ], [
                 'supplier_id.required' => 'Pilih pemasok terlebih dahulu.',
                 'supplier_id.exists' => 'Pemasok yang dipilih tidak valid.',
@@ -989,6 +995,9 @@ class CreateForm extends Component
                 'due_date.after_or_equal' => 'Tanggal jatuh tempo harus lebih besar dari atau sama dengan tanggal pembelian.',
                 'payment_term.required' => 'Pilih jatuh tempo terlebih dahulu.',
                 'payment_term.exists' => 'Jatuh tempo yang dipilih tidak valid.',
+                'image.image' => 'Lampiran harus berupa gambar.',
+                'image.mimes' => 'Format gambar harus JPG, PNG, atau WebP.',
+                'image.max' => 'Ukuran gambar maksimal 10 MB.',
             ]);
 
             $failureStage = 'cart_check';
@@ -1139,6 +1148,25 @@ class CreateForm extends Component
             );
 
             $transactionCommitted = true;
+            $attachmentWarning = null;
+            if ($this->image) {
+                $attachmentService = app(PurchaseAttachmentService::class);
+                $preparedImage = null;
+                try {
+                    $preparedImage = $attachmentService->prepare($this->image);
+                    $attachmentService->attachPrepared($purchase, $preparedImage);
+                } catch (\Throwable $e) {
+                    Log::error('purchase.submit.image_attachment_failed', [
+                        'purchase_id' => $purchase->id,
+                        'message' => $e->getMessage(),
+                    ]);
+                    $attachmentWarning = 'Pembelian berhasil dibuat, tetapi gambar gagal diunggah. Tambahkan gambar dari halaman detail pembelian.';
+                } finally {
+                    if ($preparedImage !== null) {
+                        $attachmentService->cleanup([$preparedImage]);
+                    }
+                }
+            }
             IdempotencyService::complete($this->idempotencyToken, 'purchases.store', auth()->id());
             $this->purchaseSubmitInfo('purchase.submit.committed', [
                 'purchase_id' => $purchase->id,
@@ -1154,6 +1182,9 @@ class CreateForm extends Component
                 }
             }
             session()->flash('success', $successMessage);
+            if ($attachmentWarning !== null) {
+                session()->flash('warning', $attachmentWarning);
+            }
             return redirect()->to(\Modules\Purchase\Support\PurchaseSaveRedirect::url($purchase));
 
         } catch (ValidationException $e) {
