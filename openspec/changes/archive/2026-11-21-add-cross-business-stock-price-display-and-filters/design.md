@@ -22,6 +22,8 @@ Keep draft search/business/category/brand/product/availability separate from val
 
 Reuse Sales by Product selector markup/behavior locally, including bounded chip areas above inputs, checkbox rows with scoped Bootstrap 4 alignment, persistent search, caps/overflow feedback, and established bulk-selection limits if those controls are exposed. Product selection is global product identity, not business ownership. Resolve category descendants with the existing cycle-safe resolver; use unique IDs to avoid multiplicative joins. Keep current general search match paths and serial marker eligibility, but drive them from applied search.
 
+Organize the filter and presentation chrome into four clear CoreUI 3 / Bootstrap 4 bands: (1) filter fields row (`Pencarian`, `Bisnis / Cabang`, `Ketersediaan Stok`) with consistent 38px heights and responsive stacking; (2) filter actions row (`Kategori, Merek & Produk` drawer trigger with count badge on the left; `Reset`, `Batalkan`, and `Terapkan Filter` grouped on the right); (3) compact `Diterapkan:` applied summary directly below filters with a distinct `Perubahan belum diterapkan` badge when draft differs; and (4) presentation toolbar immediately above the table grouping `Format Kuantitas` and `Tampilkan Harga` on the left and `Ekspor` on the right.
+
 Alternative immediate filtering conflicts with the agreed Apply behavior. Copying report lifecycle blindly risks rerunning aggregations during selector typing.
 
 ### Authorized page data reuse

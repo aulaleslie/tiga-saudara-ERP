@@ -468,6 +468,7 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
         // Search with out-of-order tokens: "i3 8 core acer"
         Livewire::test(CrossBusinessStockInventory::class)
             ->set('search', 'i3 8 core acer')
+            ->call('applyFilters')
             ->assertSee('Acer 8GB RAM Core i3 Laptop')
             ->assertDontSee('HP 16GB Core i7 Desktop');
     }
@@ -505,21 +506,25 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
         // 1. Barcode partial search matches via product-identity token path (restored in review finding 1)
         Livewire::test(CrossBusinessStockInventory::class)
             ->set('search', '8991234')
+            ->call('applyFilters')
             ->assertSee('Exact Match Target');
 
         // 2. Exact barcode search matches
         Livewire::test(CrossBusinessStockInventory::class)
             ->set('search', '8991234567890')
+            ->call('applyFilters')
             ->assertSee('Exact Match Target');
 
         // 3. Partial serial does not match (serial path requires exact match, not in product-identity tokens)
         Livewire::test(CrossBusinessStockInventory::class)
             ->set('search', 'EXACT-UNIQUE')
+            ->call('applyFilters')
             ->assertDontSee('Exact Match Target');
 
         // 4. Exact serial search matches owning product
         Livewire::test(CrossBusinessStockInventory::class)
             ->set('search', 'SERIAL-EXACT-UNIQUE-999')
+            ->call('applyFilters')
             ->assertSee('Exact Match Target');
     }
 
@@ -833,6 +838,7 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
         // 'available' shows P1 and P3, but not P2
         Livewire::test(CrossBusinessStockInventory::class)
             ->set('availability', 'available')
+            ->call('applyFilters')
             ->assertSee('Product Alpha Stocked')
             ->assertSee('Product Beta Stocked Only')
             ->assertDontSee('Product Zero Everywhere');
@@ -840,6 +846,7 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
         // 'non_available' shows P2, but not P1 or P3
         Livewire::test(CrossBusinessStockInventory::class)
             ->set('availability', 'non_available')
+            ->call('applyFilters')
             ->assertSee('Product Zero Everywhere')
             ->assertDontSee('Product Alpha Stocked')
             ->assertDontSee('Product Beta Stocked Only');
@@ -852,12 +859,14 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
         // P3 has stock only in Setting 2 (not visible to this user) -> must be treated as 'non_available'!
         Livewire::test(CrossBusinessStockInventory::class)
             ->set('availability', 'available')
+            ->call('applyFilters')
             ->assertSee('Product Alpha Stocked')
             ->assertDontSee('Product Beta Stocked Only')
             ->assertDontSee('Product Zero Everywhere');
 
         Livewire::test(CrossBusinessStockInventory::class)
             ->set('availability', 'non_available')
+            ->call('applyFilters')
             ->assertSee('Product Zero Everywhere')
             ->assertSee('Product Beta Stocked Only')
             ->assertDontSee('Product Alpha Stocked');
@@ -917,6 +926,7 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
         // Livewire: verify rendered HTML has serial-marker on the exact correct cell
         $component = Livewire::test(CrossBusinessStockInventory::class)
             ->set('search', 'SN-MARKER-GOOD-001')
+            ->call('applyFilters')
             ->assertSee('Marker Good Product');
 
         // Rendered HTML: setting1 Good cell MUST have serial-marker
@@ -990,6 +1000,7 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
         // Livewire: verify rendered HTML has serial-marker on the exact correct cell
         $component = Livewire::test(CrossBusinessStockInventory::class)
             ->set('search', 'SN-MARKER-BAD-001')
+            ->call('applyFilters')
             ->assertSee('Marker Bad Product');
 
         // Rendered HTML: setting1 Bad cell MUST have serial-marker
@@ -1075,6 +1086,7 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
         // Livewire: expanded view — verify rendered HTML targets the exact location cell
         $component = Livewire::test(CrossBusinessStockInventory::class)
             ->set('search', 'SN-MARKER-EXP-001')
+            ->call('applyFilters')
             ->call('toggleBusinessExpand', $this->setting1->id);
 
         $loc1AId = $this->location1A->id;
@@ -1217,9 +1229,10 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
             'dispatch_detail_id' => null,
         ]);
 
-        // First show marker, then clear search and verify it's gone
+        // First show marker, then clear search and apply to verify it's gone
         $component = Livewire::test(CrossBusinessStockInventory::class)
             ->set('search', 'SN-MARKER-CLEAR-001')
+            ->call('applyFilters')
             ->assertSeeHtml('serial-marker');
 
         // Verify marker flags are set before clearing
@@ -1228,8 +1241,9 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
         $this->assertNotNull($row);
         $this->assertTrue($row['businesses'][$this->setting1->id]['marker_good']);
 
-        // After clearing, marker must be gone from both HTML and view data
+        // After clearing and applying, marker must be gone from both HTML and view data
         $component->call('clearSearch')
+            ->call('applyFilters')
             ->assertDontSeeHtml('serial-marker');
 
         $clearedRows = $component->viewData('rows');
@@ -1335,6 +1349,7 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
         // Export while serial search is active
         Livewire::test(CrossBusinessStockInventory::class)
             ->set('search', 'SN-MARKER-EXPORT-001')
+            ->call('applyFilters')
             ->assertSeeHtml('serial-marker') // marker visible on screen
             ->call('exportExcel');
 
@@ -1559,11 +1574,13 @@ class CrossBusinessStockInventoryFeatureTest extends TestCase
         // When availability is 'available', the product must NOT appear even though it has in-delivery = 10
         Livewire::test(CrossBusinessStockInventory::class)
             ->set('availability', 'available')
+            ->call('applyFilters')
             ->assertDontSee('Zero Stock Incoming Product');
 
         // When availability is 'non_available', the product MUST appear
         Livewire::test(CrossBusinessStockInventory::class)
             ->set('availability', 'non_available')
+            ->call('applyFilters')
             ->assertSee('Zero Stock Incoming Product');
     }
 

@@ -9,22 +9,31 @@ use Maatwebsite\Excel\Concerns\FromGenerator;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Concerns\WithHeadings;
+use Maatwebsite\Excel\Concerns\WithStrictNullComparison;
 use Maatwebsite\Excel\Events\AfterSheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 
-class CrossBusinessStockInventoryExport implements FromGenerator, WithHeadings, WithEvents, ShouldAutoSize
+class CrossBusinessStockInventoryExport implements FromGenerator, WithHeadings, WithEvents, ShouldAutoSize, WithStrictNullComparison
 {
+    public const CONTENT_STOCK = 'stock';
+    public const CONTENT_PRICES = 'prices';
+    public const CONTENT_STOCK_AND_PRICES = 'stock_and_prices';
+
     /** @var iterable<int, array> */
     private iterable $rows;
     private Collection $businesses;
     private CrossBusinessStockInventoryFilterData $filterData;
     private string $displayMode;
+    private string $exportContent;
 
     private ?array $headerRows = null;
     private string $lastColumnLetter = 'C';
+    private int $fixedColumnCount = 6;
     private array $numericColumnIndexes = [];
+    private array $priceColumnIndexes = [];
+    private array $conversionColumnIndexes = [];
     private int $row2MaxLines = 1;
     private int $row3MaxLines = 1;
 
@@ -38,17 +47,33 @@ class CrossBusinessStockInventoryExport implements FromGenerator, WithHeadings, 
         iterable $rows,
         Collection $businesses,
         CrossBusinessStockInventoryFilterData $filterData,
-        string $displayMode = 'decimal'
+        string $displayMode = 'decimal',
+        string $exportContent = self::CONTENT_STOCK
     ) {
         $this->rows = $rows;
         $this->businesses = $businesses;
         $this->filterData = $filterData;
         $this->displayMode = in_array($displayMode, ['decimal', 'conversion'], true) ? $displayMode : 'decimal';
+        $this->exportContent = in_array($exportContent, [
+            self::CONTENT_STOCK,
+            self::CONTENT_PRICES,
+            self::CONTENT_STOCK_AND_PRICES,
+        ], true) ? $exportContent : self::CONTENT_STOCK;
+    }
+
+    private function includesStock(): bool
+    {
+        return in_array($this->exportContent, [self::CONTENT_STOCK, self::CONTENT_STOCK_AND_PRICES], true);
+    }
+
+    private function includesPrices(): bool
+    {
+        return in_array($this->exportContent, [self::CONTENT_PRICES, self::CONTENT_STOCK_AND_PRICES], true);
     }
 
     /**
-     * The 4-tier header only depends on business/location structure, not on report rows,
-     * so it can be computed once up front without buffering any data rows.
+     * The 4-tier header only depends on business/location structure and export content, not on
+     * report rows, so it can be computed once up front without buffering any data rows.
      *
      * @return array<int, array>
      */
@@ -89,55 +114,83 @@ class CrossBusinessStockInventoryExport implements FromGenerator, WithHeadings, 
         $productStr = $product['product_name'] . ' (' . $product['product_code'] . ')';
         $catStr = (string) ($product['category_name'] ?? '');
         $brandStr = (string) ($product['brand_name'] ?? '');
-
         $baseUnitName = $product['base_unit_name'] ?? null;
-        $convUnitName = $product['conversion_unit_name'] ?? null;
-        $convFactor = $product['conversion_factor'] ?? null;
-
-        $formatVal = function ($val) use ($isConversion, $baseUnitName, $convUnitName, $convFactor) {
-            if ($isConversion) {
-                return CrossBusinessQuantityPresenter::format(
-                    $val,
-                    'conversion',
-                    $baseUnitName,
-                    $convUnitName,
-                    $convFactor
-                );
-            }
-            $v = (float) ($val ?? 0.0);
-            $rounded = round($v, 2);
-            return (abs($rounded - round($rounded)) < 0.000001) ? (int) round($rounded) : $rounded;
-        };
 
         $row = [
             $productStr,
             $catStr,
             $brandStr,
-            $formatVal($product['total_good'] ?? 0),
-            $formatVal($product['total_bad'] ?? 0),
-            $formatVal($product['total_in_delivery'] ?? 0),
         ];
 
-        foreach ($this->businesses as $b) {
-            $bData = $product['businesses'][$b['setting_id']] ?? null;
-            $locs = $b['locations'];
-            $bInDelivery = $bData['in_delivery'] ?? 0;
+        if ($this->includesPrices()) {
+            $row[] = $baseUnitName !== null && $baseUnitName !== '' ? (string) $baseUnitName : '-';
+        }
 
-            if (empty($locs)) {
-                $row[] = $formatVal($bData['good'] ?? 0);
-                $row[] = $formatVal($bData['bad'] ?? 0);
-            } else {
-                foreach ($locs as $loc) {
-                    $locData = $bData['locations'][$loc['id']] ?? null;
-                    $row[] = $formatVal($locData['good'] ?? 0);
-                    $row[] = $formatVal($locData['bad'] ?? 0);
+        if ($this->includesStock()) {
+            $convUnitName = $product['conversion_unit_name'] ?? null;
+            $convFactor = $product['conversion_factor'] ?? null;
+
+            $formatVal = function ($val) use ($isConversion, $baseUnitName, $convUnitName, $convFactor) {
+                if ($isConversion) {
+                    return CrossBusinessQuantityPresenter::format(
+                        $val,
+                        'conversion',
+                        $baseUnitName,
+                        $convUnitName,
+                        $convFactor
+                    );
                 }
+                $v = (float) ($val ?? 0.0);
+                $rounded = round($v, 2);
+                return (abs($rounded - round($rounded)) < 0.000001) ? (int) round($rounded) : $rounded;
+            };
+
+            $row[] = $formatVal($product['total_good'] ?? 0);
+            $row[] = $formatVal($product['total_bad'] ?? 0);
+            $row[] = $formatVal($product['total_in_delivery'] ?? 0);
+        }
+
+        foreach ($this->businesses as $b) {
+            $settingId = $b['setting_id'];
+
+            if ($this->includesStock()) {
+                $bData = $product['businesses'][$settingId] ?? null;
+                $locs = $b['locations'];
+                $bInDelivery = $bData['in_delivery'] ?? 0;
+
+                if (empty($locs)) {
+                    $row[] = $formatVal($bData['good'] ?? 0);
+                    $row[] = $formatVal($bData['bad'] ?? 0);
+                } else {
+                    foreach ($locs as $loc) {
+                        $locData = $bData['locations'][$loc['id']] ?? null;
+                        $row[] = $formatVal($locData['good'] ?? 0);
+                        $row[] = $formatVal($locData['bad'] ?? 0);
+                    }
+                }
+
+                $row[] = $formatVal($bInDelivery);
             }
 
-            $row[] = $formatVal($bInDelivery);
+            if ($this->includesPrices()) {
+                $pData = $product['prices'][$settingId] ?? null;
+                $row[] = $this->formatPriceCell($pData['average_purchase_price'] ?? null);
+                $row[] = $this->formatPriceCell($pData['sale_price'] ?? null);
+                $row[] = $this->formatPriceCell($pData['tier_1_price'] ?? null);
+                $row[] = $this->formatPriceCell($pData['tier_2_price'] ?? null);
+            }
         }
 
         return $row;
+    }
+
+    private function formatPriceCell($value): ?float
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        return (float) $value;
     }
 
     /**
@@ -152,23 +205,55 @@ class CrossBusinessStockInventoryExport implements FromGenerator, WithHeadings, 
         }
 
         $isConversion = ($this->displayMode === 'conversion');
+        $includeStock = $this->includesStock();
+        $includePrices = $this->includesPrices();
 
-        // Header Row 1: Title
-        // Header Row 2: Business Names (merged across all locations of that business + in-delivery)
-        // Header Row 3: Location Names (merged across Good / Bad for each location) & Business in-delivery
-        // Header Row 4: Good / Bad subheaders ('Bagus' / 'Rusak' / 'Dalam Pengiriman')
+        $headerRow2 = ['Produk', 'Kategori', 'Merek'];
+        $headerRow3 = ['', '', ''];
+        $headerRow4 = ['', '', ''];
 
-        $headerRow2 = ['Produk', 'Kategori', 'Merek', 'Total Bagus', 'Total Rusak', 'Total Dalam Pengiriman'];
-        $headerRow3 = ['', '', '', '', '', ''];
-        $headerRow4 = ['', '', '', '', '', ''];
+        if ($includePrices) {
+            $headerRow2[] = 'Satuan';
+            $headerRow3[] = '';
+            $headerRow4[] = '';
+        }
 
-        $this->numericColumnIndexes = $isConversion ? [] : [4, 5, 6];
+        $this->numericColumnIndexes = [];
+        $this->priceColumnIndexes = [];
+        $this->conversionColumnIndexes = [];
 
-        $colIdx = 7;
+        if ($includeStock) {
+            $totalStartIdx = count($headerRow2) + 1;
+            $headerRow2[] = 'Total Bagus';
+            $headerRow2[] = 'Total Rusak';
+            $headerRow2[] = 'Total Dalam Pengiriman';
+            $headerRow3[] = '';
+            $headerRow3[] = '';
+            $headerRow3[] = '';
+            $headerRow4[] = '';
+            $headerRow4[] = '';
+            $headerRow4[] = '';
+
+            if ($isConversion) {
+                $this->conversionColumnIndexes[] = $totalStartIdx;
+                $this->conversionColumnIndexes[] = $totalStartIdx + 1;
+                $this->conversionColumnIndexes[] = $totalStartIdx + 2;
+            } else {
+                $this->numericColumnIndexes[] = $totalStartIdx;
+                $this->numericColumnIndexes[] = $totalStartIdx + 1;
+                $this->numericColumnIndexes[] = $totalStartIdx + 2;
+            }
+        }
+
+        $this->fixedColumnCount = count($headerRow2);
+        $colIdx = $this->fixedColumnCount + 1;
+
         foreach ($this->businesses as $b) {
             $locs = $b['locations'];
             $locCount = max(1, count($locs));
-            $bizSpan = ($locCount * 2) + 1; // Good/Bad pairs per location + 1 business in-delivery
+            $stockSpan = $includeStock ? (($locCount * 2) + 1) : 0;
+            $priceSpan = $includePrices ? 4 : 0;
+            $bizSpan = $stockSpan + $priceSpan;
 
             $headerRow2[] = $b['company_name'];
             for ($i = 1; $i < $bizSpan; $i++) {
@@ -179,49 +264,82 @@ class CrossBusinessStockInventoryExport implements FromGenerator, WithHeadings, 
             $bLines = max(1, (int) ceil(mb_strlen($b['company_name']) / max(1, $totalSpanWidth)));
             $this->row2MaxLines = max($this->row2MaxLines, $bLines);
 
-            if (empty($locs)) {
-                $headerRow3[] = '—';
-                $headerRow3[] = '';
-                $headerRow4[] = 'Bagus';
-                $headerRow4[] = 'Rusak';
-                if (!$isConversion) {
-                    $this->numericColumnIndexes[] = $colIdx;
-                    $this->numericColumnIndexes[] = $colIdx + 1;
-                }
-                $colIdx += 2;
-            } else {
-                foreach ($locs as $loc) {
-                    $headerRow3[] = $loc['name'];
+            if ($includeStock) {
+                if (empty($locs)) {
+                    $headerRow3[] = '—';
                     $headerRow3[] = '';
                     $headerRow4[] = 'Bagus';
                     $headerRow4[] = 'Rusak';
-
-                    $locMin = max(10, (int) ceil(mb_strlen($loc['name']) / 2) + 2);
-                    $locSpanWidth = $locMin * 2;
-                    $lLines = max(1, (int) ceil(mb_strlen($loc['name']) / max(1, $locSpanWidth)));
-                    $this->row3MaxLines = max($this->row3MaxLines, $lLines);
-
-                    if (!$isConversion) {
+                    if ($isConversion) {
+                        $this->conversionColumnIndexes[] = $colIdx;
+                        $this->conversionColumnIndexes[] = $colIdx + 1;
+                    } else {
                         $this->numericColumnIndexes[] = $colIdx;
                         $this->numericColumnIndexes[] = $colIdx + 1;
                     }
                     $colIdx += 2;
+                } else {
+                    foreach ($locs as $loc) {
+                        $headerRow3[] = $loc['name'];
+                        $headerRow3[] = '';
+                        $headerRow4[] = 'Bagus';
+                        $headerRow4[] = 'Rusak';
+
+                        $locMin = max(10, (int) ceil(mb_strlen($loc['name']) / 2) + 2);
+                        $locSpanWidth = $locMin * 2;
+                        $lLines = max(1, (int) ceil(mb_strlen($loc['name']) / max(1, $locSpanWidth)));
+                        $this->row3MaxLines = max($this->row3MaxLines, $lLines);
+
+                        if ($isConversion) {
+                            $this->conversionColumnIndexes[] = $colIdx;
+                            $this->conversionColumnIndexes[] = $colIdx + 1;
+                        } else {
+                            $this->numericColumnIndexes[] = $colIdx;
+                            $this->numericColumnIndexes[] = $colIdx + 1;
+                        }
+                        $colIdx += 2;
+                    }
                 }
+
+                $headerRow3[] = 'Dalam Pengiriman';
+                $headerRow4[] = 'Dalam Pengiriman';
+                if ($isConversion) {
+                    $this->conversionColumnIndexes[] = $colIdx;
+                } else {
+                    $this->numericColumnIndexes[] = $colIdx;
+                }
+                $colIdx++;
             }
 
-            $headerRow3[] = 'Dalam Pengiriman';
-            $headerRow4[] = 'Dalam Pengiriman';
-            if (!$isConversion) {
-                $this->numericColumnIndexes[] = $colIdx;
+            if ($includePrices) {
+                $headerRow3[] = 'Harga (Satuan Dasar)';
+                $headerRow3[] = '';
+                $headerRow3[] = '';
+                $headerRow3[] = '';
+                $headerRow4[] = 'Harga Modal';
+                $headerRow4[] = 'Harga Jual';
+                $headerRow4[] = 'Tier 1';
+                $headerRow4[] = 'Tier 2';
+
+                $this->priceColumnIndexes[] = $colIdx;
+                $this->priceColumnIndexes[] = $colIdx + 1;
+                $this->priceColumnIndexes[] = $colIdx + 2;
+                $this->priceColumnIndexes[] = $colIdx + 3;
+                $colIdx += 4;
             }
-            $colIdx++;
         }
 
-        $totalColumns = max(6, $colIdx - 1);
+        $totalColumns = max($this->fixedColumnCount, $colIdx - 1);
         $this->lastColumnLetter = $this->getColumnLetter($totalColumns);
 
+        $title = match ($this->exportContent) {
+            self::CONTENT_PRICES => 'Daftar Harga Produk Lintas Bisnis',
+            self::CONTENT_STOCK_AND_PRICES => 'Stok & Harga Produk Lintas Bisnis',
+            default => 'Stok Persediaan Lintas Bisnis',
+        };
+
         $headerRow1 = array_fill(0, $totalColumns, '');
-        $headerRow1[0] = 'Stok Persediaan Lintas Bisnis';
+        $headerRow1[0] = $title;
 
         return $this->headerRows = [$headerRow1, $headerRow2, $headerRow3, $headerRow4];
     }
@@ -239,39 +357,50 @@ class CrossBusinessStockInventoryExport implements FromGenerator, WithHeadings, 
     {
         $this->buildHeaderRows();
         $lastRowIndex = $sheet->getHighestRow();
+        $includeStock = $this->includesStock();
+        $includePrices = $this->includesPrices();
 
         // 1. Merge Title Row 1 across all columns
         $sheet->mergeCells("A1:{$this->lastColumnLetter}1");
 
         // 2. Merge Fixed product columns vertically across all 3 header tiers (Rows 2 to 4)
-        $sheet->mergeCells('A2:A4');
-        $sheet->mergeCells('B2:B4');
-        $sheet->mergeCells('C2:C4');
-        $sheet->mergeCells('D2:D4');
-        $sheet->mergeCells('E2:E4');
-        $sheet->mergeCells('F2:F4');
+        for ($i = 1; $i <= $this->fixedColumnCount; $i++) {
+            $colLetter = $this->getColumnLetter($i);
+            $sheet->mergeCells("{$colLetter}2:{$colLetter}4");
+        }
 
-        // 3. Merge Business headers (Row 2) and Location headers (Row 3)
-        $colIndex = 7;
+        // 3. Merge Business headers (Row 2), Location headers (Row 3), In-Delivery (Row 3:4), and Price group (Row 3)
+        $colIndex = $this->fixedColumnCount + 1;
         foreach ($this->businesses as $b) {
             $locs = $b['locations'];
             $locCount = max(1, count($locs));
-            $bizSpan = ($locCount * 2) + 1;
+            $stockSpan = $includeStock ? (($locCount * 2) + 1) : 0;
+            $priceSpan = $includePrices ? 4 : 0;
+            $bizSpan = $stockSpan + $priceSpan;
 
             $businessStartCol = $this->getColumnLetter($colIndex);
             $businessEndCol = $this->getColumnLetter($colIndex + $bizSpan - 1);
             $sheet->mergeCells("{$businessStartCol}2:{$businessEndCol}2");
 
-            for ($i = 0; $i < $locCount; $i++) {
-                $locStartCol = $this->getColumnLetter($colIndex);
-                $locEndCol = $this->getColumnLetter($colIndex + 1);
-                $sheet->mergeCells("{$locStartCol}3:{$locEndCol}3");
-                $colIndex += 2;
+            if ($includeStock) {
+                for ($i = 0; $i < $locCount; $i++) {
+                    $locStartCol = $this->getColumnLetter($colIndex);
+                    $locEndCol = $this->getColumnLetter($colIndex + 1);
+                    $sheet->mergeCells("{$locStartCol}3:{$locEndCol}3");
+                    $colIndex += 2;
+                }
+
+                $inDeliveryCol = $this->getColumnLetter($colIndex);
+                $sheet->mergeCells("{$inDeliveryCol}3:{$inDeliveryCol}4");
+                $colIndex++;
             }
 
-            $inDeliveryCol = $this->getColumnLetter($colIndex);
-            $sheet->mergeCells("{$inDeliveryCol}3:{$inDeliveryCol}4");
-            $colIndex++;
+            if ($includePrices) {
+                $priceStartCol = $this->getColumnLetter($colIndex);
+                $priceEndCol = $this->getColumnLetter($colIndex + 3);
+                $sheet->mergeCells("{$priceStartCol}3:{$priceEndCol}3");
+                $colIndex += 4;
+            }
         }
 
         $sheet->getRowDimension(1)->setRowHeight(32);
@@ -348,7 +477,7 @@ class CrossBusinessStockInventoryExport implements FromGenerator, WithHeadings, 
                 ],
             ]);
 
-            if (!empty($this->numericColumnIndexes)) {
+            if ($lastRowIndex >= 5) {
                 foreach ($this->numericColumnIndexes as $colIdx) {
                     $colLetter = $this->getColumnLetter($colIdx);
                     $sheet->getStyle("{$colLetter}5:{$colLetter}{$lastRowIndex}")
@@ -359,11 +488,24 @@ class CrossBusinessStockInventoryExport implements FromGenerator, WithHeadings, 
                         ->getAlignment()
                         ->setHorizontal(Alignment::HORIZONTAL_RIGHT);
                 }
-            } else {
-                $startQtyCol = $this->getColumnLetter(4);
-                $sheet->getStyle("{$startQtyCol}5:{$this->lastColumnLetter}{$lastRowIndex}")
-                    ->getAlignment()
-                    ->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+                foreach ($this->conversionColumnIndexes as $colIdx) {
+                    $colLetter = $this->getColumnLetter($colIdx);
+                    $sheet->getStyle("{$colLetter}5:{$colLetter}{$lastRowIndex}")
+                        ->getAlignment()
+                        ->setHorizontal(Alignment::HORIZONTAL_CENTER);
+                }
+
+                foreach ($this->priceColumnIndexes as $colIdx) {
+                    $colLetter = $this->getColumnLetter($colIdx);
+                    $sheet->getStyle("{$colLetter}5:{$colLetter}{$lastRowIndex}")
+                        ->getNumberFormat()
+                        ->setFormatCode('#,##0.00');
+
+                    $sheet->getStyle("{$colLetter}5:{$colLetter}{$lastRowIndex}")
+                        ->getAlignment()
+                        ->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+                }
             }
         }
     }
