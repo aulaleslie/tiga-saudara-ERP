@@ -301,6 +301,8 @@ class ProductListDisplayTest extends TestCase
                 'is_active' => false,
             ]);
         $this->assertFalse((bool) $this->product->fresh()->is_active);
+        $this->assertFalse($this->productIdsForStatus('active')->contains($this->product->id));
+        $this->assertTrue($this->productIdsForStatus('inactive')->contains($this->product->id));
 
         $reactivateResponse = $this->actingAs($this->user)
             ->patchJson(route('products.toggle-status', $this->product));
@@ -312,6 +314,20 @@ class ProductListDisplayTest extends TestCase
                 'is_active' => true,
             ]);
         $this->assertTrue((bool) $this->product->fresh()->is_active);
+        $this->assertTrue($this->productIdsForStatus('active')->contains($this->product->id));
+        $this->assertFalse($this->productIdsForStatus('inactive')->contains($this->product->id));
+    }
+
+    private function productIdsForStatus(string $status)
+    {
+        $response = $this->actingAs($this->user)
+            ->getJson(route('products.index', ['status' => $status]), [
+                'HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest',
+            ]);
+
+        $response->assertSuccessful();
+
+        return collect($response->json('data'))->pluck('id');
     }
 
     /** @test */
