@@ -45,8 +45,8 @@
             <template x-for="(item, index) in cart" :key="item.id">
                 <tr>
                     <td class="align-middle text-break">
-                        @can('products.manage_cross_business_prices')
-                            <a :href="'{{ route('products.cross-business-prices.edit', 'ID_PLACEHOLDER') }}'.replace('ID_PLACEHOLDER', item.product_id)" target="_blank" class="text-primary font-weight-bold" x-text="item.product_name" title="Manage Cross-Business Prices"></a> <br>
+                        @can('products.edit')
+                            <a :href="'{{ route('products.edit', 'ID_PLACEHOLDER') }}'.replace('ID_PLACEHOLDER', item.product_id)" target="_blank" rel="noopener" class="text-primary font-weight-bold" x-text="item.product_name" title="Edit Produk"></a> <br>
                         @else
                             <strong x-text="item.product_name"></strong> <br>
                         @endcan
