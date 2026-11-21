@@ -162,6 +162,12 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
             'updated_at' => now(),
         ], $overrides));
 
+        // PosTransaction guards timestamps, so create() silently ignores overrides.
+        $timestamps = array_intersect_key($overrides, array_flip(['created_at', 'updated_at']));
+        if ($timestamps) {
+            $trx->forceFill($timestamps)->save();
+        }
+
         $checkout = PosCheckout::create([
             'setting_id' => $setting->id,
             'pos_transaction_id' => $trx->id,
@@ -277,6 +283,56 @@ class GlobalPosPaymentTableAndSearchTest extends TestCase
             ->assertSee('Belum Dibayar')
             ->assertSee('Dibayar Sebagian')
             ->assertSee('Lunas');
+    }
+
+    public function test_global_pos_payment_create_pins_starting_transaction_before_newer_candidates()
+    {
+        $older = $this->createCompletedPosTransaction($this->setting1, $this->customer1, 10000, 'POS-ORDER-OLDER', [
+            'created_at' => Carbon::parse('2026-09-01 10:00:00'),
+            'updated_at' => Carbon::parse('2026-09-01 10:00:00'),
+        ]);
+        $newest = $this->createCompletedPosTransaction($this->setting1, $this->customer1, 20000, 'POS-ORDER-NEWEST', [
+            'created_at' => Carbon::parse('2026-09-05 10:00:00'),
+            'updated_at' => Carbon::parse('2026-09-05 10:00:00'),
+        ]);
+        $middle = $this->createCompletedPosTransaction($this->setting2, $this->customer1, 15000, 'POS-ORDER-MIDDLE', [
+            'created_at' => Carbon::parse('2026-09-03 10:00:00'),
+            'updated_at' => Carbon::parse('2026-09-03 10:00:00'),
+        ]);
+        $sameTimestampA = $this->createCompletedPosTransaction($this->setting1, $this->customer1, 12000, 'POS-ORDER-TIE-A', [
+            'created_at' => Carbon::parse('2026-09-02 10:00:00'),
+            'updated_at' => Carbon::parse('2026-09-02 10:00:00'),
+        ]);
+        $sameTimestampB = $this->createCompletedPosTransaction($this->setting1, $this->customer1, 13000, 'POS-ORDER-TIE-B', [
+            'created_at' => Carbon::parse('2026-09-02 10:00:00'),
+            'updated_at' => Carbon::parse('2026-09-02 10:00:00'),
+        ]);
+
+        $response = $this->get(route('pos.global-payments.create', $older['transaction']->id));
+
+        $response->assertOk();
+
+        $this->assertSame('2026-09-01 10:00:00', $older['transaction']->fresh()->created_at->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-09-05 10:00:00', $newest['transaction']->fresh()->created_at->format('Y-m-d H:i:s'));
+
+        $candidateIds = $response->viewData('candidateTransactions')->pluck('id')->all();
+
+        $this->assertSame([
+            $older['transaction']->id,
+            $newest['transaction']->id,
+            $middle['transaction']->id,
+            min($sameTimestampA['transaction']->id, $sameTimestampB['transaction']->id),
+            max($sameTimestampA['transaction']->id, $sameTimestampB['transaction']->id),
+        ], $candidateIds);
+
+        $document = new \DOMDocument();
+        @$document->loadHTML($response->getContent());
+        $inputs = new \DOMXPath($document);
+        foreach ([$older['transaction']->id => '10000', $newest['transaction']->id => '0'] as $id => $expected) {
+            $matches = $inputs->query('//input[@name="allocations[' . $id . ']"]');
+            $this->assertCount(1, $matches);
+            $this->assertSame($expected, $matches->item(0)->getAttribute('value'));
+        }
     }
 
     public function test_pos_summary_cards_render_loading_overlay_targeting_toggle_card_filter()
