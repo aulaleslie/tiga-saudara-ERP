@@ -119,7 +119,7 @@ class ReportsController extends Controller
                     [
                         'label' => 'Penjualan per produk',
                         'icon' => 'bi bi-box',
-                        'description' => 'Menampilkan semua kuantitas produk yang terjual, kuantitas retur, penjualan bersih, dan harga penjualan rata-rata dalam periode tertentu.',
+                        'description' => 'Menampilkan kode produk, nama produk, kuantitas terjual, satuan, total nilai terjual, dan harga penjualan rata-rata per produk dalam periode tertentu.',
                         'route' => 'reports.sale-by-product.index',
                         'permission' => 'saleReports.access'
                     ],

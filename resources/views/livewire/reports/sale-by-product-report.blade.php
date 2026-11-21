@@ -510,18 +510,15 @@
     @endif
 
     <div class="table-responsive shadow-sm rounded mt-2">
-        <table class="table table-hover table-bordered mb-0" style="font-size: 0.8rem; min-width: 1350px;">
+        <table class="table table-hover table-bordered mb-0" style="font-size: 0.8rem;">
             <thead class="table-light">
             <tr>
                 <th style="white-space:nowrap">Kode Produk</th>
                 <th style="white-space:nowrap">Nama Produk</th>
-                <th style="white-space:nowrap">Dijual sebagai</th>
                 <th class="text-right" style="white-space:nowrap">Kuantitas Terjual</th>
                 <th style="white-space:nowrap">Satuan</th>
                 <th class="text-right" style="white-space:nowrap">Total Nilai terjual</th>
                 <th class="text-right" style="white-space:nowrap">Harga Penjualan Rata-rata</th>
-                <th class="text-right" style="white-space:nowrap">Total Modal</th>
-                <th class="text-right" style="white-space:nowrap">Modal Rata-rata/unit</th>
             </tr>
             </thead>
             <tbody class="bg-white text-dark">
@@ -530,55 +527,14 @@
                     <tr>
                         <td>{{ $row->product_code }}</td>
                         <td>{{ $row->product_name }}</td>
-                        <td>
-                            <span class="badge {{ ($row->sale_role ?? 'direct') === 'component' ? 'badge-info text-dark' : 'badge-light text-dark border' }}">
-                                {{ $row->sale_role_label ?? 'Penjualan langsung / paket' }}
-                            </span>
-                        </td>
                         <td class="text-right">{{ number_format((float)$row->sold_quantity, 2, ',', '.') }}</td>
                         <td>{{ $row->unit_name }}</td>
-                        <td class="text-right">
-                            @if($row->sold_value_status === 'complete')
-                                {{ number_format((float)$row->sold_value, 0, ',', '.') }}
-                            @elseif($row->sold_value_status === 'partial')
-                                {{ number_format((float)$row->sold_value, 0, ',', '.') }}
-                                <div class="text-warning small">Parsial</div>
-                            @elseif($row->sold_value_status === 'included')
-                                <span class="text-muted">Included in bundle</span>
-                            @else
-                                <span class="text-muted">Tidak tersedia</span>
-                            @endif
-                        </td>
-                        <td class="text-right">
-                            @if($row->average_sales_value !== null)
-                                {{ number_format((float)$row->average_sales_value, 0, ',', '.') }}
-                            @elseif($row->sold_value_status === 'included')
-                                <span class="text-muted">Included in bundle</span>
-                            @else
-                                <span class="text-muted">—</span>
-                            @endif
-                        </td>
-                        <td class="text-right">
-                            @if($row->cost_status === 'complete')
-                                {{ number_format((float)$row->total_cost, 0, ',', '.') }}
-                            @elseif($row->cost_status === 'partial')
-                                {{ number_format((float)$row->total_cost, 0, ',', '.') }}
-                                <div class="text-warning small">Parsial (Modal belum lengkap)</div>
-                            @else
-                                <span class="text-warning">Modal belum lengkap</span>
-                            @endif
-                        </td>
-                        <td class="text-right">
-                            @if($row->average_cost !== null)
-                                {{ number_format((float)$row->average_cost, 0, ',', '.') }}
-                            @else
-                                <span class="text-muted">—</span>
-                            @endif
-                        </td>
+                        <td class="text-right">{{ number_format((float)$row->sold_value, 0, ',', '.') }}</td>
+                        <td class="text-right">{{ number_format((float)$row->average_sales_value, 0, ',', '.') }}</td>
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="9" class="text-center py-4 text-muted">
+                        <td colspan="6" class="text-center py-4 text-muted">
                             <i class="bi bi-inbox fs-2 d-block mb-2"></i>
                             Tidak ada data penjualan per produk yang sesuai dengan filter ini.
                         </td>
@@ -586,26 +542,14 @@
                 @endforelse
                 @if($products->count() > 0)
                     <tr class="table-secondary font-weight-bold">
-                        <td colspan="5" class="text-right">Total Keseluruhan</td>
-                        <td class="text-right text-primary">
-                            {{ number_format((float)$grandTotalSold, 0, ',', '.') }}
-                            @if($grandTotalSoldPartial)
-                                <div class="text-warning small font-weight-normal">Parsial</div>
-                            @endif
-                        </td>
-                        <td></td>
-                        <td class="text-right text-primary">
-                            {{ number_format((float)$grandTotalCost, 0, ',', '.') }}
-                            @if($grandTotalCostPartial)
-                                <div class="text-warning small font-weight-normal">Parsial (Modal belum lengkap)</div>
-                            @endif
-                        </td>
+                        <td colspan="4" class="text-right">Total Keseluruhan</td>
+                        <td class="text-right text-primary">{{ number_format((float)$grandTotalSold, 0, ',', '.') }}</td>
                         <td></td>
                     </tr>
                 @endif
             @else
                 <tr>
-                    <td colspan="9" class="text-center py-5 text-muted">
+                    <td colspan="6" class="text-center py-5 text-muted">
                         <i class="bi bi-info-circle fs-2 d-block mb-2"></i>
                         Silakan atur filter dan klik <strong>Filter</strong> untuk menampilkan laporan.
                     </td>

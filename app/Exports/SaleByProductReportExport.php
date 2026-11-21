@@ -44,29 +44,16 @@ class SaleByProductReportExport implements FromArray, WithHeadings, WithEvents, 
         $queryResults = $this->dataset['rows'] ?? collect();
         $totals = $this->dataset['totals'] ?? [
             'sold_value' => 0.0,
-            'sold_value_partial' => false,
-            'total_cost' => 0.0,
-            'total_cost_partial' => false,
         ];
 
         foreach ($queryResults as $row) {
-            $soldValueCell = $row->sold_value !== null ? (float) $row->sold_value : '';
-            $avgSalesCell = $row->average_sales_value !== null ? (float) $row->average_sales_value : '';
-            $totalCostCell = $row->total_cost !== null ? (float) $row->total_cost : '';
-            $avgCostCell = $row->average_cost !== null ? (float) $row->average_cost : '';
-
             $rows[] = [
                 $row->product_code,
                 $row->product_name,
-                $row->sale_role_label ?? SaleByProductReportQueryService::ROLE_LABELS[$row->sale_role ?? 'direct'] ?? '',
                 (float) $row->sold_quantity,
                 $row->unit_name,
-                $soldValueCell,
-                $avgSalesCell,
-                $this->formatSoldValueStatus($row->sold_value_status ?? 'complete'),
-                $totalCostCell,
-                $avgCostCell,
-                $this->formatCostStatus($row->cost_status ?? 'complete'),
+                (float) $row->sold_value,
+                (float) $row->average_sales_value,
             ];
         }
 
@@ -76,13 +63,8 @@ class SaleByProductReportExport implements FromArray, WithHeadings, WithEvents, 
                 '',
                 '',
                 '',
-                '',
                 (float) $totals['sold_value'],
                 '',
-                !empty($totals['sold_value_partial']) ? 'Parsial (sebagian nilai jual tidak tersedia)' : 'Lengkap',
-                (float) $totals['total_cost'],
-                '',
-                !empty($totals['total_cost_partial']) ? 'Parsial (modal belum lengkap)' : 'Lengkap',
             ];
         }
 
@@ -94,26 +76,19 @@ class SaleByProductReportExport implements FromArray, WithHeadings, WithEvents, 
         return [
             'Kode Produk',
             'Nama Produk',
-            'Dijual sebagai',
             'Kuantitas Terjual',
             'Satuan',
             'Total Nilai terjual',
             'Harga Penjualan Rata-rata',
-            'Status Nilai Terjual',
-            'Total Modal',
-            'Modal Rata-rata/unit',
-            'Status Modal',
         ];
     }
 
     public function columnFormats(): array
     {
         return [
-            'D' => '#,##0.00',
+            'C' => '#,##0.00',
+            'E' => '#,##0.00',
             'F' => '#,##0.00',
-            'G' => '#,##0.00',
-            'I' => '#,##0.00',
-            'J' => '#,##0.00',
         ];
     }
 
@@ -149,28 +124,28 @@ class SaleByProductReportExport implements FromArray, WithHeadings, WithEvents, 
 
                 // Row 1
                 $sheet->setCellValue('A1', $companyName);
-                $sheet->mergeCells('A1:K1');
+                $sheet->mergeCells('A1:F1');
                 $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
 
                 // Row 2
                 $sheet->setCellValue('A2', 'Penjualan dengan Produk');
-                $sheet->mergeCells('A2:K2');
+                $sheet->mergeCells('A2:F2');
                 $sheet->getStyle('A2')->getFont()->setBold(true)->setSize(12);
 
                 // Row 3
                 $sheet->setCellValue('A3', $dateRange);
-                $sheet->mergeCells('A3:K3');
+                $sheet->mergeCells('A3:F3');
 
                 // Row 4
                 $sheet->setCellValue('A4', '(dalam IDR)');
-                $sheet->mergeCells('A4:K4');
+                $sheet->mergeCells('A4:F4');
 
                 // Bold headers (now row 6)
-                $sheet->getStyle('A6:K6')->getFont()->setBold(true);
+                $sheet->getStyle('A6:F6')->getFont()->setBold(true);
 
                 // Bold subtotal row (the last row)
                 $highestRow = $sheet->getHighestRow();
-                $sheet->getStyle("A{$highestRow}:K{$highestRow}")->getFont()->setBold(true);
+                $sheet->getStyle("A{$highestRow}:F{$highestRow}")->getFont()->setBold(true);
             },
         ];
     }
@@ -183,24 +158,5 @@ class SaleByProductReportExport implements FromArray, WithHeadings, WithEvents, 
             'line_ending' => PHP_EOL,
             'use_bom' => true,
         ];
-    }
-
-    private function formatSoldValueStatus(string $status): string
-    {
-        return match ($status) {
-            'complete' => 'Lengkap',
-            'partial' => 'Parsial (rata-rata tidak tersedia)',
-            'included' => 'Included in bundle',
-            default => 'Tidak tersedia',
-        };
-    }
-
-    private function formatCostStatus(string $status): string
-    {
-        return match ($status) {
-            'complete' => 'Lengkap',
-            'partial' => 'Parsial (Modal belum lengkap; rata-rata tidak tersedia)',
-            default => 'Modal belum lengkap',
-        };
     }
 }

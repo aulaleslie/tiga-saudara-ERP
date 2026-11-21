@@ -10,6 +10,7 @@ use App\Services\Reports\SaleByProductReportQueryService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
+use Maatwebsite\Excel\Facades\Excel;
 use Modules\Currency\Entities\Currency;
 use Modules\People\Entities\Customer;
 use Modules\Product\Entities\Brand;
@@ -20,6 +21,7 @@ use Modules\Sale\Entities\SaleBundleItem;
 use Modules\Sale\Entities\SaleDetails;
 use Modules\Sale\Services\SalesCostSnapshotService;
 use Modules\Setting\Entities\Setting;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -184,7 +186,7 @@ class SaleByProductSnapshotAndBundleTest extends TestCase
     }
 
     /** @test */
-    public function it_decomposes_pos_bundle_revenue_once_and_keeps_direct_and_component_roles_separate(): void
+    public function it_merges_direct_and_pos_bundle_component_into_one_product_unit_row_with_weighted_average(): void
     {
         $laptop = $this->makeProduct(['category_id' => $this->laptopRoot->id, 'product_name' => 'Laptop Paket', 'product_code' => 'LP-01']);
         $mouse = $this->makeProduct(['category_id' => $this->atkChild->id, 'product_name' => 'Mouse ATK', 'product_code' => 'MS-01']);
@@ -227,7 +229,7 @@ class SaleByProductSnapshotAndBundleTest extends TestCase
             'cost_snapshot_at' => now(),
         ]);
 
-        // Also sell the same Mouse directly to verify direct vs component separation
+        // Also sell the same Mouse directly (2 units / 60,000) -> must merge into 1 row: qty 3, sales 85,000, avg 85000/3
         SaleDetails::create([
             'sale_id' => $sale->id,
             'product_id' => $mouse->id,
@@ -252,45 +254,159 @@ class SaleByProductSnapshotAndBundleTest extends TestCase
             scopeSettingIds: [$this->setting1->id],
         ));
 
-        $this->assertCount(3, $dataset['rows']);
+        // 2 rows total: Laptop + merged Mouse (no role splitting)
+        $this->assertCount(2, $dataset['rows']);
 
         $laptopRow = $dataset['rows']->firstWhere('product_id', $laptop->id);
+        $this->assertEquals(1.0, $laptopRow->sold_quantity);
         $this->assertEquals(100000.0, $laptopRow->sold_value);
-        $this->assertEquals(80000.0, $laptopRow->total_cost);
-        $this->assertEquals('direct', $laptopRow->sale_role);
+        $this->assertEquals(100000.0, $laptopRow->average_sales_value);
+        $this->assertObjectNotHasProperty('sale_role', $laptopRow);
+        $this->assertObjectNotHasProperty('total_cost', $laptopRow);
 
-        $mouseDirect = $dataset['rows']->first(fn ($r) => $r->product_id === $mouse->id && $r->sale_role === 'direct');
-        $mouseComp = $dataset['rows']->first(fn ($r) => $r->product_id === $mouse->id && $r->sale_role === 'component');
+        $mouseRow = $dataset['rows']->firstWhere('product_id', $mouse->id);
+        $this->assertEquals(3.0, $mouseRow->sold_quantity);
+        $this->assertEquals(85000.0, $mouseRow->sold_value);
+        $this->assertEqualsWithDelta(85000.0 / 3.0, $mouseRow->average_sales_value, 0.01);
 
-        $this->assertEquals(2.0, $mouseDirect->sold_quantity);
-        $this->assertEquals(60000.0, $mouseDirect->sold_value);
-        $this->assertEquals(30000.0, $mouseDirect->average_sales_value);
-
-        $this->assertEquals(1.0, $mouseComp->sold_quantity);
-        $this->assertEquals(25000.0, $mouseComp->sold_value);
-        $this->assertEquals(15000.0, $mouseComp->total_cost);
-
-        // Grand totals conserve exact commercial value (100k + 25k + 60k = 185k) and own HPP (80k + 15k + 30k = 125k)
+        // Grand totals conserve exact commercial value (100k + 25k + 60k = 185k)
         $this->assertEquals(185000.0, $dataset['totals']['sold_value']);
-        $this->assertEquals(125000.0, $dataset['totals']['total_cost']);
+        $this->assertArrayNotHasKey('total_cost', $dataset['totals']);
 
-        // Filtering to ATK root includes atkChild (Mouse) without changing its assigned 25,000 share
+        // Filtering to ATK root includes atkChild (Mouse) with combined 3 units / 85,000
         $atkDataset = $service->getDataset(new SaleByProductReportFilterData(
             startDate: '2026-11-01',
             endDate: '2026-11-30',
             scopeSettingIds: [$this->setting1->id],
             categoryIds: [$this->atkRoot->id],
         ));
-        $this->assertCount(2, $atkDataset['rows']);
+        $this->assertCount(1, $atkDataset['rows']);
+        $this->assertEquals(3.0, $atkDataset['rows']->first()->sold_quantity);
         $this->assertEquals(85000.0, $atkDataset['totals']['sold_value']);
     }
 
     /** @test */
-    public function it_classifies_non_pos_included_standalone_and_ambiguous_components_correctly(): void
+    public function it_handles_taxed_pos_bundle_and_split_owner_placeholder_without_phantom_rows(): void
+    {
+        $laptop = $this->makeProduct(['category_id' => $this->laptopRoot->id, 'product_name' => 'Laptop Taxed']);
+        $mouse = $this->makeProduct(['category_id' => $this->atkChild->id, 'product_name' => 'Mouse Taxed']);
+
+        // Tax-included POS sale: parent 110,000 (tax 10,000 -> excl 100,000); component 22,000 (tax 2,000 -> excl 20,000)
+        // Parent residual excl = 80,000; Component excl = 20,000; Total = 100,000
+        $sale1 = $this->makeSale(['setting_id' => $this->setting1->id, 'is_tax_included' => true, 'total_amount' => 110000]);
+        $this->linkPosSale($sale1);
+
+        $parent1 = SaleDetails::create([
+            'sale_id' => $sale1->id,
+            'product_id' => $laptop->id,
+            'product_name' => $laptop->product_name,
+            'product_code' => $laptop->product_code,
+            'quantity' => 1,
+            'price' => 110000,
+            'unit_price' => 110000,
+            'sub_total' => 110000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 10000,
+        ]);
+
+        SaleBundleItem::create([
+            'sale_id' => $sale1->id,
+            'sale_detail_id' => $parent1->id,
+            'bundle_id' => 1,
+            'bundle_item_id' => 1,
+            'product_id' => $mouse->id,
+            'name' => $mouse->product_name,
+            'quantity' => 1,
+            'price' => 22000,
+            'sub_total' => 22000,
+            'tax_amount' => 2000,
+        ]);
+
+        // Split-owner placeholder parent in setting2 with missing cost_snapshot_source:
+        // qty 0, sub_total 25,000 matching component 25,000 -> residual 0 (must still be skipped without HPP metadata)
+        $sale2 = $this->makeSale(['setting_id' => $this->setting2->id, 'is_tax_included' => false, 'total_amount' => 25000]);
+        $this->linkPosSale($sale2);
+
+        $placeholderParent = SaleDetails::create([
+            'sale_id' => $sale2->id,
+            'product_id' => $laptop->id,
+            'product_name' => $laptop->product_name,
+            'product_code' => $laptop->product_code,
+            'quantity' => 0,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 25000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'cost_snapshot_source' => null,
+        ]);
+
+        SaleBundleItem::create([
+            'sale_id' => $sale2->id,
+            'sale_detail_id' => $placeholderParent->id,
+            'bundle_id' => 1,
+            'bundle_item_id' => 2,
+            'product_id' => $mouse->id,
+            'name' => $mouse->product_name,
+            'quantity' => 1,
+            'price' => 25000,
+            'sub_total' => 25000,
+            'tax_amount' => 0,
+        ]);
+
+        // Ordinary non-bundle zero-quantity detail in setting2 must still be preserved (not treated as bundle placeholder)
+        $zeroQtyOrdinary = $this->makeProduct(['category_id' => $this->atkRoot->id, 'product_name' => 'Ordinary Zero Qty']);
+        SaleDetails::create([
+            'sale_id' => $sale2->id,
+            'product_id' => $zeroQtyOrdinary->id,
+            'product_name' => $zeroQtyOrdinary->product_name,
+            'product_code' => $zeroQtyOrdinary->product_code,
+            'quantity' => 0,
+            'price' => 0,
+            'unit_price' => 0,
+            'sub_total' => 0,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+            'cost_snapshot_source' => null,
+        ]);
+
+        $service = new SaleByProductReportQueryService();
+
+        // Setting2 only: placeholder parent is skipped even with null cost_snapshot_source; Mouse + ordinary zero-qty remain
+        $s2Dataset = $service->getDataset(new SaleByProductReportFilterData(
+            startDate: '2026-11-01',
+            endDate: '2026-11-30',
+            scopeSettingIds: [$this->setting2->id],
+        ));
+        $this->assertCount(2, $s2Dataset['rows']);
+        $this->assertNull($s2Dataset['rows']->firstWhere('product_id', $laptop->id));
+        $s2Mouse = $s2Dataset['rows']->firstWhere('product_id', $mouse->id);
+        $this->assertEquals(1.0, $s2Mouse->sold_quantity);
+        $this->assertEquals(25000.0, $s2Mouse->sold_value);
+        $s2Ordinary = $s2Dataset['rows']->firstWhere('product_id', $zeroQtyOrdinary->id);
+        $this->assertNotNull($s2Ordinary);
+        $this->assertEquals(0.0, $s2Ordinary->sold_quantity);
+        $this->assertEquals(0.0, $s2Ordinary->sold_value);
+        $this->assertEquals(0.0, $s2Ordinary->average_sales_value);
+
+        // Both settings: Laptop has 1 qty / 80,000; Mouse has 2 qty / 45,000 (20,000 + 25,000); Ordinary Zero Qty has 0 / 0
+        $bothDataset = $service->getDataset(new SaleByProductReportFilterData(
+            startDate: '2026-11-01',
+            endDate: '2026-11-30',
+            scopeSettingIds: [$this->setting1->id, $this->setting2->id],
+        ));
+        $this->assertCount(3, $bothDataset['rows']);
+        $this->assertEquals(80000.0, $bothDataset['rows']->firstWhere('product_id', $laptop->id)->sold_value);
+        $this->assertEquals(2.0, $bothDataset['rows']->firstWhere('product_id', $mouse->id)->sold_quantity);
+        $this->assertEquals(45000.0, $bothDataset['rows']->firstWhere('product_id', $mouse->id)->sold_value);
+        $this->assertEquals(125000.0, $bothDataset['totals']['sold_value']);
+    }
+
+    /** @test */
+    public function it_preserves_numeric_zero_for_non_pos_components_and_ignores_missing_or_corrupted_cost_snapshots(): void
     {
         $parent = $this->makeProduct(['product_name' => 'Paket Non POS']);
         $includedComp = $this->makeProduct(['product_name' => 'Komponen Included']);
-        $ambiguousComp = $this->makeProduct(['product_name' => 'Komponen Ambigu']);
         $standaloneComp = $this->makeProduct(['product_name' => 'Komponen Standalone']);
 
         $sale = $this->makeSale(['total_amount' => 100000]);
@@ -306,13 +422,13 @@ class SaleByProductSnapshotAndBundleTest extends TestCase
             'sub_total' => 100000,
             'product_discount_amount' => 0,
             'product_tax_amount' => 0,
-            'cost_unit_snapshot' => 50000,
-            'cost_total_snapshot' => 50000,
-            'cost_snapshot_source' => SalesCostSnapshotService::SOURCE_CURRENT_AVERAGE_PRICE,
-            'cost_snapshot_at' => now(),
+            'cost_unit_snapshot' => null,
+            'cost_total_snapshot' => null,
+            'cost_snapshot_source' => SalesCostSnapshotService::SOURCE_MISSING_AVERAGE_PRICE,
+            'cost_snapshot_at' => null,
         ]);
 
-        // Standard non-POS included component with informational_item_price (not billable)
+        // Non-POS included component with informational_item_price (not billable -> numeric 0.0)
         SaleBundleItem::create([
             'sale_id' => $sale->id,
             'sale_detail_id' => $detail->id,
@@ -325,272 +441,127 @@ class SaleByProductSnapshotAndBundleTest extends TestCase
             'informational_item_price' => 12000,
             'sub_total' => 0,
             'tax_amount' => 0,
-            'cost_unit_snapshot' => 5000,
-            'cost_total_snapshot' => 10000,
-            'cost_snapshot_source' => SalesCostSnapshotService::SOURCE_CURRENT_AVERAGE_PRICE,
-            'cost_snapshot_at' => now(),
+            'cost_unit_snapshot' => -999,
+            'cost_snapshot_source' => 'BACKFILL_ZERO_FALLBACK',
         ]);
 
-        // Ambiguous legacy non-POS component with nonzero price
-        SaleBundleItem::create([
-            'sale_id' => $sale->id,
-            'sale_detail_id' => $detail->id,
-            'bundle_id' => 1,
-            'bundle_item_id' => 2,
-            'product_id' => $ambiguousComp->id,
-            'name' => $ambiguousComp->product_name,
-            'quantity' => 1,
-            'price' => 15000,
-            'sub_total' => 15000,
-            'tax_amount' => 0,
-            'cost_unit_snapshot' => 7000,
-            'cost_total_snapshot' => 7000,
-            'cost_snapshot_source' => SalesCostSnapshotService::SOURCE_CURRENT_AVERAGE_PRICE,
-            'cost_snapshot_at' => now(),
-        ]);
-
-        // Standalone commercial bundle item (sale_detail_id = null)
+        // Standalone commercial bundle item
         SaleBundleItem::create([
             'sale_id' => $sale->id,
             'sale_detail_id' => null,
             'bundle_id' => 1,
-            'bundle_item_id' => 3,
+            'bundle_item_id' => 2,
             'product_id' => $standaloneComp->id,
             'name' => $standaloneComp->product_name,
             'quantity' => 1,
             'price' => 40000,
             'sub_total' => 40000,
             'tax_amount' => 0,
-            'cost_unit_snapshot' => 20000,
-            'cost_total_snapshot' => 20000,
-            'cost_snapshot_source' => SalesCostSnapshotService::SOURCE_CURRENT_AVERAGE_PRICE,
-            'cost_snapshot_at' => now(),
-        ]);
-
-        $dataset = (new SaleByProductReportQueryService())->getDataset(new SaleByProductReportFilterData(
-            startDate: '2026-11-01',
-            endDate: '2026-11-30',
-            scopeSettingIds: [$this->setting1->id],
-        ));
-
-        $incRow = $dataset['rows']->firstWhere('product_id', $includedComp->id);
-        $this->assertEquals('included', $incRow->sold_value_status);
-        $this->assertNull($incRow->sold_value);
-        $this->assertNull($incRow->average_sales_value);
-        $this->assertEquals(10000.0, $incRow->total_cost);
-
-        $ambRow = $dataset['rows']->firstWhere('product_id', $ambiguousComp->id);
-        $this->assertEquals('unavailable', $ambRow->sold_value_status);
-        $this->assertNull($ambRow->sold_value);
-        $this->assertEquals(7000.0, $ambRow->total_cost);
-
-        $stdRow = $dataset['rows']->firstWhere('product_id', $standaloneComp->id);
-        $this->assertEquals('complete', $stdRow->sold_value_status);
-        $this->assertEquals(40000.0, $stdRow->sold_value);
-        $this->assertEquals('component', $stdRow->sale_role);
-
-        // Parent keeps full 100,000 (not reduced by included or ambiguous components)
-        $parentRow = $dataset['rows']->firstWhere('product_id', $parent->id);
-        $this->assertEquals(100000.0, $parentRow->sold_value);
-
-        // Grand total marks sold_value_partial = true because of ambiguous row
-        $this->assertEquals(140000.0, $dataset['totals']['sold_value']);
-        $this->assertTrue($dataset['totals']['sold_value_partial']);
-    }
-
-    /** @test */
-    public function it_calculates_weighted_multi_business_hpp_and_distinguishes_valid_zero_from_missing(): void
-    {
-        $prodWeighted = $this->makeProduct(['product_name' => 'Produk Weighted']);
-        $prodZeroValid = $this->makeProduct(['product_name' => 'Jasa Non Stok', 'stock_managed' => false]);
-        $prodMissing = $this->makeProduct(['product_name' => 'Produk Missing HPP']);
-
-        $sale1 = $this->makeSale(['setting_id' => $this->setting1->id]);
-        $sale2 = $this->makeSale(['setting_id' => $this->setting2->id]);
-
-        // 2 * 100 + 3 * 200 = 800; weighted avg = 160
-        SaleDetails::create([
-            'sale_id' => $sale1->id,
-            'product_id' => $prodWeighted->id,
-            'product_name' => $prodWeighted->product_name,
-            'product_code' => $prodWeighted->product_code,
-            'quantity' => 2,
-            'price' => 500,
-            'unit_price' => 500,
-            'sub_total' => 1000,
-            'product_discount_amount' => 0,
-            'product_tax_amount' => 0,
-            'cost_unit_snapshot' => 100,
-            'cost_total_snapshot' => 200,
-            'cost_snapshot_source' => SalesCostSnapshotService::SOURCE_CURRENT_AVERAGE_PRICE,
-            'cost_snapshot_at' => now(),
-        ]);
-        SaleDetails::create([
-            'sale_id' => $sale2->id,
-            'product_id' => $prodWeighted->id,
-            'product_name' => $prodWeighted->product_name,
-            'product_code' => $prodWeighted->product_code,
-            'quantity' => 3,
-            'price' => 500,
-            'unit_price' => 500,
-            'sub_total' => 1500,
-            'product_discount_amount' => 0,
-            'product_tax_amount' => 0,
-            'cost_unit_snapshot' => 200,
-            'cost_total_snapshot' => 600,
-            'cost_snapshot_source' => 'BACKFILL_HISTORICAL_AVG',
-            'cost_snapshot_at' => now(),
-        ]);
-
-        // Valid zero (NON_STOCK_MANAGED)
-        SaleDetails::create([
-            'sale_id' => $sale1->id,
-            'product_id' => $prodZeroValid->id,
-            'product_name' => $prodZeroValid->product_name,
-            'product_code' => $prodZeroValid->product_code,
-            'quantity' => 1,
-            'price' => 10000,
-            'unit_price' => 10000,
-            'sub_total' => 10000,
-            'product_discount_amount' => 0,
-            'product_tax_amount' => 0,
-            'cost_unit_snapshot' => 0,
-            'cost_total_snapshot' => 0,
-            'cost_snapshot_source' => SalesCostSnapshotService::SOURCE_NON_STOCK_MANAGED,
-            'cost_snapshot_at' => now(),
-        ]);
-
-        // Missing average price recorded as 0 -> must stay incomplete!
-        SaleDetails::create([
-            'sale_id' => $sale1->id,
-            'product_id' => $prodMissing->id,
-            'product_name' => $prodMissing->product_name,
-            'product_code' => $prodMissing->product_code,
-            'quantity' => 1,
-            'price' => 5000,
-            'unit_price' => 5000,
-            'sub_total' => 5000,
-            'product_discount_amount' => 0,
-            'product_tax_amount' => 0,
-            'cost_unit_snapshot' => 0,
-            'cost_total_snapshot' => 0,
-            'cost_snapshot_source' => SalesCostSnapshotService::SOURCE_MISSING_AVERAGE_PRICE,
-            'cost_snapshot_at' => now(),
         ]);
 
         $filter = new SaleByProductReportFilterData(
             startDate: '2026-11-01',
             endDate: '2026-11-30',
-            scopeSettingIds: [$this->setting1->id, $this->setting2->id],
+            scopeSettingIds: [$this->setting1->id],
         );
 
-        $service = new SaleByProductReportQueryService();
-        $dataset = $service->getDataset($filter);
+        $dataset = (new SaleByProductReportQueryService())->getDataset($filter);
 
-        $wRow = $dataset['rows']->firstWhere('product_id', $prodWeighted->id);
-        $this->assertEquals(5.0, $wRow->sold_quantity);
-        $this->assertEquals(800.0, $wRow->total_cost);
-        $this->assertEquals(160.0, $wRow->average_cost);
-        $this->assertEquals('complete', $wRow->cost_status);
+        $incRow = $dataset['rows']->firstWhere('product_id', $includedComp->id);
+        $this->assertSame(0.0, $incRow->sold_value);
+        $this->assertSame(0.0, $incRow->average_sales_value);
 
-        $zRow = $dataset['rows']->firstWhere('product_id', $prodZeroValid->id);
-        $this->assertEquals(0.0, $zRow->total_cost);
-        $this->assertEquals(0.0, $zRow->average_cost);
-        $this->assertEquals('complete', $zRow->cost_status);
+        $stdRow = $dataset['rows']->firstWhere('product_id', $standaloneComp->id);
+        $this->assertSame(40000.0, $stdRow->sold_value);
 
-        $mRow = $dataset['rows']->firstWhere('product_id', $prodMissing->id);
-        $this->assertNull($mRow->total_cost);
-        $this->assertNull($mRow->average_cost);
-        $this->assertEquals('missing', $mRow->cost_status);
+        $parentRow = $dataset['rows']->firstWhere('product_id', $parent->id);
+        $this->assertSame(100000.0, $parentRow->sold_value);
+        $this->assertSame(140000.0, $dataset['totals']['sold_value']);
 
-        $this->assertTrue($dataset['totals']['total_cost_partial']);
-        $this->assertEquals(800.0, $dataset['totals']['total_cost']);
+        // Verify stored cost snapshot was not mutated
+        $this->assertEquals(
+            SalesCostSnapshotService::SOURCE_MISSING_AVERAGE_PRICE,
+            SaleDetails::find($detail->id)->cost_snapshot_source
+        );
 
-        // Verify export parity: valid zero stays numeric 0.0, missing average exports blank '' with reason
-        $export = new SaleByProductReportExport($dataset, $filter, false);
-        $exported = $export->array();
-        $exportedZero = collect($exported)->first(fn ($r) => $r[1] === $prodZeroValid->product_name);
-        $exportedMissing = collect($exported)->first(fn ($r) => $r[1] === $prodMissing->product_name);
-
-        $this->assertSame(0.0, $exportedZero[8]);
-        $this->assertSame(0.0, $exportedZero[9]);
-        $this->assertSame('Lengkap', $exportedZero[10]);
-
-        $this->assertSame('', $exportedMissing[8]);
-        $this->assertSame('', $exportedMissing[9]);
-        $this->assertSame('Modal belum lengkap', $exportedMissing[10]);
-
-        // Verify serialized CSV preserves numeric 0 for valid zero row (WithStrictNullComparison)
-        $csvRaw = \Maatwebsite\Excel\Facades\Excel::raw(
-            new SaleByProductReportExport($dataset, $filter, true),
-            \Maatwebsite\Excel\Excel::CSV
+        // Verify serialized CSV preserves numeric 0.00 and has exactly 6 columns
+        $csvRaw = ltrim(
+            Excel::raw(new SaleByProductReportExport($dataset, $filter, true), \Maatwebsite\Excel\Excel::CSV),
+            "\xEF\xBB\xBF"
         );
         $csvLines = array_values(array_filter(array_map('str_getcsv', preg_split('/\r\n|\r|\n/', trim($csvRaw)))));
-        $csvZeroRow = collect($csvLines)->first(fn ($r) => ($r[1] ?? '') === $prodZeroValid->product_name);
-        $csvMissingRow = collect($csvLines)->first(fn ($r) => ($r[1] ?? '') === $prodMissing->product_name);
+        $csvHeader = $csvLines[0];
+        $this->assertSame([
+            'Kode Produk',
+            'Nama Produk',
+            'Kuantitas Terjual',
+            'Satuan',
+            'Total Nilai terjual',
+            'Harga Penjualan Rata-rata',
+        ], $csvHeader);
 
-        $this->assertNotNull($csvZeroRow);
-        $this->assertSame('0.00', $csvZeroRow[8]);
-        $this->assertSame('0.00', $csvZeroRow[9]);
-        $this->assertSame('', $csvMissingRow[8]);
-        $this->assertSame('', $csvMissingRow[9]);
+        $csvZeroRow = collect($csvLines)->first(fn ($r) => ($r[1] ?? '') === $includedComp->product_name);
+        $this->assertCount(6, $csvZeroRow);
+        $this->assertSame('0.00', $csvZeroRow[4]);
+        $this->assertSame('0.00', $csvZeroRow[5]);
+
+        // Verify serialized XLSX has exactly 6 columns (A:F), metadata merges A1:F4, and single sheet
+        $xlsxRaw = Excel::raw(new SaleByProductReportExport($dataset, $filter, false), \Maatwebsite\Excel\Excel::XLSX);
+        $tmpFile = tempnam(sys_get_temp_dir(), 'sbp_xlsx_');
+        file_put_contents($tmpFile, $xlsxRaw);
+        try {
+            $spreadsheet = IOFactory::load($tmpFile);
+            $this->assertSame(1, $spreadsheet->getSheetCount());
+            $sheet = $spreadsheet->getActiveSheet();
+            $this->assertSame('F', $sheet->getHighestColumn());
+            $merges = $sheet->getMergeCells();
+            $this->assertArrayHasKey('A1:F1', $merges);
+            $this->assertArrayHasKey('A2:F2', $merges);
+            $this->assertArrayHasKey('A3:F3', $merges);
+            $this->assertArrayHasKey('A4:F4', $merges);
+            $this->assertSame('Kode Produk', $sheet->getCell('A6')->getValue());
+            $this->assertSame('Harga Penjualan Rata-rata', $sheet->getCell('F6')->getValue());
+        } finally {
+            @unlink($tmpFile);
+        }
     }
 
     /** @test */
-    public function it_marks_backfill_zero_fallback_as_incomplete_while_keeping_backfill_running_average_complete(): void
+    public function it_renders_exact_six_columns_on_screen_without_role_modal_or_status_labels(): void
     {
-        $prodFallback = $this->makeProduct(['product_name' => 'Produk Backfill Zero Fallback']);
-        $prodValidBackfill = $this->makeProduct(['product_name' => 'Produk Backfill Running Avg']);
-
+        $product = $this->makeProduct(['product_name' => 'Produk Six Col', 'product_code' => 'SC-01']);
         $sale = $this->makeSale();
         SaleDetails::create([
             'sale_id' => $sale->id,
-            'product_id' => $prodFallback->id,
-            'product_name' => $prodFallback->product_name,
-            'product_code' => $prodFallback->product_code,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
             'quantity' => 2,
-            'price' => 5000,
-            'unit_price' => 5000,
-            'sub_total' => 10000,
+            'price' => 50000,
+            'unit_price' => 50000,
+            'sub_total' => 100000,
             'product_discount_amount' => 0,
             'product_tax_amount' => 0,
-            'cost_unit_snapshot' => 0,
-            'cost_total_snapshot' => 0,
-            'cost_snapshot_source' => 'BACKFILL_ZERO_FALLBACK',
-            'cost_snapshot_at' => now(),
-        ]);
-        SaleDetails::create([
-            'sale_id' => $sale->id,
-            'product_id' => $prodValidBackfill->id,
-            'product_name' => $prodValidBackfill->product_name,
-            'product_code' => $prodValidBackfill->product_code,
-            'quantity' => 2,
-            'price' => 5000,
-            'unit_price' => 5000,
-            'sub_total' => 10000,
-            'product_discount_amount' => 0,
-            'product_tax_amount' => 0,
-            'cost_unit_snapshot' => 2500,
-            'cost_total_snapshot' => 5000,
-            'cost_snapshot_source' => 'BACKFILL_RUNNING_AVERAGE',
-            'cost_snapshot_at' => now(),
         ]);
 
-        $dataset = (new SaleByProductReportQueryService())->getDataset(new SaleByProductReportFilterData(
-            startDate: '2026-11-01',
-            endDate: '2026-11-30',
-            scopeSettingIds: [$this->setting1->id],
-        ));
-
-        $fallbackRow = $dataset['rows']->firstWhere('product_id', $prodFallback->id);
-        $this->assertEquals('missing', $fallbackRow->cost_status);
-        $this->assertNull($fallbackRow->total_cost);
-        $this->assertNull($fallbackRow->average_cost);
-
-        $validRow = $dataset['rows']->firstWhere('product_id', $prodValidBackfill->id);
-        $this->assertEquals('complete', $validRow->cost_status);
-        $this->assertEquals(5000.0, $validRow->total_cost);
-        $this->assertEquals(2500.0, $validRow->average_cost);
+        Livewire::test(SaleByProductReport::class)
+            ->set('startDate', '2026-11-01')
+            ->set('endDate', '2026-11-30')
+            ->call('applyFilters')
+            ->assertSeeInOrder([
+                'Kode Produk',
+                'Nama Produk',
+                'Kuantitas Terjual',
+                'Satuan',
+                'Total Nilai terjual',
+                'Harga Penjualan Rata-rata',
+            ])
+            ->assertSee('Produk Six Col')
+            ->assertDontSee('Dijual sebagai')
+            ->assertDontSee('Total Modal')
+            ->assertDontSee('Modal Rata-rata/unit')
+            ->assertDontSee('Included in bundle')
+            ->assertDontSee('Modal belum lengkap');
     }
 
     /** @test */
@@ -612,10 +583,6 @@ class SaleByProductSnapshotAndBundleTest extends TestCase
                 'sub_total' => 10000,
                 'product_discount_amount' => 0,
                 'product_tax_amount' => 0,
-                'cost_unit_snapshot' => 5000,
-                'cost_total_snapshot' => 5000,
-                'cost_snapshot_source' => SalesCostSnapshotService::SOURCE_CURRENT_AVERAGE_PRICE,
-                'cost_snapshot_at' => now(),
             ]);
         }
 
@@ -636,11 +603,125 @@ class SaleByProductSnapshotAndBundleTest extends TestCase
     }
 
     /** @test */
-    public function it_maintains_bounded_query_count_regardless_of_result_size(): void
+    public function it_handles_over_500_source_rows_across_detail_and_component_chunk_boundaries(): void
+    {
+        $repeatedProduct = $this->makeProduct(['product_name' => 'Repeated Chunk Product', 'product_code' => 'RCP-01']);
+        $sale = $this->makeSale(['total_amount' => 1000000]);
+        $this->linkPosSale($sale);
+
+        $detailRows = [];
+        $now = now()->toDateTimeString();
+        for ($i = 0; $i < 520; $i++) {
+            $detailRows[] = [
+                'sale_id' => $sale->id,
+                'product_id' => $repeatedProduct->id,
+                'product_name' => $repeatedProduct->product_name,
+                'product_code' => $repeatedProduct->product_code,
+                'quantity' => 1,
+                'price' => 1000,
+                'unit_price' => 1000,
+                'sub_total' => 1000,
+                'product_discount_amount' => 0,
+                'product_tax_amount' => 0,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+        foreach (array_chunk($detailRows, 200) as $chunk) {
+            DB::table('sale_details')->insert($chunk);
+        }
+
+        $bundleRows = [];
+        for ($i = 0; $i < 510; $i++) {
+            $bundleRows[] = [
+                'sale_id' => $sale->id,
+                'sale_detail_id' => null,
+                'bundle_id' => 1,
+                'bundle_item_id' => 1,
+                'product_id' => $repeatedProduct->id,
+                'name' => $repeatedProduct->product_name,
+                'quantity' => 1,
+                'price' => 500,
+                'sub_total' => 500,
+                'tax_amount' => 0,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+        foreach (array_chunk($bundleRows, 200) as $chunk) {
+            DB::table('sale_bundle_items')->insert($chunk);
+        }
+
+        $filter = new SaleByProductReportFilterData(
+            startDate: '2026-11-01',
+            endDate: '2026-11-30',
+            scopeSettingIds: [$this->setting1->id],
+        );
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $dataset = (new SaleByProductReportQueryService())->getDataset($filter);
+        $queryCount = count(DB::getQueryLog());
+        DB::disableQueryLog();
+
+        // All 520 details + 510 bundle items merge into 1 row: qty 1030, value 520*1000 + 510*500 = 775,000
+        $this->assertCount(1, $dataset['rows']);
+        $row = $dataset['rows']->first();
+        $this->assertEquals(1030.0, $row->sold_quantity);
+        $this->assertEquals(775000.0, $row->sold_value);
+        $this->assertEqualsWithDelta(775000.0 / 1030.0, $row->average_sales_value, 0.01);
+        $this->assertEquals(775000.0, $dataset['totals']['sold_value']);
+
+        // Bounded SQL queries (1 aggregated query + 2 one-time schema checks)
+        $this->assertLessThanOrEqual(5, $queryCount);
+    }
+
+    /** @test */
+    public function it_does_not_rerun_report_queries_during_draft_filter_searches(): void
+    {
+        $product = $this->makeProduct(['product_name' => 'Draft Search Product', 'product_code' => 'DSP-01']);
+        $sale = $this->makeSale();
+        SaleDetails::create([
+            'sale_id' => $sale->id,
+            'product_id' => $product->id,
+            'product_name' => $product->product_name,
+            'product_code' => $product->product_code,
+            'quantity' => 1,
+            'price' => 10000,
+            'unit_price' => 10000,
+            'sub_total' => 10000,
+            'product_discount_amount' => 0,
+            'product_tax_amount' => 0,
+        ]);
+
+        $component = Livewire::test(SaleByProductReport::class)
+            ->set('startDate', '2026-11-01')
+            ->set('endDate', '2026-11-30')
+            ->call('applyFilters')
+            ->assertSee('Draft Search Product');
+
+        // Typing in customerSearch and productSearch must NOT query sale_details or sale_bundle_items
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $component
+            ->set('customerSearch', 'Customer')
+            ->set('productSearch', 'Draft')
+            ->assertSee('Draft Search Product');
+        $queries = collect(DB::getQueryLog())->pluck('query');
+        DB::disableQueryLog();
+
+        $reportQueries = $queries->filter(
+            fn (string $sql) => str_contains($sql, 'sale_details') || str_contains($sql, 'sale_bundle_items')
+        );
+        $this->assertCount(0, $reportQueries, 'Draft filter searches should not rerun report aggregation queries.');
+    }
+
+    /** @test */
+    public function it_calls_paginate_exactly_once_per_apply_including_from_another_page(): void
     {
         $sale = $this->makeSale();
         for ($i = 1; $i <= 20; $i++) {
-            $p = $this->makeProduct(['product_name' => "Bounded Item {$i}"]);
+            $p = $this->makeProduct(['product_name' => sprintf('Paginated Product %02d', $i)]);
             SaleDetails::create([
                 'sale_id' => $sale->id,
                 'product_id' => $p->id,
@@ -652,27 +733,47 @@ class SaleByProductSnapshotAndBundleTest extends TestCase
                 'sub_total' => 1000,
                 'product_discount_amount' => 0,
                 'product_tax_amount' => 0,
-                'cost_unit_snapshot' => 500,
-                'cost_total_snapshot' => 500,
-                'cost_snapshot_source' => SalesCostSnapshotService::SOURCE_CURRENT_AVERAGE_PRICE,
-                'cost_snapshot_at' => now(),
             ]);
         }
 
-        $filter = new SaleByProductReportFilterData(
-            startDate: '2026-11-01',
-            endDate: '2026-11-30',
-            scopeSettingIds: [$this->setting1->id],
-            categoryIds: [$this->atkRoot->id],
-        );
+        $paginateCalls = 0;
+        $countingService = new class($paginateCalls) extends SaleByProductReportQueryService {
+            public int $calls;
+            public function __construct(int &$calls)
+            {
+                parent::__construct();
+                $this->calls = &$calls;
+            }
+            public function paginate(
+                SaleByProductReportFilterData $filter,
+                int $perPage = 15,
+                ?int $page = null,
+                ?array $precomputedDataset = null
+            ): array {
+                $this->calls++;
+                return parent::paginate($filter, $perPage, $page, $precomputedDataset);
+            }
+        };
+        $this->app->instance(SaleByProductReportQueryService::class, $countingService);
 
-        DB::flushQueryLog();
-        DB::enableQueryLog();
-        (new SaleByProductReportQueryService())->getDataset($filter);
-        $queryCount = count(DB::getQueryLog());
-        DB::disableQueryLog();
+        $component = Livewire::test(SaleByProductReport::class)
+            ->set('startDate', '2026-11-01')
+            ->set('endDate', '2026-11-30')
+            ->call('applyFilters');
 
-        // Constant O(1) queries (category tree + schema checks + details + siblings + bundle items), never per-row.
-        $this->assertLessThanOrEqual(10, $queryCount);
+        $this->assertSame(1, $paginateCalls, 'Initial Apply should call paginate() exactly once.');
+        $this->assertSame(1, $component->get('loadedPage'));
+
+        // Move to page 2 -> exactly 1 more paginate() call
+        $paginateCalls = 0;
+        $component->call('setPage', 2);
+        $this->assertSame(1, $paginateCalls, 'Switching to page 2 should call paginate() exactly once.');
+        $this->assertSame(2, $component->get('loadedPage'));
+
+        // Re-apply from page 2 -> must reset to page 1 and call paginate() exactly ONCE (not twice!)
+        $paginateCalls = 0;
+        $component->call('applyFilters');
+        $this->assertSame(1, $paginateCalls, 'Re-applying from page 2 must call paginate() exactly once.');
+        $this->assertSame(1, $component->get('loadedPage'));
     }
 }

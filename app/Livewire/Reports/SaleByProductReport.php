@@ -64,7 +64,14 @@ class SaleByProductReport extends Component
     public $productLabels = [];
 
     protected $paginationTheme = 'bootstrap';
-    protected ?array $cachedDataset = null;
+
+    /** @var array<int, array<string, mixed>> */
+    public array $loadedRows = [];
+    public int $loadedTotalRows = 0;
+    public float $loadedGrandTotalSold = 0.0;
+    public int $loadedPage = 1;
+    private const PER_PAGE = 15;
+    private bool $suppressPaginationReload = false;
 
     public function mount()
     {
@@ -77,7 +84,14 @@ class SaleByProductReport extends Component
 
     public function updatedSelectedSettingIds(): void
     {
-        $this->resetPage();
+        // Draft business selection does not mutate the currently applied page until Apply.
+    }
+
+    public function updatedPaginators($page, $pageName): void
+    {
+        if ($pageName === 'page' && $this->filterTriggered && !$this->suppressPaginationReload) {
+            $this->loadAppliedPage(app(SaleByProductReportQueryService::class), (int) $page);
+        }
     }
 
     public function updatedPeriodPreset($value): void
@@ -607,16 +621,60 @@ class SaleByProductReport extends Component
             ]);
 
             $this->filterTriggered = true;
+            $this->suppressPaginationReload = true;
+            try {
+                $this->resetPage();
+            } finally {
+                $this->suppressPaginationReload = false;
+            }
 
             $filter = SaleByProductReportFilterData::fromArray($this->appliedFilters);
-            $this->cachedDataset = $queryService->getDataset($filter);
-            $snapshotService->createSnapshot($filter, $this->cachedDataset['totals']['row_count']);
-
-            $this->resetPage();
+            $this->loadAppliedPage($queryService, 1, $filter);
+            $snapshotService->createSnapshot($filter, $this->loadedTotalRows);
         } catch (ValidationException $e) {
             $this->filterTriggered = false;
             throw $e;
         }
+    }
+
+    private function loadAppliedPage(
+        SaleByProductReportQueryService $queryService,
+        int $page = 1,
+        ?SaleByProductReportFilterData $filter = null
+    ): void {
+        $availableSettings = $this->getAvailableSettings();
+        $effectiveSettingIds = $this->validateSettingIds($this->getEffectiveSettingIds(), $availableSettings);
+
+        if ($filter === null) {
+            $appliedSettingIds = $this->validateSettingIds(
+                $this->appliedFilters['scopeSettingIds'] ?? $effectiveSettingIds,
+                $availableSettings
+            );
+
+            $filter = SaleByProductReportFilterData::fromArray(array_merge($this->appliedFilters, [
+                'scopeSettingIds' => $appliedSettingIds,
+            ]));
+        }
+
+        $paginated = $queryService->paginate($filter, self::PER_PAGE, max(1, $page));
+        $paginator = $paginated['paginator'];
+        $totals = $paginated['totals'];
+
+        $this->loadedPage = $paginator->currentPage();
+        $this->loadedTotalRows = (int) $totals['row_count'];
+        $this->loadedGrandTotalSold = (float) $totals['sold_value'];
+        $this->loadedRows = $paginator->getCollection()
+            ->map(fn (object $row) => [
+                'product_id' => $row->product_id,
+                'product_code' => $row->product_code,
+                'product_name' => $row->product_name,
+                'unit_name' => $row->unit_name,
+                'sold_quantity' => $row->sold_quantity,
+                'sold_value' => $row->sold_value,
+                'average_sales_value' => $row->average_sales_value,
+            ])
+            ->values()
+            ->all();
     }
 
     public function exportExcel(
@@ -711,7 +769,7 @@ class SaleByProductReport extends Component
         return $resolved;
     }
 
-    public function render(SaleByProductReportQueryService $queryService)
+    public function render()
     {
         $availableSettings = $this->getAvailableSettings();
         $effectiveSettingIds = $this->validateSettingIds($this->getEffectiveSettingIds(), $availableSettings);
@@ -719,28 +777,17 @@ class SaleByProductReport extends Component
 
         $products = collect();
         $grandTotalSold = 0.0;
-        $grandTotalSoldPartial = false;
-        $grandTotalCost = 0.0;
-        $grandTotalCostPartial = false;
 
         if ($this->filterTriggered) {
-            $appliedSettingIds = $this->validateSettingIds(
-                $this->appliedFilters['scopeSettingIds'] ?? $effectiveSettingIds,
-                $availableSettings
+            $slice = collect($this->loadedRows)->map(fn (array $row) => (object) $row);
+            $products = new \Illuminate\Pagination\LengthAwarePaginator(
+                $slice,
+                $this->loadedTotalRows,
+                self::PER_PAGE,
+                $this->loadedPage,
+                ['path' => \Illuminate\Pagination\LengthAwarePaginator::resolveCurrentPath()]
             );
-
-            $filter = SaleByProductReportFilterData::fromArray(array_merge($this->appliedFilters, [
-                'scopeSettingIds' => $appliedSettingIds,
-            ]));
-
-            $paginated = $queryService->paginate($filter, 15, (int) $this->getPage(), $this->cachedDataset);
-            $products = $paginated['paginator'];
-            $totals = $paginated['totals'];
-
-            $grandTotalSold = $totals['sold_value'];
-            $grandTotalSoldPartial = $totals['sold_value_partial'];
-            $grandTotalCost = $totals['total_cost'];
-            $grandTotalCostPartial = $totals['total_cost_partial'];
+            $grandTotalSold = $this->loadedGrandTotalSold;
         }
 
         return view('livewire.reports.sale-by-product-report', [
@@ -749,9 +796,6 @@ class SaleByProductReport extends Component
             'scopeLabel' => $scopeLabel,
             'products' => $products,
             'grandTotalSold' => $grandTotalSold,
-            'grandTotalSoldPartial' => $grandTotalSoldPartial,
-            'grandTotalCost' => $grandTotalCost,
-            'grandTotalCostPartial' => $grandTotalCostPartial,
             'hasPendingFilterChanges' => $this->hasPendingFilterChanges,
             'appliedSummary' => $this->buildAppliedSummary($availableSettings),
         ]);

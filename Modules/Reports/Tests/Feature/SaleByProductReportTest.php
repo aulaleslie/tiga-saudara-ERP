@@ -410,31 +410,27 @@ class SaleByProductReportTest extends TestCase
         $this->assertEquals([
             'Kode Produk',
             'Nama Produk',
-            'Dijual sebagai',
             'Kuantitas Terjual',
             'Satuan',
             'Total Nilai terjual',
             'Harga Penjualan Rata-rata',
-            'Status Nilai Terjual',
-            'Total Modal',
-            'Modal Rata-rata/unit',
-            'Status Modal',
         ], $export->headings());
 
         $arrayData = $export->array();
         $mapped = $arrayData[0]; // first row is data
 
+        $this->assertCount(6, $mapped);
         $this->assertEquals('P-001', $mapped[0]);
         $this->assertEquals($product->product_name, $mapped[1]);
-        $this->assertEquals('Penjualan langsung / paket', $mapped[2]);
-        $this->assertEquals(10.0, $mapped[3]);
-        $this->assertEquals(10000.0, $mapped[5]);
-        $this->assertEquals(1000.0, $mapped[6]);
+        $this->assertEquals(10.0, $mapped[2]);
+        $this->assertEquals(10000.0, $mapped[4]);
+        $this->assertEquals(1000.0, $mapped[5]);
 
         // Assert grand total is in last row
         $totalRow = $arrayData[1];
+        $this->assertCount(6, $totalRow);
         $this->assertEquals('Total Keseluruhan', $totalRow[0]);
-        $this->assertEquals(10000.0, $totalRow[5]);
+        $this->assertEquals(10000.0, $totalRow[4]);
     }
 
     /** @test */
