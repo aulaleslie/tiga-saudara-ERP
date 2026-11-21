@@ -43,6 +43,25 @@ class ExpenseFormTest extends TestCase
         $this->assertNull($detail->tax_id, 'Tax identifier should be stored as NULL when not provided.');
     }
 
+    public function test_comma_decimal_amount_keeps_cents_through_formatting_and_save(): void
+    {
+        $category = ExpenseCategory::create(['category_name' => 'Travel']);
+
+        Livewire::test(ExpenseForm::class)
+            ->set('date', now()->format('Y-m-d'))
+            ->set('category_id', $category->id)
+            ->set('details', [['name' => 'Taxi', 'amount' => '1.234,50']])
+            ->assertSet('totalFormatted', 'Rp 1.234,50')
+            ->call('formatAmount', 0)
+            ->assertSet('details.0.amount', 'Rp 1.234,50')
+            ->call('unformatAmount', 0)
+            ->assertSet('details.0.amount', 1234.5)
+            ->call('saveDraft')
+            ->assertHasNoErrors();
+
+        $this->assertEquals(1234.5, ExpenseDetail::firstOrFail()->amount);
+    }
+
     public function test_editing_expense_updates_rows_taxes_and_total(): void
     {
         $currency = \Modules\Currency\Entities\Currency::create([
@@ -114,7 +133,7 @@ class ExpenseFormTest extends TestCase
                     'id' => $detailWithTax->id,
                     'name' => 'Taxi Ride',
                     'tax_id' => $tax->id,
-                    'amount' => '75000',
+                    'amount' => '75.000,50',
                 ],
                 [
                     'name' => 'Hotel Stay',
@@ -135,7 +154,7 @@ class ExpenseFormTest extends TestCase
             'id' => $detailWithTax->id,
             'name' => 'TAXI RIDE',
             'tax_id' => $tax->id,
-            'amount' => 75000.00,
+            'amount' => 75000.50,
         ]);
 
         $this->assertDatabaseMissing('expense_details', [
@@ -150,7 +169,7 @@ class ExpenseFormTest extends TestCase
             'amount' => 125000.00,
         ]);
 
-        $this->assertEquals(207500.0, $expense->amount);
+        $this->assertEquals(207500.55, $expense->amount);
 
         $this->assertCount(1, $expense->getMedia('attachments'));
         $this->assertEquals('new-receipt.pdf', $expense->getMedia('attachments')->first()->file_name);
@@ -201,8 +220,8 @@ class ExpenseFormTest extends TestCase
                     'amount' => '100000',
                 ],
             ])
-            ->assertSet('totalBeforeTaxFormatted', 'Rp 90.090')
-            ->assertSet('totalTaxFormatted', 'Rp 9.910')
+            ->assertSet('totalBeforeTaxFormatted', 'Rp 90.090,09')
+            ->assertSet('totalTaxFormatted', 'Rp 9.909,91')
             ->assertSet('totalFormatted', 'Rp 100.000')
             ->call('saveDraft')
             ->assertHasNoErrors()

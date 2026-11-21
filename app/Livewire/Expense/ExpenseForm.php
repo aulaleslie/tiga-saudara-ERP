@@ -169,8 +169,7 @@ class ExpenseForm extends Component
         }
 
         $amount = $this->details[$index]['amount'];
-        $amount = floatval(preg_replace('/[^0-9]/', '', $amount));
-        $this->details[$index]['amount'] = 'Rp ' . number_format($amount, 0, ',', '.');
+        $this->details[$index]['amount'] = $this->formatRupiah($this->parseAmount($amount));
     }
 
     public function unformatAmount($index): void
@@ -179,8 +178,7 @@ class ExpenseForm extends Component
             return;
         }
 
-        $raw = preg_replace('/[^0-9]/', '', $this->details[$index]['amount']);
-        $this->details[$index]['amount'] = floatval($raw);
+        $this->details[$index]['amount'] = $this->parseAmount($this->details[$index]['amount']);
     }
 
     public function updatedIsTaxIncluded(): void
@@ -398,7 +396,7 @@ class ExpenseForm extends Component
 
     private function formatRupiah($number): string
     {
-        return 'Rp ' . number_format($number, 0, ',', '.');
+        return 'Rp ' . number_format((float) $number, fmod((float) $number, 1.0) === 0.0 ? 0 : 2, ',', '.');
     }
 
     private function normalizeAmounts(): void
@@ -406,7 +404,7 @@ class ExpenseForm extends Component
         $normalized = [];
 
         foreach ($this->details as $row) {
-            $amount = floatval(preg_replace('/[^0-9]/', '', $row['amount']));
+            $amount = $this->parseAmount($row['amount']);
             $taxId = $row['tax_id'] ?? null;
             $taxId = empty($taxId) ? null : (int) $taxId;
 
@@ -491,8 +489,20 @@ class ExpenseForm extends Component
 
     private function extractFloat($value): float
     {
-        $clean = preg_replace('/[^0-9]/', '', $value);
+        return $this->parseAmount($value);
+    }
 
-        return floatval($clean);
+    private function parseAmount($value): float
+    {
+        $clean = preg_replace('/[^0-9,.]/', '', (string) $value);
+
+        if (str_contains($clean, ',')) {
+            // Indonesian display: dots group thousands and comma marks cents.
+            $clean = str_replace(',', '.', str_replace('.', '', $clean));
+        } elseif (preg_match('/^\d{1,3}(?:\.\d{3})+$/', $clean)) {
+            $clean = str_replace('.', '', $clean);
+        }
+
+        return (float) $clean;
     }
 }
