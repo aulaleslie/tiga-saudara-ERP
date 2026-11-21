@@ -1397,12 +1397,11 @@ class PurchaseController extends Controller
                                     : $dppUnitCost;
 
                                 $productPrice->update([
-                                    'last_purchase_price' => $purchaseDetail->price,
                                     'average_purchase_price' => $newAveragePrice,
                                 ]);
 
                                 app(\Modules\Product\Services\ProductLastPurchasePriceSynchronizer::class)
-                                    ->syncLastPurchasePrice($product->id, $purchaseDetail->price);
+                                    ->syncLastPurchasePrice($product->id, (int) $settingId, $purchaseDetail->price);
 
                                 app(\Modules\Product\Services\ProductAveragePriceSynchronizer::class)
                                     ->syncAveragePurchasePrice($product->id, $newAveragePrice);

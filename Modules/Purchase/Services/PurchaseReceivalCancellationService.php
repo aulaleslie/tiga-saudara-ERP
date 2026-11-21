@@ -694,7 +694,7 @@ class PurchaseReceivalCancellationService
 
             // Fetch last effective approved purchase detail price if available, otherwise reset to 0.0
             // Order chronologically by approved_at desc with id desc as a deterministic tie-breaker
-            $lastApprovedRnDetail = ReceivedNoteDetail::query()
+            $approvedDetails = ReceivedNoteDetail::query()
                 ->where('product_id', $productId)
                 ->whereHas('receivedNote', function ($q) {
                     $q->where('status', ReceivedNote::STATUS_APPROVED);
@@ -702,16 +702,19 @@ class PurchaseReceivalCancellationService
                 ->join('received_notes', 'received_note_details.received_note_id', '=', 'received_notes.id')
                 ->orderBy('received_notes.approved_at', 'desc')
                 ->orderBy('received_note_details.id', 'desc')
-                ->select('received_note_details.*')
-                ->first();
+                ->select('received_note_details.*');
 
-            $lastPrice = 0.0;
-            if ($lastApprovedRnDetail && $lastApprovedRnDetail->purchaseDetail) {
-                $lastPrice = (float) $lastApprovedRnDetail->purchaseDetail->price;
-            }
+            // Preserve the legacy product-wide value, but recompute the tenant price
+            // only from approved purchases belonging to this business.
+            $legacyLastDetail = (clone $approvedDetails)->first();
+            $lastApprovedRnDetail = (clone $approvedDetails)
+                ->whereHas('purchaseDetail.purchase', fn ($q) => $q->where('setting_id', $purchase->setting_id))
+                ->first();
+            $legacyLastPrice = (float) ($legacyLastDetail?->purchaseDetail?->price ?? 0);
+            $lastPrice = (float) ($lastApprovedRnDetail?->purchaseDetail?->price ?? 0);
 
             $this->averagePriceSync->syncAveragePurchasePrice($productId, $averageCost);
-            $this->lastPriceSync->syncLastPurchasePrice($productId, $lastPrice);
+            $this->lastPriceSync->syncLastPurchasePrice($productId, (int) $purchase->setting_id, $lastPrice);
 
             // Sync legacy product fields on products table directly
             $prod = Product::find($productId);
@@ -720,7 +723,7 @@ class PurchaseReceivalCancellationService
                 if ($averageCost !== null) {
                     $prodUpdates['average_purchase_price'] = $averageCost;
                 }
-                $prodUpdates['last_purchase_price'] = $lastPrice;
+                $prodUpdates['last_purchase_price'] = $legacyLastPrice;
                 $prod->update($prodUpdates);
             }
         }

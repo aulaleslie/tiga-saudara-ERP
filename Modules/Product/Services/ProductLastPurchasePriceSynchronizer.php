@@ -2,44 +2,30 @@
 
 namespace Modules\Product\Services;
 
+use Modules\Product\Entities\Product;
 use Modules\Product\Entities\ProductPrice;
-use Modules\Setting\Entities\Setting;
 
 class ProductLastPurchasePriceSynchronizer
 {
-    /**
-     * Synchronize last_purchase_price across all settings for a product.
-     */
-    public function syncLastPurchasePrice(int $productId, float|int|string $lastPurchasePrice): void
+    /** Synchronize the last purchase price only for the purchasing business. */
+    public function syncLastPurchasePrice(int $productId, int $settingId, float|int|string $lastPurchasePrice): void
     {
-        $product = \Modules\Product\Entities\Product::find($productId);
+        $product = Product::find($productId);
         if (! $product) {
             return;
         }
 
-        $settingIds = Setting::pluck('id');
-        $existingPrices = ProductPrice::where('product_id', $productId)->get()->keyBy('setting_id');
-        $operationUuid = (string) \Illuminate\Support\Str::uuid();
+        $previous = ProductPrice::where('product_id', $productId)
+            ->where('setting_id', $settingId)
+            ->first();
+        $before = (float) ($previous?->last_purchase_price ?? 0);
+        $after = (float) $lastPurchasePrice;
 
-        ProductPrice::seedForSettings(
-            $productId,
-            ['last_purchase_price' => $lastPurchasePrice],
-            $settingIds
-        );
-
-        $snapshots = [];
-        $newPriceVal = (float) $lastPurchasePrice;
-
-        foreach ($settingIds as $sId) {
-            $prev = $existingPrices->get($sId);
-            $beforeVal = $prev ? (float) $prev->last_purchase_price : 0.0;
-
-            $snapshots[] = [
-                'setting_id' => $sId,
-                'before' => ['last_purchase_price' => $beforeVal],
-                'after' => ['last_purchase_price' => $newPriceVal],
-            ];
-        }
+        ProductPrice::upsertFor([
+            'product_id' => $productId,
+            'setting_id' => $settingId,
+            'last_purchase_price' => $lastPurchasePrice,
+        ]);
 
         app(ProductPriceFeedRecorder::class)->record(
             \Modules\Product\Entities\ProductPriceFeedEvent::TYPE_PRODUCT_PRICE_UPDATED,
@@ -47,10 +33,14 @@ class ProductLastPurchasePriceSynchronizer
             $product->id,
             $product->product_name,
             $product->product_code,
-            $snapshots,
+            [[
+                'setting_id' => $settingId,
+                'before' => ['last_purchase_price' => $before],
+                'after' => ['last_purchase_price' => $after],
+            ]],
             \Modules\Product\Entities\ProductPriceFeedEvent::SOURCE_PURCHASE_SYNC,
             null,
-            $operationUuid
+            (string) \Illuminate\Support\Str::uuid()
         );
     }
 }
